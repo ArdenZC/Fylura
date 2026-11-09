@@ -447,7 +447,7 @@ describe("File Library manual management workflow", () => {
     await act(async () => useFileManagementStore.getState().requestAction("copy_other"));
     expect(api.captureTransfer).toHaveBeenCalledWith({selection:source.selection});
     await settle();
-    expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
+    expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",destinationBrowse:{sessionId:"right-session",pathRef:{id:"right-root"}},skip:[],keepBoth:[]});
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(document.querySelector('[aria-modal="true"]')).toBeNull();
     expect(beforeMutation).toHaveBeenCalledOnce();

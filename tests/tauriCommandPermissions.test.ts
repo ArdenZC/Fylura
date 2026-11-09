@@ -197,6 +197,7 @@ const explicitContracts: CommandContract[] = [
     "require_main_window",
     "src-tauri/src/file_workspace/integration/commands.rs",
     [
+      "file_workspace_system_clipboard",
       "file_workspace_transfer_capture",
       "file_workspace_transfer_preview",
       "file_workspace_transfer_execute",
@@ -666,6 +667,7 @@ describe("Tauri command permission contract", () => {
 
   it("keeps all File Workspace commands async and isolates blocking work", () => {
     const commands = [
+      "file_workspace_system_clipboard",
       "file_workspace_transfer_capture",
       "file_workspace_transfer_preview",
       "file_workspace_transfer_execute",
@@ -711,7 +713,7 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_dispose",
     ]);
 
-    expect(commands).toHaveLength(32);
+    expect(commands).toHaveLength(33);
     for (const command of commands) {
       const parsed = functionBody(fileWorkspaceCommandsSource, command);
       expect(parsed, `${command} function body`).not.toBeNull();

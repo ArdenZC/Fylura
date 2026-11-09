@@ -43,14 +43,31 @@ export function managementFixturePage(sessionId: string, directory: string, enum
     createdAt: file.created, modifiedAt: file.modified ?? 1, materialization: "unknown"
   }));
 }
-export function isManagementCommand(command: string) { return ["file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_places"].includes(command); }
-export function managementMock(command: string, request: any, resolve: (ref: EntryRef) => { name: string; path: string; isDirectory: boolean }, resolveLocation: (sessionId: string) => string) {
+let systemClipboard: { tickets: TransferTicket[]; moveFiles: boolean } | null = null;
+export function isManagementCommand(command: string) { return ["file_workspace_system_clipboard", "file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_places"].includes(command); }
+export function managementMock(command: string, request: any, resolve: (ref: EntryRef) => { name: string; path: string; isDirectory: boolean }, resolveLocation: (sessionId: string, pathRef?: { id: string }) => string) {
+  if (command === "file_workspace_system_clipboard") {
+    if (request.kind === "write") {
+      const exported = request.ticketIds.map((id: string) => tickets.get(id));
+      if (!exported.length || exported.some((ticket: TransferTicket | undefined) => !ticket)) throw Error("transfer_ticket_expired");
+      systemClipboard = { tickets: exported, moveFiles: !!request.moveFiles };
+      return { tickets: [], action: request.moveFiles ? "move" : "copy", owned: false };
+    }
+    if (request.kind !== "read") throw Error("workspace_clipboard_invalid_request");
+    return { tickets: systemClipboard?.tickets ?? [], action: systemClipboard?.moveFiles ? "move" : "copy", owned: !!systemClipboard && systemClipboard.tickets.every((ticket) => request.ticketIds?.includes(ticket.id)) };
+  }
   if (command.endsWith("_capture")) {
     for (const id of request.releaseIds ?? []) tickets.delete(id);
     const refs: EntryRef[] = request.selection?.kind === "explicit" ? request.selection.fileIds.map((fileId: string) => ({ kind: "managed", fileId })) : request.refs ?? [];
     return refs.map((ref) => { const entry = resolve(ref); const old = [...tickets.values()].find((ticket) => ticket.path === entry.path); if (old) return old; const ticket = { id: `ticket-${++serial}`, ...entry }; tickets.set(ticket.id, ticket); return ticket; });
   }
   if (command.endsWith("_preview")) {
+    if (request.destinationBrowse) {
+      if (request.destinationEntry) throw Error("transfer_destination_invalid");
+      const bound = resolveLocation(request.destinationBrowse.sessionId, request.destinationBrowse.pathRef);
+      const normalized = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
+      if (normalized(bound) !== normalized(request.destinationDirectory)) throw Error("transfer_destination_changed");
+    }
     if (request.destinationEntry) {
       const directory = resolve(request.destinationEntry);
       if (!directory.isDirectory) throw Error("transfer_destination_not_directory");

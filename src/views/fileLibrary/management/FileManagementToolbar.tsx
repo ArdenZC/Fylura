@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { readSystemClipboardForPaste, writeSystemClipboardForCopy } from "./systemClipboardTransfer";
 import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Brush, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Sparkles, Star, X, FolderOpen, MoreHorizontal, Package, File, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2 } from "lucide-react";
@@ -169,7 +171,7 @@ export function FileManagementToolbar() {
   const describeError = useCallback((value: unknown) => {
     const detail = readableError(value);
     if (detail.startsWith("symlink_or_reparse_point") || detail.startsWith("reparse_point") || detail.startsWith("symlink")) return localizedStableError(detail, t);
-    const key = detail.includes("windows_special_metadata_unsupported") ? "fmWindowsSpecialMetadataUnsupported" : detail.includes("directory_tree_limit_exceeded") || detail.includes("transfer_directory_depth_limit") || detail.includes("transfer_directory_entry_limit") ? "fmDirectoryTreeLimit" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
+    const key = detail.includes("workspace_clipboard_external_limit") ? "fmSystemClipboardLimit" : detail.includes("workspace_clipboard") ? "fmSystemClipboardUnavailable" : detail.includes("windows_special_metadata_unsupported") ? "fmWindowsSpecialMetadataUnsupported" : detail.includes("directory_tree_limit_exceeded") || detail.includes("transfer_directory_depth_limit") || detail.includes("transfer_directory_entry_limit") ? "fmDirectoryTreeLimit" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
     return `${t(key)} ${detail}`;
   }, [t]);
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -200,6 +202,14 @@ export function FileManagementToolbar() {
     await releaseTransferTickets(ids);
   }
   function collect(action: "copy" | "cut" | "basket") {
+    if (isTauri() && action !== "basket") {
+      void run(async () => {
+        if (useFileManagementStore.getState().transferActive) throw Error("transfer_busy");
+        await writeSystemClipboardForCopy(capturedSelection(), action === "cut");
+        setNotice(t("fmClipboardReady"));
+      });
+      return;
+    }
     void run(async () => {
       if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
       const tickets = await capturedSelection(); if (!tickets.length) return;
@@ -263,6 +273,7 @@ export function FileManagementToolbar() {
         action: intent.action,
         destinationDirectory: intent.destinationDirectory,
         destinationEntry: intent.destinationEntry,
+        destinationBrowse: intent.destinationBrowse,
         newName: intent.newName,
         skip: nextSkip,
         keepBoth: nextKeepBoth,
@@ -412,6 +423,7 @@ export function FileManagementToolbar() {
     }
     const intent: TransferIntent = {
       id: crypto.randomUUID(), tickets, action, origin, destinationDirectory, destinationEntry,
+      destinationBrowse: !destinationEntry && destinationPaneId && destinationSurface?.browse ? { sessionId: destinationSurface.browse.sessionId, pathRef: destinationSurface.browse.pathRef } : undefined,
       newName: options.newName?.trim(),
       destinationPaneId,
       destinationContextKey: options.destinationContextKey ?? transferDestinationContextKey(destinationSurface, destinationEntry) ?? undefined,
@@ -551,15 +563,23 @@ export function FileManagementToolbar() {
       newName: trimmedName,
     });
   }
-  function paste() {
+  function paste(forceMove = false) {
+    if (isTauri() && pane) {
+      void run(async () => {
+        const captured = await readSystemClipboardForPaste(pane.id);
+        if (!captured.tickets.length) { setNotice(t("fmSystemClipboardEmpty")); return; }
+        begin(captured.tickets, forceMove ? "move" : captured.action, captured.owned ? "clipboard" : "external");
+      });
+      return;
+    }
     const clipboard = useFileManagementStore.getState().clipboard;
-    if (clipboard) begin(clipboard.tickets, clipboard.action, "clipboard");
+    if (clipboard) begin(clipboard.tickets, forceMove ? "move" : clipboard.action, "clipboard");
   }
   const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection });
   actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection };
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
-      if (!focused || pane && useFileManagementStore.getState().activePaneId !== pane.id || event.defaultPrevented || event.isComposing || event.altKey || isFileLibraryShortcutExcludedTarget(event.target) || busyRef.current || useFileManagementStore.getState().transferActive) return;
+      if (!focused || pane && useFileManagementStore.getState().activePaneId !== pane.id || event.defaultPrevented || event.isComposing || (event.altKey && !(event.metaKey && event.key.toLowerCase() === "v")) || isFileLibraryShortcutExcludedTarget(event.target) || busyRef.current || useFileManagementStore.getState().transferActive) return;
       const key = event.key.toLowerCase();
       if (!event.ctrlKey && !event.metaKey && key === "f2") { event.preventDefault(); actionsRef.current.renameSelection(); return; }
       if ((!event.ctrlKey && !event.metaKey && key === "delete") || (event.metaKey && !event.ctrlKey && key === "backspace")) { event.preventDefault(); actionsRef.current.trashSelection(); return; }
@@ -568,8 +588,8 @@ export function FileManagementToolbar() {
       const destination = currentSurface();
       if (key !== "v" && (!destination || destination.count === 0)) return;
       if (key === "v" && !destination) return;
-      if (key === "v" && !useFileManagementStore.getState().clipboard?.tickets.length) return;
-      event.preventDefault(); if (key === "v") actionsRef.current.paste(); else actionsRef.current.collect(key === "x" ? "cut" : "copy");
+      if (key === "v" && !isTauri() && !useFileManagementStore.getState().clipboard?.tickets.length) return;
+      event.preventDefault(); if (key === "v") actionsRef.current.paste(event.metaKey && event.altKey); else actionsRef.current.collect(key === "x" ? "cut" : "copy");
     };
     window.addEventListener("keydown", handle); return () => window.removeEventListener("keydown", handle);
   }, [focused, pane?.id]);
@@ -621,7 +641,7 @@ export function FileManagementToolbar() {
   const pageControls = (count: number, page: number, change: (page: number) => void) => <PageControls count={count} page={page} change={change} previous={t("fmPrevious")} next={t("fmNext")}/>;
   const selected = surface?.count === null ? t("fmAllResults") : String(surface?.count ?? 0);
   const disabled = busy || state.transferActive || !surface || surface.count === 0;
-  const pasteDisabled = busy || state.transferActive || !surface || !state.clipboard?.tickets.length;
+  const pasteDisabled = busy || state.transferActive || !surface || (!isTauri() && !state.clipboard?.tickets.length);
   const conflictRows = plan?.rows.filter((row) => conflictTicketIds.includes(row.ticketId)) ?? [];
   const nameConflict = transfer?.action === "rename" || transfer?.action === "create_directory";
   const conflictsResolved = conflictTicketIds.length > 0 && conflictTicketIds.every((id) => skip.includes(id) || keepBoth.includes(id));
@@ -714,7 +734,7 @@ export function FileManagementToolbar() {
       <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} aria-label={t("fmNewFolder")} data-fm-primary-action onClick={createDirectory}><FolderPlus size={14}/><span className="fm-action-label">{t("fmNewFolder")}</span></button>
       <button className={buttonGhost} disabled={disabled} aria-label={t("fmCopy")} title={t("fmCopy")} data-fm-primary-action onClick={() => collect("copy")}><Copy size={14}/><span className="fm-action-label">{t("fmCopy")}</span></button>
       <button className={buttonGhost} disabled={disabled} aria-label={t("fmCut")} title={t("fmCut")} data-fm-primary-action onClick={() => collect("cut")}><Scissors size={14}/><span className="fm-action-label">{t("fmCut")}</span></button>
-      <button className={buttonGhost} disabled={pasteDisabled} aria-label={`${t("fmPaste")}${state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}`} title={t("fmPaste")} data-fm-primary-action onClick={paste}><ClipboardPaste size={14}/><span className="fm-action-label">{t("fmPaste")}</span>{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
+      <button className={buttonGhost} disabled={pasteDisabled} aria-label={`${t("fmPaste")}${state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}`} title={t("fmPaste")} data-fm-primary-action onClick={() => paste()}><ClipboardPaste size={14}/><span className="fm-action-label">{t("fmPaste")}</span>{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
       <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "tasks"} onClick={(event) => panel === "tasks" ? closePanel() : openPanel("tasks", event.currentTarget)}><Activity size={14}/><span>{t("fmTasks")}{taskAttentionCount ? ` · ${taskAttentionCount}` : ""}</span></button>
       <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <span className="fm-count">{state.basket.length}</span>}</button>
       {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}

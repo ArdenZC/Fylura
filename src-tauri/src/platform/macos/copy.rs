@@ -83,7 +83,7 @@ pub fn set_directory_tree_clone_enabled_for_qa(enabled: bool) {
 fn directory_tree_clone_enabled() -> bool {
     #[cfg(feature = "native-qa")]
     {
-        return DIRECTORY_TREE_CLONE_ENABLED_FOR_QA.with(std::cell::Cell::get);
+        DIRECTORY_TREE_CLONE_ENABLED_FOR_QA.with(std::cell::Cell::get)
     }
     #[cfg(not(feature = "native-qa"))]
     {
@@ -1709,6 +1709,7 @@ fn copy_tree_from_fd(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Keep source, destination binding, policy, cancellation, and progress explicit.
 fn copy_tree_regular_file(
     source: &File,
     source_size: u64,

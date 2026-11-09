@@ -24,7 +24,7 @@ use tauri::{command, AppHandle, Emitter, Manager, Runtime, State, WebviewWindow}
 
 #[cfg(feature = "native-qa")]
 thread_local! {
-    static NATIVE_QA_COPY_PHASE_TIMINGS: RefCell<BTreeMap<&'static str, u128>> = RefCell::new(BTreeMap::new());
+    static NATIVE_QA_COPY_PHASE_TIMINGS: RefCell<BTreeMap<&'static str, u128>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 #[inline(always)]

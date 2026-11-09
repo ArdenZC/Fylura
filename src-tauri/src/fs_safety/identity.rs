@@ -527,12 +527,19 @@ fn hash_directory_at(
         let entry = entry?;
         let name = entry.file_name();
         let raw_name = raw_os_name_bytes(&name)?;
-        let retained_name_bytes = raw_name.len().checked_mul(2).ok_or(
-            IdentityError::ContentReadRejected("directory_entry_memory_budget_exceeded"),
-        )?;
-        let reserved = name_budget.reserve(retained_name_bytes).ok_or(
-            IdentityError::ContentReadRejected("directory_entry_memory_budget_exceeded"),
-        )?;
+        let retained_name_bytes =
+            raw_name
+                .len()
+                .checked_mul(2)
+                .ok_or(IdentityError::ContentReadRejected(
+                    "directory_entry_memory_budget_exceeded",
+                ))?;
+        let reserved =
+            name_budget
+                .reserve(retained_name_bytes)
+                .ok_or(IdentityError::ContentReadRejected(
+                    "directory_entry_memory_budget_exceeded",
+                ))?;
         if entries_with_names.try_reserve(1).is_err() {
             name_budget.release(reserved);
             return Err(IdentityError::ContentReadRejected(

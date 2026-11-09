@@ -585,11 +585,9 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     let streaming_resources = NativeProcessMonitor::start();
     let streaming_start = Instant::now();
     let streaming_preview_start = Instant::now();
-    let streaming_preview = native_qa_transfer_copy_preview(
-        &directory_source,
-        &streaming_destination,
-    )
-    .expect("large directory streaming Copy preview");
+    let streaming_preview =
+        native_qa_transfer_copy_preview(&directory_source, &streaming_destination)
+            .expect("large directory streaming Copy preview");
     let streaming_preview_elapsed = streaming_preview_start.elapsed();
     fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
     fylura_tauri::platform::macos::copy::reset_copy_io_metrics();
@@ -610,9 +608,8 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     let clone_resources = NativeProcessMonitor::start();
     let clone_start = Instant::now();
     let clone_preview_start = Instant::now();
-    let clone_preview =
-        native_qa_transfer_copy_preview(&directory_source, &clone_destination)
-            .expect("large directory APFS Clone preview");
+    let clone_preview = native_qa_transfer_copy_preview(&directory_source, &clone_destination)
+        .expect("large directory APFS Clone preview");
     let clone_preview_elapsed = clone_preview_start.elapsed();
     fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
     fylura_tauri::platform::macos::copy::reset_copy_io_metrics();
@@ -637,7 +634,9 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         .expect("large directory source identity");
     for target in [&streaming_target, &clone_target] {
         assert_eq!(
-            fs::read_dir(target).expect("copied large directory").count(),
+            fs::read_dir(target)
+                .expect("copied large directory")
+                .count(),
             100_000
         );
         let target_identity = fylura_tauri::fs_safety::capture_identity(target, None)

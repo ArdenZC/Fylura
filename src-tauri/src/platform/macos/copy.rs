@@ -638,7 +638,9 @@ pub(crate) fn copy_commit_source_stable(
     let source_identity =
         crate::file_ops::measure_native_qa_copy_phase("source_content_identity", || {
             if matches!(kind, ClaimedEntryKind::Directory) {
-                if let Some(expected) = expected_identity.filter(|identity| identity.full_hash.is_some()) {
+                if let Some(expected) =
+                    expected_identity.filter(|identity| identity.full_hash.is_some())
+                {
                     // The journaled Copy path already captured this manifest.
                     // Namespace identity above binds it to the retained handle.
                     Ok(expected.clone())
@@ -795,21 +797,18 @@ pub(crate) fn copy_commit_source_stable(
         if matches!(kind, ClaimedEntryKind::Directory) {
             directory_progress.reset("verify_staging", None, None, &mut observer)?;
         }
-        crate::file_ops::measure_native_qa_copy_phase(
-            "staging_content_verification",
-            || {
-                verify_staged_copy(
-                    &copy_proof,
-                    kind,
-                    &target_parent.path().join(&staging_name),
-                    target_parent.raw_fd(),
-                    &staging_name,
-                    &source_identity,
-                    expected_identity,
-                    cancel,
-                )
-            },
-        )?;
+        crate::file_ops::measure_native_qa_copy_phase("staging_content_verification", || {
+            verify_staged_copy(
+                &copy_proof,
+                kind,
+                &target_parent.path().join(&staging_name),
+                target_parent.raw_fd(),
+                &staging_name,
+                &source_identity,
+                expected_identity,
+                cancel,
+            )
+        })?;
         if matches!(kind, ClaimedEntryKind::Directory) {
             directory_progress.finish(&mut observer)?;
         }
@@ -839,16 +838,24 @@ pub(crate) fn copy_commit_source_stable(
         let source_after =
             crate::file_ops::measure_native_qa_copy_phase("source_content_verify", || {
                 match (kind, source_handle.as_ref(), verification_policy) {
-                    (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::PhysicalClone)
-                    | (ClaimedEntryKind::File, Some(handle), CopyVerificationPolicy::StreamingHash) => {
-                        crate::fs_safety::identity::capture_namespace_identity_from_handle(
-                            handle, source, cancel,
-                        )
-                        .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))
-                    }
+                    (
+                        ClaimedEntryKind::File,
+                        Some(handle),
+                        CopyVerificationPolicy::PhysicalClone,
+                    )
+                    | (
+                        ClaimedEntryKind::File,
+                        Some(handle),
+                        CopyVerificationPolicy::StreamingHash,
+                    ) => crate::fs_safety::identity::capture_namespace_identity_from_handle(
+                        handle, source, cancel,
+                    )
+                    .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string()))),
                     (_, Some(handle), _) => {
                         crate::fs_safety::capture_identity_from_handle(handle, source, cancel)
-                            .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string())))
+                            .map_err(|error| {
+                                AtomicMoveError::Io(io::Error::other(error.to_string()))
+                            })
                     }
                     (_, None, _) => capture_namespace_identity(source, cancel)
                         .map_err(|error| AtomicMoveError::Io(io::Error::other(error.to_string()))),
@@ -2490,8 +2497,7 @@ fn publish_directory_exclusive(
             use std::os::unix::fs::MetadataExt;
             source.metadata().map_err(AtomicMoveError::Io)?.dev()
         };
-        let mut state =
-            DirectoryCopyState::new(source_root_device, destination.as_raw_fd(), false);
+        let mut state = DirectoryCopyState::new(source_root_device, destination.as_raw_fd(), false);
         let mut no_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>> = None;
         let mut copy_progress = DirectoryCopyProgress {
             progress: None,

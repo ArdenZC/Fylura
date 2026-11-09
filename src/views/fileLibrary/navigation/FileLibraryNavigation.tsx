@@ -75,6 +75,7 @@ export function FileLibraryNavigation({
   t: Translator;
   onClose: () => void;
 }) {
+  const pane = usePane();
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationsFailed, setLocationsFailed] = useState(false);
   const [treeNavigationError, setTreeNavigationError] = useState<unknown | null>(null);
@@ -94,7 +95,7 @@ export function FileLibraryNavigation({
   );
 
   useEffect(() => {
-    if (locations.length > 0 || locationLoadStartedRef.current) return;
+    if (state.workspace.suspended || pane?.visible === false || locations.length > 0 || locationLoadStartedRef.current) return;
     let cancelled = false;
     locationLoadStartedRef.current = true;
     setLocationsLoading(true);
@@ -111,10 +112,9 @@ export function FileLibraryNavigation({
         if (!cancelled) setLocationsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [controller.workspace, locations.length]);
+  }, [controller.workspace, locations.length, pane?.visible, state.workspace.suspended]);
 
   const query = usePaneQuerySelector();
-  const pane = usePane();
   const currentTarget = state.workspace.session.currentTarget;
   const currentTargetKey = workbenchTargetKey(currentTarget);
   const browseTarget = currentTarget?.kind === "browse" ? currentTarget : null;

@@ -18,7 +18,7 @@ const server = await createServer({ server: { host: "127.0.0.1", port: 0, strict
 await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 if (!baseUrl) throw new Error("U3 browser gate: Vite did not expose a local URL.");
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
 const errors = [];
 const checks = [];
 let page;
@@ -156,6 +156,11 @@ try {
   await compare.getByRole("button", { name: /Visible only on left/u }).click();
   const batchDetails = compare.locator(".u3-batch-details").first();
   if (!(await batchDetails.evaluate((details) => details.open))) await batchDetails.locator("summary").first().click();
+  // Pane/tab visibility now retains the earlier Subfolder selection. Make
+  // this deliberate one-folder Move exclusive instead of relying on hiding
+  // a pane to clear the user's selection.
+  await left.locator('[data-file-entry-name="MoveFolder"]').click();
+  await openComparison();
   await compare.getByRole("checkbox", { name: "Left pane: MoveFolder", exact: true }).check();
   await actions.first().getByRole("button", { name: "Move to other pane", exact: true }).click();
   await right.getByRole("button", { name: "Operation results · 1/1", exact: true }).waitFor();

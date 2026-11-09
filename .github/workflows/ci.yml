@@ -449,6 +449,18 @@ jobs:
           path: .tmp-tests/u4-browser
           if-no-files-found: ignore
           retention-days: 2
+      - name: Files multi-pane browser gate
+        env:
+          FILES_MULTIPANE_OUTPUT_DIR: ${{ runner.temp }}/files-multipane
+        run: npm run test:browser:files-multipane
+      - name: Upload Files multi-pane failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: files-multipane-browser-failure-${{ matrix.validation_lane }}
+          path: ${{ runner.temp }}/files-multipane
+          if-no-files-found: ignore
+          retention-days: 2
       - name: W2-01 real browser regression gate
         env:
           W201_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}

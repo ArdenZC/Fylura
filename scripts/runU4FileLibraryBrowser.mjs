@@ -17,7 +17,7 @@ const server = await createServer({ server: { host: "127.0.0.1", port: 0, strict
 await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 if (!baseUrl) throw new Error("U4 browser gate: Vite did not expose a local URL.");
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
 const checks = [], errors = [];
 let page;
 try {

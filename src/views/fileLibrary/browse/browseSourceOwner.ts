@@ -255,14 +255,14 @@ export function useBrowseSourceOwner({
   }, [controller.workspace]);
 
   useEffect(() => {
-    if (state.mode !== "browse") return;
+    if (state.mode !== "browse" || !visible || state.workspace.suspended) return;
     if (locations.length > 0) {
       setLocationState("ready");
       setLocationError(false);
       return;
     }
     if (locationState === "idle" && !locationLoadStartedRef.current) void loadLocations();
-  }, [loadLocations, locationState, locations.length, state.mode]);
+  }, [loadLocations, locationState, locations.length, state.mode, state.workspace.suspended, visible]);
 
   const openLocationPicker = useCallback(() => {
     setShowLocationPicker(true);

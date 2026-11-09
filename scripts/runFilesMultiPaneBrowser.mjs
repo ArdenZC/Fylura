@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 const output = process.env.FILES_MULTIPANE_OUTPUT_DIR ?? path.join(tmpdir(), 'fylura-multipane');
 await mkdir(output, { recursive: true });
-const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
+const server = await createServer({ server: { host: '127.0.0.1', port: 0, strictPort: false } });
 await server.listen();
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
 const page = await browser.newPage({ viewport: { width: 1800, height: 1100 } });

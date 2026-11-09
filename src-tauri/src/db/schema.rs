@@ -4074,7 +4074,7 @@ mod issue381_b4_p0_tests {
         entered: std::sync::mpsc::Receiver<()>,
         resume: std::sync::mpsc::SyncSender<()>,
     }
-    fn issue441_opener(conn: Connection, observed_version: i32) -> Issue441Opener {
+    fn issue441_opener(mut conn: Connection, observed_version: i32) -> Issue441Opener {
         let (entered_tx, entered) = std::sync::mpsc::sync_channel(1);
         let (resume, resume_rx) = std::sync::mpsc::sync_channel(1);
         let thread = std::thread::spawn(move || {

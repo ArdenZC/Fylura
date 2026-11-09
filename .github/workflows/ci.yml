@@ -529,7 +529,7 @@ jobs:
         validation_lane: ${{ fromJSON(needs.validation-plan.outputs.validation_lanes) }}
     runs-on: windows-latest
     # The ordinary-user 1 GiB and 100k directory smoke shares this job with resident lifecycle QA.
-    timeout-minutes: 75
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

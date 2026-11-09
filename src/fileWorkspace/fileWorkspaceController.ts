@@ -173,6 +173,10 @@ export class FileWorkspaceController {
     const token = this.session.beginRequest();
     if (searchAdmission && this.suspensionPromise) await this.suspensionPromise;
     if ((searchAdmission && !(await accept())) || !this.session.canPublish(token)) return null;
+    if (this.inactiveReadmittableBrowseSessions().length) {
+      await this.releaseReadmittableHistorySessions();
+      if (!this.session.canPublish(token)) return null;
+    }
     const response = await this.api.browseOpen(request);
     let accepted: boolean;
     try {
@@ -198,6 +202,10 @@ export class FileWorkspaceController {
     if (this.suspendedValue || this.session.disposed || locator.kind !== "browse") return null;
     const token = this.session.beginRequest();
     const request: BrowseRestoreRequest = { locator };
+    if (this.inactiveReadmittableBrowseSessions().length) {
+      await this.releaseReadmittableHistorySessions();
+      if (!this.session.canPublish(token)) return null;
+    }
     const response = await this.api.browseRestore(request);
     if (!this.session.canPublish(token)) {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));
@@ -386,13 +394,16 @@ export class FileWorkspaceController {
     }
   }
 
-  /** Release only inactive history that can be freshly admitted by the existing restore seam. */
-  async releaseReadmittableHistorySessions() {
+  private inactiveReadmittableBrowseSessions() {
     const target = this.currentBrowseTarget();
     const currentId = target?.location.kind === "ephemeral" ? target.location.browseSessionId : null;
-    for (const owner of [...this.ownedBrowseSessions.values()]) {
-      if (owner.response.sessionId !== currentId && this.session.canReadmitBrowseSession(owner.response.sessionId)) this.disposeOwnedBrowseSession(owner);
-    }
+    return [...this.ownedBrowseSessions.values()].filter((owner) =>
+      owner.response.sessionId !== currentId && this.session.canReadmitBrowseSession(owner.response.sessionId));
+  }
+
+  /** Release only inactive history that can be freshly admitted by the existing restore seam. */
+  async releaseReadmittableHistorySessions() {
+    for (const owner of this.inactiveReadmittableBrowseSessions()) this.disposeOwnedBrowseSession(owner);
     await Promise.allSettled([...this.pendingCleanup]);
   }
 
@@ -724,6 +735,10 @@ export class FileWorkspaceController {
     const locator = this.session.serializeRestoreLocator();
     if (target?.kind !== "browse" || locator?.kind !== "browse") return null;
     const token = this.session.beginRequest();
+    if (this.inactiveReadmittableBrowseSessions().length) {
+      await this.releaseReadmittableHistorySessions();
+      if (!this.session.canPublish(token)) return null;
+    }
     const response = await this.api.browseRestore({ locator });
     if (!this.session.canPublish(token)) {
       this.trackCleanup(this.cleanupCall(() => this.api.browseDispose({ sessionId: response.sessionId })));

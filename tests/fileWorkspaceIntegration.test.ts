@@ -570,7 +570,12 @@ describe("W1-10 File Workspace integration", () => {
 
     const third = await controller.openBrowse({ platform: "windows", routingHint: "C:/three" });
     expect(third?.sessionId).not.toBe(second?.sessionId);
-    expect(browseDispose).not.toHaveBeenCalled();
+    // Only the inactive root with a safe restore locator is evicted. Current
+    // and newly admitted roots stay live; chronology remains in WorkspaceSession.
+    expect(browseDispose).toHaveBeenCalledTimes(1);
+    expect(browseDispose).toHaveBeenCalledWith({ sessionId: first!.sessionId });
+    expect(browseDispose).not.toHaveBeenCalledWith({ sessionId: second!.sessionId });
+    expect(browseDispose).not.toHaveBeenCalledWith({ sessionId: third!.sessionId });
 
     thumbnail.resolve({ cacheKey: "late", bytes: new Uint8Array([1]) });
     await expect(pendingThumbnail).resolves.toBeNull();

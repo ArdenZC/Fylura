@@ -565,6 +565,7 @@ impl BrowseService {
         self.validate_request_id(&request_id)?;
         let page_size = self.limits.page_size(page_size)?;
         let query = query.normalized()?;
+        self.verify_session_root(session_id)?;
 
         #[cfg(all(test, feature = "performance-test-tauri"))]
         stage_trace::mark(1);
@@ -629,6 +630,7 @@ impl BrowseService {
             return Err(BrowseError::InvalidCursor);
         }
         let page_size = self.limits.page_size(page_size)?;
+        self.verify_session_root(session_id)?;
         let enumeration = {
             let sessions = self
                 .sessions
@@ -2188,6 +2190,14 @@ mod tests {
         fs::rename(&fixture.root, &original).unwrap();
         fs::create_dir(&fixture.root).unwrap();
         assert!(service.verify_session_root(&session.session_id).is_err());
+        assert!(service
+            .start_enumeration(
+                &session.session_id,
+                "after-rebind",
+                &session.root_path_ref,
+                32
+            )
+            .is_err());
         assert!(service.resolve_entry(&page.entries[0].entry_ref).is_err());
         assert!(service
             .resolve_watch_target(&session.session_id, &session.root_path_ref)

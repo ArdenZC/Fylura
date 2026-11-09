@@ -1,6 +1,7 @@
 export type CiScope = {
   docs_only: boolean;
   windows_native_preview_handler_changed: boolean;
+  windows_native_filesystem_smoke_changed: boolean;
   windows_global_index_service_qualification_changed: boolean;
   frontend_changed: boolean;
   rust_changed: boolean;

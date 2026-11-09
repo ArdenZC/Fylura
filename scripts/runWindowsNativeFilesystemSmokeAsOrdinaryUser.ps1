@@ -152,6 +152,28 @@ try {
     if (-not $smokeManifest.cross_volume_exercised -or $smokeManifest.token_is_administrator -or $smokeManifest.token_security_privilege_enabled) {
         throw "native smoke manifest does not prove distinct volumes and a non-admin token without enabled SeSecurityPrivilege"
     }
+    $smokeLogPath = Join-Path $evidenceRoot "native-file-hardening-smoke.log"
+    if (-not (Test-Path -LiteralPath $smokeLogPath)) {
+        throw "native filesystem smoke did not preserve its test log"
+    }
+    $smokeLog = Get-Content -LiteralPath $smokeLogPath -Raw
+    $copyProfileMarkers = @(
+        "Windows native performance fileCopy1GiB",
+        "Windows native performance directory100k entries=100000"
+    )
+    if ($CopyPerformanceProfile) {
+        foreach ($marker in $copyProfileMarkers) {
+            if (-not $smokeLog.Contains($marker)) {
+                throw "copy performance qualification did not execute required profile marker: $marker"
+            }
+        }
+    } else {
+        foreach ($marker in $copyProfileMarkers) {
+            if ($smokeLog.Contains($marker)) {
+                throw "ordinary native smoke unexpectedly ran the expensive copy performance profile"
+            }
+        }
+    }
     Write-Host "Ordinary-user native filesystem evidence: $smokeManifestPath"
 }
 finally {

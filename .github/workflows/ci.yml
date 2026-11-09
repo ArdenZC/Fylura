@@ -70,6 +70,7 @@ jobs:
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
       windows_native_preview_handler_changed: ${{ steps.classify.outputs.windows_native_preview_handler_changed }}
+      windows_native_filesystem_smoke_changed: ${{ steps.classify.outputs.windows_native_filesystem_smoke_changed }}
       windows_global_index_service_qualification_changed: ${{ steps.classify.outputs.windows_global_index_service_qualification_changed }}
       frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
       rust_changed: ${{ steps.classify.outputs.rust_changed }}
@@ -699,7 +700,7 @@ jobs:
   windows-native-filesystem-smoke:
     name: Windows native filesystem smoke (${{ matrix.validation_lane }})
     needs: [change-scope, validation-plan]
-    if: ${{ needs.change-scope.outputs.rust_changed == 'true' }}
+    if: ${{ needs.change-scope.outputs.rust_changed == 'true' || needs.change-scope.outputs.windows_native_filesystem_smoke_changed == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -2164,7 +2165,7 @@ jobs:
           FRONTEND_EXPECTED: ${{ needs.change-scope.outputs.frontend_changed }}
           RUST_EXPECTED: ${{ needs.change-scope.outputs.rust_changed }}
           WINDOWS_NATIVE_EXPECTED: ${{ needs.change-scope.outputs.windows_native_preview_handler_changed }}
-          NATIVE_FILESYSTEM_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.rust_changed }}
+          NATIVE_FILESYSTEM_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.rust_changed == 'true' || needs.change-scope.outputs.windows_native_filesystem_smoke_changed == 'true' }}
           GLOBAL_INDEX_SERVICE_EXPECTED: ${{ needs.change-scope.outputs.windows_global_index_service_qualification_changed }}
           BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
           PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}

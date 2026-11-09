@@ -494,9 +494,10 @@ fn hash_directory(
     let metadata = fs::symlink_metadata(path)?;
     let root_volume = platform_volume_id(path, &metadata);
     #[cfg(target_os = "macos")]
-    let mut entry_count = 0usize;
-    #[cfg(target_os = "macos")]
-    hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut entry_count)
+    {
+        let mut entry_count = 0usize;
+        hash_directory_at(path, cancel, 0, root_volume.as_deref(), &mut entry_count)
+    }
     #[cfg(not(target_os = "macos"))]
     {
         let mut name_budget = DirectoryEntryNameBudget::default();

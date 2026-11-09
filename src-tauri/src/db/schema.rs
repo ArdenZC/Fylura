@@ -3832,7 +3832,7 @@ mod issue381_b4_p0_tests {
         let sqlite_version: String = conn
             .query_row("SELECT sqlite_version()", [], |row| row.get(0))
             .expect("read product SQLite version");
-        assert_eq!(sqlite_version, "3.51.3");
+        assert_eq!(sqlite_version, "3.54.1");
         let busy_timeout: i64 = conn
             .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
             .expect("read product busy timeout");
@@ -4074,7 +4074,7 @@ mod issue381_b4_p0_tests {
         entered: std::sync::mpsc::Receiver<()>,
         resume: std::sync::mpsc::SyncSender<()>,
     }
-    fn issue441_opener(conn: Connection, observed_version: i32) -> Issue441Opener {
+    fn issue441_opener(mut conn: Connection, observed_version: i32) -> Issue441Opener {
         let (entered_tx, entered) = std::sync::mpsc::sync_channel(1);
         let (resume, resume_rx) = std::sync::mpsc::sync_channel(1);
         let thread = std::thread::spawn(move || {

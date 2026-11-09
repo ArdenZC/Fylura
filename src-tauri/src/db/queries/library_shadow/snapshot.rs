@@ -104,7 +104,6 @@ fn capture_tx(conn: &Connection, guard: &mut Guard) -> Result<Snapshot, DbError>
         let mut statement = conn.prepare(&sql)?;
         let columns = statement
             .column_names()
-            .iter()
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
         let mut table = Table {

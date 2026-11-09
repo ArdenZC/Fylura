@@ -928,7 +928,7 @@ fn measure_mutation_hook_write_cost(
         .pragma_update(None, "wal_autocheckpoint", 0)
         .expect("disable implicit checkpoint for paired write sampling");
     db.filename_search
-        .install_mutation_hooks(&candidate)
+        .install_mutation_hooks(&mut candidate)
         .expect("install same connection-local hooks used by candidate Database pool");
 
     let samples_count = FILENAME_CANDIDATE_WARMUPS + FILENAME_CANDIDATE_SAMPLES;

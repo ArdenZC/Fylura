@@ -36,6 +36,10 @@ try {
     await page.waitForFunction((field) => document.querySelector(`[data-browse-sort-column="${field}"]`)?.textContent.includes("↓"), field);
     assert.match(await header(field).getAttribute("aria-label"), /Descending/);
   }
+  await header("created").click();
+  await page.getByRole("button", { name: "New tab", exact: true }).click();
+  await page.getByRole("tab", { name: "Tab: Left", exact: true }).click();
+  assert.equal(await header("created").getAttribute("aria-pressed"), "true");
   await header("name").click();
   const row = pane.locator('[data-browse-entry][data-file-entry-kind="file"]').first();
   await row.waitFor();

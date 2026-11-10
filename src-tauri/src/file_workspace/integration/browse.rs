@@ -562,6 +562,26 @@ pub(super) fn map_browse_error(error: BrowseError) -> String {
     error.to_string()
 }
 
+fn validate_platform(platform: WorkspacePlatform) -> Result<(), String> {
+    let supported = if cfg!(target_os = "windows") {
+        platform == WorkspacePlatform::Windows
+    } else if cfg!(target_os = "macos") {
+        platform == WorkspacePlatform::Macos
+    } else {
+        false
+    };
+    supported
+        .then_some(())
+        .ok_or_else(|| "workspace_platform_not_supported".to_string())
+}
+
+fn validate_routing_hint(value: &str) -> Result<PathBuf, String> {
+    if !super::types::valid_bounded_text(value) {
+        return Err("browse_routing_hint_invalid".to_string());
+    }
+    Ok(PathBuf::from(value))
+}
+
 #[cfg(test)]
 mod storage_removal_preview_tests {
     use super::preview_source_belongs_to_storage_removal;
@@ -618,24 +638,4 @@ mod storage_removal_preview_tests {
             on_selected_device,
         ));
     }
-}
-
-fn validate_platform(platform: WorkspacePlatform) -> Result<(), String> {
-    let supported = if cfg!(target_os = "windows") {
-        platform == WorkspacePlatform::Windows
-    } else if cfg!(target_os = "macos") {
-        platform == WorkspacePlatform::Macos
-    } else {
-        false
-    };
-    supported
-        .then_some(())
-        .ok_or_else(|| "workspace_platform_not_supported".to_string())
-}
-
-fn validate_routing_hint(value: &str) -> Result<PathBuf, String> {
-    if !super::types::valid_bounded_text(value) {
-        return Err("browse_routing_hint_invalid".to_string());
-    }
-    Ok(PathBuf::from(value))
 }

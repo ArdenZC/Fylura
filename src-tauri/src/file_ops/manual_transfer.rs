@@ -383,6 +383,18 @@ impl FileWorkspaceRuntime {
         let mut operations = Vec::new();
         let mut rows = Vec::new();
         let mut reserved = HashSet::new();
+        // Windows streaming regular-file transfers need at least these known
+        // bytes. Directories/metadata and concurrent quota changes remain
+        // checked by actual writes. Do not apply logical-size rejection to
+        // macOS clone/sparse copies, which need not allocate that payload.
+        #[cfg(windows)]
+        let space = crate::file_workspace::integration::storage::inspect(&directory, false);
+        #[cfg(windows)]
+        let destination_volume = crate::fs_safety::capture_source_object_identity(&directory)
+            .ok()
+            .and_then(|identity| identity.platform_volume_id);
+        #[cfg(windows)]
+        let mut reserved_copy_bytes = 0u64;
         for (id, source) in sources {
             let skipped = request.skip.contains(&id);
             let source = match source {
@@ -530,6 +542,22 @@ impl FileWorkspaceRuntime {
                     .and_then(|guard| checked_trees.get(&guard.root))
                     .and_then(|result| result.as_ref().ok())
                     .map(String::as_str);
+                #[cfg(windows)]
+                let required_bytes = {
+                    let copies_payload = request.action == TransferAction::Copy
+                        || request.action == TransferAction::Move
+                            && source.identity.platform_volume_id != destination_volume;
+                    let bytes = if copies_payload && !source.ticket.is_directory {
+                        source.identity.size
+                    } else {
+                        0
+                    };
+                    let required = reserved_copy_bytes
+                        .checked_add(bytes)
+                        .ok_or("storage_insufficient_space")?;
+                    crate::file_workspace::integration::storage::check_capacity(&space, required)?;
+                    required
+                };
                 // The guard above has already enumerated this exact source
                 // tree. Reuse that verified fingerprint to bind the new
                 // operation ID instead of repeating the full walk.
@@ -542,6 +570,10 @@ impl FileWorkspaceRuntime {
                     validated_tree_fingerprint,
                 )?;
                 let preview = preview_dto(&operation);
+                #[cfg(windows)]
+                {
+                    reserved_copy_bytes = required_bytes;
+                }
                 if matches!(request.action, TransferAction::Copy | TransferAction::Move) {
                     reserved.insert(transfer_target_key(&target));
                 }
@@ -697,6 +729,7 @@ impl FileWorkspaceRuntime {
             .canonicalize()
             .map_err(|error| error.to_string())?;
         ensure_general_file_operation_allowed(&directory)?;
+        crate::file_workspace::integration::storage::check_destination(&directory, 0)?;
         Ok(directory)
     }
 }

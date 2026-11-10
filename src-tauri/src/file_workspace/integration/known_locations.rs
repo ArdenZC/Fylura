@@ -31,6 +31,7 @@ pub struct KnownLocation {
     pub display_name: String,
     pub path: String,
     pub available: bool,
+    pub volume: Option<super::storage::VolumeState>,
 }
 
 /// Bounded, deterministic ordering: home folders first, then volumes.
@@ -47,7 +48,7 @@ pub(crate) fn list_known_locations() -> Vec<KnownLocation> {
             path,
         );
     }
-    for path in mounted_volumes() {
+    for path in mounted_volumes().into_iter().take(28) {
         let label = volume_label(&path);
         push_unique(
             &mut locations,
@@ -75,11 +76,13 @@ fn push_unique(
         return;
     }
     seen.push(key);
+    let volume = (kind == KnownLocationKind::Volume).then(|| super::storage::inspect(&path, true));
     locations.push(KnownLocation {
         id: id.to_string(),
         kind,
         display_name,
         available: path.is_dir(),
+        volume,
         path: path.to_string_lossy().into_owned(),
     });
 }
@@ -99,6 +102,15 @@ fn user_folders() -> Vec<(&'static str, Option<(PathBuf, String)>)> {
     ]
 }
 
+/// Resolve only a currently mounted backend-owned root. Safe removal must not
+/// wait on metadata probes for unrelated offline network shares.
+pub(super) fn mounted_volume_path(id: &str) -> Option<PathBuf> {
+    mounted_volumes()
+        .into_iter()
+        .take(28)
+        .find(|path| format!("volume:{}", path.to_string_lossy()) == id)
+}
+
 fn named(path: Option<PathBuf>, label: &str) -> Option<(PathBuf, String)> {
     path.map(|path| (path, label.to_string()))
 }
@@ -107,9 +119,10 @@ fn named(path: Option<PathBuf>, label: &str) -> Option<(PathBuf, String)> {
 fn mounted_volumes() -> Vec<PathBuf> {
     // Logical drive letters are a cheap, non-recursive existence probe. No
     // directory contents are enumerated and no volume is scanned or indexed.
-    ('A'..='Z')
-        .map(|letter| PathBuf::from(format!("{letter}:\\")))
-        .filter(|path| path.is_dir())
+    let drives = unsafe { windows_sys::Win32::Storage::FileSystem::GetLogicalDrives() };
+    (0..26)
+        .filter(|index| drives & (1 << index) != 0)
+        .map(|index| PathBuf::from(format!("{}:\\", (b'A' + index) as char)))
         .collect()
 }
 
@@ -172,7 +185,15 @@ mod tests {
         // must not depend on database, scan or index state.
         let first = list_known_locations();
         let second = list_known_locations();
-        assert_eq!(first, second);
+        let entries = |locations: Vec<KnownLocation>| {
+            locations
+                .into_iter()
+                .map(|location| (location.id, location.kind, location.path))
+                .collect::<Vec<_>>()
+        };
+        // Capacity/availability are live observations and may change between
+        // calls as the OS writes data. The navigation identity/order is stable.
+        assert_eq!(entries(first), entries(second));
     }
 
     #[test]

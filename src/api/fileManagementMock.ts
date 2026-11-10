@@ -44,8 +44,9 @@ export function managementFixturePage(sessionId: string, directory: string, enum
   }));
 }
 let systemClipboard: { tickets: TransferTicket[]; moveFiles: boolean } | null = null;
-export function isManagementCommand(command: string) { return ["file_workspace_system_clipboard", "file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_places"].includes(command); }
+export function isManagementCommand(command: string) { return ["file_workspace_eject_volume", "file_workspace_system_clipboard", "file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_places"].includes(command); }
 export function managementMock(command: string, request: any, resolve: (ref: EntryRef) => { name: string; path: string; isDirectory: boolean }, resolveLocation: (sessionId: string, pathRef?: { id: string }) => string) {
+  if (command === "file_workspace_eject_volume") throw Error("storage_eject_unsupported");
   if (command === "file_workspace_system_clipboard") {
     if (request.kind === "write") {
       const exported = request.ticketIds.map((id: string) => tickets.get(id));

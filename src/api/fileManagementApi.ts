@@ -7,11 +7,15 @@ export interface TransferPreviewRow { ticketId: string; preview: OperationPrevie
 export interface TransferPreview { id: string; destinationDirectory: string; rows: TransferPreviewRow[] }
 export interface SavedPlace { id: string; name: string; routingHint: string; favorite: boolean; visitedAt: number; unavailable: boolean; current?: boolean }
 export type KnownLocationKind = "folder" | "volume";
-export interface KnownLocation { id: string; kind: KnownLocationKind; displayName: string; path: string; available: boolean }
+export interface VolumeState { identity: string | null; kind: "unknown" | "local" | "removable" | "network"; readOnly: boolean | null; availableBytes: number | null; totalBytes: number | null; canEject: boolean }
+export interface KnownLocation { id: string; kind: KnownLocationKind; displayName: string; path: string; available: boolean; volume?: VolumeState | null }
 export interface TransferBrowseDestination { sessionId: string; pathRef: BrowsePathRef }
 export type SystemClipboardRequest = { kind: "read"; ticketIds?: string[] } | { kind: "write"; ticketIds: string[]; moveFiles: boolean };
 export interface SystemClipboardTransfer { tickets: TransferTicket[]; action: "copy" | "move"; owned: boolean }
 export const fileManagementApi = {
+  ejectVolume(request: { locationId: string; identity: string }): Promise<void> {
+    return invokeCommand("file_workspace_eject_volume", { request });
+  },
   systemClipboard(request: SystemClipboardRequest): Promise<SystemClipboardTransfer> {
     return invokeCommand("file_workspace_system_clipboard", { request });
   },

@@ -100,6 +100,7 @@ libc = "0.2"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 winreg = "0.55.0"
 windows-sys = { version = "0.61.2", features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
     "Wdk_Foundation",
     "Wdk_Storage_FileSystem",
     "Win32_Foundation",

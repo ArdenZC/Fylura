@@ -53,14 +53,19 @@ pub(crate) fn inspect(path: &Path, removal: bool) -> VolumeState {
         .ok()
         .and_then(|identity| identity.physical_key);
     #[cfg(windows)]
-    let device_key = state.physical_device_identity.clone();
-    state.identity = physical_key.map(|physical_key| {
-        #[cfg(windows)]
-        if let Some(device_key) = device_key.as_deref() {
-            return format!("{physical_key}:pnp:{device_key}");
-        }
-        physical_key
-    });
+    {
+        let device_key = state.physical_device_identity.clone();
+        state.identity = match (physical_key, device_key.as_deref()) {
+            (Some(physical_key), Some(device_key)) => {
+                Some(format!("{physical_key}:pnp:{device_key}"))
+            }
+            (physical_key, _) => physical_key,
+        };
+    }
+    #[cfg(not(windows))]
+    {
+        state.identity = physical_key;
+    }
     state.can_eject &= state.identity.is_some();
     state.availability = match std::fs::symlink_metadata(path) {
         Ok(_) => "available",
@@ -190,12 +195,14 @@ impl super::FileWorkspaceRuntime {
         if root_identity(root).as_deref() != Some(expected_identity) {
             return Err("storage_device_changed".into());
         }
+        let browse_session_ids = ids.iter().cloned().collect();
+        self.dispose_previews_for_storage_removal(&browse_session_ids, |path| {
+            same_eject_device(&selected_device, path)
+        })
+        .map_err(|_| "storage_eject_busy")?;
         for id in ids {
             self.dispose_monitors_for_session(&id)
                 .map_err(|_| "storage_eject_busy")?;
-            if self.dispose_previews_for_session(&id).is_some() {
-                return Err("storage_eject_busy".into());
-            }
             self.inner
                 .browse
                 .invalidate(&id)
@@ -219,6 +226,19 @@ fn sessions_on_eject_device<T>(
 #[cfg(windows)]
 fn same_eject_device(selected: &str, candidate: &Path) -> bool {
     native::same_physical_device_identity(selected, candidate)
+}
+
+#[cfg(target_os = "macos")]
+fn same_eject_device(selected: &str, candidate: &Path) -> bool {
+    crate::fs_safety::capture_source_object_identity(candidate)
+        .ok()
+        .and_then(|identity| identity.platform_volume_id)
+        .is_some_and(|candidate| candidate == selected)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn same_eject_device(_: &str, _: &Path) -> bool {
+    false
 }
 
 #[cfg(windows)]

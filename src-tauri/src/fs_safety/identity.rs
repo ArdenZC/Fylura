@@ -265,10 +265,9 @@ fn hash_file(
         #[cfg(windows)]
         {
             let file = crate::platform::windows::cloud_metadata::open_transfer_content(path)?;
-            return crate::platform::windows::cloud_metadata::with_transfer_content_read(
-                &file,
-                || hash_file_reader(file.try_clone()?, size, cancel),
-            );
+            crate::platform::windows::cloud_metadata::with_transfer_content_read(&file, || {
+                hash_file_reader(file.try_clone()?, size, cancel)
+            })
         }
         #[cfg(not(windows))]
         {

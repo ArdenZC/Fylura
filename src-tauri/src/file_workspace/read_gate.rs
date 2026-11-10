@@ -787,7 +787,7 @@ impl MaterializationReadGate {
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;
         let mut bytes = Vec::new();
-        let mut content_reader = file
+        let content_reader = file
             .try_clone()
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;

@@ -327,7 +327,10 @@ unsafe fn bounded_wide_string(
     let buffer_start = buffer as usize;
     let buffer_end = buffer_start.checked_add(buffer_bytes)?;
     let address = value as usize;
-    if address < buffer_start || address >= buffer_end || (address - buffer_start) % 2 != 0 {
+    if address < buffer_start
+        || address >= buffer_end
+        || !(address - buffer_start).is_multiple_of(2)
+    {
         return None;
     }
     let max_units = ((buffer_end - address) / std::mem::size_of::<u16>()).min(32768);

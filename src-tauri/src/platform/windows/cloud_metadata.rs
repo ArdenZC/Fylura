@@ -304,6 +304,19 @@ fn open_cached_content(path: &Path, allow_cloud: bool) -> io::Result<fs::File> {
     Ok(file)
 }
 
+fn with_transfer_state_checks<T, E>(
+    mut check: impl FnMut() -> io::Result<()>,
+    read: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<io::Error>,
+{
+    check().map_err(E::from)?;
+    let value = read()?;
+    check().map_err(E::from)?;
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,17 +381,4 @@ mod tests {
         assert!(read_started.get());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WouldBlock);
     }
-}
-
-fn with_transfer_state_checks<T, E>(
-    mut check: impl FnMut() -> io::Result<()>,
-    read: impl FnOnce() -> Result<T, E>,
-) -> Result<T, E>
-where
-    E: From<io::Error>,
-{
-    check().map_err(E::from)?;
-    let value = read()?;
-    check().map_err(E::from)?;
-    Ok(value)
 }

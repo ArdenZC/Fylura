@@ -24,10 +24,9 @@ fn wide(path: &Path) -> Vec<u16> {
 fn open_exclusive_for_placeholder_conversion(path: &Path) -> fs::File {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::{
-        Foundation::INVALID_HANDLE_VALUE,
+        Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
         Storage::FileSystem::{
-            CreateFileW, FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, GENERIC_READ,
-            GENERIC_WRITE, OPEN_EXISTING,
+            CreateFileW, FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, OPEN_EXISTING,
         },
     };
     let raw = unsafe {

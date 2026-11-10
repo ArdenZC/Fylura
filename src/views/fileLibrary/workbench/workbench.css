@@ -121,10 +121,6 @@
   min-height: 0;
   min-width: 0;
 }
-.wb-tab-panel[data-dual="true"] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
 .wb-workbench [hidden] {
   display: none !important;
 }
@@ -156,14 +152,6 @@
 }
 .wb-pane[data-internal-drop="active"]::after {
   content: attr(data-internal-drop-label);
-}
-.wb-tab-panel[data-dual="true"] > .wb-pane {
-  border-inline: 1px solid var(--zc-divider);
-  padding-inline: 6px;
-}
-.wb-tab-panel[data-dual="true"] > .wb-pane[data-focused="true"] {
-  border-top: 2px solid var(--zc-primary);
-  padding-top: 4px;
 }
 .wb-path-section {
   flex: 0 0 auto;
@@ -323,3 +311,17 @@
 .wb-tabs-row > .wb-pane-actions { border: 0; padding: 0; margin-left: auto; flex: 0 0 auto; }
 .wb-workbench[data-wide="false"] .wb-tabs-row > .wb-pane-actions { flex: 1 0 100%; }
 .wb-workbench[data-wide="false"] .wb-cross-label { display: none; }
+
+.wb-layout { display: grid; position: relative; gap: 8px; min-height: 0; min-width: 0; height: 100%; }
+.wb-pane-cell { min-height: 0; min-width: 0; overflow: hidden; }
+.wb-pane-cell > .wb-pane { height: 100%; }
+.wb-tab-panel[data-multiple="true"] .wb-pane { border: 1px solid var(--zc-divider); padding-inline: 6px; }
+.wb-tab-panel[data-multiple="true"] .wb-pane[data-focused="true"] { border-top: 2px solid var(--zc-primary); }
+.wb-divider { position: absolute; z-index: 20; touch-action: none; background: var(--zc-divider); }
+.wb-divider-column { top: 0; bottom: 0; width: 8px; transform: translateX(-50%); cursor: col-resize; }
+.wb-divider-row { left: 0; right: 0; height: 8px; transform: translateY(-50%); cursor: row-resize; }
+.wb-divider:hover, .wb-divider:focus-visible { background: var(--zc-primary); outline: 2px solid var(--zc-primary); }
+.wb-workbench[data-wide="true"] .wb-side-button { display: inline-flex; }
+.wb-pane-actions { max-width: 100%; flex-wrap: wrap; }
+.wb-pane-actions select { min-width: 60px; max-width: 200px; background: var(--zc-surface); color: var(--zc-text-primary); }
+.wb-tabs-row select:focus-visible { outline: 2px solid var(--zc-primary); }

@@ -93,7 +93,7 @@ function resolveExternalDropTarget(
   if (!paneId || !tab) return null;
   const paneIndex = tab.panes.findIndex((item) => item.id === paneId);
   const pane = tab.panes[paneIndex];
-  const paneVisible = tab.dual ? wide || tab.activePaneId === paneId : paneIndex === 0;
+  const paneVisible = paneIndex < tab.paneCount && (wide || tab.activePaneId === paneId);
   if (!pane || !paneVisible || paneElement.hidden || paneElement.getClientRects().length === 0) return null;
   if (pane.controller.getState().mode !== "browse") return null;
   const content = element.closest<HTMLElement>('[data-workspace-slot="content"]');

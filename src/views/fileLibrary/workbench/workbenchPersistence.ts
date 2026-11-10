@@ -8,9 +8,9 @@ import {
 
 const WORKSPACE_STORAGE_KEY = "zen-canvas:file-library-workbench:v1";
 const TREE_STORAGE_PREFIX = "zen-canvas:file-library-tree:v1:";
-const WORKSPACE_VERSION = 1;
+const WORKSPACE_VERSION = 2;
 const MAX_TABS = 8;
-const MAX_PANES_PER_TAB = 2;
+const MAX_PANES_PER_TAB = 4;
 const MAX_PATH_LENGTH = 4096;
 const MAX_SNAPSHOT_LENGTH = 128 * 1024;
 export const MAX_PERSISTED_TREE_PATHS = 24;
@@ -25,13 +25,22 @@ export interface PersistedWorkbenchTab {
   id: string;
   panes: PersistedWorkbenchPane[];
   activePaneIndex: number;
-  dual: boolean;
+  paneCount: number;
+  layout: "columns" | "grid";
+  columnSizes: number[];
+  rowSizes: number[];
 }
 
 export interface PersistedWorkbench {
-  version: 1;
+  version: 2;
   tabs: PersistedWorkbenchTab[];
   activeTabIndex: number;
+}
+
+function validSizes(value: unknown, count: number): value is number[] {
+  return Array.isArray(value) && value.length === count && value.every(
+    (size) => typeof size === "number" && Number.isFinite(size) && size >= 0.1 && size <= 10,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,7 +87,7 @@ export function parsePersistedWorkbench(value: unknown): PersistedWorkbench | nu
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, ["version", "tabs", "activeTabIndex"]) ||
-    value.version !== WORKSPACE_VERSION ||
+    (value.version !== 1 && value.version !== WORKSPACE_VERSION) ||
     !Array.isArray(value.tabs) ||
     value.tabs.length < 1 ||
     value.tabs.length > MAX_TABS ||
@@ -93,7 +102,7 @@ export function parsePersistedWorkbench(value: unknown): PersistedWorkbench | nu
   for (const rawTab of value.tabs) {
     if (
       !isRecord(rawTab) ||
-      !hasOnlyKeys(rawTab, ["id", "panes", "activePaneIndex", "dual"]) ||
+      !hasOnlyKeys(rawTab, value.version === 1 ? ["id", "panes", "activePaneIndex", "dual"] : ["id", "panes", "activePaneIndex", "paneCount", "layout", "columnSizes", "rowSizes"]) ||
       !isStableId(rawTab.id) ||
       ids.has(rawTab.id) ||
       !Array.isArray(rawTab.panes) ||
@@ -102,8 +111,13 @@ export function parsePersistedWorkbench(value: unknown): PersistedWorkbench | nu
       !Number.isSafeInteger(rawTab.activePaneIndex) ||
       (rawTab.activePaneIndex as number) < 0 ||
       (rawTab.activePaneIndex as number) >= rawTab.panes.length ||
-      typeof rawTab.dual !== "boolean" ||
-      (rawTab.dual && rawTab.panes.length !== 2)
+      (value.version === 1
+        ? (rawTab.panes.length > 2 || typeof rawTab.dual !== "boolean" || (rawTab.dual && rawTab.panes.length !== 2))
+        : (!Number.isInteger(rawTab.paneCount) || (rawTab.paneCount as number) < 1 ||
+           (rawTab.paneCount as number) > rawTab.panes.length ||
+           (rawTab.activePaneIndex as number) >= (rawTab.paneCount as number) ||
+           !["columns", "grid"].includes(rawTab.layout as string) ||
+           !validSizes(rawTab.columnSizes, 4) || !validSizes(rawTab.rowSizes, 2)))
     )
       return null;
     ids.add(rawTab.id);
@@ -118,8 +132,11 @@ export function parsePersistedWorkbench(value: unknown): PersistedWorkbench | nu
     tabs.push({
       id: rawTab.id,
       panes,
-      activePaneIndex: rawTab.activePaneIndex as number,
-      dual: rawTab.dual,
+      activePaneIndex: value.version === 1 && !rawTab.dual ? 0 : rawTab.activePaneIndex as number,
+      paneCount: value.version === 1 ? (rawTab.dual ? 2 : 1) : rawTab.paneCount as number,
+      layout: value.version === 1 ? "columns" : rawTab.layout as "columns" | "grid",
+      columnSizes: value.version === 1 ? [1, 1, 1, 1] : [...rawTab.columnSizes as number[]],
+      rowSizes: value.version === 1 ? [1, 1] : [...rawTab.rowSizes as number[]],
     });
   }
 
@@ -180,7 +197,7 @@ export function serializeWorkbenchSnapshot(
       !isStableId(tab.id) ||
       tab.panes.length < 1 ||
       tab.panes.length > MAX_PANES_PER_TAB ||
-      (tab.dual && tab.panes.length !== 2)
+      tab.paneCount < 1 || tab.paneCount > tab.panes.length
     )
       return null;
     const activePaneIndex = tab.panes.findIndex(
@@ -225,7 +242,10 @@ export function serializeWorkbenchSnapshot(
       id: tab.id,
       panes,
       activePaneIndex,
-      dual: tab.dual,
+      paneCount: tab.paneCount,
+      layout: tab.layout,
+      columnSizes: tab.columnSizes,
+      rowSizes: tab.rowSizes,
     });
   }
   const parsed = parsePersistedWorkbench({

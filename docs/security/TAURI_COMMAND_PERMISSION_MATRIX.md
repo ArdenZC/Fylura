@@ -49,6 +49,7 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `reveal_file_library_entry` | `read_only` | main | Reveal a durable file ID after backend path resolution | default | no | File Library V2 reveal tests |
 | `request_macos_thumbnail` | `read_only` | main | Request a bounded, managed-file Quick Look thumbnail through the macOS safety adapter | default | yes | macOS thumbnail safety tests |
 | `cancel_macos_thumbnail` | `read_only` | main | Cancel one bounded Quick Look thumbnail request by its in-memory request ID | default | yes | macOS thumbnail cancellation tests |
+| `file_workspace_system_clipboard` | `main_state_mutation` | main | Explicit OS file clipboard read into existing Transfer tickets, or export live revalidated ticket paths; no renderer paths, background polling or filesystem mutation | default | yes | clipboard request/transfer ownership tests |
 | `file_workspace_transfer_capture` | `main_state_mutation` | main | Resolve managed/Browse references into bounded session identity tickets | default | yes | U1 transfer regressions |
 | `file_workspace_transfer_preview` | `main_state_mutation` | main | Prepare identity-bound manual Copy/Move previews and non-overwrite conflicts | default | yes | U1 transfer regressions |
 | `file_workspace_transfer_execute` | `filesystem_mutation` | main | Execute confirmed opaque preview through existing cancellation, journal and reconciliation | default | yes | U1 transfer regressions |

@@ -623,6 +623,7 @@ fn main() {
             fylura_tauri::file_ops::reveal_in_folder,
             fylura_tauri::file_ops::request_macos_thumbnail,
             fylura_tauri::file_ops::cancel_macos_thumbnail,
+            fylura_tauri::file_workspace::integration::commands::file_workspace_system_clipboard,
             fylura_tauri::file_workspace::integration::commands::file_workspace_transfer_capture,
             fylura_tauri::file_workspace::integration::commands::file_workspace_transfer_preview,
             fylura_tauri::file_workspace::integration::commands::file_workspace_transfer_execute,

@@ -2633,7 +2633,8 @@ export function resolveManagementMockEntry(ref: import("../types/fileWorkspace")
   return { name: entry.name, path: entry.displayPath, isDirectory: entry.kind === "directory" };
 }
 
-export function resolveManagementMockLocation(sessionId: string) {
+export function resolveManagementMockLocation(sessionId: string, pathRef?: { id: string }) {
   const session = getSession(sessionId);
-  return session.routingHint ?? session.location.displayName;
+  if (pathRef && !session.pathRefs.has(pathRef.id)) throw Error("browse_path_ref_invalid");
+  return (pathRef ? session.fixturePaths.get(pathRef.id) : undefined) ?? session.routingHint ?? session.location.displayName;
 }

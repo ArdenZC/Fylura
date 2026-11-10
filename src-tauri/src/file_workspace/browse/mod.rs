@@ -9,6 +9,7 @@
 use super::{
     BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, LocationRef, MaterializationState,
 };
+use crate::fs_safety::{capture_source_object_identity, PhysicalFileIdentity};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, DirEntry, ReadDir};
@@ -40,6 +41,9 @@ pub(crate) const RAW_DIRECTORY_SCAN_BUDGET: usize = 1024;
 // set. They prevent max_sessions from multiplying the measured single-session
 // RSS cost into an unbounded process-level reservation without evicting any
 // frontend-owned EntryRef or W1-10 history PathRef.
+// 32 configured panes plus readmittable history, tree sessions and admission
+// cleanup overlap. Aggregate entry/path budgets below remain authoritative.
+pub(crate) const DEFAULT_MAX_BROWSE_SESSIONS: usize = 96;
 pub(crate) const DEFAULT_MAX_BROWSE_PATH_REFS: usize = 16_384;
 pub(crate) const DEFAULT_MAX_BROWSE_ENTRY_REFS: usize = 100_000;
 pub(crate) const DEFAULT_MAX_BROWSE_PROCESS_PATH_REFS: usize = 32_768;
@@ -74,7 +78,7 @@ pub(crate) struct BrowseLimits {
 impl Default for BrowseLimits {
     fn default() -> Self {
         Self {
-            max_sessions: 32,
+            max_sessions: DEFAULT_MAX_BROWSE_SESSIONS,
             max_page_size: 256,
             max_path_refs: DEFAULT_MAX_BROWSE_PATH_REFS,
             max_entry_refs: DEFAULT_MAX_BROWSE_ENTRY_REFS,
@@ -363,11 +367,12 @@ impl BrowseService {
         &self,
         directory: BackendResolvedDirectory,
     ) -> Result<BrowseSessionInfo, BrowseError> {
+        let root_identity = capture_source_object_identity(directory.as_path()).ok();
         let mut sessions = self
             .sessions
             .lock()
             .map_err(|_| BrowseError::StateUnavailable)?;
-        self.start_session_locked(&mut sessions, directory)
+        self.start_session_locked(&mut sessions, directory, root_identity)
     }
 
     /// Re-admit the backend-owned root of a live ephemeral Location into a
@@ -389,6 +394,7 @@ impl BrowseService {
             return Err(BrowseError::InvalidLocationRef);
         }
 
+        self.verify_session_root(browse_session_id)?;
         let mut sessions = self
             .sessions
             .lock()
@@ -405,14 +411,20 @@ impl BrowseService {
             .ok_or(BrowseError::InvalidPathRef)?
             .path
             .clone();
+        let root_identity = source.root_identity.clone();
         validate_directory_path(&path)?;
-        self.start_session_locked(&mut sessions, BackendResolvedDirectory { path })
+        self.start_session_locked(
+            &mut sessions,
+            BackendResolvedDirectory { path },
+            root_identity,
+        )
     }
 
     fn start_session_locked(
         &self,
         sessions: &mut HashMap<String, BrowseSessionState>,
         directory: BackendResolvedDirectory,
+        root_identity: Option<PhysicalFileIdentity>,
     ) -> Result<BrowseSessionInfo, BrowseError> {
         let session_id = opaque_id();
         let location_id = opaque_id();
@@ -446,6 +458,7 @@ impl BrowseService {
             BrowseSessionState {
                 location_id,
                 root_path_ref: root_path_ref.clone(),
+                root_identity,
                 paths,
                 entries: HashMap::new(),
                 active: None,
@@ -459,6 +472,44 @@ impl BrowseService {
         })
     }
 
+    /// Revalidate the directory object originally admitted for this session.
+    /// A reused USB drive letter or mount path is not the same source. Capture
+    /// metadata outside the session lock; content is never read here.
+    pub(crate) fn verify_session_root(&self, session_id: &str) -> Result<(), BrowseError> {
+        let (path, expected) = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| BrowseError::StateUnavailable)?;
+            let session = sessions
+                .get(session_id)
+                .ok_or(BrowseError::SessionNotFound)?;
+            let path = session
+                .paths
+                .get(&session.root_path_ref.id)
+                .ok_or(BrowseError::InvalidPathRef)?
+                .path
+                .clone();
+            (
+                path,
+                session
+                    .root_identity
+                    .clone()
+                    .ok_or(BrowseError::DirectoryUnavailable)?,
+            )
+        };
+        validate_directory_path(&path)?;
+        let current =
+            capture_source_object_identity(&path).map_err(|_| BrowseError::DirectoryUnavailable)?;
+        if expected.physical_key.is_none()
+            || current.physical_key != expected.physical_key
+            || current.created_ns != expected.created_ns
+        {
+            return Err(BrowseError::DirectoryUnavailable);
+        }
+        Ok(())
+    }
+
     /// Resolve an existing Browse path reference for a disposable ephemeral
     /// watcher. This deliberately does not change the path reference pin so
     /// the existing Browse owner remains responsible for its lifecycle.
@@ -467,6 +518,7 @@ impl BrowseService {
         session_id: &str,
         path_ref: &BrowsePathRef,
     ) -> Result<BackendResolvedDirectory, BrowseError> {
+        self.verify_session_root(session_id)?;
         let sessions = self
             .sessions
             .lock()
@@ -514,6 +566,7 @@ impl BrowseService {
         self.validate_request_id(&request_id)?;
         let page_size = self.limits.page_size(page_size)?;
         let query = query.normalized()?;
+        self.verify_session_root(session_id)?;
 
         #[cfg(all(test, feature = "performance-test-tauri"))]
         stage_trace::mark(1);
@@ -578,6 +631,7 @@ impl BrowseService {
             return Err(BrowseError::InvalidCursor);
         }
         let page_size = self.limits.page_size(page_size)?;
+        self.verify_session_root(session_id)?;
         let enumeration = {
             let sessions = self
                 .sessions
@@ -776,6 +830,7 @@ impl BrowseService {
             browse_session_id,
             entry_id,
         } = entry_ref;
+        self.verify_session_root(browse_session_id)?;
         let sessions = self
             .sessions
             .lock()
@@ -804,6 +859,7 @@ impl BrowseService {
             browse_session_id,
             entry_id,
         } = entry_ref;
+        self.verify_session_root(browse_session_id)?;
         let sessions = self
             .sessions
             .lock()
@@ -1169,6 +1225,7 @@ pub(crate) struct BrowseEnumerationDebugSnapshot {
 
 #[derive(Debug)]
 struct BrowseSessionState {
+    root_identity: Option<PhysicalFileIdentity>,
     location_id: String,
     root_path_ref: BrowsePathRef,
     paths: HashMap<String, StoredPath>,
@@ -2112,6 +2169,65 @@ mod tests {
 
     fn service(limits: BrowseLimits) -> BrowseService {
         BrowseService::new(limits).expect("valid limits")
+    }
+
+    #[test]
+    fn retained_browse_root_rejects_replaced_mount_path_but_allows_child_changes() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("original.txt"), b"original").unwrap();
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).unwrap();
+        let page = service
+            .start_enumeration(
+                &session.session_id,
+                "before-rebind",
+                &session.root_path_ref,
+                32,
+            )
+            .unwrap();
+        fs::write(fixture.root.join("new-child.txt"), b"child change").unwrap();
+        assert!(service.verify_session_root(&session.session_id).is_ok());
+        let original = fixture.root.with_extension("original-mount");
+        fs::rename(&fixture.root, &original).unwrap();
+        fs::create_dir(&fixture.root).unwrap();
+        assert!(service.verify_session_root(&session.session_id).is_err());
+        assert!(service
+            .start_enumeration(
+                &session.session_id,
+                "after-rebind",
+                &session.root_path_ref,
+                32
+            )
+            .is_err());
+        assert!(service.resolve_entry(&page.entries[0].entry_ref).is_err());
+        assert!(service
+            .resolve_watch_target(&session.session_id, &session.root_path_ref)
+            .is_err());
+        assert!(service
+            .re_admit_ephemeral_location(&session.location)
+            .is_err());
+        fs::remove_dir(&fixture.root).unwrap();
+        fs::rename(original, &fixture.root).unwrap();
+        assert!(service.verify_session_root(&session.session_id).is_ok());
+    }
+
+    #[test]
+    fn eight_four_pane_tabs_have_bounded_history_and_tree_admission_headroom() {
+        let fixture = Fixture::new();
+        let service = service(BrowseLimits::default());
+        // 32 current pane roots, 32 retained history roots, four visible trees
+        // and four concurrently admitted locations awaiting old-root cleanup.
+        let sessions = (0..72)
+            .map(|_| service.start_session(fixture.directory()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(service.resource_counts().sessions, 72);
+        assert_eq!(service.resource_counts().path_refs, 72);
+        assert_eq!(service.resource_counts().entry_refs, 0);
+        for session in sessions {
+            service.dispose_session(&session.session_id).unwrap();
+        }
+        assert_eq!(service.resource_counts().sessions, 0);
+        assert_eq!(service.resource_counts().path_refs, 0);
     }
 
     #[test]

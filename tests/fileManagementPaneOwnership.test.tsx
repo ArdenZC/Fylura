@@ -37,7 +37,14 @@ it.each([
   { name: "dual-pane source folder with Shift", single: false, samePane: true, valid: true, stale: false, shift: true },
   { name: "folder without opaque ref", single: false, samePane: false, valid: false, stale: false, shift: false },
   { name: "changed source selection", single: true, samePane: true, valid: true, stale: true, shift: false },
-])("routes $name through the existing guarded transfer owner", async ({ single, samePane, valid, stale, shift }) => {
+  { name: "changed target directory", single: false, samePane: false, valid: true, stale: false, shift: false, staleTarget: true },
+  { name: "cancelled gesture", single: false, samePane: false, valid: true, stale: false, shift: false, cancelled: true },
+  ...Array.from({ length: 4 }, (_, from) => Array.from({ length: 4 }, (_, to) => ({
+    name: `four-pane ${from + 1}→${to + 1}`, single: false, samePane: false,
+    valid: true, stale: false, shift: to % 2 === 1, from, to,
+  })).filter((item) => item.from !== item.to)).flat(),
+])("routes $name through the existing guarded transfer owner", async (scenario) => {
+  const { single, samePane, valid, stale, shift } = scenario;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div"); document.body.appendChild(host);
   const root = createRoot(host);
@@ -57,17 +64,20 @@ it.each([
   let sourcePaneElement!: HTMLElement, peerPaneElement!: HTMLElement, sourceRow!: HTMLElement, folderRow!: HTMLElement;
   const sourcePane = { id: "source", path: "E:/Source", controller: { getState: () => ({ mode: "browse" }) } } as unknown as WorkbenchPane;
   const targetPane = { id: "target", path: "E:/Target", controller: { getState: () => ({ mode: "browse" }) } } as unknown as WorkbenchPane;
-  const snapshot = { activeTabId: "tab", tabs: [{ id: "tab", dual: !single, activePaneId: "source", panes: [sourcePane, targetPane] }] };
+  const panes = "from" in scenario
+    ? Array.from({ length: 4 }, (_, i) => i === scenario.from ? sourcePane : i === scenario.to ? targetPane : { ...targetPane, id: `other-${i}` })
+    : [sourcePane, targetPane];
+  const snapshot = { activeTabId: "tab", tabs: [{ id: "tab", paneCount: single ? 1 : panes.length, activePaneId: "source", panes }] };
   const model = { getSnapshot: () => snapshot, subscribe: () => () => undefined } as unknown as FileWorkbenchModel;
   function Owner() {
     const workbenchRef = useRef<HTMLDivElement>(null);
-    handlers = useWorkbenchDrag({ workbenchRef, model, wide: !single, dual: !single, active: true, locked: false, focus, t: makeTranslator("en") });
+    handlers = useWorkbenchDrag({ workbenchRef, model, wide: !single, active: true, locked: false, focus, t: makeTranslator("en") });
     const folder = <div ref={(el) => { if (el) folderRow = el; }} data-file-entry-kind="directory"
       data-browse-session-id={valid ? samePane ? "session" : "peer-session" : undefined} data-browse-entry-id={valid ? "folder" : undefined}>folder</div>;
     return <div ref={workbenchRef} onPointerMove={handlers.onPointerMove} onPointerUp={handlers.onPointerUp}
       onPointerCancel={handlers.onPointerCancel} onLostPointerCapture={handlers.onLostPointerCapture} onClickCapture={handlers.onClickCapture}>
       <div ref={(el) => { if (el) sourcePaneElement = el; }} data-pane-id="source"
-        onPointerDown={(event) => handlers.onPointerDown(event, "tab", "source", single ? undefined : "target", true)}>
+        onPointerDown={(event) => handlers.onPointerDown(event, "tab", "source", true)}>
         <main data-workspace-slot="content">
           <div ref={(el) => { if (el) sourceRow = el; }} aria-selected="true" data-file-entry-kind="file">source</div>
           {samePane ? folder : null}
@@ -92,9 +102,11 @@ it.each([
   expect(capture).not.toHaveBeenCalled();
   await act(async () => { sourceRow.dispatchEvent(pointerEvent("pointermove", 20)); await Promise.resolve(); });
   expect(capture).toHaveBeenCalledWith({ refs: [{ kind: "ephemeral", browseSessionId: "session", entryId: "entry" }] });
+  if ("staleTarget" in scenario) targetPane.path = "E:/ChangedTarget";
+  if ("cancelled" in scenario) await act(async () => sourceRow.dispatchEvent(pointerEvent("pointercancel", 200)));
   if (stale) source.refs = [{ kind: "ephemeral", browseSessionId: "session", entryId: "changed" }];
   await act(async () => { sourceRow.dispatchEvent(pointerEvent("pointerup", 200)); await Promise.resolve(); await Promise.resolve(); });
-  if (valid && !stale) {
+  if (valid && !stale && !("staleTarget" in scenario) && !("cancelled" in scenario)) {
     const paneId = samePane ? "source" : "target";
     expect(focus).toHaveBeenCalledWith("tab", paneId);
     expect(useFileManagementStore.getState().pendingTransfer).toMatchObject({ paneId, sourcePaneId: "source", tickets: [ticket], action: shift ? "move" : "copy", destination: "",

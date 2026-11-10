@@ -160,7 +160,7 @@ function FileLibraryPane() {
             <FileManagementToolbar />
             <ContextPanelPresentationProvider
               layout={layout}
-              paneOverlay={pane?.wideDualPane === true}
+              paneOverlay={pane?.wideMultiPane === true}
             >
               <div className="file-library-workspace-body">
                 <aside

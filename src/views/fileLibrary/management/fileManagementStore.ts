@@ -1,3 +1,4 @@
+import type { TransferBrowseDestination } from "../../../api/fileManagementApi";
 import { create } from "zustand";
 import { useEffect, useId, useRef } from "react";
 import type { EntryRef, BrowseEntryRef, BrowsePathRef } from "../../../types/fileWorkspace";
@@ -69,6 +70,7 @@ export interface ManagementTransferIntent {
   newName?: string;
   origin: "selection" | "clipboard" | "basket" | "external";
   destinationDirectory: string;
+  destinationBrowse?: TransferBrowseDestination;
   destinationEntry?: BrowseEntryRef;
   destinationPaneId?: string;
   destinationContextKey?: string;

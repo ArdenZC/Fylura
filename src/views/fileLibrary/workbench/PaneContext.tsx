@@ -7,8 +7,8 @@ export interface PaneContextValue {
   id: string;
   visible: boolean;
   focused: boolean;
-  /** True when this visible pane is one side of the wide dual-pane layout. */
-  wideDualPane?: boolean;
+  /** True when this visible pane is part of the wide multi-pane layout. */
+  wideMultiPane?: boolean;
   rootRef: RefObject<HTMLDivElement | null>;
   projection: typeof defaultFileLibraryProjection;
   scope: LibraryScope;
@@ -17,8 +17,8 @@ export interface PaneContextValue {
   pathTargetKey?: string | null;
   updateLocation: (path: string, targetKey?: string | null) => void;
   activate: () => void;
-  peerId?: string;
-  activatePeer: () => void;
+  targetPaneId?: string;
+  activateTarget: () => void;
   registerPreview: (controller: PreviewExperienceController | null) => void;
   beforeMutation: () => Promise<void>;
   afterMutation: (directories: string[]) => Promise<void>;

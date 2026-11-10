@@ -17,7 +17,7 @@ const server = await createServer({ server: { host: "127.0.0.1", port: 0, strict
 await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 if (!baseUrl) throw new Error("U4 browser gate: Vite did not expose a local URL.");
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
 const checks = [], errors = [];
 let page;
 try {
@@ -118,7 +118,7 @@ try {
   assert.equal(await pane.locator('[aria-selected="true"]').count(), before);
   checks.push("Browse multi-selection preview and shared-host Previous/Next preserve selection; no durable metadata editor");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Dual pane", exact: true }).click();
+  await page.getByRole("combobox", { name: "File pane count", exact: true }).selectOption("2");
   const right = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').nth(1);
   await right.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await right.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Right");

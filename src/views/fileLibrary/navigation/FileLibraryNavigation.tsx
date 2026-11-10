@@ -1,3 +1,5 @@
+import { useMountedLocations } from "./mountedLocations";
+import { workspacePlatformForRuntime } from "../browse/browseSourceOwner";
 import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
 import {
   Bookmark,
@@ -75,6 +77,8 @@ export function FileLibraryNavigation({
   t: Translator;
   onClose: () => void;
 }) {
+  const pane = usePane();
+  const mounted = useMountedLocations(state.mode === "browse" && (pane?.visible ?? true));
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationsFailed, setLocationsFailed] = useState(false);
   const [treeNavigationError, setTreeNavigationError] = useState<unknown | null>(null);
@@ -94,7 +98,7 @@ export function FileLibraryNavigation({
   );
 
   useEffect(() => {
-    if (locations.length > 0 || locationLoadStartedRef.current) return;
+    if (state.workspace.suspended || pane?.visible === false || locations.length > 0 || locationLoadStartedRef.current) return;
     let cancelled = false;
     locationLoadStartedRef.current = true;
     setLocationsLoading(true);
@@ -111,10 +115,9 @@ export function FileLibraryNavigation({
         if (!cancelled) setLocationsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [controller.workspace, locations.length]);
+  }, [controller.workspace, locations.length, pane?.visible, state.workspace.suspended]);
 
   const query = usePaneQuerySelector();
-  const pane = usePane();
   const currentTarget = state.workspace.session.currentTarget;
   const currentTargetKey = workbenchTargetKey(currentTarget);
   const browseTarget = currentTarget?.kind === "browse" ? currentTarget : null;
@@ -165,6 +168,27 @@ export function FileLibraryNavigation({
             <LibraryNavigationDisclosure id="saved" label={t("fileLibraryNavigationSaved")} icon={Bookmark} items={librarySurface.savedViews} emptyLabel={t("fileLibraryNavigationSavedEmpty")} />
             <LibraryNavigationDisclosure id="tags" label={t("fileLibraryNavigationTags")} icon={Tag} items={librarySurface.tags} emptyLabel={t("fileLibraryNavigationTagsEmpty")} />
           </> : <p className="file-library-navigation-muted" data-file-library-navigation-library-state="unavailable">{t("fileLibraryNavigationLibraryUnavailable")}</p>}
+        </div>
+      </section> : null}
+
+      {state.mode === "browse" ? <section className="file-library-navigation-section" aria-label={t("filesMountedVolumes")}>
+        <div className="file-library-navigation-section-heading">
+          <h3 className="file-library-navigation-section-title">{t("filesMountedVolumes")}</h3>
+          <button type="button" aria-label={t("filesRefreshVolumes")} disabled={mounted.loading} onClick={() => void mounted.refresh()}>↻</button>
+        </div>
+        {mounted.failed ? <p role="status" className="file-library-navigation-muted">{t("filesVolumesUnavailable")}</p> : null}
+        <div className="file-library-navigation-list">
+          {mounted.locations.map((location) => <button key={location.id} type="button" className="file-library-navigation-item"
+            disabled={!location.available} title={location.path} onClick={() => {
+              const runtimePlatform = workspacePlatformForRuntime(platform);
+              if (!runtimePlatform) return;
+              setTreeNavigationError(null);
+              void controller.openBrowse({ platform: runtimePlatform, routingHint: location.path, displayHint: location.displayName }).then((admitted) => {
+                if (!admitted) throw Error("browse_directory_unavailable");
+                pane?.updateLocation(location.path, workbenchTargetKey(controller.getState().workspace.session.currentTarget));
+                if (layout === "drawer") onClose();
+              }).catch(setTreeNavigationError);
+            }}><HardDrive size={16} aria-hidden="true" /><span>{location.displayName || location.path}</span></button>)}
         </div>
       </section> : null}
 

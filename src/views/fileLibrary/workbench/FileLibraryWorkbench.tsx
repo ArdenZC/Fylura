@@ -1,5 +1,6 @@
+import { WorkbenchLayout } from "./WorkbenchLayout";
 import { FolderComparison } from "../compare/FolderComparison";
-import { Columns2, Copy, FolderInput, Plus, X } from "lucide-react";
+import { Copy, FolderInput, Plus, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -73,7 +74,8 @@ export function FileLibraryWorkbench({
   const [model] = useState(() => new FileWorkbenchModel(rootController));
   const state = useSyncExternalStore(model.subscribe, model.getSnapshot);
   const root = useRef<HTMLDivElement | null>(null);
-  const [wide, setWide] = useState(false);
+  const [bounds, setBounds] = useState({ width: 0, height: 0 });
+  const [targets, setTargets] = useState<Record<string, string>>({});
   const previews = useRef(new Map<string, PreviewExperienceController>());
   const [mutationEpochs, setMutationEpochs] = useState<Record<string, number>>(
     {},
@@ -81,8 +83,15 @@ export function FileLibraryWorkbench({
   const [restoreErrors, setRestoreErrors] = useState<Record<string, string>>({});
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const restoreStarted = useRef(false);
+  const workspaceReadyRef = useRef(false);
+  workspaceReadyRef.current = workspaceReady;
   const pendingDispose = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = state.tabs.find((tab) => tab.id === state.activeTabId)!;
+  const grid = active.paneCount === 4 && active.layout === "grid";
+  const wide = bounds.width >= (grid ? 1000 : active.paneCount * 500) && (!grid || bounds.height >= 640);
+  const visiblePanes = active.panes.slice(0, active.paneCount);
+  const destinationPane = visiblePanes.find((pane) => pane.id === targets[active.id] && pane.id !== active.activePaneId)
+    ?? visiblePanes.find((pane) => pane.id !== active.activePaneId);
 
   useEffect(() => {
     if (restoreStarted.current) return;
@@ -108,10 +117,11 @@ export function FileLibraryWorkbench({
         let runtimeTab =
           tabIndex === 0 ? model.getSnapshot().tabs[0] : model.newTab();
         if (!runtimeTab) break;
-        if (savedTab.panes.length === 2) {
-          model.toggleDual(runtimeTab.id);
-          if (!savedTab.dual) model.toggleDual(runtimeTab.id);
-        }
+        model.setPaneCount(runtimeTab.id, savedTab.panes.length);
+        model.setPaneCount(runtimeTab.id, savedTab.paneCount);
+        model.setLayout(runtimeTab.id, savedTab.layout);
+        model.setSizes(runtimeTab.id, "columnSizes", savedTab.columnSizes);
+        model.setSizes(runtimeTab.id, "rowSizes", savedTab.rowSizes);
         runtimeTab = model
           .getSnapshot()
           .tabs.find((tab) => tab.id === runtimeTab!.id)!;
@@ -164,6 +174,10 @@ export function FileLibraryWorkbench({
             ownedEpoch = runtimePane.controller.workspace.session.requestEpoch;
             const admitted = await pendingAdmission;
             if (!admitted) throw new Error(tRef.current("wbNavigationFailed"));
+            const presentation = savedPane.restore.presentation;
+            if (presentation?.browseQuery) runtimePane.controller.setBrowseQuery(presentation.browseQuery);
+            if (presentation?.viewMode) runtimePane.controller.setViewMode(presentation.viewMode);
+            if (presentation?.contextOpen !== undefined) runtimePane.controller.setContextOpen(presentation.contextOpen);
           } else if (savedPane.restore?.locator.kind === "library") {
             const target = navigationTargetFromLibraryRestoreLocator(
               savedPane.restore.locator,
@@ -195,7 +209,7 @@ export function FileLibraryWorkbench({
       if (rootSaved && rootRuntime) {
         const keepActive = workspaceActive
           && saved.activeTabIndex === 0
-          && (!saved.tabs[0]?.dual || wide || saved.tabs[0]?.activePaneIndex === 0);
+          && (saved.tabs[0]?.activePaneIndex === 0);
         await restorePane(rootRuntime, rootSaved, keepActive);
       }
       for (let tabIndex = 0; tabIndex < runtimeTabs.length; tabIndex += 1) {
@@ -206,7 +220,7 @@ export function FileLibraryWorkbench({
           const savedTab = saved.tabs[tabIndex];
           const keepActive = workspaceActive
             && tabIndex === saved.activeTabIndex
-            && (!savedTab?.dual || wide || paneIndex === savedTab?.activePaneIndex);
+            && (paneIndex === savedTab?.activePaneIndex);
           if (runtimePane && savedPane) await restorePane(runtimePane, savedPane, keepActive);
         }
       }
@@ -298,7 +312,8 @@ export function FileLibraryWorkbench({
   }, [focus, model, t]);
   const closeTab = useCallback(
     (tabId: string) => {
-      if (useFileManagementStore.getState().transferOpen) return;
+      const management = useFileManagementStore.getState();
+      if (management.transferOpen || management.transferActive) return;
       model
         .getSnapshot()
         .tabs.find((tab) => tab.id === tabId)
@@ -310,7 +325,7 @@ export function FileLibraryWorkbench({
   useEffect(() => {
     const el = root.current;
     if (!el) return;
-    const measure = () => setWide(el.clientWidth >= 1000);
+    const measure = () => setBounds({ width: el.clientWidth, height: el.clientHeight });
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
@@ -329,6 +344,7 @@ export function FileLibraryWorkbench({
       rootController.getState().workspace.browse?.initialPage?.sessionId;
     const unsubscribe = rootController.subscribe((next) => {
       const admission = next.workspace.browse;
+      if (!workspaceReadyRef.current) return;
       if (admission?.initialPage && admission.sessionId !== lastSearchSession) {
         lastSearchSession = admission.sessionId;
         const tab = model
@@ -353,6 +369,17 @@ export function FileLibraryWorkbench({
   }, [model, rootController]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
+      if (workspaceActive && event.key === "F6" && !event.defaultPrevented &&
+          !document.querySelector('[aria-modal="true"]') && !useFileManagementStore.getState().transferOpen) {
+        event.preventDefault();
+        const snapshot = model.getSnapshot();
+        const tab = snapshot.tabs.find((item) => item.id === snapshot.activeTabId)!;
+        const index = tab.panes.findIndex((pane) => pane.id === tab.activePaneId);
+        const next = tab.panes[(index + (event.shiftKey ? -1 : 1) + tab.paneCount) % tab.paneCount];
+        focus(tab.id, next.id);
+        requestAnimationFrame(() => root.current?.querySelector<HTMLElement>(`[data-pane-id="${next.id}"]`)?.focus());
+        return;
+      }
       if (
         !workspaceActive ||
         event.defaultPrevented ||
@@ -372,7 +399,7 @@ export function FileLibraryWorkbench({
         add();
       } else if (event.key.toLowerCase() === "w") {
         event.preventDefault();
-        void model.close(tab.id);
+        closeTab(tab.id);
       } else if (event.key === "Tab") {
         event.preventDefault();
         const index = snapshot.tabs.indexOf(tab);
@@ -386,7 +413,7 @@ export function FileLibraryWorkbench({
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [add, focus, model, workspaceActive]);
+  }, [add, closeTab, focus, model, workspaceActive]);
   const beforeMutation = useCallback(async () => {
     await Promise.all(
       [...previews.current.values()].map((preview) =>
@@ -422,11 +449,7 @@ export function FileLibraryWorkbench({
     [model],
   );
   const focusedSurface = management.surfaces[active.activePaneId]?.read();
-  const peer = active.dual
-    ? active.panes.find((pane) => pane.id !== active.activePaneId)
-    : undefined;
-  const canTransfer =
-    !!peer?.path && !!focusedSurface && focusedSurface.count !== 0 && !transferLocked;
+  const canTransfer = !!destinationPane?.path && !!focusedSurface && focusedSurface.count !== 0 && !transferLocked;
   const {
     feedback: internalDrop,
     onPointerDown,
@@ -439,7 +462,6 @@ export function FileLibraryWorkbench({
     workbenchRef: root,
     model,
     wide,
-    dual: active.dual,
     active: workspaceActive,
     locked: transferLocked,
     focus,
@@ -460,7 +482,7 @@ export function FileLibraryWorkbench({
       className="wb-workbench"
       data-workbench
       data-workbench-ready={workspaceReady ? "true" : "false"}
-      data-dual={active.dual}
+      data-pane-count={active.paneCount}
       data-wide={wide}
     >
       <header className="wb-tabs-row">
@@ -509,11 +531,11 @@ export function FileLibraryWorkbench({
                 }}
               >
                 <span className="wb-tab-label">{tabLabel(tab, t)}</span>
-                {tab.dual && <Columns2 size={12} />}
+                {tab.paneCount > 1 && <span>{tab.paneCount}</span>}
               </button>
               <button
                 className="wb-tab-close"
-                disabled={locked}
+                disabled={transferLocked}
                 aria-label={`${t("wbCloseTab")} ${index + 1}`}
                 onClick={() => closeTab(tab.id)}
               >
@@ -531,18 +553,17 @@ export function FileLibraryWorkbench({
         >
           <Plus size={17} />
         </button>
-        <button
-          className="wb-split-button"
-          disabled={locked}
-          aria-pressed={active.dual}
-          onClick={() => model.toggleDual(active.id)}
-        >
-          <Columns2 size={16} />
-          <span>{t(active.dual ? "wbSinglePane" : "wbDualPane")}</span>
-        </button>
-      {active.dual && (
+        <select className="wb-split-button" aria-label={t("wbPaneCount")} disabled={locked}
+          value={active.paneCount} onChange={(event) => model.setPaneCount(active.id, Number(event.target.value))}>
+          {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{t("wbPane")} × {count}</option>)}
+        </select>
+        {active.paneCount === 4 && <select className="wb-split-button" aria-label={t("wbLayout")} disabled={locked}
+          value={active.layout} onChange={(event) => model.setLayout(active.id, event.target.value as "grid" | "columns")}>
+          <option value="grid">2 × 2</option><option value="columns">{t("wbColumns")}</option>
+        </select>}
+      {active.paneCount > 1 && (
         <div className="wb-pane-actions">
-          {active.panes.map((pane, index) => (
+          {visiblePanes.map((pane, index) => (
             <button
               key={pane.id}
               className="wb-side-button"
@@ -550,9 +571,20 @@ export function FileLibraryWorkbench({
               disabled={locked}
               onClick={() => focus(active.id, pane.id)}
             >
-              {t(index === 0 ? "wbLeftPane" : "wbRightPane")}
+              {t("wbPane")} {index + 1}
             </button>
           ))}
+          <button className="wb-icon" disabled={transferLocked} aria-label={t("wbClosePane")} onClick={() => {
+            clearExpandedTreePaths(active.activePaneId);
+            void model.closePane(active.id, active.activePaneId);
+          }}><X size={14} /></button>
+          <button className="wb-icon" disabled={locked || visiblePanes[0].id === active.activePaneId}
+            aria-label={t("wbReorderPane")} onClick={() => model.movePane(active.id, active.activePaneId, -1)}>←</button>
+          <select aria-label={t("wbDestinationPane")} value={destinationPane?.id ?? ""} disabled={locked}
+            onChange={(event) => setTargets((current) => ({ ...current, [active.id]: event.target.value }))}>
+            {visiblePanes.filter((pane) => pane.id !== active.activePaneId).map((pane) =>
+              <option key={pane.id} value={pane.id}>{t("wbPane")} {visiblePanes.indexOf(pane) + 1}: {pane.path || t("wbNewFolderTab")}</option>)}
+          </select>
           <span className="wb-pane-hint">
             {!wide ? t("wbCompactPane") : t("wbDragHint")}
           </span>
@@ -578,7 +610,7 @@ export function FileLibraryWorkbench({
             <FolderInput size={14} />
             <span className="wb-cross-label">{t("wbMoveOther")}</span>
           </button>
-          <FolderComparison key={active.id} compact={!wide} paneIds={active.panes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} />
+          {active.paneCount === 2 && <FolderComparison key={active.id} compact={!wide} paneIds={visiblePanes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} />}
         </div>
       )}
       </header>
@@ -590,33 +622,29 @@ export function FileLibraryWorkbench({
           aria-labelledby={`wb-tab-${tab.id}`}
           className="wb-tab-panel"
           hidden={state.activeTabId !== tab.id}
-          data-dual={tab.dual && wide}
+          data-multiple={tab.paneCount > 1 && wide}
         >
+          <WorkbenchLayout tab={tab} model={model} wide={wide} label={t("wbResizePane")} disabled={locked}>
           {tab.panes.map((pane, index) => {
             const visible =
-              workspaceActive &&
+              workspaceReady && workspaceActive &&
               state.activeTabId === tab.id &&
-              ((index === 0 && !tab.dual) ||
-                (tab.dual && (wide || tab.activePaneId === pane.id)));
+              index < tab.paneCount && (wide || tab.activePaneId === pane.id);
             return (
               <PaneHost
                 key={pane.id}
                 pane={pane}
                 Pane={Pane}
                 visible={visible}
+                retained={workspaceReady}
                 focused={visible && tab.activePaneId === pane.id}
-                wideDualPane={tab.dual && wide}
-                peerId={
-                  tab.dual
-                    ? tab.panes.find((other) => other.id !== pane.id)?.id
-                    : undefined
-                }
+                wideMultiPane={tab.paneCount > 1 && wide}
+                targetPaneId={tab.id === active.id && pane.id === active.activePaneId ? destinationPane?.id : tab.activePaneId}
                 mutationEpoch={mutationEpochs[pane.id] ?? 0}
                 restoreError={restoreErrors[pane.id] ?? ""}
                 activate={() => focus(tab.id, pane.id)}
-                activatePeer={() => {
-                  const other = tab.panes.find((other) => other.id !== pane.id);
-                  if (other) focus(tab.id, other.id);
+                activateTarget={() => {
+                  if (destinationPane) focus(tab.id, destinationPane.id);
                 }}
                 updateLocation={(path, targetKey) => {
                   model.updatePath(pane.id, path, targetKey ?? null);
@@ -635,7 +663,7 @@ export function FileLibraryWorkbench({
                 }}
                 beforeMutation={beforeMutation}
                 afterMutation={afterMutation}
-                onPointerDown={(event) => onPointerDown(event, tab.id, pane.id, tab.dual ? tab.panes.find((other) => other.id !== pane.id)?.id : undefined, visible)}
+                onPointerDown={(event) => onPointerDown(event, tab.id, pane.id, visible)}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerCancel}
@@ -646,6 +674,7 @@ export function FileLibraryWorkbench({
               />
             );
           })}
+          </WorkbenchLayout>
         </div>
       ))}
     </div>
@@ -656,6 +685,7 @@ function PaneHost({
   Pane,
   mutationEpoch,
   restoreError,
+  retained,
   ...props
 }: Omit<
   PaneContextValue,
@@ -672,6 +702,7 @@ function PaneHost({
   Pane: ComponentType;
   mutationEpoch: number;
   restoreError: string;
+  retained: boolean;
   updateLocation: (path: string, targetKey?: string | null) => void;
   registerPreview: (preview: PreviewExperienceController | null) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -695,6 +726,7 @@ function PaneHost({
   const seenMutation = useRef(mutationEpoch);
   const pathUpdater = useRef(props.updateLocation);
   pathUpdater.current = props.updateLocation;
+  const panePreview = useRef<PreviewExperienceController | null>(null);
   const previewUpdater = useRef(props.registerPreview);
   previewUpdater.current = props.registerPreview;
   const updateLocation = useCallback(
@@ -702,8 +734,10 @@ function PaneHost({
     [],
   );
   const registerPreview = useCallback(
-    (preview: PreviewExperienceController | null) =>
-      previewUpdater.current(preview),
+    (preview: PreviewExperienceController | null) => {
+      panePreview.current = preview;
+      previewUpdater.current(preview);
+    },
     [],
   );
   useEffect(() => {
@@ -714,6 +748,9 @@ function PaneHost({
       ?.refresh()
       .catch((cause) => useAppStore.getState().showError(String(cause)));
   }, [props.visible, mutationEpoch, pane.id]);
+  useEffect(() => {
+    if (!props.visible) void panePreview.current?.closeForFileOperation();
+  }, [props.visible]);
   const value: PaneContextValue = {
     ...props,
     id: pane.id,
@@ -730,6 +767,7 @@ function PaneHost({
     <div
       ref={rootRef}
       className="wb-pane"
+      tabIndex={-1}
       data-pane-id={pane.id}
       data-focused={props.focused}
       data-external-drop={props.externalDrop ? "active" : undefined}
@@ -753,7 +791,7 @@ function PaneHost({
       )}
       <PaneContext.Provider value={value}>
         <FileLibraryExperienceProvider
-          active={props.visible}
+          active={retained}
           controller={pane.controller}
           disposeOnUnmount={false}
         >

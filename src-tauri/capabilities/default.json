@@ -232,6 +232,7 @@
     "allow-set-automation-intent-enabled",
     "allow-archive-automation-intent",
     "allow-run-automation-intent-manual",
+    "allow-file-workspace-system-clipboard",
     "allow-file-workspace-transfer-capture",
     "allow-file-workspace-transfer-preview",
     "allow-file-workspace-transfer-execute",

@@ -255,14 +255,14 @@ export function useBrowseSourceOwner({
   }, [controller.workspace]);
 
   useEffect(() => {
-    if (state.mode !== "browse") return;
+    if (state.mode !== "browse" || !visible || state.workspace.suspended) return;
     if (locations.length > 0) {
       setLocationState("ready");
       setLocationError(false);
       return;
     }
     if (locationState === "idle" && !locationLoadStartedRef.current) void loadLocations();
-  }, [loadLocations, locationState, locations.length, state.mode]);
+  }, [loadLocations, locationState, locations.length, state.mode, state.workspace.suspended, visible]);
 
   const openLocationPicker = useCallback(() => {
     setShowLocationPicker(true);
@@ -449,7 +449,7 @@ export function useBrowseSourceOwner({
   }, [browse, queryTargetKey, sessionId, state.mode, target, targetKey]);
 
   useEffect(() => {
-    if (!visible || state.workspace.suspended) {
+    if (state.workspace.suspended) {
       // A suspended PaneHost may have canceled its in-flight enumeration.
       // Forget its key and invalidate late publications so visibility resume
       // starts a fresh request instead of treating the canceled one as active.
@@ -457,6 +457,10 @@ export function useBrowseSourceOwner({
       generationRef.current++;
       return;
     }
+    // A retained pane keeps its live pages, opaque refs and selection while
+    // hidden. Observation is paused separately; do not re-enumerate merely
+    // because another pane or tab became active.
+    if (!visible) return;
     if (state.mode !== "browse" || targetKey === null || target === null || browse === null || sessionId === null || currentPathRef === null) return;
     if (queryTargetKey !== targetKey) return;
     const enumerationKey = `${targetKey}:${JSON.stringify(query)}`;

@@ -210,7 +210,10 @@ impl FilenameSearchManager {
         cfg!(test) || self.is_enabled()
     }
 
-    pub(crate) fn install_mutation_hooks(&self, connection: &Connection) -> rusqlite::Result<()> {
+    pub(crate) fn install_mutation_hooks(
+        &self,
+        connection: &mut Connection,
+    ) -> rusqlite::Result<()> {
         let pending = Arc::new(PendingHookState::default());
         let main_write_pending = Arc::new(AtomicBool::new(false));
         let update_pending = Arc::clone(&pending);

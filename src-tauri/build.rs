@@ -171,6 +171,7 @@ const COMMANDS: &[&str] = &[
     "reveal_in_folder",
     "request_macos_thumbnail",
     "cancel_macos_thumbnail",
+    "file_workspace_system_clipboard",
     "file_workspace_transfer_capture",
     "file_workspace_transfer_preview",
     "file_workspace_transfer_execute",

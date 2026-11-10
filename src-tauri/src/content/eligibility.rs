@@ -67,6 +67,23 @@ pub(crate) fn classify_path(path: &Path, is_directory: bool) -> ContentEligibili
 
     #[cfg(not(target_os = "macos"))]
     {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            let metadata = match std::fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(_) => return ContentEligibility::ContentAvailabilityUnknown,
+            };
+            if crate::platform::windows::cloud_metadata::metadata_needs_download(&metadata) {
+                return ContentEligibility::FileProviderItemNotLocal;
+            }
+            if metadata.file_type().is_symlink() {
+                return ContentEligibility::Symlink;
+            }
+            if metadata.file_attributes() & 0x400 != 0 {
+                return ContentEligibility::Unsupported;
+            }
+        }
         let _ = path;
         if is_directory {
             ContentEligibility::Directory

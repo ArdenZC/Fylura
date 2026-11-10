@@ -8,6 +8,7 @@
 mod browse;
 mod change;
 pub mod commands;
+mod connected_locations;
 mod folder;
 mod known_locations;
 mod launch;

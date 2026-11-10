@@ -1124,6 +1124,10 @@ fn classify_path(path: &Path) -> ContentReadEligibility {
             return ContentReadEligibility::Symlink;
         }
         #[cfg(windows)]
+        if crate::platform::windows::cloud_metadata::metadata_needs_download(&metadata) {
+            return ContentReadEligibility::MaterializationRequired;
+        }
+        #[cfg(windows)]
         if is_windows_reparse_point(&metadata) {
             // W1-07 has no independent Windows Cloud Files/provider identity
             // authority.  Reparse-backed sources therefore fail closed.
@@ -1234,12 +1238,7 @@ fn open_local_file(path: &Path) -> io::Result<File> {
 
 #[cfg(all(not(target_os = "macos"), windows))]
 fn open_local_file(path: &Path) -> io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-
-    OpenOptions::new()
-        .read(true)
-        .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(path)
+    crate::platform::windows::cloud_metadata::open_local_content(path)
 }
 
 #[cfg(all(not(target_os = "macos"), not(any(unix, windows))))]
@@ -3616,6 +3615,40 @@ mod tests {
                 true,
             ),
             Some(Err(ContentReadAccessError::Cancelled))
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn offline_attribute_without_a_reparse_point_cannot_issue_a_content_lease() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            SetFileAttributesW, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_OFFLINE,
+        };
+        let fixture = Fixture::new();
+        let path = fixture.file("online-only.txt", b"fixture content must not be consumed");
+        let wide = path
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
+        assert_ne!(
+            unsafe { SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_OFFLINE) },
+            0
+        );
+        let gate = gate(Arc::new(TestResolver::new(path)), ReadGateConfig::default());
+        assert_eq!(
+            gate.content_read_eligibility(&source()),
+            ContentReadEligibility::MaterializationRequired
+        );
+        assert_eq!(
+            gate.issue_lease_for_current("offline", source(), ReadIntent::Preview),
+            Err(ReadGateError::MaterializationRequired)
+        );
+        assert_eq!(gate.active_lease_count(), 0);
+        assert_ne!(
+            unsafe { SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_NORMAL) },
+            0
         );
     }
 

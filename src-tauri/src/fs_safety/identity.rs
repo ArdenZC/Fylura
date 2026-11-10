@@ -262,7 +262,11 @@ fn hash_file(
 
     #[cfg(not(target_os = "macos"))]
     {
-        hash_file_reader(File::open(path)?, size, cancel)
+        #[cfg(windows)]
+        let file = crate::platform::windows::cloud_metadata::open_local_content(path)?;
+        #[cfg(not(windows))]
+        let file = File::open(path)?;
+        hash_file_reader(file, size, cancel)
     }
 }
 
@@ -961,11 +965,13 @@ fn windows_file_identity(path: &Path) -> Option<(String, String)> {
     use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
     };
     let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .custom_flags(
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
+        )
         .open(path)
         .ok()?;
     let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };

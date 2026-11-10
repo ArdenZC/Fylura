@@ -21,6 +21,7 @@ pub(crate) const ID_DOCUMENTS: &str = "documents";
 pub enum KnownLocationKind {
     Folder,
     Volume,
+    CloudProvider,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -58,6 +59,16 @@ pub(crate) fn list_known_locations() -> Vec<KnownLocation> {
             Some((path, label)),
         );
     }
+    for (path, label) in super::connected_locations::cloud_roots() {
+        push_unique(
+            &mut locations,
+            &mut seen,
+            &format!("provider:{}", path.to_string_lossy()),
+            KnownLocationKind::CloudProvider,
+            Some((path, label)),
+        );
+    }
+    locations.truncate(48);
     locations
 }
 
@@ -76,7 +87,14 @@ fn push_unique(
         return;
     }
     seen.push(key);
-    let volume = (kind == KnownLocationKind::Volume).then(|| super::storage::inspect(&path, true));
+    let volume = (kind != KnownLocationKind::Folder).then(|| {
+        let mut state = super::storage::inspect(&path, kind == KnownLocationKind::Volume);
+        if kind == KnownLocationKind::CloudProvider {
+            state.kind = "cloud_provider";
+            state.can_eject = false;
+        }
+        state
+    });
     locations.push(KnownLocation {
         id: id.to_string(),
         kind,
@@ -176,7 +194,7 @@ mod tests {
             );
             assert!(!location.display_name.is_empty());
         }
-        assert!(locations.len() <= 32, "known locations must stay bounded");
+        assert!(locations.len() <= 48, "known locations must stay bounded");
     }
 
     #[test]

@@ -27,13 +27,13 @@ export class MountedLocationProjection {
     if (this.snapshot.ejectingId) return Promise.resolve();
     this.publish({ ...this.snapshot, loading: true });
     this.inFlight = this.load().then((locations) => {
-      const live = locations.filter((location) => location.kind === "volume");
+      const live = locations.filter((location) => location.kind === "volume" || location.kind === "cloud_provider");
       const present = new Set(live.map((location) => location.id));
       // Retain bounded disconnected entries so a disappearing device does not
       // look like an empty list or silently become a different device.
       const missing = this.snapshot.locations.filter((location) => !present.has(location.id))
         .map((location) => ({ ...location, available: false }));
-      this.publish({ ...this.snapshot, locations: [...live, ...missing].slice(0, 32), loading: false, failed: false });
+      this.publish({ ...this.snapshot, locations: [...live, ...missing].slice(0, 48), loading: false, failed: false });
     }).catch(() => {
       this.publish({ ...this.snapshot, locations: this.snapshot.locations.map((location) => ({ ...location, available: false })), loading: false, failed: true });
     }).finally(() => { this.inFlight = null; });

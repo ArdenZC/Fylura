@@ -27,6 +27,7 @@ pub use identity::{
     IdentityError, NamespaceIdentity,
 };
 pub use path_guard::{create_directory_chain_no_links, PathGuardError};
+pub(crate) use physical::capture_browse_identity;
 pub use physical::{
     capture_physical_identity, capture_source_object_identity, PhysicalFileIdentity,
     PhysicalIdentityError, PhysicalPlatform,

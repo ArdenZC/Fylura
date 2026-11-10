@@ -1741,7 +1741,11 @@ fn open_content_file(path: &Path) -> Result<File, DedupeError> {
 
     #[cfg(not(target_os = "macos"))]
     {
-        File::open(path).map_err(|source| DedupeError::Io {
+        #[cfg(windows)]
+        let file = crate::platform::windows::cloud_metadata::open_local_content(path);
+        #[cfg(not(windows))]
+        let file = File::open(path);
+        file.map_err(|source| DedupeError::Io {
             path: path.to_string_lossy().into_owned(),
             source,
         })

@@ -761,6 +761,13 @@ pub fn claim_source_at(
         }
     })?;
     #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    if crate::platform::windows::cloud_metadata::metadata_needs_download(&source_metadata) {
+        return Err(SourceClaimError::ClaimFailed(
+            "cloud_file_requires_download".into(),
+        ));
+    }
+    #[cfg(not(target_os = "macos"))]
     if source_metadata.file_type().is_symlink() || is_reparse_point(&source_metadata) {
         return Err(SourceClaimError::ReparsePoint);
     }

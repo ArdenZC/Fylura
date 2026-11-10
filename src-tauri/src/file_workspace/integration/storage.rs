@@ -103,6 +103,8 @@ impl super::FileWorkspaceRuntime {
         }
         let path = super::known_locations::mounted_volume_path(&request.location_id)
             .ok_or("storage_device_disconnected")?;
+        #[cfg(windows)]
+        reject_network_eject_target(&path)?;
         let volume = inspect(&path, true);
         validate_eject(&volume, &request.identity)?;
         self.release_volume_readers(&path, &request.identity)?;
@@ -217,6 +219,15 @@ fn sessions_on_eject_device<T>(
 #[cfg(windows)]
 fn same_eject_device(selected: &str, candidate: &Path) -> bool {
     native::same_physical_device_identity(selected, candidate)
+}
+
+#[cfg(windows)]
+fn reject_network_eject_target(path: &Path) -> Result<(), String> {
+    if native::is_network_path(path) {
+        Err("storage_eject_unsupported".into())
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_eject(volume: &VolumeState, identity: &str) -> Result<(), String> {
@@ -335,5 +346,14 @@ mod tests {
         assert_eq!(released, ["tab-a-pane-1", "tab-a-pane-2", "tab-b-pane-1"]);
         assert!(!released.contains(&"other-usb".to_string()));
         assert!(!released.contains(&"system".to_string()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unc_eject_targets_are_rejected_before_volume_inspection() {
+        assert_eq!(
+            reject_network_eject_target(Path::new(r"\\nas.example\documents")),
+            Err("storage_eject_unsupported".into())
+        );
     }
 }

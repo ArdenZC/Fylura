@@ -289,7 +289,28 @@ pub async fn file_workspace_known_locations<R: Runtime>(
     // Read-only projection of well-known folders and mounted volumes. It
     // creates no Browse session, scan root, index source or stored preference;
     // opening any of these paths still requires user-intent Browse admission.
-    Ok(super::known_locations::list_known_locations())
+    tauri::async_runtime::spawn_blocking(super::known_locations::list_known_locations)
+        .await
+        .map_err(|_| "storage_discovery_unavailable".to_string())
+}
+
+#[tauri::command]
+pub async fn file_workspace_eject_volume<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    cancel: State<'_, crate::file_ops::OperationCancellationToken>,
+    request: super::storage::EjectVolumeRequest,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    let cancel = cancel.inner().clone();
+    spawn_runtime(runtime, "workspace_eject_volume", move |runtime| {
+        let _guard = cancel
+            .begin()
+            .map_err(|_| "storage_eject_busy".to_string())?;
+        runtime.eject_volume(request)
+    })
+    .await
 }
 
 #[tauri::command]

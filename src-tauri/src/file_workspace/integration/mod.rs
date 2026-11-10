@@ -16,6 +16,7 @@ pub(crate) mod places;
 mod preview;
 mod runtime;
 mod runtime_owner;
+pub(crate) mod storage;
 pub mod system_clipboard;
 mod thumbnail;
 pub mod types;

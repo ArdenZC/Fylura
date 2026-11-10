@@ -86,6 +86,37 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn safe_removal_releases_own_readers_but_keeps_roots_for_a_veto_or_reconnect() {
+    let fixture = Fixture::new("safe-removal-readers");
+    let runtime = fixture.runtime();
+    let opened = runtime.open_browse(open_request(&fixture)).unwrap();
+    runtime
+        .start_change_monitor(ChangeStartRequest {
+            session_id: opened.session_id.clone(),
+            path_ref: opened.root_path_ref.clone(),
+        })
+        .unwrap();
+    let enumerate = |request: &str| BrowseStartEnumerationRequest {
+        session_id: opened.session_id.clone(),
+        request_id: request.into(),
+        path_ref: opened.root_path_ref.clone(),
+        page_size: 16,
+        query: Default::default(),
+    };
+    let page = runtime
+        .start_enumeration(enumerate("before-eject"))
+        .unwrap();
+    let entry = &page.entries[0].entry_ref;
+    assert!(runtime.inner.browse.resolve_entry(entry).is_ok());
+    runtime.release_volume_readers(&fixture.root).unwrap();
+    assert!(runtime.inner.browse.resolve_entry(entry).is_err());
+    assert_eq!(runtime.resource_counts().change_monitors, 0);
+    assert!(runtime.has_browse_session(&opened.session_id));
+    assert!(runtime.start_enumeration(enumerate("after-veto")).is_ok());
+    assert!(runtime.dispose());
+}
+
+#[test]
 fn runtime_owner_is_lazy_single_generation_and_recreates_after_teardown() {
     let fixture = Fixture::new("runtime-owner-generations");
     let owner = fixture.runtime_owner();

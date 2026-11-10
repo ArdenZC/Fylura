@@ -1,4 +1,5 @@
 import { useMountedLocations } from "./mountedLocations";
+import { MountedVolumeList } from "./MountedVolumeList";
 import { workspacePlatformForRuntime } from "../browse/browseSourceOwner";
 import { usePaneQuerySelector, usePane } from "../workbench/PaneContext";
 import {
@@ -178,8 +179,7 @@ export function FileLibraryNavigation({
         </div>
         {mounted.failed ? <p role="status" className="file-library-navigation-muted">{t("filesVolumesUnavailable")}</p> : null}
         <div className="file-library-navigation-list">
-          {mounted.locations.map((location) => <button key={location.id} type="button" className="file-library-navigation-item"
-            disabled={!location.available} title={location.path} onClick={() => {
+          <MountedVolumeList mounted={mounted} t={t} onOpen={(location) => {
               const runtimePlatform = workspacePlatformForRuntime(platform);
               if (!runtimePlatform) return;
               setTreeNavigationError(null);
@@ -188,7 +188,7 @@ export function FileLibraryNavigation({
                 pane?.updateLocation(location.path, workbenchTargetKey(controller.getState().workspace.session.currentTarget));
                 if (layout === "drawer") onClose();
               }).catch(setTreeNavigationError);
-            }}><HardDrive size={16} aria-hidden="true" /><span>{location.displayName || location.path}</span></button>)}
+            }} />
         </div>
       </section> : null}
 

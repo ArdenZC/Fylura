@@ -481,13 +481,14 @@ fn inspect_windows_directory(handle: &File) -> Result<(), PathGuardError> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
-        FILE_ATTRIBUTE_REPARSE_POINT,
     };
     let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
     if unsafe { GetFileInformationByHandle(handle.as_raw_handle(), &mut info) } == 0 {
         return Err(PathGuardError::Io(io::Error::last_os_error()));
     }
-    if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+    if crate::platform::windows::cloud_metadata::unsupported_reparse_handle(handle)
+        .map_err(PathGuardError::Io)?
+    {
         return Err(PathGuardError::ReparsePoint);
     }
     if info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0 {

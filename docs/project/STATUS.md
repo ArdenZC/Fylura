@@ -1,6 +1,6 @@
 # Fylura Project Status
 
-Last verified: 2026-11-10 against fetched `master@731a531` (#558). Files 1–4 panes, native file clipboard and mounted-device navigation are merged. Connected-storage implementation continues under #553, with real Windows/macOS installed-app and device acceptance under #487. Source/CI delivery does not establish native GUI, device, Beta or Release acceptance.
+Last verified: 2026-11-10 against fetched `master@6b3e9e1` (#560). Files 1–4 panes, native file clipboard and mounted-device navigation are merged. Connected-storage implementation continues under #553, with real Windows/macOS installed-app and device acceptance under #487. Source/CI delivery does not establish native GUI, device, Beta or Release acceptance.
 
 ## Current product goal
 
@@ -20,7 +20,7 @@ Scope: [delivery record](initiatives/file-first-product-delivery.md), [ADR-0016]
 
 ## Work in progress
 
-- **Files connected storage #553 — removable-media implementation:** reuse merged #558 rather than rebuilding panes, clipboard or discovery. Add read-only/capacity/removal-capability projection, retained disconnected entries, explicit identity-checked OS safe eject, own-reader release and existing operation-run exclusion. Permission, low-space, conflict/cancel and Journal/Restore remain on the existing Transfer engine. Focused/browser and cross-target checks are development evidence; real USB/SSD/HDD/SD hot-plug, safe eject, cross-device filesystem behavior and installed GUI remain **UNVERIFIED** in #487. Mounted SMB/cloud handling and measured copy improvements are the next implementation stages.
+- **Files connected storage #553 — removable-media implementation:** reuse merged #558 rather than rebuilding panes, clipboard or discovery. Add read-only/capacity/removal-capability projection, retained disconnected entries, explicit identity-checked OS safe eject, own-reader release and existing operation-run exclusion. Permission, low-space, conflict/cancel and Journal/Restore remain on the existing Transfer engine. Focused/browser and cross-target checks are development evidence; real USB/SSD/HDD/SD hot-plug, safe eject, cross-device filesystem behavior and installed GUI remain **UNVERIFIED** in #487. Mounted SMB/cloud metadata, placeholder read guards and cached-file transfer integration are in development; measured copy improvements follow.
 
 
 - **Files parity #553 / P0-A:** OS file activation (double-click/Enter and context Open/Open with/Reveal), creation-time sorting and clickable details headers are implemented on the existing opaque Browse references and backend full-directory sort. The bounded sort snapshot now covers 100,000 raw children; the existing 100k performance fixture also checks global sorted pagination and reports latency/RSS. Copy/Cut/Paste, drag, rename, New Folder and app-owned Safe Trash keep the existing Transfer Preview/Journal/History/Restore chain; #552 copy optimizations are preserved. Native installed Windows/macOS GUI, system-clipboard interoperability, actual USB/mounted cloud/SMB behavior and further paired copy-performance qualification remain **UNVERIFIED / OPEN**, tracked in #553 and #487. This is source delivery, not Beta/Release acceptance.

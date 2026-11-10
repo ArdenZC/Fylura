@@ -6,6 +6,8 @@ use super::{
     source_claim::{self, ClaimedEntryKind, SourceClaim},
     verified_directory::VerifiedDirectory,
 };
+#[cfg(windows)]
+use crate::platform::windows::cloud_metadata;
 #[cfg(test)]
 use std::path::Path;
 use std::{
@@ -323,10 +325,13 @@ fn copy_commit_claim_with_source_retirement(
         let preflight = (|| {
             let source_handle = claim.open_read().map_err(map_claim_error)?;
             let metadata = source_handle.metadata().map_err(AtomicMoveError::Io)?;
-            if !metadata.is_file() || metadata_is_reparse_point(&metadata) {
+            if !metadata.is_file()
+                || cloud_metadata::unsupported_reparse_handle(&source_handle)
+                    .map_err(AtomicMoveError::Io)?
+            {
                 return Err(AtomicMoveError::ReparsePoint);
             }
-            ensure_supported_windows_file_attributes(&metadata)?;
+            ensure_supported_windows_handle_attributes(&source_handle)?;
             ensure_windows_no_named_streams(&source_path)?;
             Ok(())
         })();
@@ -475,10 +480,13 @@ fn copy_commit_claim_with_source_retirement(
                         "source_cleanup_pending: {error}"
                     ))
                 })?;
-                if !metadata.is_file() || metadata_is_reparse_point(&metadata) {
+                if !metadata.is_file()
+                    || cloud_metadata::unsupported_reparse_handle(&source_handle)
+                        .map_err(AtomicMoveError::Io)?
+                {
                     return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
                 }
-                ensure_supported_windows_file_attributes(&metadata)
+                ensure_supported_windows_handle_attributes(&source_handle)
                     .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
                 ensure_windows_no_named_streams(&source_path)
                     .map_err(|_| AtomicMoveError::TargetCommittedSourceCleanupPending)?;
@@ -589,12 +597,12 @@ fn copy_directory_claim(
         let source_root_metadata =
             fs::symlink_metadata(claim.current_path()).map_err(AtomicMoveError::Io)?;
         if source_root_metadata.file_type().is_symlink()
-            || metadata_is_reparse_point(&source_root_metadata)
+            || cloud_metadata::unsupported_reparse(claim.current_path(), &source_root_metadata)
             || !source_root_metadata.is_dir()
         {
             return Err(AtomicMoveError::ReparsePoint);
         }
-        ensure_supported_windows_file_attributes(&source_root_metadata)?;
+        ensure_supported_windows_path_attributes(claim.current_path(), &source_root_metadata)?;
         ensure_windows_no_named_streams(claim.current_path())?;
         let source_before =
             crate::file_ops::measure_native_qa_copy_phase("content_hash_source_pre", || {
@@ -957,10 +965,12 @@ fn copy_directory_contents(
         let source_child = entry.path();
         let target_child = target.join(&name);
         let metadata = fs::symlink_metadata(&source_child).map_err(AtomicMoveError::Io)?;
-        if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
+        if metadata.file_type().is_symlink()
+            || cloud_metadata::unsupported_reparse(&source_child, &metadata)
+        {
             return Err(AtomicMoveError::ReparsePoint);
         }
-        ensure_supported_windows_file_attributes(&metadata)?;
+        ensure_supported_windows_path_attributes(&source_child, &metadata)?;
         ensure_windows_no_named_streams(&source_child)?;
         if metadata.is_dir() {
             fs::create_dir(&target_child).map_err(map_create_error)?;
@@ -1005,23 +1015,20 @@ fn copy_regular_file(
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     use std::io::{Seek, SeekFrom};
-    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+    use std::os::windows::fs::MetadataExt;
 
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
     ensure_windows_no_named_streams(source)?;
-    let mut source_options = OpenOptions::new();
-    source_options
-        .read(true)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    let mut reader = source_options.open(source).map_err(AtomicMoveError::Io)?;
+    let mut reader = cloud_metadata::open_transfer_content(source).map_err(AtomicMoveError::Io)?;
     let metadata = reader.metadata().map_err(AtomicMoveError::Io)?;
-    if !metadata.is_file() || metadata_is_reparse_point(&metadata) {
+    if !metadata.is_file()
+        || cloud_metadata::unsupported_reparse_handle(&reader).map_err(AtomicMoveError::Io)?
+    {
         return Err(AtomicMoveError::ReparsePoint);
     }
-    ensure_supported_windows_file_attributes(&metadata)?;
+    ensure_supported_windows_handle_attributes(&reader)?;
     // The directory copy proves content equality with bounded whole-tree
     // digests before and after the copy, on staging, and after publish. These
     // per-file full hashes reread every payload several more times without
@@ -1184,10 +1191,10 @@ fn copy_windows_directory_metadata(
     };
 
     let source_metadata = fs::symlink_metadata(source).map_err(AtomicMoveError::Io)?;
-    if !source_metadata.is_dir() || metadata_is_reparse_point(&source_metadata) {
+    if !source_metadata.is_dir() || cloud_metadata::unsupported_reparse(source, &source_metadata) {
         return Err(AtomicMoveError::ReparsePoint);
     }
-    ensure_supported_windows_file_attributes(&source_metadata)?;
+    ensure_supported_windows_path_attributes(source, &source_metadata)?;
     ensure_windows_no_named_streams(source)?;
 
     let wide = source_claim::windows_wide_path(target);
@@ -1209,7 +1216,10 @@ fn copy_windows_directory_metadata(
     }
     let target_handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
     let target_metadata = target_handle.metadata().map_err(AtomicMoveError::Io)?;
-    if !target_metadata.is_dir() || metadata_is_reparse_point(&target_metadata) {
+    if !target_metadata.is_dir()
+        || cloud_metadata::unsupported_reparse_handle(&target_handle)
+            .map_err(AtomicMoveError::Io)?
+    {
         return Err(AtomicMoveError::ReparsePoint);
     }
     let times = std::fs::FileTimes::new()
@@ -1225,6 +1235,7 @@ fn copy_windows_directory_metadata(
 #[cfg(windows)]
 fn ensure_supported_windows_file_attributes(
     metadata: &std::fs::Metadata,
+    cloud_layout: bool,
 ) -> Result<(), AtomicMoveError> {
     use std::os::windows::fs::MetadataExt;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -1244,13 +1255,15 @@ fn ensure_supported_windows_file_attributes(
         | FILE_ATTRIBUTE_INTEGRITY_STREAM
         | FILE_ATTRIBUTE_NO_SCRUB_DATA
         | FILE_ATTRIBUTE_OFFLINE
-        | FILE_ATTRIBUTE_PINNED
         | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
         | FILE_ATTRIBUTE_RECALL_ON_OPEN
-        | FILE_ATTRIBUTE_SPARSE_FILE
         | FILE_ATTRIBUTE_TEMPORARY
-        | FILE_ATTRIBUTE_UNPINNED
-        | FILE_ATTRIBUTE_VIRTUAL;
+        | FILE_ATTRIBUTE_VIRTUAL
+        | if cloud_layout {
+            0
+        } else {
+            FILE_ATTRIBUTE_PINNED | FILE_ATTRIBUTE_UNPINNED | FILE_ATTRIBUTE_SPARSE_FILE
+        };
     let attributes = metadata.file_attributes();
     if attributes & unsupported != 0 {
         let kind = if attributes & FILE_ATTRIBUTE_ENCRYPTED != 0 {
@@ -1281,6 +1294,24 @@ fn ensure_supported_windows_file_attributes(
         return Err(AtomicMoveError::WindowsSpecialMetadataUnsupported(kind));
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_supported_windows_path_attributes(
+    path: &std::path::Path,
+    metadata: &std::fs::Metadata,
+) -> Result<(), AtomicMoveError> {
+    let cloud =
+        metadata_is_reparse_point(metadata) && !cloud_metadata::unsupported_reparse(path, metadata);
+    ensure_supported_windows_file_attributes(metadata, cloud)
+}
+
+#[cfg(windows)]
+fn ensure_supported_windows_handle_attributes(file: &File) -> Result<(), AtomicMoveError> {
+    let metadata = file.metadata().map_err(AtomicMoveError::Io)?;
+    let cloud = metadata_is_reparse_point(&metadata)
+        && !cloud_metadata::unsupported_reparse_handle(file).map_err(AtomicMoveError::Io)?;
+    ensure_supported_windows_file_attributes(&metadata, cloud)
 }
 
 #[cfg(windows)]
@@ -1347,7 +1378,7 @@ fn directory_content_digest(
         progress: &mut crate::fs_safety::DirectoryTransferProgress,
         observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     ) -> Result<(), AtomicMoveError> {
-        use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
+        use std::os::windows::ffi::OsStrExt;
         const MAX_DEPTH: usize = 64;
         if is_cancelled(cancel) {
             return Err(AtomicMoveError::Cancelled);
@@ -1392,22 +1423,24 @@ fn directory_content_digest(
                 .ok_or(AtomicMoveError::DirectoryTreeLimitExceeded)?;
             let path = current.join(name);
             let metadata = fs::symlink_metadata(&path).map_err(AtomicMoveError::Io)?;
-            if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
+            if metadata.file_type().is_symlink()
+                || cloud_metadata::unsupported_reparse(&path, &metadata)
+            {
                 return Err(AtomicMoveError::ReparsePoint);
             }
-            ensure_supported_windows_file_attributes(&metadata)?;
+            ensure_supported_windows_path_attributes(&path, &metadata)?;
             ensure_windows_no_named_streams(&path)?;
             progress.record_item(&path, observer)?;
             if metadata.is_dir() {
                 visit(&path, depth + 1, state, cancel, progress, observer)?;
             } else if metadata.is_file() {
-                let mut options = OpenOptions::new();
-                options.read(true).custom_flags(
-                    windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
-                );
-                let file = options.open(&path).map_err(AtomicMoveError::Io)?;
+                let file =
+                    cloud_metadata::open_transfer_content(&path).map_err(AtomicMoveError::Io)?;
                 let handle_metadata = file.metadata().map_err(AtomicMoveError::Io)?;
-                if !handle_metadata.is_file() || metadata_is_reparse_point(&handle_metadata) {
+                if !handle_metadata.is_file()
+                    || cloud_metadata::unsupported_reparse_handle(&file)
+                        .map_err(AtomicMoveError::Io)?
+                {
                     return Err(AtomicMoveError::ReparsePoint);
                 }
                 let identity = identity::capture_identity_from_handle(&file, &path, cancel)
@@ -1468,7 +1501,7 @@ fn retire_claimed_directory_verified_against_target(
 ) -> Result<(), AtomicMoveError> {
     let source_path = claim.current_path().to_path_buf();
     let root_metadata = fs::symlink_metadata(&source_path).map_err(AtomicMoveError::Io)?;
-    ensure_supported_windows_file_attributes(&root_metadata)?;
+    ensure_supported_windows_path_attributes(&source_path, &root_metadata)?;
     ensure_windows_no_named_streams(&source_path)?;
     let source_root = open_windows_directory_path_for_retirement(&source_path)?;
     let source_identity = windows_handle_directory_identity(&source_root)?;
@@ -1582,10 +1615,12 @@ fn retire_directory_entries_verified(
         let source_path = location.source_parent_path.join(&name);
         let target_path = location.target_parent_path.join(&name);
         let metadata = fs::symlink_metadata(&source_path).map_err(AtomicMoveError::Io)?;
-        if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
+        if metadata.file_type().is_symlink()
+            || cloud_metadata::unsupported_reparse(&source_path, &metadata)
+        {
             return Err(AtomicMoveError::ReparsePoint);
         }
-        ensure_supported_windows_file_attributes(&metadata)?;
+        ensure_supported_windows_path_attributes(&source_path, &metadata)?;
         ensure_windows_no_named_streams(&source_path)?;
         let is_directory = metadata.is_dir();
         if !is_directory && !metadata.is_file() {
@@ -1594,13 +1629,13 @@ fn retire_directory_entries_verified(
         let source_child =
             open_windows_child_for_tree(location.source_parent_handle, &name, is_directory, true)?;
         let source_child_info = windows_handle_entry_info(&source_child)?;
-        if source_child_info.is_reparse || source_child_info.is_directory != is_directory {
+        if source_child_info.unsupported_reparse || source_child_info.is_directory != is_directory {
             return Err(AtomicMoveError::ReparsePoint);
         }
         let target_child =
             open_windows_child_for_tree(location.target_parent_handle, &name, is_directory, false)?;
         let target_child_info = windows_handle_entry_info(&target_child)?;
-        if target_child_info.is_reparse || target_child_info.is_directory != is_directory {
+        if target_child_info.unsupported_reparse || target_child_info.is_directory != is_directory {
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
         if is_directory {
@@ -1652,7 +1687,7 @@ fn retire_directory_entries_verified(
 #[cfg(windows)]
 struct WindowsHandleEntryInfo {
     is_directory: bool,
-    is_reparse: bool,
+    unsupported_reparse: bool,
     identity: super::verified_directory::DirectoryIdentity,
 }
 
@@ -1661,7 +1696,6 @@ fn windows_handle_entry_info(handle: &File) -> Result<WindowsHandleEntryInfo, At
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
-        FILE_ATTRIBUTE_REPARSE_POINT,
     };
     let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
     if unsafe { GetFileInformationByHandle(handle.as_raw_handle(), &mut info) } == 0 {
@@ -1669,7 +1703,8 @@ fn windows_handle_entry_info(handle: &File) -> Result<WindowsHandleEntryInfo, At
     }
     Ok(WindowsHandleEntryInfo {
         is_directory: info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0,
-        is_reparse: info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0,
+        unsupported_reparse: cloud_metadata::unsupported_reparse_handle(handle)
+            .map_err(AtomicMoveError::Io)?,
         identity: super::verified_directory::DirectoryIdentity {
             volume_id: info.dwVolumeSerialNumber.to_string(),
             file_id: (u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow))
@@ -1683,7 +1718,7 @@ fn windows_handle_directory_identity(
     handle: &File,
 ) -> Result<super::verified_directory::DirectoryIdentity, AtomicMoveError> {
     let info = windows_handle_entry_info(handle)?;
-    if !info.is_directory || info.is_reparse {
+    if !info.is_directory || info.unsupported_reparse {
         return Err(AtomicMoveError::ReparsePoint);
     }
     Ok(info.identity)
@@ -1817,7 +1852,7 @@ fn open_windows_child_for_tree(
     }
     let handle = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
     let info = windows_handle_entry_info(&handle)?;
-    if info.is_reparse || info.is_directory != is_directory {
+    if info.unsupported_reparse || info.is_directory != is_directory {
         return Err(AtomicMoveError::ReparsePoint);
     }
     Ok(handle)
@@ -1835,7 +1870,9 @@ fn ensure_windows_no_named_streams(path: &std::path::Path) -> Result<(), AtomicM
         },
     };
     let metadata = fs::symlink_metadata(path).map_err(AtomicMoveError::Io)?;
-    if metadata_is_reparse_point(&metadata) || !(metadata.is_file() || metadata.is_dir()) {
+    if cloud_metadata::unsupported_reparse(path, &metadata)
+        || !(metadata.is_file() || metadata.is_dir())
+    {
         return Err(AtomicMoveError::ReparsePoint);
     }
     let wide = source_claim::windows_wide_path(path);
@@ -2004,6 +2041,8 @@ fn copy_file_from_claim(
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     let mut reader = claim.open_read().map_err(map_claim_error)?;
+    #[cfg(windows)]
+    cloud_metadata::ensure_transfer_content(&reader).map_err(AtomicMoveError::Io)?;
     let source_metadata = reader.metadata().map_err(AtomicMoveError::Io)?;
     let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
     let mut hasher = blake3::Hasher::new();

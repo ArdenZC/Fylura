@@ -2,7 +2,7 @@
 //! module neither reads content nor admits indexing or filesystem operations.
 use super::{runtime::FileWorkspaceRuntime, types::BrowseLaunchRequest};
 use crate::file_workspace::browse::BrowseEntryKind;
-use crate::fs_safety::{capture_source_object_identity, PhysicalFileIdentity};
+use crate::fs_safety::{capture_browse_identity, PhysicalFileIdentity};
 use std::path::PathBuf;
 
 impl FileWorkspaceRuntime {
@@ -20,7 +20,7 @@ impl FileWorkspaceRuntime {
         if entry.kind != BrowseEntryKind::File {
             return Err("workspace_launch_not_file".into());
         }
-        let identity = capture_source_object_identity(&entry.path)
+        let identity = capture_browse_identity(&entry.path)
             .map_err(|_| "workspace_launch_entry_unavailable".to_string())?;
         if !std::fs::symlink_metadata(&entry.path)
             .map_err(|_| "workspace_launch_entry_unavailable".to_string())?

@@ -19,6 +19,7 @@ pub(crate) mod preview_providers;
 pub(crate) mod preview_publication;
 pub(crate) mod preview_structured;
 pub mod read_gate;
+pub(crate) mod source_availability;
 pub mod thumbnail;
 
 pub(crate) mod browse;

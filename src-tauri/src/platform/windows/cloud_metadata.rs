@@ -31,6 +31,10 @@ pub fn reparse_tag(path: &Path) -> io::Result<u32> {
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
         )
         .open(path)?;
+    handle_tag(&file)
+}
+
+pub fn handle_tag(file: &fs::File) -> io::Result<u32> {
     let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
     if unsafe {
         GetFileInformationByHandleEx(
@@ -46,6 +50,20 @@ pub fn reparse_tag(path: &Path) -> io::Result<u32> {
     Ok(info.ReparseTag)
 }
 
+/// Known Cloud Files objects do not redirect names. Symlinks, junctions,
+/// unknown provider tags and a failed native probe remain unsupported.
+pub fn unsupported_reparse(path: &Path, metadata: &fs::Metadata) -> bool {
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        && !reparse_tag(path).is_ok_and(is_cloud_tag)
+}
+
+pub fn unsupported_reparse_handle(file: &fs::File) -> io::Result<bool> {
+    Ok(
+        file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            && !is_cloud_tag(handle_tag(file)?),
+    )
+}
+
 pub fn metadata_needs_download(metadata: &fs::Metadata) -> bool {
     needs_download(metadata.file_attributes())
 }
@@ -54,7 +72,36 @@ pub fn metadata_needs_download(metadata: &fs::Metadata) -> bool {
 /// not grant byte access or materialization consent. Check the opened handle
 /// again before returning a reader to Preview, content analysis or hashing.
 pub fn open_local_content(path: &Path) -> io::Result<fs::File> {
-    fn check(metadata: &fs::Metadata) -> io::Result<()> {
+    open_cached_content(path, false)
+}
+
+/// Explicit file-operation content access only. The copy engine can consume
+/// a locally cached Cloud Files data stream, never a cloud reparse payload.
+/// Pinning/sparse layout is provider state, not permission to recall bytes.
+pub fn open_transfer_content(path: &Path) -> io::Result<fs::File> {
+    open_cached_content(path, true)
+}
+
+pub fn ensure_transfer_content(file: &fs::File) -> io::Result<()> {
+    let metadata = file.metadata()?;
+    if metadata_needs_download(&metadata) {
+        return Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "cloud_file_requires_download",
+        ));
+    }
+    if !metadata.is_file() || metadata.file_type().is_symlink() || unsupported_reparse_handle(file)?
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "cloud_or_link_content_not_supported",
+        ));
+    }
+    Ok(())
+}
+
+fn open_cached_content(path: &Path, allow_cloud: bool) -> io::Result<fs::File> {
+    fn check(metadata: &fs::Metadata, safe_cloud: bool) -> io::Result<()> {
         if metadata_needs_download(metadata) {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -63,7 +110,7 @@ pub fn open_local_content(path: &Path) -> io::Result<fs::File> {
         }
         if !metadata.is_file()
             || metadata.file_type().is_symlink()
-            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 && !safe_cloud
         {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -72,12 +119,17 @@ pub fn open_local_content(path: &Path) -> io::Result<fs::File> {
         }
         Ok(())
     }
-    check(&fs::symlink_metadata(path)?)?;
+    let metadata = fs::symlink_metadata(path)?;
+    let safe_cloud = allow_cloud && !unsupported_reparse(path, &metadata);
+    check(&metadata, safe_cloud)?;
     let file = fs::OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL)
         .open(path)?;
-    check(&file.metadata()?)?;
+    check(
+        &file.metadata()?,
+        allow_cloud && !unsupported_reparse_handle(&file)?,
+    )?;
     Ok(file)
 }
 

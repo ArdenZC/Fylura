@@ -67,7 +67,9 @@ pub fn capture_physical_identity(
 pub fn capture_source_object_identity(
     path: &Path,
 ) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
-    capture_identity(path, true, false)
+    // Namespace metadata for a known non-redirecting Cloud Files object is
+    // valid identity evidence; byte-read eligibility remains separate.
+    capture_identity(path, true, true)
 }
 
 /// Read-only Browse/explicit OS-launch identity. Known Cloud Files tags are

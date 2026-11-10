@@ -59,3 +59,14 @@ it("coalesces removal and refresh so an older poll cannot republish an ejected d
   expect(load).toHaveBeenCalledTimes(2);
   expect(projection.getSnapshot().locations[0].available).toBe(false);
 });
+
+it("retains mounted cloud folders and their permission state without requesting accounts or content", async () => {
+  const cloud: KnownLocation = { id: "cloud:one", kind: "cloud_provider", path: "C:/Users/test/OneDrive", displayName: "OneDrive", available: false,
+    volume: { identity: null, kind: "cloud_provider", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "permission_required" } };
+  const load = vi.fn().mockResolvedValueOnce([cloud]).mockResolvedValueOnce([{ ...cloud, available: true, volume: { ...cloud.volume!, availability: "available" } }]);
+  const projection = new MountedLocationProjection(load);
+  await projection.refresh();
+  expect(projection.getSnapshot().locations).toEqual([cloud]);
+  await projection.refresh();
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ id: cloud.id, available: true, volume: { canEject: false, availability: "available" } });
+});

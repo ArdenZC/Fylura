@@ -239,7 +239,7 @@ pub fn ensure_supported_entry(path: &Path) -> Result<(), IdentityError> {
             IdentityError::Io(error)
         }
     })?;
-    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+    if metadata.file_type().is_symlink() || is_reparse_point(path, &metadata) {
         return Err(IdentityError::Symlink);
     }
     if !metadata.is_file() && !metadata.is_dir() {
@@ -263,7 +263,7 @@ fn hash_file(
     #[cfg(not(target_os = "macos"))]
     {
         #[cfg(windows)]
-        let file = crate::platform::windows::cloud_metadata::open_local_content(path)?;
+        let file = crate::platform::windows::cloud_metadata::open_transfer_content(path)?;
         #[cfg(not(windows))]
         let file = File::open(path)?;
         hash_file_reader(file, size, cancel)
@@ -393,6 +393,7 @@ pub(crate) fn capture_identity_from_handle(
         let (size, sample_hash, full_hash) = if is_directory {
             hash_directory(path_hint, cancel)?
         } else {
+            crate::platform::windows::cloud_metadata::ensure_transfer_content(handle)?;
             let size = (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow);
             hash_file_reader(handle.try_clone()?, size, cancel)?
         };
@@ -987,14 +988,12 @@ fn windows_file_identity(path: &Path) -> Option<(String, String)> {
 }
 
 #[cfg(windows)]
-fn is_reparse_point(metadata: &fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+fn is_reparse_point(path: &Path, metadata: &fs::Metadata) -> bool {
+    crate::platform::windows::cloud_metadata::unsupported_reparse(path, metadata)
 }
 
 #[cfg(not(windows))]
-fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
+fn is_reparse_point(_path: &Path, _metadata: &fs::Metadata) -> bool {
     false
 }
 

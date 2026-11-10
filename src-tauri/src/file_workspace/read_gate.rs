@@ -994,11 +994,35 @@ impl MaterializationReadGate {
             .map_err(map_context_error_to_preview_access)
             .map_err(VerifiedCopyError::Access)?;
         lease_check().map_err(VerifiedCopyError::Access)?;
-        let after_read = self
-            .resolve_eligible(source)
+
+        // Revalidate the already-resolved path and opened handle without
+        // resolving the opaque source a second time. Streamed preview staging
+        // intentionally consumes one fresh source resolution for the copy;
+        // the path identity and provider state still need a post-read check.
+        let after_read_eligibility = self.classify_source(&current.path);
+        if after_read_eligibility != ContentReadEligibility::Eligible {
+            return Err(VerifiedCopyError::Access(map_gate_error_to_preview_access(
+                map_eligibility_to_error(after_read_eligibility),
+            )));
+        }
+        #[cfg(windows)]
+        crate::platform::windows::cloud_metadata::ensure_local_content(&file)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::WouldBlock {
+                    PreviewReadAccessError::MaterializationRequired
+                } else {
+                    map_content_read_to_preview_access(map_io_error_to_access(error))
+                }
+            })
+            .map_err(VerifiedCopyError::Access)?;
+        let after_read_identity = capture_physical_identity(&current.path)
+            .map_err(map_identity_error)
             .map_err(map_gate_error_to_preview_access)
             .map_err(VerifiedCopyError::Access)?;
-        if after_read.source_version != expected_source_version
+        if source_version_for_identity(&after_read_identity)
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?
+            != expected_source_version
             || !opened_file_matches(&file, &current.identity)
                 .map_err(map_open_error_to_access)
                 .map_err(map_content_read_to_preview_access)

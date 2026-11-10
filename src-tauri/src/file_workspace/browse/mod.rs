@@ -2227,6 +2227,7 @@ mod tests {
     #[test]
     fn storage_removal_snapshot_includes_nested_browse_paths_without_probing_them() {
         let fixture = Fixture::new();
+        fs::create_dir(fixture.root.join("nested")).unwrap();
         let service = service(BrowseLimits::default());
         let session = service.start_session(fixture.directory()).unwrap();
         let page = service

@@ -2,6 +2,8 @@
 
 #[path = "support/native_copy_resources.rs"]
 mod native_copy_resources;
+#[path = "support/native_copy_target.rs"]
+mod native_copy_target;
 
 use native_copy_resources::NativeProcessMonitor;
 
@@ -468,8 +470,15 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         sparse_start.elapsed().as_millis()
     );
 
+    // Sparse-clone qualification above remains on the local APFS source.
+    // Portable streaming/directory comparisons below may use a mounted target.
+    let storage_target = native_copy_target::NativeCopyTarget::configured(&root);
+    let copy_destination_root = storage_target
+        .as_ref()
+        .map(|target| target.path())
+        .unwrap_or(&root);
     let threshold_source = root.join("directory-5000");
-    let threshold_target_parent = root.join("directory-5000-destination");
+    let threshold_target_parent = copy_destination_root.join("directory-5000-destination");
     fs::create_dir_all(&threshold_source).expect("5,000-entry source");
     fs::create_dir_all(&threshold_target_parent).expect("5,000-entry destination");
     for index in 0..5_000_u32 {
@@ -479,11 +488,36 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         )
         .expect("5,000-entry fixture");
     }
+    // Same fixture/engine with only the historical redundant metadata write
+    // toggled. Keep the streaming path and all verification/sync work equal.
+    fylura_tauri::platform::macos::copy::set_directory_tree_clone_enabled_for_qa(false);
+    fylura_tauri::platform::macos::copy::set_directory_tree_duplicate_metadata_for_qa(true);
+    let legacy_parent = copy_destination_root.join("directory-5000-legacy-metadata");
+    fs::create_dir(&legacy_parent).unwrap();
+    let legacy_start = Instant::now();
+    let legacy_result = execute_native_transfer_copy(&db, &threshold_source, &legacy_parent);
+    let legacy_elapsed = legacy_start.elapsed().as_millis();
+    assert_eq!(legacy_result.logs[0].status, "success");
+    fylura_tauri::platform::macos::copy::set_directory_tree_duplicate_metadata_for_qa(false);
     let threshold_5000_start = Instant::now();
     let threshold_5000_result =
         execute_native_transfer_copy(&db, &threshold_source, &threshold_target_parent);
     let threshold_5000_elapsed = threshold_5000_start.elapsed().as_millis();
     assert_eq!(threshold_5000_result.logs[0].status, "success");
+    for index in 0..5_000_u32 {
+        assert_eq!(
+            fs::read(
+                legacy_parent
+                    .join("directory-5000")
+                    .join(format!("entry-{index:05}.bin"))
+            )
+            .unwrap(),
+            index.to_le_bytes()
+        );
+    }
+    println!("macOS native performance streamedMetadata5000 legacyElapsedMs={legacy_elapsed} optimizedElapsedMs={threshold_5000_elapsed} order=legacy_then_optimized runsPerVariant=1 cache=uncontrolled contentVerified=true journalCompleted=true syncPreserved=true");
+    fylura_tauri::platform::macos::copy::set_directory_tree_clone_enabled_for_qa(true);
+
     let threshold_5000_target = threshold_target_parent.join("directory-5000");
     assert_eq!(
         fs::read_dir(&threshold_5000_target)
@@ -520,7 +554,7 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     assert_eq!(forward_identity.size, reverse_identity.size);
     assert_eq!(forward_identity.sample_hash, reverse_identity.sample_hash);
     assert_eq!(forward_identity.full_hash, reverse_identity.full_hash);
-    let threshold_5001_parent = root.join("directory-5001-destination");
+    let threshold_5001_parent = copy_destination_root.join("directory-5001-destination");
     fs::create_dir_all(&threshold_5001_parent).expect("5,001-entry destination");
     let threshold_5001_start = Instant::now();
     let threshold_5001_result =
@@ -543,8 +577,8 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
     }
 
     let directory_source = root.join("directory-100k");
-    let streaming_destination = root.join("directory-100k-destination-streaming");
-    let clone_destination = root.join("directory-100k-destination-clone");
+    let streaming_destination = copy_destination_root.join("directory-100k-destination-streaming");
+    let clone_destination = copy_destination_root.join("directory-100k-destination-clone");
     fs::create_dir_all(&streaming_destination).expect("streaming copy destination");
     fs::create_dir_all(&clone_destination).expect("clone copy destination");
     let streaming_target = streaming_destination.join("directory-100k");
@@ -627,7 +661,14 @@ fn macos_native_full_copy_profile_reports_sparse_clone_and_large_directory_perfo
         fylura_tauri::platform::macos::copy::directory_tree_clone_metrics();
     let clone_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
     assert!(streaming_read_bytes >= 256 * 1024 * 1024);
-    assert!(clone_successes > 0, "APFS clone path was not exercised");
+    if storage_target.is_none() {
+        assert!(clone_successes > 0, "APFS clone path was not exercised");
+    } else {
+        assert!(
+            clone_successes + clone_fallbacks > 0,
+            "selected target must exercise clone or verified streaming fallback"
+        );
+    }
 
     let validation_start = Instant::now();
     let source_identity = fylura_tauri::fs_safety::capture_identity(&directory_source, None)

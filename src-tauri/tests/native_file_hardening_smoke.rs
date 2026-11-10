@@ -4,6 +4,8 @@
 mod cloud_files_fixture;
 #[path = "support/native_copy_resources.rs"]
 mod native_copy_resources;
+#[path = "support/native_copy_target.rs"]
+mod native_copy_target;
 
 use native_copy_resources::NativeProcessMonitor;
 
@@ -2084,10 +2086,15 @@ fn native_file_hardening_smoke() {
     if env::var("ZC_WINDOWS_NATIVE_COPY_PROFILE").as_deref() == Ok("1") {
         let copy_root = source_volume.join(format!("copy-performance-{run_id}"));
         fs::create_dir_all(&copy_root).expect("create isolated Windows copy profile root");
+        let storage_target = native_copy_target::NativeCopyTarget::configured(&copy_root);
+        let copy_destination_root = storage_target
+            .as_ref()
+            .map(|target| target.path())
+            .unwrap_or(&copy_root);
         let copy_bytes = 1024_u64 * 1024 * 1024;
         let copy_source = copy_root.join("copy-performance-1g.bin");
-        let legacy_destination = copy_root.join("copy-performance-redundant-flush");
-        let optimized_destination = copy_root.join("copy-performance-single-flush");
+        let legacy_destination = copy_destination_root.join("copy-performance-redundant-flush");
+        let optimized_destination = copy_destination_root.join("copy-performance-single-flush");
         fs::create_dir_all(&legacy_destination).expect("create legacy Copy destination");
         fs::create_dir_all(&optimized_destination).expect("create optimized Copy destination");
         let legacy_target = legacy_destination.join("copy-performance-1g.bin");
@@ -2158,7 +2165,7 @@ fn native_file_hardening_smoke() {
         assert!(copy_source.is_file(), "Copy must retain its source");
         fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(false);
 
-        let robocopy_target = copy_root.join("robocopy-file-copy");
+        let robocopy_target = copy_destination_root.join("robocopy-file-copy");
         fs::create_dir_all(&robocopy_target).expect("create Robocopy file target");
         let robocopy_start = std::time::Instant::now();
         let robocopy_output = std::process::Command::new("robocopy.exe")
@@ -2229,9 +2236,10 @@ fn native_file_hardening_smoke() {
         );
 
         let directory_source = copy_root.join("directory-100k");
-        let legacy_directory_destination = copy_root.join("directory-100k-legacy-destination");
+        let legacy_directory_destination =
+            copy_destination_root.join("directory-100k-legacy-destination");
         let optimized_directory_destination =
-            copy_root.join("directory-100k-optimized-destination");
+            copy_destination_root.join("directory-100k-optimized-destination");
         let legacy_directory_target = legacy_directory_destination.join("directory-100k");
         let optimized_directory_target = optimized_directory_destination.join("directory-100k");
         fs::create_dir_all(&legacy_directory_destination)
@@ -2325,7 +2333,7 @@ fn native_file_hardening_smoke() {
             "directory Copy must retain source"
         );
 
-        let robocopy_directory_target = copy_root.join("directory-100k-robocopy");
+        let robocopy_directory_target = copy_destination_root.join("directory-100k-robocopy");
         let robocopy_directory_start = std::time::Instant::now();
         let robocopy_directory_output = std::process::Command::new("robocopy.exe")
             .arg(&directory_source)

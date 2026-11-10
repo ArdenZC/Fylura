@@ -153,3 +153,5 @@ File Library 2.0 and the Zen Preview Platform are completed **technical foundati
 Release/Hardening work remains a later governance step and must not be inferred as active merely because native product surfaces are recorded here; `STATUS.md` and `ROADMAP.md` own current sequencing truth.
 
 Files connected storage (#553) now projects mounted network/cloud availability and local placeholder state without account integration or automatic hydration. Fully cached Windows Cloud Files operations use existing Transfer verification; automatic content readers remain conservative. Real provider-client and SMB/device acceptance remains UNVERIFIED in #487; local task success does not establish remote sync completion.
+
+Files copy profiling reuses native #552 fixtures with optional controlled USB/SSD/HDD/SD/SMB/cloud-client destinations. The macOS streaming copy removes a redundant second metadata write while preserving the original metadata verification and sync. Hardware and remote-client performance require actual mounted-target measurements; hosted local filesystem numbers are not substitutes.

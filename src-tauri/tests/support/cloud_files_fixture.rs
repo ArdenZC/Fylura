@@ -137,6 +137,10 @@ pub fn verify_cached_copy(db: &Database, source_parent: &Path, target_parent: &P
         0,
         "fixture must be fully cached"
     );
+    assert!(
+        fylura_tauri::platform::windows::cloud_metadata::open_local_content(&source).is_err(),
+        "automatic content readers must not accept a provider reparse object"
+    );
     let destination = target_parent.join("native-cloud-copy-target");
     fs::create_dir(&destination).expect("create copy target");
     let operation =
@@ -195,8 +199,8 @@ pub fn verify_cached_copy(db: &Database, source_parent: &Path, target_parent: &P
     );
 
     // Same-volume move/restore exercises cached provider namespace changes.
-    // Cross-device provider retirement and real client sync stay separately
-    // UNVERIFIED unless their controlled native fixtures are available.
+    // The following second move also exercises cross-device retirement;
+    // real client sync remains separately UNVERIFIED.
     let moved_parent = source_parent.join("native-cloud-move-target");
     fs::create_dir(&moved_parent).unwrap();
     let operation =
@@ -214,6 +218,27 @@ pub fn verify_cached_copy(db: &Database, source_parent: &Path, target_parent: &P
         restore_moves_with_persistence(db, RestoreMovesRequest { logs: result.logs }).unwrap();
     assert_eq!(restored.restored, 1);
     assert_eq!(fs::read(&source).unwrap(), payload);
-    println!("Windows Cloud Files cached Copy/Move=PASS incomingCopy=true sourceRetained=true contentVerified=true journalCompleted=true restore=true remoteClient=UNVERIFIED");
+    let cross_parent = target_parent.join("native-cloud-cross-move-target");
+    fs::create_dir(&cross_parent).unwrap();
+    let operation = native_qa_transfer_move_preview(&source, &cross_parent)
+        .expect("cached cloud cross-volume Move preview");
+    let result = execute_moves_with_persistence(
+        db,
+        ExecuteMovesRequest {
+            operations: vec![operation],
+        },
+    )
+    .unwrap();
+    assert_eq!(result.logs[0].status, "success", "{:?}", result.logs);
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read(cross_parent.join("cached-cloud-file.txt")).unwrap(),
+        payload
+    );
+    let restored =
+        restore_moves_with_persistence(db, RestoreMovesRequest { logs: result.logs }).unwrap();
+    assert_eq!(restored.restored, 1);
+    assert_eq!(fs::read(&source).unwrap(), payload);
+    println!("Windows Cloud Files cached Copy/Move=PASS incomingCopy=true sourceRetained=true contentVerified=true journalCompleted=true restore=true crossVolumeMoveRestore=true automaticReadBlocked=true remoteClient=UNVERIFIED");
     drop(owner);
 }

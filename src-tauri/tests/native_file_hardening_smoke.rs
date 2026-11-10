@@ -1,5 +1,7 @@
 #![cfg(all(feature = "native-qa", windows))]
 
+#[path = "support/cloud_files_fixture.rs"]
+mod cloud_files_fixture;
 #[path = "support/native_copy_resources.rs"]
 mod native_copy_resources;
 #[path = "support/native_copy_target.rs"]
@@ -1021,6 +1023,7 @@ fn native_file_hardening_smoke() {
     );
     assert!(same_directory_target.join("nested").join("empty").is_dir());
 
+    cloud_files_fixture::verify_cached_copy(&db, &source_volume, &target_volume);
     let same_move_parent = source_volume.join("ordinary-move-destination");
     fs::create_dir_all(&same_move_parent).expect("same-volume Move destination parent");
     let same_move_file_source = source_volume.join("ordinary-move-source.txt");

@@ -1,4 +1,4 @@
-import { Unplug, HardDrive, Network } from "lucide-react";
+import { Cloud, Unplug, HardDrive, Network } from "lucide-react";
 import type { KnownLocation } from "../../../api/fileManagementApi";
 import type { Translator } from "../../../types/ui";
 import { formatBytes } from "../../../utils/format";
@@ -16,13 +16,13 @@ export function MountedVolumeList({ mounted, onOpen, t }: {
   return <>
     {mounted.ejectError ? <p role="status" className="file-library-navigation-muted">{t(errorKey)}</p> : null}
     {mounted.locations.map((location) => {
-      const Icon = location.volume?.kind === "network" ? Network : HardDrive;
+      const Icon = location.kind === "cloud_provider" ? Cloud : location.volume?.kind === "network" ? Network : HardDrive;
       return <div key={location.id} className="flex min-w-0 items-center gap-1">
         <button type="button" className="file-library-navigation-item min-w-0 flex-1"
           disabled={!location.available || mounted.ejectingId === location.id} title={location.path} onClick={() => onOpen(location)}>
           <Icon size={16} aria-hidden="true" />
           <span className="min-w-0 truncate">{location.displayName || location.path}
-            <small className="block truncate text-muted-foreground">{!location.available ? t("filesDeviceDisconnected")
+            <small className="block truncate text-muted-foreground">{!location.available ? t(location.volume?.availability === "permission_required" ? "filesLocationPermission" : location.volume?.availability === "unknown" ? "filesLocationUnknown" : "filesDeviceDisconnected")
               : [location.volume?.readOnly ? t("filesVolumeReadOnly") : null,
                 location.volume?.availableBytes != null ? `${formatBytes(location.volume.availableBytes)} ${t("filesSpaceAvailable")}` : null].filter(Boolean).join(" · ")}</small>
           </span>

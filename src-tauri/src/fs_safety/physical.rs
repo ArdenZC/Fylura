@@ -58,7 +58,7 @@ pub enum PhysicalIdentityError {
 pub fn capture_physical_identity(
     path: &Path,
 ) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
-    capture_identity(path, false)
+    capture_identity(path, false, false)
 }
 
 /// Captures a native object identity for a regular file or directory without
@@ -67,12 +67,24 @@ pub fn capture_physical_identity(
 pub fn capture_source_object_identity(
     path: &Path,
 ) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
-    capture_identity(path, true)
+    // Namespace metadata for a known non-redirecting Cloud Files object is
+    // valid identity evidence; byte-read eligibility remains separate.
+    capture_identity(path, true, true)
+}
+
+/// Read-only Browse/explicit OS-launch identity. Known Cloud Files tags are
+/// non-name-surrogate metadata objects, not links. This grants no byte-read,
+/// mutation, scan or provider-materialization capability.
+pub(crate) fn capture_browse_identity(
+    path: &Path,
+) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
+    capture_identity(path, true, true)
 }
 
 fn capture_identity(
     path: &Path,
     allow_directory: bool,
+    allow_cloud_metadata: bool,
 ) -> Result<PhysicalFileIdentity, PhysicalIdentityError> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
@@ -81,7 +93,15 @@ fn capture_identity(
             PhysicalIdentityError::Io(error)
         }
     })?;
-    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+    #[cfg(windows)]
+    let cloud_metadata = allow_cloud_metadata
+        && is_reparse_point(&metadata)
+        && crate::platform::windows::cloud_metadata::reparse_tag(path)
+            .is_ok_and(crate::platform::windows::cloud_metadata::is_cloud_tag);
+    #[cfg(not(windows))]
+    let cloud_metadata = false;
+    let _ = allow_cloud_metadata;
+    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) && !cloud_metadata {
         return Err(PhysicalIdentityError::UnsupportedLink);
     }
     if !metadata.is_file() && !(allow_directory && metadata.is_dir()) {
@@ -181,12 +201,14 @@ fn platform_identity(
     use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
     };
 
     let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .custom_flags(
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
+        )
         .open(path);
     let Ok(file) = file else {
         return (PhysicalPlatform::Windows, None, None, None);

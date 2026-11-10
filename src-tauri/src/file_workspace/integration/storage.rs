@@ -12,6 +12,7 @@ pub struct VolumeState {
     pub available_bytes: Option<u64>,
     pub total_bytes: Option<u64>,
     pub can_eject: bool,
+    pub availability: &'static str,
 }
 
 impl Default for VolumeState {
@@ -23,6 +24,7 @@ impl Default for VolumeState {
             available_bytes: None,
             total_bytes: None,
             can_eject: false,
+            availability: "unknown",
         }
     }
 }
@@ -37,7 +39,30 @@ pub(crate) fn inspect(path: &Path, removal: bool) -> VolumeState {
     let mut state = native::inspect(path, removal);
     state.identity = root_identity(path);
     state.can_eject &= state.identity.is_some();
+    state.availability = match std::fs::symlink_metadata(path) {
+        Ok(_) => "available",
+        Err(error) => unavailable_reason(&error),
+    };
     state
+}
+
+fn unavailable_reason(error: &std::io::Error) -> &'static str {
+    use std::io::ErrorKind;
+    #[cfg(windows)]
+    match error.raw_os_error() {
+        Some(5 | 65 | 86 | 1219 | 1326) => return "permission_required",
+        Some(53 | 64 | 67 | 121 | 1201 | 1231 | 1232 | 1236 | 2250) => return "offline",
+        _ => {}
+    }
+    match error.kind() {
+        ErrorKind::PermissionDenied => "permission_required",
+        ErrorKind::NotFound
+        | ErrorKind::NotConnected
+        | ErrorKind::ConnectionAborted
+        | ErrorKind::ConnectionReset
+        | ErrorKind::TimedOut => "offline",
+        _ => "unknown",
+    }
 }
 
 #[derive(Deserialize)]

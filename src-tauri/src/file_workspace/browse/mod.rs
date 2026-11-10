@@ -9,7 +9,7 @@
 use super::{
     BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, LocationRef, MaterializationState,
 };
-use crate::fs_safety::{capture_source_object_identity, PhysicalFileIdentity};
+use crate::fs_safety::{capture_browse_identity, PhysicalFileIdentity};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, DirEntry, ReadDir};
@@ -367,7 +367,7 @@ impl BrowseService {
         &self,
         directory: BackendResolvedDirectory,
     ) -> Result<BrowseSessionInfo, BrowseError> {
-        let root_identity = capture_source_object_identity(directory.as_path()).ok();
+        let root_identity = capture_browse_identity(directory.as_path()).ok();
         let mut sessions = self
             .sessions
             .lock()
@@ -500,7 +500,7 @@ impl BrowseService {
         };
         validate_directory_path(&path)?;
         let current =
-            capture_source_object_identity(&path).map_err(|_| BrowseError::DirectoryUnavailable)?;
+            capture_browse_identity(&path).map_err(|_| BrowseError::DirectoryUnavailable)?;
         if expected.physical_key.is_none()
             || current.physical_key != expected.physical_key
             || current.created_ns != expected.created_ns
@@ -1122,7 +1122,7 @@ impl BrowseService {
                 size: pending.size,
                 modified_at: pending.modified_at,
                 created_at: pending.created_at,
-                materialization: MaterializationState::Unknown,
+                materialization: pending.materialization,
             });
         }
 
@@ -1435,6 +1435,7 @@ struct PendingEntry {
     size: Option<u64>,
     modified_at: Option<i64>,
     created_at: Option<i64>,
+    materialization: MaterializationState,
 }
 
 fn read_entries(
@@ -1581,6 +1582,7 @@ fn read_entry(entry: DirEntry) -> Result<PendingEntry, BrowseError> {
     };
 
     Ok(PendingEntry {
+        materialization: super::source_availability::from_metadata(&path, &metadata),
         name: entry.file_name().to_string_lossy().into_owned(),
         display_path: path.to_string_lossy().into_owned(),
         extension: path
@@ -1770,28 +1772,7 @@ fn classify_windows_reparse_tag(tag: u32) -> LinkLike {
 
 #[cfg(windows)]
 fn windows_reparse_tag(path: &Path) -> Option<u32> {
-    use std::fs::OpenOptions;
-    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
-    use windows_sys::Win32::Storage::FileSystem::{
-        FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_TAG_INFO,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    };
-
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(path)
-        .ok()?;
-    let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
-    let success = unsafe {
-        GetFileInformationByHandleEx(
-            file.as_raw_handle(),
-            FileAttributeTagInfo,
-            (&mut info as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
-            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
-        )
-    };
-    (success != 0).then_some(info.ReparseTag)
+    crate::platform::windows::cloud_metadata::reparse_tag(path).ok()
 }
 
 #[cfg(not(windows))]

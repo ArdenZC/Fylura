@@ -760,12 +760,18 @@ pub fn claim_source_at(
             SourceClaimError::Io(error)
         }
     })?;
+    #[cfg(windows)]
+    if crate::platform::windows::cloud_metadata::metadata_needs_download(&source_metadata) {
+        return Err(SourceClaimError::ClaimFailed(
+            "cloud_file_requires_download".into(),
+        ));
+    }
     #[cfg(not(target_os = "macos"))]
-    if source_metadata.file_type().is_symlink() || is_reparse_point(&source_metadata) {
+    if source_metadata.file_type().is_symlink() || is_reparse_point(source, &source_metadata) {
         return Err(SourceClaimError::ReparsePoint);
     }
     #[cfg(target_os = "macos")]
-    if is_reparse_point(&source_metadata) {
+    if is_reparse_point(source, &source_metadata) {
         return Err(SourceClaimError::ReparsePoint);
     }
     let kind = if source_metadata.file_type().is_symlink() {
@@ -1110,13 +1116,14 @@ pub(crate) fn open_source_handle(
     use windows_sys::Win32::{
         Foundation::{GetLastError, INVALID_HANDLE_VALUE},
         Storage::FileSystem::{
-            CreateFileW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, OPEN_EXISTING, SYNCHRONIZE,
+            CreateFileW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, SYNCHRONIZE,
         },
     };
     let wide = windows_wide_path(path);
     let flags = FILE_FLAG_OPEN_REPARSE_POINT
+        | FILE_FLAG_OPEN_NO_RECALL
         | if matches!(kind, ClaimedEntryKind::Directory) {
             FILE_FLAG_BACKUP_SEMANTICS
         } else {
@@ -1880,14 +1887,12 @@ fn delete_claim_handle(
 }
 
 #[cfg(windows)]
-fn is_reparse_point(metadata: &fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+fn is_reparse_point(path: &Path, metadata: &fs::Metadata) -> bool {
+    crate::platform::windows::cloud_metadata::unsupported_reparse(path, metadata)
 }
 
 #[cfg(not(windows))]
-fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
+fn is_reparse_point(_path: &Path, _metadata: &fs::Metadata) -> bool {
     false
 }
 

@@ -160,6 +160,13 @@ fn native_qa_transfer_preview(
     destination_directory: &Path,
     action: manual_transfer::TransferAction,
 ) -> Result<OperationPreviewRequest, String> {
+    #[cfg(windows)]
+    if matches!(
+        action,
+        manual_transfer::TransferAction::Copy | manual_transfer::TransferAction::Move
+    ) {
+        manual_transfer::ensure_transfer_source_content_ready(source)?;
+    }
     let source = source.canonicalize().map_err(|error| error.to_string())?;
     let destination_directory = destination_directory
         .canonicalize()

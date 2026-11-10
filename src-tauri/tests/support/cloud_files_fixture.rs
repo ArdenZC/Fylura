@@ -344,6 +344,10 @@ pub fn verify_cached_copy(db: &Database, source_parent: &Path, target_parent: &P
             native_qa_transfer_copy_preview(&partial_source, &destination).is_err(),
             "Transfer Preview must not hash or accept a PARTIAL cloud placeholder"
         );
+        assert!(
+            native_qa_transfer_move_preview(&partial_source, &moved_parent).is_err(),
+            "Transfer Preview must not accept a PARTIAL cloud placeholder for Move"
+        );
         println!("Windows Cloud Files PARTIAL/state-change fixture=PASS state={state:#x} transferPreview=blocked transferRead=blocked readPublication=blocked");
     }
     println!("Windows Cloud Files cached Copy/Move=PASS incomingCopy=true sourceRetained=true contentVerified=true journalCompleted=true restore=true crossVolumeMoveRestore=true automaticReadBlocked=true remoteClient=UNVERIFIED");

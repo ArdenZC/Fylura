@@ -787,11 +787,33 @@ impl MaterializationReadGate {
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;
         let mut bytes = Vec::new();
+        #[cfg(windows)]
+        let mut content_reader = file.try_clone().map_err(map_io_error_to_access)?;
+        #[cfg(windows)]
+        crate::platform::windows::cloud_metadata::with_local_content_read(&file, || {
+            content_reader.take(read_limit).read_to_end(&mut bytes)
+        })
+        .map_err(map_io_error_to_access)
+        .map_err(map_content_error)?;
+        #[cfg(not(windows))]
         file.take(read_limit)
             .read_to_end(&mut bytes)
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;
         context.ensure_active().map_err(map_context_error)?;
+
+        let after_read = self
+            .resolve_eligible(&record.source)
+            .map_err(map_gate_error)?;
+        if after_read.source_version != record.source_version
+            || !opened_file_matches(&file, &current.identity)
+                .map_err(map_open_error_to_access)
+                .map_err(map_content_error)?
+        {
+            return Err(map_content_error(
+                ContentReadAccessError::SourceVersionMismatch,
+            ));
+        }
 
         // Release/dispose/expiry during the read revokes publication. The
         // local read may have finished, but no bytes are returned to a caller.
@@ -917,6 +939,21 @@ impl MaterializationReadGate {
 
             let remaining = current.identity.size - copied;
             let read_len = remaining.min(u64::from(bounds.chunk_bytes)) as usize;
+            #[cfg(windows)]
+            let state_handle = file
+                .try_clone()
+                .map_err(map_io_error_to_access)
+                .map_err(map_content_read_to_preview_access)
+                .map_err(VerifiedCopyError::Access)?;
+            #[cfg(windows)]
+            let read = crate::platform::windows::cloud_metadata::with_local_content_read(
+                &state_handle,
+                || file.read(&mut buffer[..read_len]),
+            )
+            .map_err(map_io_error_to_access)
+            .map_err(map_content_read_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+            #[cfg(not(windows))]
             let read = file
                 .read(&mut buffer[..read_len])
                 .map_err(map_io_error_to_access)
@@ -954,6 +991,20 @@ impl MaterializationReadGate {
             .map_err(map_context_error_to_preview_access)
             .map_err(VerifiedCopyError::Access)?;
         lease_check().map_err(VerifiedCopyError::Access)?;
+        let after_read = self
+            .resolve_eligible(source)
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        if after_read.source_version != expected_source_version
+            || !opened_file_matches(&file, &current.identity)
+                .map_err(map_open_error_to_access)
+                .map_err(map_content_read_to_preview_access)
+                .map_err(VerifiedCopyError::Access)?
+        {
+            return Err(VerifiedCopyError::Access(
+                PreviewReadAccessError::SourceVersionMismatch,
+            ));
+        }
         if !self.lease_is_active(lease_guard.lease().lease_id.as_str()) {
             return Err(VerifiedCopyError::Access(
                 PreviewReadAccessError::LeaseInvalid,
@@ -1124,7 +1175,7 @@ fn classify_path(path: &Path) -> ContentReadEligibility {
             return ContentReadEligibility::Symlink;
         }
         #[cfg(windows)]
-        if crate::platform::windows::cloud_metadata::metadata_needs_download(&metadata) {
+        if crate::platform::windows::cloud_metadata::path_needs_download(path, &metadata) {
             return ContentReadEligibility::MaterializationRequired;
         }
         #[cfg(windows)]

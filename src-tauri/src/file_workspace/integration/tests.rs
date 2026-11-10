@@ -108,7 +108,10 @@ fn safe_removal_releases_own_readers_but_keeps_roots_for_a_veto_or_reconnect() {
         .unwrap();
     let entry = &page.entries[0].entry_ref;
     assert!(runtime.inner.browse.resolve_entry(entry).is_ok());
-    runtime.release_volume_readers(&fixture.root).unwrap();
+    let identity = super::storage::root_identity(&fixture.root).expect("volume identity");
+    runtime
+        .release_volume_readers(&fixture.root, &identity)
+        .unwrap();
     assert!(runtime.inner.browse.resolve_entry(entry).is_err());
     assert_eq!(runtime.resource_counts().change_monitors, 0);
     assert!(runtime.has_browse_session(&opened.session_id));

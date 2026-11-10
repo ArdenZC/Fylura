@@ -536,6 +536,38 @@ impl BrowseService {
         Ok(BackendResolvedDirectory { path })
     }
 
+    /// Resolve the backend-owned Browse paths and admission-time root identity
+    /// for storage removal. This deliberately avoids filesystem validation so
+    /// a USB eject does not probe unrelated offline network roots; callers
+    /// compare live device identity before disposing any session.
+    pub(crate) fn paths_for_storage_removal(
+        &self,
+        session_id: &str,
+        root_path_ref: &BrowsePathRef,
+    ) -> Result<(Vec<BackendResolvedDirectory>, Option<PhysicalFileIdentity>), BrowseError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let session = sessions
+            .get(session_id)
+            .ok_or(BrowseError::SessionNotFound)?;
+        if session.root_path_ref.id != root_path_ref.id {
+            return Err(BrowseError::InvalidPathRef);
+        }
+        if !session.paths.contains_key(&root_path_ref.id) {
+            return Err(BrowseError::InvalidPathRef);
+        }
+        let paths = session
+            .paths
+            .values()
+            .map(|stored| BackendResolvedDirectory {
+                path: stored.path.clone(),
+            })
+            .collect();
+        Ok((paths, session.root_identity.clone()))
+    }
+
     pub(crate) fn start_enumeration(
         &self,
         session_id: &str,
@@ -2190,6 +2222,35 @@ mod tests {
         fs::remove_dir(&fixture.root).unwrap();
         fs::rename(original, &fixture.root).unwrap();
         assert!(service.verify_session_root(&session.session_id).is_ok());
+    }
+
+    #[test]
+    fn storage_removal_snapshot_includes_nested_browse_paths_without_probing_them() {
+        let fixture = Fixture::new();
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).unwrap();
+        let page = service
+            .start_enumeration(
+                &session.session_id,
+                "storage-removal-paths",
+                &session.root_path_ref,
+                32,
+            )
+            .unwrap();
+        assert!(page
+            .entries
+            .iter()
+            .any(|entry| entry.name == "nested" && entry.path_ref.is_some()));
+
+        let (paths, _) = service
+            .paths_for_storage_removal(&session.session_id, &session.root_path_ref)
+            .unwrap();
+        let paths = paths
+            .into_iter()
+            .map(|directory| directory.as_path().to_path_buf())
+            .collect::<Vec<_>>();
+        assert!(paths.contains(&fixture.root));
+        assert!(paths.contains(&fixture.root.join("nested")));
     }
 
     #[test]

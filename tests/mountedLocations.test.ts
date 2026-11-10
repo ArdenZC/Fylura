@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { MountedLocationProjection } from "../src/views/fileLibrary/navigation/mountedLocations";
+import { MountedVolumeList } from "../src/views/fileLibrary/navigation/MountedVolumeList";
 import type { KnownLocation } from "../src/api/fileManagementApi";
 import { fileManagementApi } from "../src/api/fileManagementApi";
+import { makeTranslator } from "../src/i18n";
 const usb: KnownLocation = { id: "usb", kind: "volume", path: "E:/", displayName: "USB", available: true };
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 it("shares one foreground discovery request across panes and stops polling after the last pane closes", async () => {
@@ -69,4 +73,48 @@ it("retains mounted cloud folders and their permission state without requesting 
   expect(projection.getSnapshot().locations).toEqual([cloud]);
   await projection.refresh();
   expect(projection.getSnapshot().locations[0]).toMatchObject({ id: cloud.id, available: true, volume: { canEject: false, availability: "available" } });
+});
+
+it("shows connected unlettered SMB shares and preserves disconnect/reconnect feedback", async () => {
+  const smb: KnownLocation = {
+    id: "volume:\\\\nas.example\\documents",
+    kind: "volume",
+    path: "\\\\nas.example\\documents",
+    displayName: "\\\\nas.example\\documents",
+    available: true,
+    volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "available" }
+  };
+  const load = vi.fn().mockResolvedValueOnce([smb]).mockResolvedValueOnce([]).mockResolvedValueOnce([smb]);
+  const projection = new MountedLocationProjection(load);
+  await projection.refresh();
+  expect(projection.getSnapshot().locations).toEqual([smb]);
+  await projection.refresh();
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ path: smb.path, available: false });
+  await projection.refresh();
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ path: smb.path, available: true, volume: { kind: "network", canEject: false } });
+  expect(load).toHaveBeenCalledTimes(3);
+});
+
+it("renders a connected unlettered SMB share as an openable network location", () => {
+  const smb: KnownLocation = {
+    id: "volume:\\\\nas.example\\documents",
+    kind: "volume",
+    path: "\\\\nas.example\\documents",
+    displayName: "\\\\nas.example\\documents",
+    available: true,
+    volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "available" }
+  };
+  const onOpen = vi.fn();
+  const html = renderToString(createElement(MountedVolumeList, {
+    mounted: {
+      locations: [smb], loading: false, failed: false, ejectingId: null, ejectError: null,
+      refresh: async () => undefined, eject: async () => undefined
+    },
+    onOpen,
+    t: makeTranslator("en")
+  }));
+  expect(html).toContain('title="\\\\nas.example\\documents"');
+  expect(html).toContain('aria-hidden="true"');
+  expect(html).not.toContain("disabled=\"\"");
+  expect(onOpen).not.toHaveBeenCalled();
 });

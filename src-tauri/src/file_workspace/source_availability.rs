@@ -8,13 +8,25 @@ pub(crate) fn from_metadata(path: &Path, metadata: &Metadata) -> Materialization
     {
         use crate::platform::windows::cloud_metadata;
         use std::os::windows::fs::MetadataExt;
-        if cloud_metadata::metadata_needs_download(metadata) {
+        if cloud_metadata::needs_download(metadata.file_attributes()) {
             return MaterializationState::RemotePlaceholder;
         }
         if metadata.file_attributes() & 0x400 != 0 {
-            return match cloud_metadata::reparse_tag(path) {
-                Ok(tag) if cloud_metadata::is_cloud_tag(tag) => MaterializationState::Local,
-                _ => MaterializationState::Unknown,
+            let Ok(tag) = cloud_metadata::reparse_tag(path) else {
+                return MaterializationState::Unknown;
+            };
+            if !cloud_metadata::is_cloud_tag(tag) {
+                return MaterializationState::Unknown;
+            }
+            let Ok(state) = cloud_metadata::placeholder_state_for_path(path, metadata) else {
+                return MaterializationState::Unknown;
+            };
+            return match cloud_metadata::ensure_placeholder_availability(state) {
+                Ok(()) => MaterializationState::Local,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    MaterializationState::RemotePlaceholder
+                }
+                Err(_) => MaterializationState::Unknown,
             };
         }
     }

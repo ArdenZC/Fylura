@@ -263,10 +263,18 @@ fn hash_file(
     #[cfg(not(target_os = "macos"))]
     {
         #[cfg(windows)]
-        let file = crate::platform::windows::cloud_metadata::open_transfer_content(path)?;
+        {
+            let file = crate::platform::windows::cloud_metadata::open_transfer_content(path)?;
+            return crate::platform::windows::cloud_metadata::with_transfer_content_read(
+                &file,
+                || hash_file_reader(file.try_clone()?, size, cancel),
+            );
+        }
         #[cfg(not(windows))]
-        let file = File::open(path)?;
-        hash_file_reader(file, size, cancel)
+        {
+            let file = File::open(path)?;
+            hash_file_reader(file, size, cancel)
+        }
     }
 }
 
@@ -393,9 +401,10 @@ pub(crate) fn capture_identity_from_handle(
         let (size, sample_hash, full_hash) = if is_directory {
             hash_directory(path_hint, cancel)?
         } else {
-            crate::platform::windows::cloud_metadata::ensure_transfer_content(handle)?;
             let size = (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow);
-            hash_file_reader(handle.try_clone()?, size, cancel)?
+            crate::platform::windows::cloud_metadata::with_transfer_content_read(handle, || {
+                hash_file_reader(handle.try_clone()?, size, cancel)
+            })?
         };
         Ok(ExpectedFileIdentity {
             size,

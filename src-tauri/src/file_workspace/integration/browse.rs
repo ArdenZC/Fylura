@@ -234,8 +234,12 @@ impl FileWorkspaceRuntime {
 
     pub(crate) fn dispose_browse(&self, request: BrowseSessionRequest) -> Result<(), String> {
         self.ensure_live()?;
-        self.dispose_monitors_for_session(&request.session_id);
-        let mut first_error = self.dispose_previews_for_session(&request.session_id);
+        let mut first_error = self.dispose_monitors_for_session(&request.session_id).err();
+        if let Some(error) = self.dispose_previews_for_session(&request.session_id) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
         if let Err(error) = self
             .inner
             .sessions
@@ -371,11 +375,13 @@ impl FileWorkspaceRuntime {
             .unwrap_or(false)
     }
 
-    pub(crate) fn dispose_monitors_for_session(&self, session_id: &str) {
+    pub(crate) fn dispose_monitors_for_session(&self, session_id: &str) -> Result<(), String> {
         let monitors = {
-            let Ok(mut records) = self.inner.monitors.lock() else {
-                return;
-            };
+            let mut records = self
+                .inner
+                .monitors
+                .lock()
+                .map_err(|_| "workspace_monitor_state_unavailable".to_string())?;
             let ids = records
                 .iter()
                 .filter(|(_, record)| record.session_id == session_id)
@@ -389,6 +395,7 @@ impl FileWorkspaceRuntime {
         for monitor in monitors {
             monitor.dispose();
         }
+        Ok(())
     }
 
     pub(crate) fn dispose_previews_for_session(&self, session_id: &str) -> Option<String> {

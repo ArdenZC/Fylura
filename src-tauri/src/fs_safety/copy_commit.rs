@@ -1079,33 +1079,36 @@ fn copy_regular_file(
         hasher
     });
     let mut copied = 0_u64;
-    crate::file_ops::measure_native_qa_copy_phase("directory_file_stream_copy", || {
-        loop {
-            if is_cancelled(cancel) {
-                return Err(AtomicMoveError::Cancelled);
+    let state_handle = reader.try_clone().map_err(AtomicMoveError::Io)?;
+    cloud_metadata::with_transfer_content_read(&state_handle, || {
+        crate::file_ops::measure_native_qa_copy_phase("directory_file_stream_copy", || {
+            loop {
+                if is_cancelled(cancel) {
+                    return Err(AtomicMoveError::Cancelled);
+                }
+                let read = reader.read(&mut buffer).map_err(AtomicMoveError::Io)?;
+                if read == 0 {
+                    break;
+                }
+                writer
+                    .write_all(&buffer[..read])
+                    .map_err(AtomicMoveError::Io)?;
+                if let Some(hasher) = hasher.as_mut() {
+                    hasher.update(&buffer[..read]);
+                }
+                copied = copied.saturating_add(read as u64);
+                progress.record_bytes(source, read as u64, observer)?;
+                #[cfg(any(test, feature = "native-qa"))]
+                if super::atomic_move::test_faults::take_fault(
+                    super::atomic_move::test_faults::AtomicFaultPoint::OutOfSpaceDuringCopy,
+                ) {
+                    return Err(AtomicMoveError::Io(io::Error::other(
+                        "injected_out_of_space_during_copy",
+                    )));
+                }
             }
-            let read = reader.read(&mut buffer).map_err(AtomicMoveError::Io)?;
-            if read == 0 {
-                break;
-            }
-            writer
-                .write_all(&buffer[..read])
-                .map_err(AtomicMoveError::Io)?;
-            if let Some(hasher) = hasher.as_mut() {
-                hasher.update(&buffer[..read]);
-            }
-            copied = copied.saturating_add(read as u64);
-            progress.record_bytes(source, read as u64, observer)?;
-            #[cfg(any(test, feature = "native-qa"))]
-            if super::atomic_move::test_faults::take_fault(
-                super::atomic_move::test_faults::AtomicFaultPoint::OutOfSpaceDuringCopy,
-            ) {
-                return Err(AtomicMoveError::Io(io::Error::other(
-                    "injected_out_of_space_during_copy",
-                )));
-            }
-        }
-        Ok(())
+            Ok(())
+        })
     })?;
     let source_times = std::fs::FileTimes::new()
         .set_accessed(metadata.accessed().map_err(AtomicMoveError::Io)?)
@@ -2042,13 +2045,41 @@ fn copy_file_from_claim(
 ) -> Result<(), AtomicMoveError> {
     let mut reader = claim.open_read().map_err(map_claim_error)?;
     #[cfg(windows)]
-    cloud_metadata::ensure_transfer_content(&reader).map_err(AtomicMoveError::Io)?;
+    let read_state_handle = reader.try_clone().map_err(AtomicMoveError::Io)?;
     let source_metadata = reader.metadata().map_err(AtomicMoveError::Io)?;
     let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"file\0");
     hasher.update(&claim.expected_identity().size.to_le_bytes());
     let mut copied = 0_u64;
+    #[cfg(windows)]
+    cloud_metadata::with_transfer_content_read(&read_state_handle, || {
+        loop {
+            if is_cancelled(cancel) {
+                return Err(AtomicMoveError::Cancelled);
+            }
+            let read = reader.read(&mut buffer).map_err(AtomicMoveError::Io)?;
+            if read == 0 {
+                break;
+            }
+            writer
+                .write_all(&buffer[..read])
+                .map_err(AtomicMoveError::Io)?;
+            copied = copied.saturating_add(read as u64);
+            hasher.update(&buffer[..read]);
+            progress.record_bytes(claim.current_path(), read as u64, observer)?;
+            #[cfg(any(test, feature = "native-qa"))]
+            if super::atomic_move::test_faults::take_fault(
+                super::atomic_move::test_faults::AtomicFaultPoint::OutOfSpaceDuringCopy,
+            ) {
+                return Err(AtomicMoveError::Io(io::Error::other(
+                    "injected_out_of_space_during_copy",
+                )));
+            }
+        }
+        Ok(())
+    })?;
+    #[cfg(not(windows))]
     loop {
         if is_cancelled(cancel) {
             return Err(AtomicMoveError::Cancelled);

@@ -74,7 +74,7 @@ pub(crate) fn classify_path(path: &Path, is_directory: bool) -> ContentEligibili
                 Ok(metadata) => metadata,
                 Err(_) => return ContentEligibility::ContentAvailabilityUnknown,
             };
-            if crate::platform::windows::cloud_metadata::metadata_needs_download(&metadata) {
+            if crate::platform::windows::cloud_metadata::path_needs_download(path, &metadata) {
                 return ContentEligibility::FileProviderItemNotLocal;
             }
             if metadata.file_type().is_symlink() {

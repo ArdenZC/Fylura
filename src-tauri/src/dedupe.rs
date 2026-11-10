@@ -1058,6 +1058,13 @@ fn hash_file_prehash_with_identity(
 
 fn hash_file_prehash_bytes(path: &Path, expected_size: i64) -> Result<(String, u64), DedupeError> {
     let mut file = open_content_file(path)?;
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
+        DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        }
+    })?;
     let file_size = u64::try_from(expected_size.max(0)).unwrap_or(0);
     let sample = if (0..PREHASH_MIN_SIZE).contains(&expected_size) {
         u64::try_from(expected_size).unwrap_or(0)
@@ -1086,6 +1093,13 @@ fn hash_file_prehash_bytes(path: &Path, expected_size: i64) -> Result<(String, u
                 source,
             })?;
     }
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
+        DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        }
+    })?;
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"zen-canvas-prehash:v1\0");
     hasher.update(&expected_size.to_le_bytes());
@@ -1266,6 +1280,13 @@ where
             DedupeError::Db(DbError::Validation("hash worker queue closed".to_string()))
         })?;
     }
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
+        DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        }
+    })?;
     for _ in 0..workers {
         let _ = task_tx.send(None);
     }
@@ -1327,6 +1348,13 @@ fn hash_file_blake3_cancellable_with_bytes(
     cancel_flag: &AtomicBool,
 ) -> Result<(String, u64), DedupeError> {
     let mut file = open_content_file(path)?;
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
+        DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        }
+    })?;
     let mut hasher = blake3::Hasher::new();
     let mut buffer = [0_u8; 1024 * 1024];
     let mut bytes_read = 0_u64;
@@ -1346,6 +1374,13 @@ fn hash_file_blake3_cancellable_with_bytes(
         hasher.update(&buffer[..read]);
         bytes_read = bytes_read.saturating_add(read as u64);
     }
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
+        DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        }
+    })?;
     Ok((hasher.finalize().to_hex().to_string(), bytes_read))
 }
 
@@ -1720,6 +1755,13 @@ fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
 
 fn hash_file_blake3_with_bytes(path: &Path) -> Result<(String, u64), DedupeError> {
     let mut file = open_content_file(path)?;
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
+        DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        }
+    })?;
     let mut hasher = blake3::Hasher::new();
     hasher
         .update_reader(&mut file)
@@ -1727,6 +1769,13 @@ fn hash_file_blake3_with_bytes(path: &Path) -> Result<(String, u64), DedupeError
             path: path.to_string_lossy().into_owned(),
             source,
         })?;
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
+        DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source,
+        }
+    })?;
     let bytes_read = file.metadata().map(|metadata| metadata.len()).unwrap_or(0);
 
     Ok((hasher.finalize().to_hex().to_string(), bytes_read))

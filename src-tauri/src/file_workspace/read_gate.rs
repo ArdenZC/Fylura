@@ -787,8 +787,10 @@ impl MaterializationReadGate {
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;
         let mut bytes = Vec::new();
-        #[cfg(windows)]
-        let mut content_reader = file.try_clone().map_err(map_io_error_to_access)?;
+        let mut content_reader = file
+            .try_clone()
+            .map_err(map_io_error_to_access)
+            .map_err(map_content_error)?;
         #[cfg(windows)]
         crate::platform::windows::cloud_metadata::with_local_content_read(&file, || {
             content_reader.take(read_limit).read_to_end(&mut bytes)
@@ -796,7 +798,8 @@ impl MaterializationReadGate {
         .map_err(map_io_error_to_access)
         .map_err(map_content_error)?;
         #[cfg(not(windows))]
-        file.take(read_limit)
+        content_reader
+            .take(read_limit)
             .read_to_end(&mut bytes)
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;

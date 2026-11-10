@@ -1280,13 +1280,6 @@ where
             DedupeError::Db(DbError::Validation("hash worker queue closed".to_string()))
         })?;
     }
-    #[cfg(windows)]
-    crate::platform::windows::cloud_metadata::ensure_local_content(&file).map_err(|source| {
-        DedupeError::Io {
-            path: path.to_string_lossy().into_owned(),
-            source,
-        }
-    })?;
     for _ in 0..workers {
         let _ = task_tx.send(None);
     }

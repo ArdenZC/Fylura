@@ -761,7 +761,7 @@ pub fn claim_source_at(
         }
     })?;
     #[cfg(windows)]
-    if crate::platform::windows::cloud_metadata::metadata_needs_download(&source_metadata) {
+    if crate::platform::windows::cloud_metadata::path_needs_download(source, &source_metadata) {
         return Err(SourceClaimError::ClaimFailed(
             "cloud_file_requires_download".into(),
         ));

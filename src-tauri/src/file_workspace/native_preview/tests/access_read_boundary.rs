@@ -162,6 +162,61 @@ fn complete_multi_chunk_staging_uses_one_fresh_source_resolution_for_the_copy() 
 }
 
 #[test]
+fn streamed_copy_rejects_source_path_replacement_without_second_resolution() {
+    let bytes = vec![b'x'; 32];
+    let (fixture, gate, _registry, source, source_version, resolver) = setup(&bytes);
+    let source_path = fixture.root.join("document.pdf");
+    let original_path = fixture.root.join("original.pdf");
+    let mut writer = ReplaceSourcePathOnFirstWrite {
+        source_path: source_path.clone(),
+        original_path,
+        replaced: false,
+    };
+    let resolutions_before_copy = resolver.resolve_count();
+
+    assert_eq!(
+        gate.stream_verified_source_to_writer(
+            &source,
+            &source_version,
+            &context(&source_version),
+            VerifiedCopyBounds {
+                max_total_bytes: 1024,
+                chunk_bytes: 4,
+            },
+            || Ok(()),
+            &mut writer,
+        ),
+        Err(VerifiedCopyError::Access(
+            PreviewReadAccessError::SourceVersionMismatch
+        ))
+    );
+    assert!(writer.replaced);
+    assert_eq!(resolver.resolve_count(), resolutions_before_copy + 1);
+    assert_eq!(gate.active_lease_count(), 0);
+}
+
+struct ReplaceSourcePathOnFirstWrite {
+    source_path: std::path::PathBuf,
+    original_path: std::path::PathBuf,
+    replaced: bool,
+}
+
+impl std::io::Write for ReplaceSourcePathOnFirstWrite {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if !self.replaced {
+            std::fs::rename(&self.source_path, &self.original_path)?;
+            std::fs::write(&self.source_path, b"replacement source")?;
+            self.replaced = true;
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
 fn over_budget_copy_deletes_partial_staging_and_releases_capacity() {
     let (_fixture, _gate, registry, source, source_version, _resolver) = setup_with_config(
         b"too-large",

@@ -1610,6 +1610,24 @@ impl PreviewSession {
     /// source teardown or app shutdown; a disposed session cannot be reused.
     pub fn dispose(&self) -> bool {
         let mut inner = lock(&self.inner);
+        self.dispose_locked(&mut inner)
+    }
+
+    /// Dispose only if the session still refers to the source inspected by a
+    /// caller. Storage removal uses this to avoid cancelling a preview that
+    /// was switched to an unrelated device while its source was being checked.
+    pub(crate) fn dispose_if_source_matches(&self, expected: &PreviewSourceRef) -> bool {
+        let mut inner = lock(&self.inner);
+        if &inner.request.source != expected {
+            return false;
+        }
+        if inner.state == PreviewSessionState::Disposed {
+            return true;
+        }
+        self.dispose_locked(&mut inner)
+    }
+
+    fn dispose_locked(&self, inner: &mut SessionInner) -> bool {
         if inner.state == PreviewSessionState::Disposed {
             return false;
         }
@@ -3672,6 +3690,18 @@ mod tests {
             Err(PreviewRunError::StalePublication)
         ));
         assert_eq!(cleanup_count.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn conditional_dispose_does_not_cancel_a_preview_switched_to_another_source() {
+        let session = session("current-source");
+        let current = source("current-source");
+        let other = source("other-source");
+
+        assert!(!session.dispose_if_source_matches(&other));
+        assert_eq!(session.state(), PreviewSessionState::Idle);
+        assert!(session.dispose_if_source_matches(&current));
+        assert_eq!(session.state(), PreviewSessionState::Disposed);
     }
 
     #[test]

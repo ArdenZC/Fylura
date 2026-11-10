@@ -36,7 +36,7 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 use std::fs::File;
 use std::{
     collections::{HashMap, HashSet},
@@ -3663,10 +3663,24 @@ fn read_bounded_file(path: &Path, max_bytes: usize) -> Result<Vec<u8>, DbError> 
         }
         #[cfg(not(target_os = "macos"))]
         {
+            #[cfg(windows)]
+            {
+                crate::platform::windows::cloud_metadata::open_local_content(path)
+                    .map_err(|error| DbError::Validation(error.to_string()))
+            }
+            #[cfg(not(windows))]
             File::open(path).map_err(|error| DbError::Validation(error.to_string()))
         }
     }?;
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    #[cfg(windows)]
+    crate::platform::windows::cloud_metadata::with_local_content_read(&file, || {
+        file.try_clone()?
+            .take(max_bytes as u64 + 1)
+            .read_to_end(&mut bytes)
+    })
+    .map_err(|_| DbError::Validation("content_source_read_failed".into()))?;
+    #[cfg(not(windows))]
     file.take(max_bytes as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| DbError::Validation("content_source_read_failed".into()))?;

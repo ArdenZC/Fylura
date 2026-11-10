@@ -787,11 +787,36 @@ impl MaterializationReadGate {
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;
         let mut bytes = Vec::new();
-        file.take(read_limit)
+        let content_reader = file
+            .try_clone()
+            .map_err(map_io_error_to_access)
+            .map_err(map_content_error)?;
+        #[cfg(windows)]
+        crate::platform::windows::cloud_metadata::with_local_content_read(&file, || {
+            content_reader.take(read_limit).read_to_end(&mut bytes)
+        })
+        .map_err(map_io_error_to_access)
+        .map_err(map_content_error)?;
+        #[cfg(not(windows))]
+        content_reader
+            .take(read_limit)
             .read_to_end(&mut bytes)
             .map_err(map_io_error_to_access)
             .map_err(map_content_error)?;
         context.ensure_active().map_err(map_context_error)?;
+
+        let after_read = self
+            .resolve_eligible(&record.source)
+            .map_err(map_gate_error)?;
+        if after_read.source_version != record.source_version
+            || !opened_file_matches(&file, &current.identity)
+                .map_err(map_open_error_to_access)
+                .map_err(map_content_error)?
+        {
+            return Err(map_content_error(
+                ContentReadAccessError::SourceVersionMismatch,
+            ));
+        }
 
         // Release/dispose/expiry during the read revokes publication. The
         // local read may have finished, but no bytes are returned to a caller.
@@ -917,6 +942,21 @@ impl MaterializationReadGate {
 
             let remaining = current.identity.size - copied;
             let read_len = remaining.min(u64::from(bounds.chunk_bytes)) as usize;
+            #[cfg(windows)]
+            let state_handle = file
+                .try_clone()
+                .map_err(map_io_error_to_access)
+                .map_err(map_content_read_to_preview_access)
+                .map_err(VerifiedCopyError::Access)?;
+            #[cfg(windows)]
+            let read = crate::platform::windows::cloud_metadata::with_local_content_read(
+                &state_handle,
+                || file.read(&mut buffer[..read_len]),
+            )
+            .map_err(map_io_error_to_access)
+            .map_err(map_content_read_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+            #[cfg(not(windows))]
             let read = file
                 .read(&mut buffer[..read_len])
                 .map_err(map_io_error_to_access)
@@ -954,6 +994,44 @@ impl MaterializationReadGate {
             .map_err(map_context_error_to_preview_access)
             .map_err(VerifiedCopyError::Access)?;
         lease_check().map_err(VerifiedCopyError::Access)?;
+
+        // Revalidate the already-resolved path and opened handle without
+        // resolving the opaque source a second time. Streamed preview staging
+        // intentionally consumes one fresh source resolution for the copy;
+        // the path identity and provider state still need a post-read check.
+        let after_read_eligibility = self.classify_source(&current.path);
+        if after_read_eligibility != ContentReadEligibility::Eligible {
+            return Err(VerifiedCopyError::Access(map_gate_error_to_preview_access(
+                map_eligibility_to_error(after_read_eligibility),
+            )));
+        }
+        #[cfg(windows)]
+        crate::platform::windows::cloud_metadata::ensure_local_content(&file)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::WouldBlock {
+                    PreviewReadAccessError::MaterializationRequired
+                } else {
+                    map_content_read_to_preview_access(map_io_error_to_access(error))
+                }
+            })
+            .map_err(VerifiedCopyError::Access)?;
+        let after_read_identity = capture_physical_identity(&current.path)
+            .map_err(map_identity_error)
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?;
+        if source_version_for_identity(&after_read_identity)
+            .map_err(map_gate_error_to_preview_access)
+            .map_err(VerifiedCopyError::Access)?
+            != expected_source_version
+            || !opened_file_matches(&file, &current.identity)
+                .map_err(map_open_error_to_access)
+                .map_err(map_content_read_to_preview_access)
+                .map_err(VerifiedCopyError::Access)?
+        {
+            return Err(VerifiedCopyError::Access(
+                PreviewReadAccessError::SourceVersionMismatch,
+            ));
+        }
         if !self.lease_is_active(lease_guard.lease().lease_id.as_str()) {
             return Err(VerifiedCopyError::Access(
                 PreviewReadAccessError::LeaseInvalid,
@@ -1124,7 +1202,7 @@ fn classify_path(path: &Path) -> ContentReadEligibility {
             return ContentReadEligibility::Symlink;
         }
         #[cfg(windows)]
-        if crate::platform::windows::cloud_metadata::metadata_needs_download(&metadata) {
+        if crate::platform::windows::cloud_metadata::path_needs_download(path, &metadata) {
             return ContentReadEligibility::MaterializationRequired;
         }
         #[cfg(windows)]

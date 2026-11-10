@@ -20,6 +20,32 @@ use windows_sys::Win32::Storage::CloudFilters::*;
 fn wide(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(Some(0)).collect()
 }
+
+fn open_exclusive_for_placeholder_conversion(path: &Path) -> fs::File {
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::{
+        Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
+        Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_OPEN_NO_RECALL, FILE_FLAG_OPEN_REPARSE_POINT, OPEN_EXISTING,
+        },
+    };
+    let raw = unsafe {
+        CreateFileW(
+            wide(path).as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            0,
+            ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
+            ptr::null_mut(),
+        )
+    };
+    assert_ne!(
+        raw, INVALID_HANDLE_VALUE,
+        "open exclusive placeholder fixture"
+    );
+    unsafe { fs::File::from(OwnedHandle::from_raw_handle(raw)) }
+}
 struct Root {
     path: PathBuf,
     connection: Option<CF_CONNECTION_KEY>,
@@ -239,6 +265,91 @@ pub fn verify_cached_copy(db: &Database, source_parent: &Path, target_parent: &P
         restore_moves_with_persistence(db, RestoreMovesRequest { logs: result.logs }).unwrap();
     assert_eq!(restored.restored, 1);
     assert_eq!(fs::read(&source).unwrap(), payload);
+
+    // Change a regular local file into a native partial placeholder while a
+    // transfer read is active. The post-read state check must suppress bytes
+    // already read by the closure when CFAPI changes the placeholder state.
+    let partial_source = root.join("partial-cloud-file.txt");
+    fs::write(&partial_source, payload).expect("write partial placeholder payload");
+    let partial_file = open_exclusive_for_placeholder_conversion(&partial_source);
+    let conversion_result = std::cell::Cell::new(0);
+    let read_result = fylura_tauri::platform::windows::cloud_metadata::with_transfer_content_read(
+        &partial_file,
+        || {
+            let mut bytes = Vec::new();
+            let mut reader = &partial_file;
+            std::io::Read::read_to_end(&mut reader, &mut bytes)?;
+            let result = unsafe {
+                CfConvertToPlaceholder(
+                    partial_file.as_raw_handle(),
+                    identity.as_ptr().cast(),
+                    identity.len() as u32,
+                    CF_CONVERT_FLAG_MARK_IN_SYNC | CF_CONVERT_FLAG_DEHYDRATE,
+                    &mut usn,
+                    ptr::null_mut(),
+                )
+            };
+            conversion_result.set(result);
+            if result < 0 {
+                return Err(std::io::Error::other(format!(
+                    "convert while read is active: {result:#x}"
+                )));
+            }
+            Ok::<_, std::io::Error>(bytes)
+        },
+    );
+    drop(partial_file);
+    let result = conversion_result.get();
+    if result < 0 && capability_unavailable(result) {
+        println!("Windows Cloud Files PARTIAL/state-change fixture=UNVERIFIED reason=dehydrate_unavailable hresult={result:#x}");
+    } else {
+        assert!(
+            result >= 0,
+            "convert to native partial Cloud Files placeholder during read: {result:#x}"
+        );
+        assert_eq!(
+            read_result.unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "post-read state change must suppress bytes"
+        );
+        let partial_metadata = fs::symlink_metadata(&partial_source).unwrap();
+        let state = fylura_tauri::platform::windows::cloud_metadata::placeholder_state_for_path(
+            &partial_source,
+            &partial_metadata,
+        )
+        .expect("read native partial placeholder state");
+        assert_ne!(
+            state & CF_PLACEHOLDER_STATE_PARTIAL,
+            0,
+            "native fixture must be CF_PLACEHOLDER_STATE_PARTIAL"
+        );
+        assert!(
+            fylura_tauri::platform::windows::cloud_metadata::open_transfer_content(&partial_source)
+                .is_err(),
+            "explicit Copy/Move reads must reject an incomplete cloud placeholder"
+        );
+        assert!(
+            fylura_tauri::platform::windows::cloud_metadata::open_local_content(&partial_source)
+                .is_err(),
+            "Preview and automatic content readers must reject Cloud Files placeholders"
+        );
+        assert!(
+            fylura_tauri::platform::windows::cloud_metadata::path_needs_download(
+                &partial_source,
+                &partial_metadata
+            ),
+            "metadata eligibility must reject native PARTIAL state"
+        );
+        assert!(
+            native_qa_transfer_copy_preview(&partial_source, &destination).is_err(),
+            "Transfer Preview must not hash or accept a PARTIAL cloud placeholder"
+        );
+        assert!(
+            native_qa_transfer_move_preview(&partial_source, &moved_parent).is_err(),
+            "Transfer Preview must not accept a PARTIAL cloud placeholder for Move"
+        );
+        println!("Windows Cloud Files PARTIAL/state-change fixture=PASS state={state:#x} transferPreview=blocked transferRead=blocked readPublication=blocked");
+    }
     println!("Windows Cloud Files cached Copy/Move=PASS incomingCopy=true sourceRetained=true contentVerified=true journalCompleted=true restore=true crossVolumeMoveRestore=true automaticReadBlocked=true remoteClient=UNVERIFIED");
     drop(owner);
 }

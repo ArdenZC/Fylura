@@ -14,7 +14,10 @@ use crate::file_workspace::{
         EphemeralLocationProjectionInput, LocationRuntimeEvidence,
     },
 };
-use std::path::PathBuf;
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 impl FileWorkspaceRuntime {
     /// Read-only OS Reveal: the owning session resolves the path, never the renderer.
@@ -234,8 +237,12 @@ impl FileWorkspaceRuntime {
 
     pub(crate) fn dispose_browse(&self, request: BrowseSessionRequest) -> Result<(), String> {
         self.ensure_live()?;
-        self.dispose_monitors_for_session(&request.session_id);
-        let mut first_error = self.dispose_previews_for_session(&request.session_id);
+        let mut first_error = self.dispose_monitors_for_session(&request.session_id).err();
+        if let Some(error) = self.dispose_previews_for_session(&request.session_id) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
         if let Err(error) = self
             .inner
             .sessions
@@ -371,11 +378,13 @@ impl FileWorkspaceRuntime {
             .unwrap_or(false)
     }
 
-    pub(crate) fn dispose_monitors_for_session(&self, session_id: &str) {
+    pub(crate) fn dispose_monitors_for_session(&self, session_id: &str) -> Result<(), String> {
         let monitors = {
-            let Ok(mut records) = self.inner.monitors.lock() else {
-                return;
-            };
+            let mut records = self
+                .inner
+                .monitors
+                .lock()
+                .map_err(|_| "workspace_monitor_state_unavailable".to_string())?;
             let ids = records
                 .iter()
                 .filter(|(_, record)| record.session_id == session_id)
@@ -389,6 +398,7 @@ impl FileWorkspaceRuntime {
         for monitor in monitors {
             monitor.dispose();
         }
+        Ok(())
     }
 
     pub(crate) fn dispose_previews_for_session(&self, session_id: &str) -> Option<String> {
@@ -441,6 +451,115 @@ impl FileWorkspaceRuntime {
         }
         first_error
     }
+
+    /// Revoke previews whose backend-owned source belongs to a device being
+    /// removed. Managed previews do not carry a Browse session id, so resolve
+    /// their path through the library authority and compare the live device
+    /// identity without reading the file.
+    pub(crate) fn dispose_previews_for_storage_removal(
+        &self,
+        browse_session_ids: &HashSet<String>,
+        mut managed_path_matches: impl FnMut(&Path) -> bool,
+    ) -> Result<(), String> {
+        let previews = {
+            let records = self
+                .inner
+                .preview_sessions
+                .lock()
+                .map_err(|_| "workspace_preview_state_unavailable".to_string())?;
+            records
+                .iter()
+                .map(|(id, session)| (id.clone(), session.clone(), session.request().source))
+                .collect::<Vec<_>>()
+        };
+        let mut matching = Vec::new();
+        for (id, session, source) in previews {
+            let managed_path = match &source {
+                crate::file_workspace::PreviewSourceRef::Managed { file_id } => {
+                    Some(PathBuf::from(
+                        self.inner
+                            .database
+                            .get_file_library_detail(file_id)
+                            .map_err(|_| "storage_eject_busy".to_string())?
+                            .path,
+                    ))
+                }
+                _ => None,
+            };
+            let belongs_to_device = preview_source_belongs_to_storage_removal(
+                &source,
+                browse_session_ids,
+                managed_path.as_deref(),
+                |path| managed_path_matches(path),
+            );
+            if belongs_to_device {
+                matching.push((id, session, source));
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        let mut first_error = None;
+        for (preview_id, session, source) in matching {
+            #[cfg(target_os = "macos")]
+            let superseded = super::types::PreviewSnapshotDto::from_internal(
+                preview_id.clone(),
+                session.snapshot(),
+            );
+            if !session.dispose_if_source_matches(&source) {
+                return Err("storage_eject_busy".into());
+            }
+            #[cfg(target_os = "macos")]
+            let detach_error = self
+                .inner
+                .native_preview_host
+                .detach(&preview_id, Some(&superseded))
+                .err();
+            self.inner.native_preview_access.revoke_session(&preview_id);
+            self.inner.preview_assets.revoke_session(&preview_id);
+            if self
+                .inner
+                .preview_sessions
+                .lock()
+                .map_err(|_| "storage_eject_busy".to_string())?
+                .remove(&preview_id)
+                .is_none()
+            {
+                return Err("storage_eject_busy".into());
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(error) = detach_error {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+        Ok(())
+    }
+}
+
+fn preview_source_belongs_to_storage_removal(
+    source: &crate::file_workspace::PreviewSourceRef,
+    browse_session_ids: &HashSet<String>,
+    managed_path: Option<&Path>,
+    managed_path_matches: impl FnOnce(&Path) -> bool,
+) -> bool {
+    match source {
+        crate::file_workspace::PreviewSourceRef::Ephemeral {
+            browse_session_id, ..
+        } => browse_session_ids.contains(browse_session_id),
+        crate::file_workspace::PreviewSourceRef::Managed { .. } => {
+            managed_path.is_some_and(managed_path_matches)
+        }
+        crate::file_workspace::PreviewSourceRef::HostProvided { .. } => false,
+    }
+}
+
+pub(super) fn map_browse_error(error: BrowseError) -> String {
+    error.to_string()
 }
 
 fn validate_platform(platform: WorkspacePlatform) -> Result<(), String> {
@@ -463,6 +582,60 @@ fn validate_routing_hint(value: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(value))
 }
 
-pub(super) fn map_browse_error(error: BrowseError) -> String {
-    error.to_string()
+#[cfg(test)]
+mod storage_removal_preview_tests {
+    use super::preview_source_belongs_to_storage_removal;
+    use crate::file_workspace::PreviewSourceRef;
+    use std::{collections::HashSet, path::Path};
+
+    #[test]
+    fn storage_removal_matches_managed_paths_and_owned_browse_sessions_only() {
+        let sessions = HashSet::from(["pane-on-usb".to_string()]);
+        let ephemeral = PreviewSourceRef::Ephemeral {
+            browse_session_id: "pane-on-usb".into(),
+            entry_id: "entry".into(),
+        };
+        let other_ephemeral = PreviewSourceRef::Ephemeral {
+            browse_session_id: "other-pane".into(),
+            entry_id: "entry".into(),
+        };
+        let managed = PreviewSourceRef::Managed {
+            file_id: "managed-file".into(),
+        };
+        let host = PreviewSourceRef::HostProvided {
+            host_token: "host-token".into(),
+        };
+        let on_selected_device = |path: &Path| path.to_string_lossy().starts_with(r"E:\");
+
+        assert!(preview_source_belongs_to_storage_removal(
+            &ephemeral,
+            &sessions,
+            None,
+            on_selected_device,
+        ));
+        assert!(!preview_source_belongs_to_storage_removal(
+            &other_ephemeral,
+            &sessions,
+            None,
+            on_selected_device,
+        ));
+        assert!(preview_source_belongs_to_storage_removal(
+            &managed,
+            &sessions,
+            Some(Path::new(r"E:\library-file.txt")),
+            on_selected_device,
+        ));
+        assert!(!preview_source_belongs_to_storage_removal(
+            &managed,
+            &sessions,
+            Some(Path::new(r"G:\library-file.txt")),
+            on_selected_device,
+        ));
+        assert!(!preview_source_belongs_to_storage_removal(
+            &host,
+            &sessions,
+            None,
+            on_selected_device,
+        ));
+    }
 }

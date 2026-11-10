@@ -180,6 +180,8 @@ impl FileWorkspaceRuntime {
                     (resolved.path, super::RECOVERY_ACTION_FILE_ID.into())
                 }
             };
+            #[cfg(windows)]
+            ensure_transfer_source_content_ready(&path)?;
             let path = if cfg!(windows) && path.is_dir() {
                 if !path.is_absolute() {
                     return Err("transfer_source_invalid".into());
@@ -799,6 +801,10 @@ fn snapshot(
     } else {
         validate_transfer_source_path(source)?
     };
+    #[cfg(windows)]
+    if matches!(action, TransferAction::Copy | TransferAction::Move) {
+        ensure_transfer_source_content_ready(&source)?;
+    }
     let source_is_directory = source.is_dir();
     ensure_not_safe_trash_operation(&source)?;
     // Directory operations stay on the shared atomic-move path. The
@@ -893,6 +899,16 @@ fn snapshot(
         nearest_identity,
     ))
 }
+
+#[cfg(windows)]
+pub(crate) fn ensure_transfer_source_content_ready(path: &Path) -> Result<(), String> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if crate::platform::windows::cloud_metadata::path_needs_download(path, &metadata) {
+        return Err("cloud_file_requires_download".into());
+    }
+    Ok(())
+}
+
 #[cfg(any(target_os = "macos", test, feature = "native-qa"))]
 pub(crate) fn make_operation(
     file_id: &str,
@@ -1313,6 +1329,8 @@ fn capture_external_sources(paths: Vec<String>) -> Result<Vec<Source>, String> {
         {
             return Err("transfer_source_invalid".into());
         }
+        #[cfg(windows)]
+        ensure_transfer_source_content_ready(&candidate)?;
         crate::fs_safety::capture_source_object_identity(&candidate)
             .map_err(|error| error.to_string())?;
         let path = candidate

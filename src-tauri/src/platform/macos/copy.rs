@@ -45,6 +45,7 @@ static DIRECTORY_TREE_CLONE_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(feature = "native-qa")]
 thread_local! {
+    static DIRECTORY_TREE_DUPLICATE_METADATA_FOR_QA: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static DIRECTORY_TREE_CLONE_ENABLED_FOR_QA: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
@@ -79,6 +80,12 @@ pub fn directory_tree_clone_metrics() -> (u64, u64) {
 #[cfg(feature = "native-qa")]
 pub fn set_directory_tree_clone_enabled_for_qa(enabled: bool) {
     DIRECTORY_TREE_CLONE_ENABLED_FOR_QA.with(|value| value.set(enabled));
+}
+
+/// Reproduce the historical second metadata write for paired native profiling.
+#[cfg(feature = "native-qa")]
+pub fn set_directory_tree_duplicate_metadata_for_qa(enabled: bool) {
+    DIRECTORY_TREE_DUPLICATE_METADATA_FOR_QA.with(|value| value.set(enabled));
 }
 
 #[inline]
@@ -1806,8 +1813,13 @@ fn copy_tree_regular_file(
         copy_progress.progress.as_deref_mut(),
         copy_progress.observer,
     )?;
-    let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
-    copy_fd_metadata(&metadata, &destination)?;
+    // The content helper already applies and verifies metadata. Rewriting it
+    // here repeated fstat/chown/chmod/timestamps for every streamed file.
+    #[cfg(feature = "native-qa")]
+    if DIRECTORY_TREE_DUPLICATE_METADATA_FOR_QA.with(std::cell::Cell::get) {
+        let metadata = source.metadata().map_err(AtomicMoveError::Io)?;
+        copy_fd_metadata(&metadata, &destination)?;
+    }
     destination.sync_all().map_err(AtomicMoveError::Io)
 }
 

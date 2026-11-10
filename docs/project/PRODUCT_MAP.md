@@ -151,3 +151,5 @@ W4 native integration is explicitly capability/value driven: macOS may use stron
 File Library 2.0 and the Zen Preview Platform are completed **technical foundations**; their legacy two-visible-mode UI is superseded as a *product default* by ADR-0016. Native Integration extends those existing workspace, Preview, Read Gate, journal, Safe Trash and platform authorities rather than building replacements beside them.
 
 Release/Hardening work remains a later governance step and must not be inferred as active merely because native product surfaces are recorded here; `STATUS.md` and `ROADMAP.md` own current sequencing truth.
+
+Files copy profiling reuses native #552 fixtures with optional controlled USB/SSD/HDD/SD/SMB/cloud-client destinations. The macOS streaming copy removes a redundant second metadata write while preserving the original metadata verification and sync. Hardware and remote-client performance require actual mounted-target measurements; hosted local filesystem numbers are not substitutes.

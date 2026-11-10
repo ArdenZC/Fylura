@@ -558,6 +558,10 @@ fn preview_source_belongs_to_storage_removal(
     }
 }
 
+pub(super) fn map_browse_error(error: BrowseError) -> String {
+    error.to_string()
+}
+
 #[cfg(test)]
 mod storage_removal_preview_tests {
     use super::preview_source_belongs_to_storage_removal;
@@ -634,8 +638,4 @@ fn validate_routing_hint(value: &str) -> Result<PathBuf, String> {
         return Err("browse_routing_hint_invalid".to_string());
     }
     Ok(PathBuf::from(value))
-}
-
-pub(super) fn map_browse_error(error: BrowseError) -> String {
-    error.to_string()
 }

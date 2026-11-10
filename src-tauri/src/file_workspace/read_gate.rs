@@ -29,7 +29,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), unix))]
 use std::fs::OpenOptions;
 
 const MAX_TOKEN_LENGTH: usize = 256;

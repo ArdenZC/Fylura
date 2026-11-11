@@ -68,7 +68,7 @@ export function useBrowsePlaces({ enabled, openPath, t }: {
     ]);
     if (epoch !== requestEpoch.current) return;
     setEntries([
-      ...projectKnownLocations((known ?? []).map((location) => mountedLocations.projectKnownLocation(location)), t),
+      ...projectKnownLocations(known ?? [], t),
       ...projectSavedPlaces(saved ?? [], t)
     ]);
     setState(known === null && saved === null ? "failed" : "ready");

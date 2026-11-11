@@ -112,7 +112,6 @@ it("verifies SMB only after an explicit Browse enumeration and resets stale fail
   projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "session-offline");
   projection.recordNetworkBrowseSessionResult("session-offline", "offline");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
-  expect(projection.projectKnownLocation(smb)).toMatchObject({ available: false, volume: { availability: "offline" } });
 
   // Passive discovery does not test the remote path and keeps the explicit
   // last-open failure until the user requests a refresh/retry.
@@ -155,6 +154,27 @@ it("ignores an older pane's delayed SMB result after a newer open or failure", a
   projection.recordNetworkBrowse(smb.id, smb.path, "permission_required");
   projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "permission_required" } });
+});
+
+it("keeps a newer explicit SMB result when a slower discovery request returns stale state", async () => {
+  const smb: KnownLocation = {
+    id: "volume:\\\\nas.example\\documents", kind: "volume", path: "\\\\nas.example\\documents", displayName: "NAS documents", available: false,
+    volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "connected_unverified" }
+  };
+  let finish!: (locations: KnownLocation[]) => void;
+  const load = vi.fn()
+    .mockResolvedValueOnce([smb])
+    .mockImplementationOnce(() => new Promise<KnownLocation[]>((resolve) => { finish = resolve; }));
+  const projection = new MountedLocationProjection(load);
+  await projection.refresh();
+
+  const refreshStartedBeforeOpen = projection.refresh();
+  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "newer-session");
+  projection.recordNetworkBrowseSessionResult("newer-session", "available");
+  finish([]);
+  await refreshStartedBeforeOpen;
+
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
 });
 
 it("renders a connected unlettered SMB share as an openable network location", () => {

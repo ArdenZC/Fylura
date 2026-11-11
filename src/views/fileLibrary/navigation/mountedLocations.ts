@@ -6,6 +6,7 @@ interface NetworkAccessObservation {
   locationId: string;
   path: string;
   availability: VolumeAvailability;
+  revision: number;
 }
 
 interface NetworkBrowseSession {
@@ -40,6 +41,7 @@ export class MountedLocationProjection {
   private networkObservations = new Map<string, NetworkAccessObservation>();
   private networkBrowseSessions = new Map<string, NetworkBrowseSession>();
   private latestNetworkBrowseSessionByLocation = new Map<string, string>();
+  private networkObservationRevision = 0;
   constructor(private load = () => fileManagementApi.fileLibraryKnownLocations()) {}
   getSnapshot = () => this.snapshot;
   private publish(next: MountedLocationsSnapshot) {
@@ -54,25 +56,38 @@ export class MountedLocationProjection {
     }
     if (this.inFlight) return this.inFlight;
     if (this.snapshot.ejectingId) return Promise.resolve();
+    const requestObservationRevision = this.networkObservationRevision;
     this.publish({ ...this.snapshot, loading: true });
     this.inFlight = this.load().then((locations) => {
       const discovered = locations.filter((location) => location.kind === "volume" || location.kind === "cloud_provider");
-      const live = discovered.map((location) => this.applyNetworkObservation(location));
+      const live = discovered.map((location) => this.applyNetworkObservation(location, requestObservationRevision));
       const present = new Set(live.map((location) => location.id));
       // Retain bounded disconnected entries so a disappearing device does not
       // look like an empty list or silently become a different device.
       const missing = this.snapshot.locations.filter((location) => !present.has(location.id)).map((location) => {
+        const observed = this.networkObservations.get(location.id);
+        if (location.volume?.kind === "network"
+          && observed?.path === location.path
+          && observed.revision > requestObservationRevision) {
+          return projectNetworkAvailability(location, observed.availability);
+        }
         this.networkObservations.delete(location.id);
         if (location.volume?.kind === "network") {
+          this.latestNetworkBrowseSessionByLocation.delete(location.id);
           return { ...location, available: false, volume: { ...location.volume, availability: "offline" as const } };
         }
         return { ...location, available: false };
       });
       this.publish({ ...this.snapshot, locations: [...live, ...missing].slice(0, 48), loading: false, failed: false });
     }).catch(() => {
-      this.publish({ ...this.snapshot, locations: this.snapshot.locations.map((location) => location.volume?.kind === "network"
-        ? { ...location, available: false, volume: { ...location.volume, availability: "unknown" as const } }
-        : { ...location, available: false }), loading: false, failed: true });
+      this.publish({ ...this.snapshot, locations: this.snapshot.locations.map((location) => {
+        if (location.volume?.kind !== "network") return { ...location, available: false };
+        const observed = this.networkObservations.get(location.id);
+        if (observed?.path === location.path && observed.revision > requestObservationRevision) {
+          return projectNetworkAvailability(location, observed.availability);
+        }
+        return { ...location, available: false, volume: { ...location.volume, availability: "unknown" as const } };
+      }), loading: false, failed: true });
     }).finally(() => { this.inFlight = null; });
     return this.inFlight;
   };
@@ -85,7 +100,12 @@ export class MountedLocationProjection {
     const current = this.snapshot.locations.find((location) => location.id === locationId && location.path === path);
     if (current && current.volume?.kind !== "network") return;
     this.networkObservations.delete(locationId);
-    this.networkObservations.set(locationId, { locationId, path, availability });
+    this.networkObservations.set(locationId, {
+      locationId,
+      path,
+      availability,
+      revision: ++this.networkObservationRevision
+    });
     while (this.networkObservations.size > MAX_NETWORK_OBSERVATIONS) {
       const oldest = this.networkObservations.keys().next().value;
       if (oldest === undefined) break;
@@ -118,16 +138,19 @@ export class MountedLocationProjection {
     // Keep this session current for a later root refresh in the same pane.
     this.latestNetworkBrowseSessionByLocation.set(session.locationId, sessionId);
   };
-  projectKnownLocation = (location: KnownLocation) => this.applyNetworkObservation(location);
-  private applyNetworkObservation(location: KnownLocation) {
+  private applyNetworkObservation(location: KnownLocation, requestObservationRevision: number) {
     if (location.volume?.kind !== "network") return location;
     const observed = this.networkObservations.get(location.id);
     if (!observed || observed.path !== location.path) return location;
+    if (observed.revision > requestObservationRevision) {
+      return projectNetworkAvailability(location, observed.availability);
+    }
     // A fresh OS connection record may be offline or permission-denied. A
     // prior explicit Browse result is retained only while the provider still
     // reports a connection record; manual refresh clears it before this merge.
     if (location.volume.availability === "offline" || location.volume.availability === "permission_required") {
       this.networkObservations.delete(location.id);
+      this.latestNetworkBrowseSessionByLocation.delete(location.id);
       return location;
     }
     return projectNetworkAvailability(location, observed.availability);

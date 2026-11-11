@@ -1056,6 +1056,73 @@ fn native_file_hardening_smoke() {
         fs::read(&same_file_source).expect("duplicate source")
     );
 
+    use std::{
+        os::windows::fs::MetadataExt,
+        time::{Duration, UNIX_EPOCH},
+    };
+    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_READONLY};
+    let attributes_source = source_volume.join("ordinary-copy-attributes.txt");
+    let attributes_target = same_copy_parent.join("ordinary-copy-attributes.txt");
+    fs::write(&attributes_source, b"ordinary Copy attributes canary")
+        .expect("write ordinary Copy attributes source");
+    fs::File::open(&attributes_source)
+        .expect("open attributes source metadata handle")
+        .set_times(
+            fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_100)),
+        )
+        .expect("set ordinary Copy source timestamp");
+    let attribute_result = Command::new("attrib.exe")
+        .args(["+H", "+R"])
+        .arg(&attributes_source)
+        .status()
+        .expect("set ordinary Copy source attributes");
+    assert!(
+        attribute_result.success(),
+        "attrib could not set source attributes"
+    );
+    let attributes_before =
+        fs::metadata(&attributes_source).expect("source attributes before Copy");
+    let attributes_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![native_qa_transfer_copy_preview(
+                &attributes_source,
+                &same_copy_parent,
+            )
+            .expect("ordinary Copy attributes Preview")],
+        },
+    )
+    .expect("execute ordinary Copy attributes fixture");
+    assert_eq!(attributes_result.logs[0].status, "success");
+    let attributes_after = fs::metadata(&attributes_source).expect("source attributes after Copy");
+    let copied_attributes = fs::metadata(&attributes_target).expect("copied file attributes");
+    let common_attributes = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_READONLY;
+    assert_eq!(
+        copied_attributes.file_attributes() & common_attributes,
+        attributes_before.file_attributes() & common_attributes,
+        "Copy must preserve read-only and hidden attributes"
+    );
+    assert_eq!(
+        copied_attributes.modified().unwrap(),
+        attributes_before.modified().unwrap(),
+        "Copy must preserve the source modified time"
+    );
+    assert_eq!(
+        attributes_after.file_attributes(),
+        attributes_before.file_attributes()
+    );
+    assert_eq!(
+        attributes_after.modified().unwrap(),
+        attributes_before.modified().unwrap()
+    );
+    assert_eq!(
+        fs::read(&attributes_target).unwrap(),
+        b"ordinary Copy attributes canary"
+    );
+    println!(
+        "Windows native ordinary Copy attributes=read_only+hidden+modified_time sourceUnchanged=true"
+    );
+
     let conflict_source = source_volume.join("ordinary-copy-conflict-source.txt");
     let conflict_parent = source_volume.join("ordinary-copy-conflict-destination");
     fs::create_dir_all(&conflict_parent).expect("ordinary Copy conflict parent");

@@ -1761,7 +1761,7 @@ fn map_browse_identity_error(error: PhysicalIdentityError) -> BrowseError {
 fn windows_network_browse_error(raw_error: Option<i32>) -> Option<BrowseError> {
     match raw_error? {
         // Access denied, invalid credentials/password, and credential conflicts.
-        5 | 65 | 86 | 1219 | 1326 => Some(BrowseError::DirectoryPermissionDenied),
+        5 | 65 | 86 | 1219 | 1244 | 1326 => Some(BrowseError::DirectoryPermissionDenied),
         // Network path/name loss, provider unavailable, or explicit disconnect.
         53 | 54 | 55 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
         | 1235 | 1236 | 2250 => Some(BrowseError::DirectoryOffline),
@@ -2184,6 +2184,14 @@ mod tests {
         );
         assert_eq!(
             windows_network_browse_error(Some(1326)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1219)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1244)),
             Some(BrowseError::DirectoryPermissionDenied)
         );
         assert_eq!(

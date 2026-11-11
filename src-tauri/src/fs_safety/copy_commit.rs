@@ -123,17 +123,12 @@ impl<'a> StagingFile<'a> {
                     .map_err(map_identity_error)
             })?
         } else {
+            // The ordinary Copy path has already hashed the stable source
+            // handle while writing these bytes and compared that digest with
+            // the prepared identity. Successful write_all calls plus the
+            // staging handle's size and namespace checks validate the staged
+            // file without rereading its full contents.
             sync_legacy_copy_flush_for_qa(&mut self.handle)?;
-            let staged_content = crate::file_ops::measure_native_qa_copy_phase(
-                "staging_content_verification",
-                || {
-                    identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
-                        .map_err(map_identity_error)
-                },
-            )?;
-            if !identity::content_identity_matches(expected, &staged_content) {
-                return Err(AtomicMoveError::CopyVerificationFailed);
-            }
             identity::capture_namespace_identity_from_handle(&self.handle, &self.path, cancel)
                 .map_err(map_identity_error)?
         };

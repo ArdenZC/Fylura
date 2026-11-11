@@ -1774,6 +1774,22 @@ fn windows_network_browse_error(raw_error: Option<i32>) -> Option<BrowseError> {
     }
 }
 
+fn windows_network_entry_error(raw_error: Option<i32>) -> Option<BrowseError> {
+    match raw_error? {
+        // A generic access-denied result while reading one child's metadata can
+        // be that entry's ACL; keep it skippable instead of marking the share
+        // itself as requiring credentials. Directory access still uses the
+        // broader mapper above.
+        5 => Some(BrowseError::EntryPermissionDenied),
+        65 | 86 | 1219 | 1244 | 1326..=1331 | 1385 | 1909 => {
+            Some(BrowseError::DirectoryPermissionDenied)
+        }
+        53 | 54 | 55 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
+        | 1235 | 1236 | 2250 => Some(BrowseError::DirectoryOffline),
+        _ => None,
+    }
+}
+
 fn network_io_browse_error(kind: io::ErrorKind) -> Option<BrowseError> {
     match kind {
         io::ErrorKind::ConnectionAborted
@@ -1790,7 +1806,7 @@ fn network_io_browse_error(kind: io::ErrorKind) -> Option<BrowseError> {
 
 fn map_entry_error(error: io::Error) -> BrowseError {
     #[cfg(windows)]
-    if let Some(network_error) = windows_network_browse_error(error.raw_os_error()) {
+    if let Some(network_error) = windows_network_entry_error(error.raw_os_error()) {
         return network_error;
     }
     if let Some(network_error) = network_io_browse_error(error.kind()) {
@@ -2279,6 +2295,23 @@ mod tests {
             map_directory_error(io::Error::other("local I/O failure")),
             BrowseError::DirectoryUnavailable
         );
+    }
+
+    #[test]
+    fn windows_entry_access_denied_stays_local_while_share_auth_errors_are_reported() {
+        assert_eq!(
+            windows_network_entry_error(Some(5)),
+            Some(BrowseError::EntryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_entry_error(Some(86)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_entry_error(Some(53)),
+            Some(BrowseError::DirectoryOffline)
+        );
+        assert_eq!(windows_network_entry_error(Some(12345)), None);
     }
 
     #[test]

@@ -370,21 +370,26 @@ fn windows_network_connection_state_from_status(
     result: u32,
     drive_type: u32,
 ) -> Option<&'static str> {
-    use windows_sys::Win32::System::WindowsProgramming::{DRIVE_NO_ROOT_DIR, DRIVE_REMOTE};
+    use windows_sys::Win32::System::WindowsProgramming::{
+        DRIVE_NO_ROOT_DIR, DRIVE_REMOTE, DRIVE_UNKNOWN,
+    };
 
     let is_remote = drive_type == DRIVE_REMOTE;
     let missing_root = drive_type == DRIVE_NO_ROOT_DIR;
+    let unknown_root = drive_type == DRIVE_UNKNOWN;
     match result {
-        // WNetGetConnection returns the remembered/connected mapping. It does
-        // not prove that the remote server is currently reachable.
-        0 if is_remote => Some("connected_unverified"),
-        0 if missing_root => Some("offline"),
+        // WNetGetConnection success proves a mapping record, regardless of a
+        // transient/unknown GetDriveType result. It does not prove reachability.
+        0 => Some("connected_unverified"),
         5 | 65 | 86 | 1219 | 1244 | 1326..=1331 | 1385 | 1909 => Some("permission_required"),
         53 | 54 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
         | 1235 | 1236 => Some("offline"),
         2250 if is_remote || missing_root => Some("offline"),
-        _ if is_remote || missing_root => Some("unknown"),
-        _ => None,
+        2250 if unknown_root => Some("unknown"),
+        2250 => None,
+        // Any other WNet error is ambiguous. Keep it from falling through to
+        // Path::is_dir(), which could touch or reconnect an SMB target.
+        _ => Some("unknown"),
     }
 }
 
@@ -571,7 +576,7 @@ mod tests {
         );
         assert_eq!(
             windows_network_connection_state_from_status(0, DRIVE_NO_ROOT_DIR),
-            Some("offline")
+            Some("connected_unverified")
         );
         assert_eq!(
             windows_network_connection_state_from_status(5, DRIVE_REMOTE),
@@ -607,7 +612,15 @@ mod tests {
         );
         assert_eq!(
             windows_network_connection_state_from_status(0, DRIVE_FIXED),
-            None
+            Some("connected_unverified")
+        );
+        assert_eq!(
+            windows_network_connection_state_from_status(12345, DRIVE_UNKNOWN),
+            Some("unknown")
+        );
+        assert_eq!(
+            windows_network_connection_state_from_status(2250, DRIVE_UNKNOWN),
+            Some("unknown")
         );
     }
 

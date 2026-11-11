@@ -564,7 +564,7 @@ mod tests {
     #[test]
     fn windows_network_status_preserves_offline_permission_and_available_states() {
         use windows_sys::Win32::System::WindowsProgramming::{
-            DRIVE_FIXED, DRIVE_NO_ROOT_DIR, DRIVE_REMOTE,
+            DRIVE_FIXED, DRIVE_NO_ROOT_DIR, DRIVE_REMOTE, DRIVE_UNKNOWN,
         };
 
         assert_eq!(mounted_volume_limit(4, 4), 40);

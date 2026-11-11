@@ -433,15 +433,17 @@ fn copy_file_source_preserving_path(
     let copied_hash =
         crate::file_ops::measure_native_qa_copy_phase("stream_copy_and_source_hash", || {
             copy_file_handle_to_target(
-                source,
                 &mut reader,
                 &mut staging.handle,
-                &staging.path,
-                Some(expected),
+                CopyFileContext {
+                    source,
+                    target: &staging.path,
+                    expected: Some(expected),
+                    sync_each_file: false,
+                },
                 cancel,
                 &mut progress,
                 &mut observer,
-                false,
             )
         })?;
     if copied_hash.as_deref() != expected.full_hash.as_deref() {
@@ -477,7 +479,7 @@ fn copy_file_source_preserving_path(
         .sync()
         .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
     staging.verify_committed(cancel)?;
-    if let Some(observer) = observer.as_deref_mut() {
+    if let Some(observer) = observer {
         observer(crate::fs_safety::FileOperationEvent::Phase(
             "completed".to_string(),
         ))?;
@@ -1114,7 +1116,7 @@ fn copy_directory_source_preserving_path(
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
     }
-    if let Some(observer) = observer.as_deref_mut() {
+    if let Some(observer) = observer {
         observer(crate::fs_safety::FileOperationEvent::Phase(
             "completed".to_string(),
         ))?;
@@ -1138,38 +1140,45 @@ fn copy_regular_file(
         .open(target)
         .map_err(map_create_error)?;
     copy_file_handle_to_target(
-        source,
         &mut reader,
         &mut writer,
-        target,
-        None,
+        CopyFileContext {
+            source,
+            target,
+            expected: None,
+            sync_each_file,
+        },
         cancel,
         progress,
         observer,
-        sync_each_file,
     )?;
     let size = writer.metadata().map_err(AtomicMoveError::Io)?.len();
     Ok(size)
 }
 
 #[cfg(windows)]
+struct CopyFileContext<'a> {
+    source: &'a std::path::Path,
+    target: &'a std::path::Path,
+    expected: Option<&'a identity::ExpectedFileIdentity>,
+    sync_each_file: bool,
+}
+
+#[cfg(windows)]
 fn copy_file_handle_to_target(
-    source: &std::path::Path,
     reader: &mut File,
     writer: &mut File,
-    target: &std::path::Path,
-    expected: Option<&identity::ExpectedFileIdentity>,
+    context: CopyFileContext<'_>,
     cancel: Option<&AtomicBool>,
     progress: &mut crate::fs_safety::DirectoryTransferProgress,
     observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    sync_each_file: bool,
 ) -> Result<Option<String>, AtomicMoveError> {
     use std::{io::Seek, io::SeekFrom, os::windows::fs::MetadataExt};
 
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
-    ensure_windows_no_named_streams(source)?;
+    ensure_windows_no_named_streams(context.source)?;
     let source_metadata = reader.metadata().map_err(AtomicMoveError::Io)?;
     if !source_metadata.is_file()
         || cloud_metadata::unsupported_reparse_handle(reader).map_err(AtomicMoveError::Io)?
@@ -1177,12 +1186,13 @@ fn copy_file_handle_to_target(
         return Err(AtomicMoveError::ReparsePoint);
     }
     ensure_supported_windows_handle_attributes(reader)?;
-    let source_before = identity::capture_namespace_identity_from_handle(reader, source, cancel)
+    let source_before =
+        identity::capture_namespace_identity_from_handle(reader, context.source, cancel)
+            .map_err(map_identity_error)?;
+    let source_path_before = identity::capture_namespace_identity_only(context.source, cancel)
         .map_err(map_identity_error)?;
-    let source_path_before =
-        identity::capture_namespace_identity_only(source, cancel).map_err(map_identity_error)?;
     if !identity::identity_matches(&source_before, &source_path_before)
-        || expected.is_some_and(|expected| {
+        || context.expected.is_some_and(|expected| {
             !identity::identity_matches(&without_content_identity(expected.clone()), &source_before)
         })
     {
@@ -1194,7 +1204,7 @@ fn copy_file_handle_to_target(
         Some(crate::file_ops::measure_native_qa_copy_phase(
             "directory_file_identity_before",
             || {
-                identity::capture_identity_from_handle(reader, source, cancel)
+                identity::capture_identity_from_handle(reader, context.source, cancel)
                     .map_err(map_identity_error)
             },
         )?)
@@ -1204,7 +1214,7 @@ fn copy_file_handle_to_target(
     if legacy_full_identity {
         let legacy_path_before = crate::file_ops::measure_native_qa_copy_phase(
             "directory_file_path_identity_before",
-            || identity::capture_identity(source, cancel).map_err(map_identity_error),
+            || identity::capture_identity(context.source, cancel).map_err(map_identity_error),
         )?;
         if !identity::identity_matches(
             legacy_source_before
@@ -1219,7 +1229,7 @@ fn copy_file_handle_to_target(
             .map_err(AtomicMoveError::Io)?;
     }
 
-    let mut hasher = (expected.is_some() || legacy_full_identity).then(|| {
+    let mut hasher = (context.expected.is_some() || legacy_full_identity).then(|| {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"file\0");
         hasher.update(&source_before.size.to_le_bytes());
@@ -1245,14 +1255,14 @@ fn copy_file_handle_to_target(
                     hasher.update(&buffer[..read]);
                 }
                 copied = copied.saturating_add(read as u64);
-                progress.record_bytes(source, read as u64, observer)?;
+                progress.record_bytes(context.source, read as u64, observer)?;
                 #[cfg(any(test, feature = "native-qa"))]
                 if copied < source_before.size
                     && super::atomic_move::test_faults::take_fault(
                         super::atomic_move::test_faults::AtomicFaultPoint::MutateCopySourceDuringStream,
                     )
                 {
-                    mutate_file_last_byte_for_qa(source)?;
+                    mutate_file_last_byte_for_qa(context.source)?;
                 }
                 #[cfg(any(test, feature = "native-qa"))]
                 if super::atomic_move::test_faults::take_fault(
@@ -1269,7 +1279,8 @@ fn copy_file_handle_to_target(
     sync_legacy_copy_flush_for_qa(writer)?;
     let hash = hasher.map(|hasher| hasher.finalize().to_hex().to_string());
     if copied != source_before.size
-        || expected
+        || context
+            .expected
             .and_then(|expected| expected.full_hash.as_deref())
             .is_some_and(|expected_hash| hash.as_deref() != Some(expected_hash))
     {
@@ -1282,18 +1293,19 @@ fn copy_file_handle_to_target(
     writer
         .set_permissions(source_metadata.permissions())
         .map_err(AtomicMoveError::Io)?;
-    set_windows_copy_attributes(target, source_metadata.file_attributes())?;
+    set_windows_copy_attributes(context.target, source_metadata.file_attributes())?;
     sync_legacy_copy_flush_for_qa(writer)?;
-    if sync_each_file || legacy_full_identity {
+    if context.sync_each_file || legacy_full_identity {
         crate::file_ops::measure_native_qa_copy_phase("directory_file_sync", || {
             writer.sync_all().map_err(AtomicMoveError::Io)
         })?;
     }
 
-    let source_after = identity::capture_namespace_identity_from_handle(reader, source, cancel)
+    let source_after =
+        identity::capture_namespace_identity_from_handle(reader, context.source, cancel)
+            .map_err(map_identity_error)?;
+    let source_path_after = identity::capture_namespace_identity_only(context.source, cancel)
         .map_err(map_identity_error)?;
-    let source_path_after =
-        identity::capture_namespace_identity_only(source, cancel).map_err(map_identity_error)?;
     if !identity::identity_matches(&source_before, &source_after)
         || !identity::identity_matches(&source_before, &source_path_after)
     {
@@ -1302,12 +1314,12 @@ fn copy_file_handle_to_target(
     if let Some(before) = legacy_source_before {
         let after =
             crate::file_ops::measure_native_qa_copy_phase("directory_file_identity_after", || {
-                identity::capture_identity_from_handle(reader, source, cancel)
+                identity::capture_identity_from_handle(reader, context.source, cancel)
                     .map_err(map_identity_error)
             })?;
         let path_after = crate::file_ops::measure_native_qa_copy_phase(
             "directory_file_path_identity_after",
-            || identity::capture_identity(source, cancel).map_err(map_identity_error),
+            || identity::capture_identity(context.source, cancel).map_err(map_identity_error),
         )?;
         if !identity::content_identity_matches(&before, &after)
             || !identity::identity_matches(&after, &path_after)
@@ -1316,7 +1328,7 @@ fn copy_file_handle_to_target(
         }
         let target_identity = crate::file_ops::measure_native_qa_copy_phase(
             "directory_file_target_identity",
-            || identity::capture_identity(target, cancel).map_err(map_identity_error),
+            || identity::capture_identity(context.target, cancel).map_err(map_identity_error),
         )?;
         if !identity::content_identity_matches(&after, &target_identity) {
             return Err(AtomicMoveError::CopyVerificationFailed);
@@ -1324,10 +1336,10 @@ fn copy_file_handle_to_target(
     }
 
     let target_handle_identity =
-        identity::capture_namespace_identity_from_handle(writer, target, cancel)
+        identity::capture_namespace_identity_from_handle(writer, context.target, cancel)
             .map_err(map_identity_error)?;
-    let target_path_identity =
-        identity::capture_namespace_identity_only(target, cancel).map_err(map_identity_error)?;
+    let target_path_identity = identity::capture_namespace_identity_only(context.target, cancel)
+        .map_err(map_identity_error)?;
     if target_handle_identity.size != copied
         || !identity::identity_matches(&target_handle_identity, &target_path_identity)
     {
@@ -2425,17 +2437,19 @@ fn copy_file_from_claim(
     {
         let mut reader = claim.open_read().map_err(map_claim_error)?;
         copy_file_handle_to_target(
-            claim.current_path(),
             &mut reader,
             writer,
-            target_path,
-            Some(claim.expected_identity()),
+            CopyFileContext {
+                source: claim.current_path(),
+                target: target_path,
+                expected: Some(claim.expected_identity()),
+                sync_each_file: false,
+            },
             cancel,
             progress,
             observer,
-            false,
         )?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     {

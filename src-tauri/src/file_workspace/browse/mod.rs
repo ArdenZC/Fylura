@@ -9,9 +9,7 @@
 use super::{
     BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, LocationRef, MaterializationState,
 };
-use crate::fs_safety::{
-    capture_browse_identity, PhysicalFileIdentity, PhysicalIdentityError,
-};
+use crate::fs_safety::{capture_browse_identity, PhysicalFileIdentity, PhysicalIdentityError};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, DirEntry, ReadDir};
@@ -371,9 +369,8 @@ impl BrowseService {
         &self,
         directory: BackendResolvedDirectory,
     ) -> Result<BrowseSessionInfo, BrowseError> {
-        let root_identity = Some(
-            capture_browse_identity(directory.as_path()).map_err(map_browse_identity_error)?,
-        );
+        let root_identity =
+            Some(capture_browse_identity(directory.as_path()).map_err(map_browse_identity_error)?);
         let mut sessions = self
             .sessions
             .lock()
@@ -1766,9 +1763,8 @@ fn windows_network_browse_error(raw_error: Option<i32>) -> Option<BrowseError> {
         // Access denied, invalid credentials/password, and credential conflicts.
         5 | 65 | 86 | 1219 | 1326 => Some(BrowseError::DirectoryPermissionDenied),
         // Network path/name loss, provider unavailable, or explicit disconnect.
-        53 | 54 | 55 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233
-        | 1234 | 1235
-        | 1236 | 2250 => Some(BrowseError::DirectoryOffline),
+        53 | 54 | 55 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
+        | 1235 | 1236 | 2250 => Some(BrowseError::DirectoryOffline),
         _ => None,
     }
 }

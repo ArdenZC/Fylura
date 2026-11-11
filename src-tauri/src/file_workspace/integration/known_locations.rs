@@ -379,9 +379,8 @@ fn windows_network_connection_state_from_status(
         0 if is_remote => Some("connected_unverified"),
         0 if missing_root => Some("offline"),
         5 | 65 | 86 | 1326 => Some("permission_required"),
-        53 | 54 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233
-        | 1234 | 1235
-        | 1236 => Some("offline"),
+        53 | 54 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
+        | 1235 | 1236 => Some("offline"),
         2250 if is_remote || missing_root => Some("offline"),
         _ if is_remote || missing_root => Some("unknown"),
         _ => None,
@@ -506,7 +505,9 @@ mod tests {
 
     #[test]
     fn system_connection_record_is_not_projected_as_verified_availability() {
-        assert!(!network_status_is_verified_available("connected_unverified"));
+        assert!(!network_status_is_verified_available(
+            "connected_unverified"
+        ));
         assert!(!network_status_is_verified_available("offline"));
         assert!(!network_status_is_verified_available("permission_required"));
         assert!(!network_status_is_verified_available("unknown"));

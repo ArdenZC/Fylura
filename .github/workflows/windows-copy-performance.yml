@@ -13,7 +13,7 @@ jobs:
   windows-copy-performance:
     name: Windows native 1 GiB and 100k copy A/B (ordinary user)
     runs-on: windows-latest
-    timeout-minutes: 100
+    timeout-minutes: 125
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

@@ -1371,6 +1371,47 @@ fn native_file_hardening_smoke() {
         );
         assert!(!stream_target.exists());
 
+        let stream_directory = source_volume.join("directory-with-stream");
+        let stream_directory_target = target_volume.join("directory-with-stream");
+        fs::create_dir(&stream_directory).expect("create directory alternate-stream fixture");
+        let stream_child = stream_directory.join("child.txt");
+        fs::write(&stream_child, b"directory child base data")
+            .expect("write directory alternate-stream child");
+        let mut child_stream_path = stream_child.as_os_str().to_os_string();
+        child_stream_path.push(":fylura-qa");
+        let child_stream_path = PathBuf::from(child_stream_path);
+        fs::write(&child_stream_path, b"directory child alternate stream")
+            .expect("write directory child alternate data stream");
+        let directory_stream_result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![
+                    native_qa_transfer_copy_preview(&stream_directory, &target_volume)
+                        .expect("preview directory with unsupported child stream"),
+                ],
+            },
+        )
+        .expect("execute directory copy with unsupported child stream");
+        assert_eq!(directory_stream_result.logs[0].status, "failed");
+        assert!(directory_stream_result.logs[0]
+            .error_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("windows_special_metadata_unsupported:alternate_data_stream"));
+        assert!(stream_directory.is_dir());
+        assert_eq!(
+            fs::read(&stream_child).expect("retained child base stream"),
+            b"directory child base data"
+        );
+        assert_eq!(
+            fs::read(&child_stream_path).expect("retained directory child ADS"),
+            b"directory child alternate stream"
+        );
+        assert!(
+            !stream_directory_target.exists(),
+            "directory with child ADS must be rejected before publish"
+        );
+
         let denied_parent = target_volume.join("permission-denied-destination");
         fs::create_dir_all(&denied_parent).expect("create permission-failure target parent");
         let denied_source = source_volume.join("cross-volume-permission-failure-directory");
@@ -2236,16 +2277,6 @@ fn native_file_hardening_smoke() {
         );
 
         let directory_source = copy_root.join("directory-100k");
-        let legacy_directory_destination =
-            copy_destination_root.join("directory-100k-legacy-destination");
-        let optimized_directory_destination =
-            copy_destination_root.join("directory-100k-optimized-destination");
-        let legacy_directory_target = legacy_directory_destination.join("directory-100k");
-        let optimized_directory_target = optimized_directory_destination.join("directory-100k");
-        fs::create_dir_all(&legacy_directory_destination)
-            .expect("create Windows 100k legacy destination");
-        fs::create_dir_all(&optimized_directory_destination)
-            .expect("create Windows 100k optimized destination");
         fs::create_dir_all(&directory_source).expect("create Windows 100k directory source");
         for index in 0..100_000_u32 {
             fs::write(
@@ -2254,9 +2285,12 @@ fn native_file_hardening_smoke() {
             )
             .expect("create Windows 100k directory entry");
         }
-        let run_directory_copy = |destination: &Path, legacy_full_identity: bool| {
+        let run_directory_copy = |destination: &Path, duplicate_parent_stream_scan: bool| {
             fylura_tauri::fs_safety::copy_commit::set_windows_directory_full_file_identity_for_qa(
-                legacy_full_identity,
+                false,
+            );
+            fylura_tauri::fs_safety::copy_commit::set_windows_directory_early_file_stream_check_for_qa(
+                duplicate_parent_stream_scan,
             );
             fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
             let resources = NativeProcessMonitor::start();
@@ -2284,6 +2318,9 @@ fn native_file_hardening_smoke() {
             fylura_tauri::fs_safety::copy_commit::set_windows_directory_full_file_identity_for_qa(
                 false,
             );
+            fylura_tauri::fs_safety::copy_commit::set_windows_directory_early_file_stream_check_for_qa(
+                false,
+            );
             (
                 result,
                 preview_elapsed,
@@ -2293,41 +2330,67 @@ fn native_file_hardening_smoke() {
             )
         };
 
-        let (
-            legacy_directory_result,
-            legacy_directory_preview_elapsed,
-            legacy_directory_elapsed,
-            legacy_directory_resources,
-            legacy_directory_phase_timings,
-        ) = run_directory_copy(&legacy_directory_destination, true);
-        assert_eq!(legacy_directory_result.logs[0].status, "success");
-        let legacy_copied_entries = fs::read_dir(&legacy_directory_target)
-            .expect("read Windows 100k copied directory")
-            .count();
-        assert_eq!(legacy_copied_entries, 100_000);
-        assert_eq!(
-            fs::read(legacy_directory_target.join("entry-099999.bin"))
-                .expect("read legacy copied entry"),
-            99_999_u32.to_le_bytes()
-        );
-
-        let (
-            optimized_directory_result,
-            optimized_directory_preview_elapsed,
-            optimized_directory_elapsed,
-            optimized_directory_resources,
-            optimized_directory_phase_timings,
-        ) = run_directory_copy(&optimized_directory_destination, false);
-        assert_eq!(optimized_directory_result.logs[0].status, "success");
-        let copied_entries = fs::read_dir(&optimized_directory_target)
-            .expect("read optimized Windows 100k copied directory")
-            .count();
-        assert_eq!(copied_entries, 100_000);
-        assert_eq!(
-            fs::read(optimized_directory_target.join("entry-099999.bin"))
-                .expect("read optimized copied entry"),
-            99_999_u32.to_le_bytes()
-        );
+        struct DirectoryCopyRun {
+            label: &'static str,
+            duplicate_parent_stream_scan: bool,
+            preview_ms: u128,
+            elapsed_ms: u128,
+            files_per_second: f64,
+            resources: String,
+            phase_timings: Vec<(String, u128)>,
+            target: PathBuf,
+        }
+        let mut directory_runs = Vec::with_capacity(4);
+        let alternating_rounds = [
+            [
+                ("baseline-r1", "directory-100k-baseline-r1", true),
+                ("candidate-r1", "directory-100k-candidate-r1", false),
+            ],
+            [
+                ("candidate-r2", "directory-100k-candidate-r2", false),
+                ("baseline-r2", "directory-100k-baseline-r2", true),
+            ],
+        ];
+        for round in alternating_rounds {
+            for (label, destination_name, duplicate_parent_stream_scan) in round {
+                let destination = copy_destination_root.join(destination_name);
+                fs::create_dir_all(&destination)
+                    .unwrap_or_else(|error| panic!("create {label} destination: {error}"));
+                let target = destination.join("directory-100k");
+                let (
+                    result,
+                    preview_elapsed,
+                    elapsed,
+                    resource_report,
+                    phase_timings,
+                ) = run_directory_copy(&destination, duplicate_parent_stream_scan);
+                assert_eq!(
+                    result.logs[0].status,
+                    "success",
+                    "100k {label} Copy must complete"
+                );
+                let copied_entries = fs::read_dir(&target)
+                    .unwrap_or_else(|error| panic!("read {label} copied directory: {error}"))
+                    .count();
+                assert_eq!(copied_entries, 100_000, "100k {label} entry count");
+                assert_eq!(
+                    fs::read(target.join("entry-099999.bin"))
+                        .unwrap_or_else(|error| panic!("read {label} sample file: {error}")),
+                    99_999_u32.to_le_bytes(),
+                    "100k {label} sample file contents"
+                );
+                directory_runs.push(DirectoryCopyRun {
+                    label,
+                    duplicate_parent_stream_scan,
+                    preview_ms: preview_elapsed.as_millis(),
+                    elapsed_ms: elapsed.as_millis(),
+                    files_per_second: 100_000.0 / elapsed.as_secs_f64().max(0.001),
+                    resources: resource_report,
+                    phase_timings,
+                    target,
+                });
+            }
+        }
         assert!(
             directory_source.is_dir(),
             "directory Copy must retain source"
@@ -2368,53 +2431,75 @@ fn native_file_hardening_smoke() {
                 }
                 Err(error) => panic!("start Robocopy directory baseline: {error}"),
             };
-        if robocopy_directory_available {
-            let directory_validation_start = std::time::Instant::now();
-            let source_identity =
-                fylura_tauri::fs_safety::identity::capture_identity(&directory_source, None)
-                    .expect("hash Windows 100k source directory");
-            let source_sample_time = fs::metadata(directory_source.join("entry-099999.bin"))
-                .unwrap()
-                .modified()
-                .unwrap();
-            for target in [
-                &legacy_directory_target,
-                &optimized_directory_target,
-                &robocopy_directory_target,
-            ] {
-                let target_identity =
-                    fylura_tauri::fs_safety::identity::capture_identity(target, None)
-                        .expect("hash Windows 100k target directory");
-                assert_eq!(
-                    target_identity.full_hash, source_identity.full_hash,
-                    "100k directory copy differs from its source"
-                );
-                assert_eq!(
-                    fs::metadata(target.join("entry-099999.bin"))
-                        .unwrap()
-                        .modified()
-                        .unwrap(),
-                    source_sample_time,
-                    "100k file modified time was not preserved"
-                );
-            }
-            println!(
-                "Windows native validation directory100k commonTreeHashValidationMs={} targets=3",
-                directory_validation_start.elapsed().as_millis(),
-            );
-        } else {
+        if !robocopy_directory_available {
             println!(
                 "Windows native comparison robocopyDirectory=UNVERIFIED reason=tool_unavailable"
             );
         }
+        let directory_validation_start = std::time::Instant::now();
+        let source_identity =
+            fylura_tauri::fs_safety::identity::capture_identity(&directory_source, None)
+                .expect("hash Windows 100k source directory");
+        let source_sample_time = fs::metadata(directory_source.join("entry-099999.bin"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        for run in &directory_runs {
+            let target_identity =
+                fylura_tauri::fs_safety::identity::capture_identity(&run.target, None)
+                    .unwrap_or_else(|error| panic!("hash {} target directory: {error}", run.label));
+            assert_eq!(
+                target_identity.full_hash, source_identity.full_hash,
+                "100k {} directory Copy differs from its source",
+                run.label
+            );
+            assert_eq!(
+                fs::metadata(run.target.join("entry-099999.bin"))
+                    .unwrap()
+                    .modified()
+                    .unwrap(),
+                source_sample_time,
+                "100k {} file modified time was not preserved",
+                run.label
+            );
+        }
+        if robocopy_directory_available {
+            let robocopy_identity =
+                fylura_tauri::fs_safety::identity::capture_identity(&robocopy_directory_target, None)
+                    .expect("hash Windows 100k Robocopy target directory");
+            assert_eq!(
+                robocopy_identity.full_hash, source_identity.full_hash,
+                "100k Robocopy directory copy differs from its source"
+            );
+            assert_eq!(
+                fs::metadata(robocopy_directory_target.join("entry-099999.bin"))
+                    .unwrap()
+                    .modified()
+                    .unwrap(),
+                source_sample_time,
+                "Robocopy 100k file modified time was not preserved"
+            );
+        }
         println!(
-            "Windows native performance directory100k entries={copied_entries} legacyPreviewMs={} legacyElapsedMs={} legacyFilesPerSecond={:.1} legacyPhaseTimingsNs={legacy_directory_phase_timings:?} legacyResources={legacy_directory_resources} optimizedPreviewMs={} optimizedElapsedMs={} optimizedFilesPerSecond={:.1} optimizedPhaseTimingsNs={optimized_directory_phase_timings:?} optimizedResources={optimized_directory_resources} robocopyElapsedMs={} robocopyAvailable={} sourceRetained=true",
-            legacy_directory_preview_elapsed.as_millis(),
-            legacy_directory_elapsed.as_millis(),
-            100_000.0 / legacy_directory_elapsed.as_secs_f64().max(0.001),
-            optimized_directory_preview_elapsed.as_millis(),
-            optimized_directory_elapsed.as_millis(),
-            100_000.0 / optimized_directory_elapsed.as_secs_f64().max(0.001),
+            "Windows native validation directory100k commonTreeHashValidationMs={} targets={} robocopyIncluded={}",
+            directory_validation_start.elapsed().as_millis(),
+            directory_runs.len() + usize::from(robocopy_directory_available),
+            robocopy_directory_available,
+        );
+        println!(
+            "Windows native performance directory100k entries=100000 rounds=2 order=baseline-candidate,candidate-baseline fullIdentity=false runs={:?} robocopyElapsedMs={} robocopyAvailable={} sourceRetained=true",
+            directory_runs
+                .iter()
+                .map(|run| (
+                    run.label,
+                    run.duplicate_parent_stream_scan,
+                    run.preview_ms,
+                    run.elapsed_ms,
+                    run.files_per_second,
+                    &run.phase_timings,
+                    &run.resources,
+                ))
+                .collect::<Vec<_>>(),
             robocopy_directory_elapsed.as_millis(),
             robocopy_directory_available,
         );

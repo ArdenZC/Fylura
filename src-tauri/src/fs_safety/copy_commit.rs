@@ -29,6 +29,8 @@ static WINDOWS_COPY_EXTRA_FLUSHES_FOR_QA: AtomicBool = AtomicBool::new(false);
 static WINDOWS_COPY_EXTRA_FLUSH_COUNT_FOR_QA: AtomicU64 = AtomicU64::new(0);
 #[cfg(all(windows, feature = "native-qa"))]
 static WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA: AtomicBool = AtomicBool::new(false);
+#[cfg(all(windows, feature = "native-qa"))]
+static WINDOWS_DIRECTORY_EARLY_FILE_STREAM_CHECK_FOR_QA: AtomicBool = AtomicBool::new(false);
 
 #[cfg(all(windows, feature = "native-qa"))]
 pub fn set_windows_copy_extra_flushes_for_qa(enabled: bool) {
@@ -50,11 +52,28 @@ pub fn set_windows_directory_full_file_identity_for_qa(enabled: bool) {
     WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA.store(enabled, Ordering::Relaxed);
 }
 
+#[cfg(all(windows, feature = "native-qa"))]
+pub fn set_windows_directory_early_file_stream_check_for_qa(enabled: bool) {
+    WINDOWS_DIRECTORY_EARLY_FILE_STREAM_CHECK_FOR_QA.store(enabled, Ordering::Relaxed);
+}
+
 #[cfg(windows)]
 fn windows_directory_full_file_identity_for_qa() -> bool {
     #[cfg(feature = "native-qa")]
     {
         return WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA.load(Ordering::Relaxed);
+    }
+    #[cfg(not(feature = "native-qa"))]
+    {
+        false
+    }
+}
+
+#[cfg(windows)]
+fn windows_directory_early_file_stream_check_for_qa() -> bool {
+    #[cfg(feature = "native-qa")]
+    {
+        return WINDOWS_DIRECTORY_EARLY_FILE_STREAM_CHECK_FOR_QA.load(Ordering::Relaxed);
     }
     #[cfg(not(feature = "native-qa"))]
     {
@@ -971,8 +990,11 @@ fn copy_directory_contents(
             return Err(AtomicMoveError::ReparsePoint);
         }
         ensure_supported_windows_path_attributes(&source_child, &metadata)?;
-        ensure_windows_no_named_streams(&source_child)?;
         if metadata.is_dir() {
+            crate::file_ops::measure_native_qa_copy_phase(
+                "directory_entry_directory_named_stream_scan",
+                || ensure_windows_no_named_streams(&source_child),
+            )?;
             fs::create_dir(&target_child).map_err(map_create_error)?;
             copy_directory_contents(
                 &source_child,
@@ -988,8 +1010,15 @@ fn copy_directory_contents(
                 .sync()
                 .map_err(AtomicMoveError::Io)?;
         } else if metadata.is_file() {
+            if windows_directory_early_file_stream_check_for_qa() {
+                crate::file_ops::measure_native_qa_copy_phase(
+                    "directory_file_parent_named_stream_scan",
+                    || ensure_windows_no_named_streams(&source_child),
+                )?;
+            }
             copy_regular_file(&source_child, &target_child, cancel, progress, observer)?;
         } else {
+            ensure_windows_no_named_streams(&source_child)?;
             return Err(AtomicMoveError::UnsafePath);
         }
         progress.record_item(&source_child, observer)?;
@@ -1020,7 +1049,10 @@ fn copy_regular_file(
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
-    ensure_windows_no_named_streams(source)?;
+    crate::file_ops::measure_native_qa_copy_phase(
+        "directory_file_leaf_named_stream_scan",
+        || ensure_windows_no_named_streams(source),
+    )?;
     let mut reader = cloud_metadata::open_transfer_content(source).map_err(AtomicMoveError::Io)?;
     let metadata = reader.metadata().map_err(AtomicMoveError::Io)?;
     if !metadata.is_file()
@@ -1061,11 +1093,13 @@ fn copy_regular_file(
     reader
         .seek(SeekFrom::Start(0))
         .map_err(AtomicMoveError::Io)?;
-    let mut writer = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(target)
-        .map_err(map_create_error)?;
+    let mut writer = crate::file_ops::measure_native_qa_copy_phase("directory_file_create", || {
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)
+            .map_err(map_create_error)
+    })?;
     let buffer_size = if legacy_full_identity {
         COPY_BUFFER_SIZE
     } else {
@@ -2289,6 +2323,70 @@ mod tests {
             result.is_ok(),
             "normal directories must be stream checked: {result:?}"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn directory_copy_rejects_child_named_stream_before_creating_or_publishing_file() {
+        let root = fixture("directory-child-stream");
+        let source = root.join("source");
+        let target_parent_path = root.join("target");
+        let staging = target_parent_path.join(".stage");
+        let published_target = target_parent_path.join("streamed-tree");
+        fs::create_dir_all(&source).expect("source directory");
+        fs::create_dir_all(&target_parent_path).expect("target parent");
+        fs::create_dir_all(&staging).expect("staging directory");
+        let source_file = source.join("child.txt");
+        fs::write(&source_file, b"base stream payload").expect("source child file");
+        let mut named_stream = source_file.as_os_str().to_os_string();
+        named_stream.push(":fylura-qa");
+        let named_stream = PathBuf::from(named_stream);
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&named_stream)
+            .expect("create child named stream")
+            .write_all(b"unsupported metadata")
+            .expect("write child named stream");
+
+        #[cfg(feature = "native-qa")]
+        set_windows_directory_early_file_stream_check_for_qa(false);
+
+        let mut progress = crate::fs_safety::DirectoryTransferProgress::new("copying");
+        let mut observer = None;
+        let result = copy_directory_contents(
+            &source,
+            &staging,
+            0,
+            None,
+            &mut progress,
+            &mut observer,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(AtomicMoveError::WindowsSpecialMetadataUnsupported(
+                    "alternate_data_stream"
+                ))
+            ),
+            "the immediate child-file guard must reject ADS: {result:?}"
+        );
+        assert!(
+            !staging.join("child.txt").exists(),
+            "the stream must be rejected before creating its staging file"
+        );
+        assert!(
+            !published_target.exists(),
+            "a directory with unsupported child metadata must not be published"
+        );
+        assert_eq!(
+            fs::read(&source_file).expect("source remains"),
+            b"base stream payload"
+        );
+
+        #[cfg(feature = "native-qa")]
+        set_windows_directory_early_file_stream_check_for_qa(false);
         let _ = fs::remove_dir_all(root);
     }
 

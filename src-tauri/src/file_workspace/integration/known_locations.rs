@@ -98,9 +98,9 @@ fn push_unique(
     #[cfg(windows)]
     let network_availability = if kind == KnownLocationKind::Volume {
         if connected_unc {
-            Some("available")
+            Some("connected_unverified")
         } else {
-            windows_network_availability(&path)
+            windows_network_connection_state(&path)
         }
     } else {
         None
@@ -125,13 +125,14 @@ fn push_unique(
         id: id.to_string(),
         kind,
         display_name,
-        // WNet RESOURCE_CONNECTED is the non-probing source for unlettered
-        // shares. Do not call Path::is_dir here: that could block on SMB or
-        // implicitly reconnect a path while the navigation panel refreshes.
+        // WNet RESOURCE_CONNECTED is evidence of a system connection record,
+        // not evidence that the SMB server can currently be reached. Never
+        // probe a network path during navigation refresh; the explicit Browse
+        // open is the access check.
         available: {
             #[cfg(windows)]
             if let Some(availability) = network_availability {
-                availability == "available"
+                network_status_is_verified_available(availability)
             } else {
                 path.is_dir()
             }
@@ -143,6 +144,10 @@ fn push_unique(
         volume,
         path: path.to_string_lossy().into_owned(),
     });
+}
+
+fn network_status_is_verified_available(availability: &str) -> bool {
+    availability == "available"
 }
 
 fn path_key(path: &Path) -> String {
@@ -340,7 +345,7 @@ unsafe fn bounded_wide_string(
 }
 
 #[cfg(target_os = "windows")]
-fn windows_network_availability(path: &Path) -> Option<&'static str> {
+fn windows_network_connection_state(path: &Path) -> Option<&'static str> {
     use windows_sys::Win32::{
         NetworkManagement::WNet::WNetGetConnectionW, Storage::FileSystem::GetDriveTypeW,
     };
@@ -356,17 +361,19 @@ fn windows_network_availability(path: &Path) -> Option<&'static str> {
     let result =
         unsafe { WNetGetConnectionW(local_wide.as_ptr(), remote.as_mut_ptr(), &mut length) };
     let drive_type = unsafe { GetDriveTypeW(root_wide.as_ptr()) };
-    windows_network_availability_from_status(result, drive_type)
+    windows_network_connection_state_from_status(result, drive_type)
 }
 
 #[cfg(target_os = "windows")]
-fn windows_network_availability_from_status(result: u32, drive_type: u32) -> Option<&'static str> {
+fn windows_network_connection_state_from_status(result: u32, drive_type: u32) -> Option<&'static str> {
     use windows_sys::Win32::System::WindowsProgramming::{DRIVE_NO_ROOT_DIR, DRIVE_REMOTE};
 
     let is_remote = drive_type == DRIVE_REMOTE;
     let missing_root = drive_type == DRIVE_NO_ROOT_DIR;
     match result {
-        0 if is_remote => Some("available"),
+        // WNetGetConnection returns the remembered/connected mapping. It does
+        // not prove that the remote server is currently reachable.
+        0 if is_remote => Some("connected_unverified"),
         0 if missing_root => Some("offline"),
         5 | 65 | 86 | 1326 => Some("permission_required"),
         53 | 54 | 58 | 59 | 64 | 67 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234 | 1235
@@ -493,6 +500,15 @@ mod tests {
         assert_eq!(locations[0].id, "missing");
     }
 
+    #[test]
+    fn system_connection_record_is_not_projected_as_verified_availability() {
+        assert!(!network_status_is_verified_available("connected_unverified"));
+        assert!(!network_status_is_verified_available("offline"));
+        assert!(!network_status_is_verified_available("permission_required"));
+        assert!(!network_status_is_verified_available("unknown"));
+        assert!(network_status_is_verified_available("available"));
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn connected_unc_discovery_accepts_only_unc_share_roots() {
@@ -544,23 +560,31 @@ mod tests {
         assert_eq!(mounted_volume_limit(4, 0), 44);
         assert_eq!(mounted_volume_limit(4, 8), 36);
         assert_eq!(
-            windows_network_availability_from_status(0, DRIVE_REMOTE),
-            Some("available")
+            windows_network_connection_state_from_status(0, DRIVE_REMOTE),
+            Some("connected_unverified")
         );
         assert_eq!(
-            windows_network_availability_from_status(5, DRIVE_REMOTE),
+            windows_network_connection_state_from_status(0, DRIVE_NO_ROOT_DIR),
+            Some("offline")
+        );
+        assert_eq!(
+            windows_network_connection_state_from_status(5, DRIVE_REMOTE),
             Some("permission_required")
         );
         assert_eq!(
-            windows_network_availability_from_status(2250, DRIVE_NO_ROOT_DIR),
+            windows_network_connection_state_from_status(2250, DRIVE_NO_ROOT_DIR),
             Some("offline")
         );
         assert_eq!(
-            windows_network_availability_from_status(1222, DRIVE_NO_ROOT_DIR),
+            windows_network_connection_state_from_status(1222, DRIVE_NO_ROOT_DIR),
             Some("offline")
         );
         assert_eq!(
-            windows_network_availability_from_status(2250, DRIVE_FIXED),
+            windows_network_connection_state_from_status(2250, DRIVE_FIXED),
+            None
+        );
+        assert_eq!(
+            windows_network_connection_state_from_status(0, DRIVE_FIXED),
             None
         );
     }

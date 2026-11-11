@@ -13,7 +13,7 @@ import {
   locationAvailabilityLabel,
   useBrowseSourceOwner
 } from "./browseSourceOwner";
-import { useBrowsePlaces, type BrowsePlaceEntry } from "./useBrowsePlaces";
+import { browsePlaceStatusLabel, useBrowsePlaces, type BrowsePlaceEntry } from "./useBrowsePlaces";
 import { createBrowseInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
@@ -666,17 +666,17 @@ function BrowsePlaceCard({
       : <Folder size={17} aria-hidden="true" />;
   return (
     <article
-      className={`browse-location-card${entry.available ? "" : " is-unavailable"}`}
+      className={`browse-location-card${entry.openable ? "" : " is-unavailable"}`}
       data-browse-place={entry.kind}
-      data-browse-place-available={entry.available ? "true" : "false"}
+      data-browse-place-openable={entry.openable ? "true" : "false"}
     >
       <div className="browse-location-card-header">
         <span className="browse-location-card-icon" aria-hidden="true">{icon}</span>
         <div className="min-w-0">
           <strong className="browse-location-title">{entry.label}</strong>
-          <span className={`browse-location-status${entry.available ? " is-ready" : " is-unavailable"}`}>
+          <span className={`browse-location-status${entry.openable ? " is-ready" : " is-unavailable"}`}>
             <span aria-hidden="true">•</span>
-            {entry.available ? t("browsePlaceAvailable") : t("browsePlaceUnavailable")}
+            {browsePlaceStatusLabel(entry, t)}
           </span>
         </div>
       </div>
@@ -684,7 +684,7 @@ function BrowsePlaceCard({
         <button
           className="browse-location-open"
           type="button"
-          disabled={!entry.available || places.openingKey !== null}
+          disabled={!entry.openable || places.openingKey !== null}
           data-browse-place-action="open"
           onClick={() => void places.openPlace(entry)}
         >

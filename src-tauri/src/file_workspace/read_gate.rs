@@ -1109,6 +1109,7 @@ fn map_browse_resolution_error(error: BrowseError) -> SourceResolutionError {
         | BrowseError::SessionNotFound
         | BrowseError::EntryUnavailable
         | BrowseError::DirectoryNotFound
+        | BrowseError::DirectoryOffline
         | BrowseError::DirectoryUnavailable
         | BrowseError::StaleEnumeration
         | BrowseError::StalePublication

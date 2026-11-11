@@ -6,9 +6,11 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FileWorkspaceApi } from "../src/api/fileWorkspaceApi";
+import { fileManagementApi, type KnownLocation } from "../src/api/fileManagementApi";
 import { FileWorkspaceController, WorkspaceSession } from "../src/fileWorkspace";
 import { makeTranslator } from "../src/i18n";
 import { mockFileWorkspaceInvoke } from "../src/api/fileWorkspaceMockApi";
+import { mountedLocations } from "../src/views/fileLibrary/navigation/mountedLocations";
 import { FileLibraryExperienceProvider, useFileLibraryExperience } from "../src/views/fileLibrary/FileLibraryExperienceProvider";
 import {
   FileLibraryExperienceController,
@@ -93,6 +95,7 @@ function sourceOwnerApi(options: {
   canWatch?: boolean;
   responses?: BrowseOpenResponse[];
   browseOpen?: FileWorkspaceApi["browseOpen"];
+  browseStartEnumeration?: FileWorkspaceApi["browseStartEnumeration"];
   initialEntries?: BrowseEntry[];
   changePending?: FileWorkspaceApi["changePending"];
   changeRefresh?: FileWorkspaceApi["changeRefresh"];
@@ -102,10 +105,14 @@ function sourceOwnerApi(options: {
   const initialEntries = options.initialEntries;
   let responseIndex = 0;
   const browseOpen = options.browseOpen ?? vi.fn(async () => responses[Math.min(responseIndex++, responses.length - 1)]!);
-  const browseStartEnumeration = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) =>
-    initialEntries === undefined
-      ? pageFor(sessionId, requestId, `start-${sessionId}-${browseStartEnumeration.mock.calls.length}`)
-      : pageForEntries(sessionId, requestId, initialEntries, `start-${sessionId}-${browseStartEnumeration.mock.calls.length}`));
+  let enumerationSequence = 0;
+  const defaultBrowseStartEnumeration: FileWorkspaceApi["browseStartEnumeration"] = async ({ sessionId, requestId }) => {
+    enumerationSequence += 1;
+    return initialEntries === undefined
+      ? pageFor(sessionId, requestId, `start-${sessionId}-${enumerationSequence}`)
+      : pageForEntries(sessionId, requestId, initialEntries, `start-${sessionId}-${enumerationSequence}`);
+  };
+  const browseStartEnumeration = vi.fn(options.browseStartEnumeration ?? defaultBrowseStartEnumeration);
   const monitorSessions = new Map<string, string>();
   const changeStart = vi.fn(async ({ sessionId, pathRef }: Parameters<FileWorkspaceApi["changeStart"]>[0]) => {
     const monitorId = `monitor-${sessionId}-${pathRef.id}`;
@@ -211,6 +218,7 @@ afterEach(async () => {
   mountedContainer = null;
   document.body.innerHTML = "";
   dialogMocks.open.mockReset();
+  vi.restoreAllMocks();
 });
 
 function browseEntry(overrides: Partial<BrowseEntry> = {}): BrowseEntry {
@@ -333,6 +341,56 @@ describe("W2-04 Browse source owner contracts", () => {
     });
     expect(fixture.changePending).not.toHaveBeenCalled();
     expect(fixture.browseStartEnumeration).toHaveBeenCalledTimes(2);
+  });
+
+  it("feeds explicit network root enumeration failures and success back to the mounted status, including a later reopen", async () => {
+    const firstResponse = browseResponse("network-session-1", false);
+    firstResponse.location.kind = "unknown";
+    const secondResponse = browseResponse("network-session-2", false);
+    secondResponse.location.kind = "unknown";
+    const enumerate = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) => {
+      if (sessionId === "network-session-1") throw new Error("browse_directory_offline");
+      return pageFor(sessionId, requestId, "reconnected-share");
+    });
+    const fixture = sourceOwnerApi({ responses: [firstResponse, secondResponse], browseStartEnumeration: enumerate, canWatch: false });
+    const publishNetworkResult = vi.spyOn(mountedLocations, "recordNetworkBrowseSessionResult");
+    const knownNetworkLocation: KnownLocation = {
+      id: "volume:\\\\nas.example\\documents",
+      kind: "volume",
+      path: "\\\\nas.example\\documents",
+      displayName: "NAS documents",
+      available: false,
+      volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "connected_unverified" }
+    };
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([knownNetworkLocation]);
+    await mountedLocations.refresh(true);
+    const mounted = await mountSourceOwner(fixture.api);
+    const locationId = knownNetworkLocation.id;
+    const path = knownNetworkLocation.path;
+
+    let firstOpen!: { opened: boolean; sessionId?: string };
+    await act(async () => {
+      firstOpen = await mounted.source().openKnownLocation(path, "NAS documents") as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(locationId, path, "connected_unverified", firstOpen.sessionId);
+    });
+    await settleSourceOwner();
+    expect(firstOpen).toMatchObject({ opened: true, sessionId: "network-session-1" });
+    expect(publishNetworkResult).toHaveBeenCalledWith("network-session-1", "offline");
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
+
+    await mountedLocations.refresh(true);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "connected_unverified" } });
+
+    let secondOpen!: { opened: boolean; sessionId?: string };
+    await act(async () => {
+      secondOpen = await mounted.source().openKnownLocation(path, "NAS documents") as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(locationId, path, "connected_unverified", secondOpen.sessionId);
+    });
+    await settleSourceOwner();
+    expect(secondOpen).toMatchObject({ opened: true, sessionId: "network-session-2" });
+    expect(publishNetworkResult).toHaveBeenLastCalledWith("network-session-2", "available");
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+    expect(enumerate).toHaveBeenCalledTimes(2);
   });
 
   it("checks an active monitor once and refreshes through the existing change seam when a hint exists", async () => {

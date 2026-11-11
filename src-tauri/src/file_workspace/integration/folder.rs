@@ -289,6 +289,7 @@ fn map_browse_error(error: BrowseError) -> PreviewFolderEnumerationError {
             PreviewFolderEnumerationError::PermissionDenied
         }
         BrowseError::DirectoryNotFound
+        | BrowseError::DirectoryOffline
         | BrowseError::DirectoryUnavailable
         | BrowseError::SessionNotFound
         | BrowseError::InvalidLocationRef

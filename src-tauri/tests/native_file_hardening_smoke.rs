@@ -1057,16 +1057,20 @@ fn native_file_hardening_smoke() {
     );
 
     use std::{
-        os::windows::fs::MetadataExt,
+        os::windows::fs::{MetadataExt, OpenOptionsExt},
         time::{Duration, UNIX_EPOCH},
     };
-    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_READONLY};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_READONLY, FILE_READ_ATTRIBUTES, FILE_WRITE_ATTRIBUTES,
+    };
     let attributes_source = source_volume.join("ordinary-copy-attributes.txt");
     let attributes_target = same_copy_parent.join("ordinary-copy-attributes.txt");
     fs::write(&attributes_source, b"ordinary Copy attributes canary")
         .expect("write ordinary Copy attributes source");
-    fs::File::open(&attributes_source)
-        .expect("open attributes source metadata handle")
+    fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES)
+        .open(&attributes_source)
+        .expect("open source metadata handle with attribute access")
         .set_times(
             fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_100)),
         )

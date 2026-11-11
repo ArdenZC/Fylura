@@ -1123,10 +1123,7 @@ pub(crate) fn execute(
     operation: &OperationPreviewRequest,
     context: OperationExecutionContext<'_>,
 ) -> Result<FileOperationResult, FileMutationError> {
-    // Directory copy requires a content-bound claim. Capture it before
-    // revalidating the preview, then let preview revalidation bind the source
-    // back to the accepted tree. The subsequent source claim detects any
-    // content change after that revalidation without publishing a replacement.
+    #[cfg(target_os = "macos")]
     let directory_copy_identity = if operation.operation_type == "copy"
         && std::fs::symlink_metadata(&operation.source_path)
             .is_ok_and(|metadata| metadata.file_type().is_dir())
@@ -1194,9 +1191,12 @@ pub(crate) fn execute(
         .clone();
     let target = validate_target_path(target_path)?;
     if operation.operation_type == "copy" {
+        #[cfg(target_os = "macos")]
         let expected_identity = directory_copy_identity
             .as_ref()
             .or(context.expected_identity);
+        #[cfg(not(target_os = "macos"))]
+        let expected_identity = context.expected_identity;
         crate::fs_safety::atomic_move::atomic_copy_with_verified_destination(
             &source,
             &target,

@@ -1,8 +1,8 @@
 name: Windows Copy Performance Qualification
 
-# The native 1 GiB and 100k-file A/B profiles are expensive and must not run
-# in routine PR/push smoke. Run this workflow explicitly when qualifying copy
-# performance changes or investigating a regression.
+# The repeated native file, 10k × 4 KiB, 100k and mixed-size A/B profiles are
+# expensive and must not run in routine PR/push smoke. Run this workflow
+# explicitly when qualifying copy performance changes or investigating a regression.
 on:
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   windows-copy-performance:
-    name: Windows native 1 GiB and 100k copy A/B (ordinary user)
+    name: Windows native repeated copy A/B (ordinary user)
     runs-on: windows-latest
     timeout-minutes: 100
     steps:

@@ -23,8 +23,8 @@ if ($Child) {
     $env:ZC_NATIVE_QA_REQUIRE_CROSS_VOLUME = "1"
     $env:ZC_NATIVE_QA_ARTIFACT_ROOT = $config.EvidenceRoot
     $env:ZEN_CANVAS_NATIVE_QA_SECONDARY_TEMP = $config.SecondaryRoot
-    # The 1 GiB + 100k legacy/optimized/Robocopy comparison takes tens of
-    # minutes. Run it only in the dedicated on-demand copy-performance workflow.
+    # The repeated 1 GiB, 10k × 4 KiB, 100k and mixed-size A/B profiles take
+    # tens of minutes. Run them only in the dedicated on-demand workflow.
     if ($config.CopyPerformanceProfile -eq $true) {
         $env:ZC_WINDOWS_NATIVE_COPY_PROFILE = "1"
     } else {
@@ -159,7 +159,12 @@ try {
     $smokeLog = Get-Content -LiteralPath $smokeLogPath -Raw
     $copyProfileMarkers = @(
         "Windows native performance fileCopy1GiB",
-        "Windows native performance directory100k entries=100000"
+        "Windows native performance fileCopy1GiB sample=2",
+        "Windows native performance fileCopy1GiB storage=cross_volume",
+        "Windows native performance directory100k entries=100000",
+        "Windows native performance directory100k sample=2",
+        "Windows native performance directory scenario=10k-4k",
+        "Windows native performance directory scenario=mixed-size"
     )
     if ($CopyPerformanceProfile) {
         foreach ($marker in $copyProfileMarkers) {

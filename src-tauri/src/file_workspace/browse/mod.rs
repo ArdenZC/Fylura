@@ -2276,7 +2276,7 @@ mod tests {
             BrowseError::EntryNotFound
         );
         assert_eq!(
-            map_directory_error(io::Error::new(ErrorKind::Other, "local I/O failure")),
+            map_directory_error(io::Error::other("local I/O failure")),
             BrowseError::DirectoryUnavailable
         );
     }

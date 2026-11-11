@@ -1007,13 +1007,12 @@ fn copy_directory_source_preserving_path(
     let mut progress = crate::fs_safety::DirectoryTransferProgress::new("preparing");
     let legacy_source_pre = if windows_directory_full_file_identity_for_qa() {
         progress.reset("preparing", None, None, &mut observer)?;
-        let identity =
+        let digest =
             crate::file_ops::measure_native_qa_copy_phase("content_hash_source_pre", || {
-                identity::capture_identity(source, cancel).map_err(map_identity_error)
+                directory_content_digest(source, cancel, &mut progress, &mut observer)
             })?;
-        progress.record_bytes(source, identity.size, &mut observer)?;
         progress.finish(&mut observer)?;
-        Some(identity)
+        Some(digest)
     } else {
         None
     };
@@ -1053,28 +1052,20 @@ fn copy_directory_source_preserving_path(
     progress.reset("verify_staging", None, None, &mut observer)?;
     let staged =
         crate::file_ops::measure_native_qa_copy_phase("content_hash_staging_tree", || {
-            identity::capture_identity(&staging.path, cancel).map_err(map_identity_error)
+            directory_content_digest(&staging.path, cancel, &mut progress, &mut observer)
         })?;
-    progress.record_bytes(&staging.path, staged.size, &mut observer)?;
     progress.finish(&mut observer)?;
     // Check the source after staging verification so source changes that
     // happen while the staged tree is being read also fail before publish.
     progress.reset("verify_source", None, None, &mut observer)?;
     let source_after =
         crate::file_ops::measure_native_qa_copy_phase("content_hash_source_post", || {
-            identity::capture_identity(source, cancel).map_err(map_identity_error)
+            directory_content_digest(source, cancel, &mut progress, &mut observer)
         })?;
-    progress.record_bytes(source, source_after.size, &mut observer)?;
     progress.finish(&mut observer)?;
-    let source_before_publish =
-        identity::capture_namespace_identity_only(source, cancel).map_err(map_identity_error)?;
-    if !identity::content_identity_matches(&source_after, &staged)
-        || !identity::identity_matches(
-            &without_content_identity(source_after.clone()),
-            &source_before_publish,
-        )
+    if source_after.hash != staged.hash
         || legacy_source_pre.as_ref().is_some_and(|before| {
-            before.full_hash != source_after.full_hash || before.size != source_after.size
+            before.hash != source_after.hash || before.bytes != source_after.bytes
         })
     {
         return Err(AtomicMoveError::CopyVerificationFailed);
@@ -1110,16 +1101,16 @@ fn copy_directory_source_preserving_path(
         progress.reset("verify_target", None, None, &mut observer)?;
         let target_identity =
             crate::file_ops::measure_native_qa_copy_phase("content_hash_published_target", || {
-                identity::capture_identity(&target_parent.path().join(target_name), cancel)
-                    .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)
+                directory_content_digest(
+                    &target_parent.path().join(target_name),
+                    cancel,
+                    &mut progress,
+                    &mut observer,
+                )
+                .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)
             })?;
-        progress.record_bytes(
-            &target_parent.path().join(target_name),
-            target_identity.size,
-            &mut observer,
-        )?;
         progress.finish(&mut observer)?;
-        if !identity::content_identity_matches(&source_after, &target_identity) {
+        if source_after.hash != target_identity.hash {
             return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
     }

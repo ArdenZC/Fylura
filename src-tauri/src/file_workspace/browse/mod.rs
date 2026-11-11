@@ -1766,7 +1766,7 @@ fn windows_network_browse_error(raw_error: Option<i32>) -> Option<BrowseError> {
         // Access denied, invalid credentials/password, and credential conflicts.
         5 | 65 | 86 | 1219 | 1326 => Some(BrowseError::DirectoryPermissionDenied),
         // Network path/name loss, provider unavailable, or explicit disconnect.
-        53 | 54 | 55 | 58 | 59 | 64 | 67 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234 | 1235
+        53 | 54 | 55 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234 | 1235
         | 1236 | 2250 => Some(BrowseError::DirectoryOffline),
         _ => None,
     }
@@ -2195,6 +2195,10 @@ mod tests {
         );
         assert_eq!(
             windows_network_browse_error(Some(59)),
+            Some(BrowseError::DirectoryOffline)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(121)),
             Some(BrowseError::DirectoryOffline)
         );
         assert_eq!(windows_network_browse_error(Some(5)), Some(BrowseError::DirectoryPermissionDenied));

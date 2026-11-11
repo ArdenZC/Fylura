@@ -145,6 +145,10 @@ it("ignores an older pane's delayed SMB result after a newer open or failure", a
   projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
   projection.recordNetworkBrowseSessionResult("older-pane-session", "offline");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "offline");
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
+  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
 
   // A later attempt can fail before admission returns a session id. That
   // explicit result also supersedes any still-running Browse enumeration.

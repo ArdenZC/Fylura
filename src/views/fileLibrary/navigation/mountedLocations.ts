@@ -115,6 +115,8 @@ export class MountedLocationProjection {
     const session = this.networkBrowseSessions.get(sessionId);
     if (!session || this.latestNetworkBrowseSessionByLocation.get(session.locationId) !== sessionId) return;
     this.recordNetworkBrowse(session.locationId, session.path, availability);
+    // Keep this session current for a later root refresh in the same pane.
+    this.latestNetworkBrowseSessionByLocation.set(session.locationId, sessionId);
   };
   projectKnownLocation = (location: KnownLocation) => this.applyNetworkObservation(location);
   private applyNetworkObservation(location: KnownLocation) {

@@ -365,7 +365,10 @@ fn windows_network_connection_state(path: &Path) -> Option<&'static str> {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_network_connection_state_from_status(result: u32, drive_type: u32) -> Option<&'static str> {
+fn windows_network_connection_state_from_status(
+    result: u32,
+    drive_type: u32,
+) -> Option<&'static str> {
     use windows_sys::Win32::System::WindowsProgramming::{DRIVE_NO_ROOT_DIR, DRIVE_REMOTE};
 
     let is_remote = drive_type == DRIVE_REMOTE;
@@ -376,7 +379,8 @@ fn windows_network_connection_state_from_status(result: u32, drive_type: u32) ->
         0 if is_remote => Some("connected_unverified"),
         0 if missing_root => Some("offline"),
         5 | 65 | 86 | 1326 => Some("permission_required"),
-        53 | 54 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234 | 1235
+        53 | 54 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233
+        | 1234 | 1235
         | 1236 => Some("offline"),
         2250 if is_remote || missing_root => Some("offline"),
         _ if is_remote || missing_root => Some("unknown"),

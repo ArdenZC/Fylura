@@ -1,14 +1,14 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { MountedLocationProjection } from "../src/views/fileLibrary/navigation/mountedLocations";
-import { networkAvailabilityFromBrowseError } from "../src/views/fileLibrary/navigation/mountedLocations";
+import { MountedLocationProjection, mountedLocations, networkAvailabilityFromBrowseError } from "../src/views/fileLibrary/navigation/mountedLocations";
 import { MountedVolumeList } from "../src/views/fileLibrary/navigation/MountedVolumeList";
 import type { KnownLocation } from "../src/api/fileManagementApi";
 import { fileManagementApi } from "../src/api/fileManagementApi";
 import { makeTranslator } from "../src/i18n";
-import { browsePlaceStatusLabel, projectKnownLocations, projectMountedNetworkStatuses } from "../src/views/fileLibrary/browse/useBrowsePlaces";
+import { browsePlaceStatusLabel, projectKnownLocations, projectMountedNetworkStatuses, useBrowsePlaces } from "../src/views/fileLibrary/browse/useBrowsePlaces";
 const usb: KnownLocation = { id: "usb", kind: "volume", path: "E:/", displayName: "USB", available: true };
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 it("shares one foreground discovery request across panes and stops polling after the last pane closes", async () => {
@@ -125,6 +125,22 @@ it("verifies SMB only after an explicit Browse enumeration and resets stale fail
   projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "session-reconnected");
   projection.recordNetworkBrowseSessionResult("session-reconnected", "available");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+});
+
+it("resets mounted SMB observations when the Browse Places refresh action is used", async () => {
+  vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([]);
+  vi.spyOn(fileManagementApi, "fileLibraryPlaces").mockResolvedValue([]);
+  const refresh = vi.spyOn(mountedLocations, "refresh").mockResolvedValue(undefined);
+  let reload: () => Promise<void> = async () => {};
+  function Harness() {
+    reload = useBrowsePlaces({ enabled: false, openPath: async () => false, t: makeTranslator("en") }).reload;
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  await act(async () => { root.render(createElement(Harness)); });
+  await act(async () => { await reload(); });
+  expect(refresh).toHaveBeenCalledWith(true);
+  await act(async () => { root.unmount(); });
 });
 
 it("ignores an older pane's delayed SMB result after a newer open or failure", async () => {

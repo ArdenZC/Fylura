@@ -80,6 +80,10 @@ export function useBrowsePlaces({ enabled, openPath, t }: {
     return () => { requestEpoch.current += 1; };
   }, [enabled, load]);
 
+  const reload = useCallback(async () => {
+    await Promise.all([load(), mounted.refresh(true)]);
+  }, [load, mounted.refresh]);
+
   const openPlace = useCallback(async (entry: BrowsePlaceEntry) => {
     if (openingKey !== null || !entry.openable) return false;
     setOpeningKey(entry.key);
@@ -111,7 +115,7 @@ export function useBrowsePlaces({ enabled, openPath, t }: {
     state,
     openingKey,
     openFailed,
-    reload: load,
+    reload,
     openPlace
   };
 }

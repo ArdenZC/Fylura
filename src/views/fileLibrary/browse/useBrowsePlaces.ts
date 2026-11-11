@@ -95,8 +95,10 @@ export function useBrowsePlaces({ enabled, openPath, t }: {
         const availability = opened
           ? "connected_unverified"
           : networkAvailabilityFromBrowseError(typeof result === "boolean" ? "" : result.error);
-        mountedLocations.recordNetworkBrowse(entry.locationId, entry.path, availability, typeof result === "boolean" ? undefined : result.sessionId);
-        setEntries((current) => current.map((item) => item.key === entry.key ? { ...item, openable: true, availability } : item));
+        if (availability !== null) {
+          mountedLocations.recordNetworkBrowse(entry.locationId, entry.path, availability, typeof result === "boolean" ? undefined : result.sessionId);
+          setEntries((current) => current.map((item) => item.key === entry.key ? { ...item, openable: true, availability } : item));
+        }
       }
       if (!opened) setOpenFailed(true);
       return opened;

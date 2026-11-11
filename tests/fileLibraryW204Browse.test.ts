@@ -11,6 +11,7 @@ import { FileWorkspaceController, WorkspaceSession } from "../src/fileWorkspace"
 import { makeTranslator } from "../src/i18n";
 import { mockFileWorkspaceInvoke } from "../src/api/fileWorkspaceMockApi";
 import { mountedLocations } from "../src/views/fileLibrary/navigation/mountedLocations";
+import { projectKnownLocations, projectMountedNetworkStatuses } from "../src/views/fileLibrary/browse/useBrowsePlaces";
 import { FileLibraryExperienceProvider, useFileLibraryExperience } from "../src/views/fileLibrary/FileLibraryExperienceProvider";
 import {
   FileLibraryExperienceController,
@@ -63,6 +64,23 @@ function browseResponse(sessionId: string, canWatch: boolean): BrowseOpenRespons
   };
 }
 
+function networkBrowseResponse(sessionId: string, canWatch = false): BrowseOpenResponse {
+  const response = browseResponse(sessionId, canWatch);
+  response.location.kind = "network";
+  return response;
+}
+
+function knownNetworkLocation(): KnownLocation {
+  return {
+    id: "volume:\\\\nas.example\\documents",
+    kind: "volume",
+    path: "\\\\nas.example\\documents",
+    displayName: "NAS documents",
+    available: false,
+    volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "connected_unverified" }
+  };
+}
+
 function pageFor(sessionId: string, requestId: string, marker: string): BrowsePage {
   return {
     sessionId,
@@ -96,6 +114,7 @@ function sourceOwnerApi(options: {
   responses?: BrowseOpenResponse[];
   browseOpen?: FileWorkspaceApi["browseOpen"];
   browseStartEnumeration?: FileWorkspaceApi["browseStartEnumeration"];
+  browseNextPage?: FileWorkspaceApi["browseNextPage"];
   initialEntries?: BrowseEntry[];
   changePending?: FileWorkspaceApi["changePending"];
   changeRefresh?: FileWorkspaceApi["changeRefresh"];
@@ -113,6 +132,8 @@ function sourceOwnerApi(options: {
       : pageForEntries(sessionId, requestId, initialEntries, `start-${sessionId}-${enumerationSequence}`);
   };
   const browseStartEnumeration = vi.fn(options.browseStartEnumeration ?? defaultBrowseStartEnumeration);
+  const browseNextPage = vi.fn(options.browseNextPage ?? (async ({ sessionId, cursor }) =>
+    pageFor(sessionId, cursor, `next-${cursor}`)));
   const monitorSessions = new Map<string, string>();
   const changeStart = vi.fn(async ({ sessionId, pathRef }: Parameters<FileWorkspaceApi["changeStart"]>[0]) => {
     const monitorId = `monitor-${sessionId}-${pathRef.id}`;
@@ -129,7 +150,7 @@ function sourceOwnerApi(options: {
     browseRestore: async () => { throw new Error("restore not used"); },
     locationBrowse: async () => { throw new Error("location browse not used"); },
     browseStartEnumeration,
-    browseNextPage: async ({ sessionId, cursor }) => pageFor(sessionId, cursor, `next-${cursor}`),
+    browseNextPage,
     browseCancel: async () => undefined,
     browseReleasePage: async () => undefined,
     browseReleasePath: async () => undefined,
@@ -151,7 +172,7 @@ function sourceOwnerApi(options: {
     previewSwitchSource: async () => { throw new Error("preview not used"); },
     previewAssetRequest: async () => { throw new Error("preview asset not used"); }
   };
-  return { api, browseOpen, browseStartEnumeration, changeStart, changePending, changeRefresh };
+  return { api, browseOpen, browseStartEnumeration, browseNextPage, changeStart, changePending, changeRefresh };
 }
 
 async function settleSourceOwner() {
@@ -391,6 +412,289 @@ describe("W2-04 Browse source owner contracts", () => {
     expect(publishNetworkResult).toHaveBeenLastCalledWith("network-session-2", "available");
     expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
     expect(enumerate).toHaveBeenCalledTimes(2);
+  });
+
+  it("updates the shared SMB state after a child disconnect and verifies a later reopen", async () => {
+    const smb = knownNetworkLocation();
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([smb]);
+    await mountedLocations.refresh(true);
+
+    const firstResponse = networkBrowseResponse("network-child-session-1");
+    const reopenedResponse = networkBrowseResponse("network-child-session-2");
+    const childFolder = browseEntry({
+      ref: { kind: "ephemeral", browseSessionId: firstResponse.sessionId, entryId: "child-folder" },
+      pathRef: { id: "child-path" },
+      name: "Reports",
+      displayPath: "Reports"
+    });
+    const enumerate = vi.fn(async ({ sessionId, requestId, pathRef }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) => {
+      if (sessionId === firstResponse.sessionId && pathRef.id === firstResponse.rootPathRef.id) {
+        return pageForEntries(sessionId, requestId, [childFolder], "network-root");
+      }
+      if (sessionId === firstResponse.sessionId) throw new Error("browse_directory_offline");
+      return pageFor(sessionId, requestId, "network-reconnected");
+    });
+    const fixture = sourceOwnerApi({
+      responses: [firstResponse, reopenedResponse],
+      browseStartEnumeration: enumerate,
+      canWatch: false
+    });
+    const mounted = await mountSourceOwner(fixture.api);
+
+    let opened!: { opened: boolean; sessionId?: string };
+    await act(async () => {
+      opened = await mounted.source().openKnownLocation(smb.path, smb.displayName) as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", opened.sessionId);
+    });
+    await settleSourceOwner();
+    expect(opened.sessionId).toBe(firstResponse.sessionId);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+
+    await act(async () => {
+      expect(mounted.source().navigateInto(mounted.source().entries[0]!)).toBe(true);
+    });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
+    const [place] = projectKnownLocations([smb], t);
+    const [projectedPlace] = projectMountedNetworkStatuses([place!], mountedLocations.getSnapshot().locations);
+    expect(projectedPlace).toMatchObject({ openable: true, availability: "offline" });
+
+    await act(async () => {
+      opened = await mounted.source().openKnownLocation(smb.path, smb.displayName) as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", opened.sessionId);
+    });
+    await settleSourceOwner();
+    expect(opened.sessionId).toBe(reopenedResponse.sessionId);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+    const [reconnectedPlace] = projectMountedNetworkStatuses([place!], mountedLocations.getSnapshot().locations);
+    expect(reconnectedPlace).toMatchObject({ openable: true, availability: "available" });
+  });
+
+  it("updates SMB status when a later page is denied, ignores an expired cursor, and recovers on a successful page", async () => {
+    const smb = knownNetworkLocation();
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([smb]);
+    await mountedLocations.refresh(true);
+
+    const response = networkBrowseResponse("network-page-session");
+    const start = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) => {
+      const page = pageFor(sessionId, requestId, "first-network-page");
+      page.completion = "partial";
+      page.nextCursor = "network-cursor";
+      return page;
+    });
+    let nextCount = 0;
+    const next = vi.fn(async ({ sessionId, cursor }: Parameters<FileWorkspaceApi["browseNextPage"]>[0]) => {
+      nextCount += 1;
+      if (nextCount === 1) throw new Error("browse_cursor_invalid");
+      if (nextCount === 2) throw new Error("browse_directory_permission_denied");
+      const page = pageFor(sessionId, cursor, "network-page-recovered");
+      page.enumerationId = "enumeration-first-network-page";
+      return page;
+    });
+    const fixture = sourceOwnerApi({ responses: [response], browseStartEnumeration: start, browseNextPage: next, canWatch: false });
+    const mounted = await mountSourceOwner(fixture.api);
+
+    await act(async () => {
+      const opened = await mounted.source().openKnownLocation(smb.path, smb.displayName) as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", opened.sessionId);
+    });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+
+    await act(async () => { await mounted.source().loadNextPage(); });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+    await act(async () => { await mounted.source().loadNextPage(); });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "permission_required" } });
+    await act(async () => { await mounted.source().loadNextPage(); });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+    expect(next).toHaveBeenCalledTimes(3);
+  });
+
+  it("propagates subdirectory change-refresh disconnects and restores availability after a successful refresh", async () => {
+    const smb = knownNetworkLocation();
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([smb]);
+    await mountedLocations.refresh(true);
+
+    const response = networkBrowseResponse("network-change-session", true);
+    const childFolder = browseEntry({
+      ref: { kind: "ephemeral", browseSessionId: response.sessionId, entryId: "change-child" },
+      pathRef: { id: "change-child-path" }
+    });
+    const start = vi.fn(async ({ sessionId, requestId, pathRef }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) =>
+      pathRef.id === response.rootPathRef.id
+        ? pageForEntries(sessionId, requestId, [childFolder], "change-root")
+        : pageFor(sessionId, requestId, "change-child-page"));
+    const pending = vi.fn(async ({ monitorId }: Parameters<FileWorkspaceApi["changePending"]>[0]) => ({
+      monitorId,
+      sequence: 1,
+      hint: { kind: "content_changed" as const }
+    }));
+    let refreshCount = 0;
+    const refresh = vi.fn(async ({ requestId }: Parameters<FileWorkspaceApi["changeRefresh"]>[0]) => {
+      refreshCount += 1;
+      if (refreshCount === 1) throw new Error("browse_directory_offline");
+      return pageFor(response.sessionId, requestId, "change-refresh-reconnected");
+    });
+    const fixture = sourceOwnerApi({
+      responses: [response],
+      browseStartEnumeration: start,
+      changePending: pending,
+      changeRefresh: refresh
+    });
+    const mounted = await mountSourceOwner(fixture.api);
+
+    await act(async () => {
+      const opened = await mounted.source().openKnownLocation(smb.path, smb.displayName) as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", opened.sessionId);
+    });
+    await settleSourceOwner();
+    await act(async () => {
+      expect(mounted.source().navigateInto(mounted.source().entries[0]!)).toBe(true);
+    });
+    await settleSourceOwner();
+    expect(mounted.source().changeState).toBe("watching");
+
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    await settleSourceOwner();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    await settleSourceOwner();
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+  });
+
+  it("keeps a newer manual refresh authoritative when an older monitor read finishes late", async () => {
+    const smb = knownNetworkLocation();
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([smb]);
+    await mountedLocations.refresh(true);
+    const response = networkBrowseResponse("network-refresh-race-session", true);
+    const oldPending = deferred<Awaited<ReturnType<FileWorkspaceApi["changePending"]>>>();
+    let pendingCount = 0;
+    const pending = vi.fn(async () => {
+      pendingCount += 1;
+      return pendingCount === 1 ? oldPending.promise : null;
+    });
+    let enumerationCount = 0;
+    const start = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) => {
+      enumerationCount += 1;
+      if (enumerationCount === 2) throw new Error("browse_directory_offline");
+      return pageFor(sessionId, requestId, "refresh-race-page");
+    });
+    const fixture = sourceOwnerApi({
+      responses: [response],
+      browseStartEnumeration: start,
+      changePending: pending
+    });
+    const mounted = await mountSourceOwner(fixture.api);
+
+    await act(async () => {
+      const opened = await mounted.source().openKnownLocation(smb.path, smb.displayName) as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", opened.sessionId);
+    });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+
+    let oldRefresh!: Promise<void>;
+    await act(async () => {
+      oldRefresh = mounted.source().refreshEnumeration();
+      await Promise.resolve();
+    });
+    expect(pending).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    await settleSourceOwner();
+    expect(enumerationCount).toBe(2);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
+
+    oldPending.resolve({
+      monitorId: "monitor-network-refresh-race-session-root-network-refresh-race-session",
+      sequence: 1,
+      hint: { kind: "content_changed" }
+    });
+    await act(async () => { await oldRefresh; });
+    await settleSourceOwner();
+    expect(enumerationCount).toBe(2);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
+  });
+
+  it("ignores canceled and stale enumeration errors instead of changing the SMB status", async () => {
+    const smb = knownNetworkLocation();
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([smb]);
+    await mountedLocations.refresh(true);
+    const response = networkBrowseResponse("network-control-error-session");
+    const failures = ["browse_cancelled", "browse_enumeration_stale", "browse_directory_not_found"];
+    let attempt = 0;
+    const start = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) => {
+      if (attempt === 0) {
+        attempt += 1;
+        return pageFor(sessionId, requestId, "control-error-initial-success");
+      }
+      const failure = failures[attempt - 1];
+      attempt += 1;
+      if (failure !== undefined) throw new Error(failure);
+      return pageFor(sessionId, requestId, "control-error-success");
+    });
+    const fixture = sourceOwnerApi({ responses: [response], browseStartEnumeration: start, canWatch: false });
+    const mounted = await mountSourceOwner(fixture.api);
+    await act(async () => {
+      const opened = await mounted.source().openKnownLocation(smb.path, smb.displayName) as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", opened.sessionId);
+    });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "unknown" } });
+    await act(async () => { await mounted.source().refreshEnumeration(); });
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+  });
+
+  it("does not let a late result from a replaced filtered enumeration alter SMB status", async () => {
+    const smb = knownNetworkLocation();
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([smb]);
+    await mountedLocations.refresh(true);
+
+    const response = networkBrowseResponse("network-filter-session");
+    const late = deferred<BrowsePage>();
+    let starts = 0;
+    const start = vi.fn(async ({ sessionId, requestId }: Parameters<FileWorkspaceApi["browseStartEnumeration"]>[0]) => {
+      starts += 1;
+      if (starts === 2) return late.promise;
+      return pageFor(sessionId, requestId, "filtered-success");
+    });
+    const fixture = sourceOwnerApi({ responses: [response], browseStartEnumeration: start, canWatch: false });
+    const mounted = await mountSourceOwner(fixture.api);
+
+    await act(async () => {
+      const opened = await mounted.source().openKnownLocation(smb.path, smb.displayName) as { opened: boolean; sessionId?: string };
+      mountedLocations.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", opened.sessionId);
+    });
+    await settleSourceOwner();
+    expect(starts).toBe(1);
+
+    await act(async () => { mounted.source().setQueryText("older-filter"); });
+    await settleSourceOwner();
+    expect(starts).toBe(2);
+    await act(async () => { mounted.source().setQueryText("newer-filter"); });
+    await settleSourceOwner();
+    expect(starts).toBe(3);
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+
+    late.reject(new Error("browse_directory_offline"));
+    await settleSourceOwner();
+    expect(mountedLocations.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
   });
 
   it("checks an active monitor once and refreshes through the existing change seam when a hint exists", async () => {

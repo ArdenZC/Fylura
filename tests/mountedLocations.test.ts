@@ -97,6 +97,23 @@ it("shows connected unlettered SMB shares and preserves disconnect/reconnect fee
   expect(load).toHaveBeenCalledTimes(3);
 });
 
+it("does not apply network Browse reports to a local mounted volume", async () => {
+  const local: KnownLocation = {
+    id: "volume:C:",
+    kind: "volume",
+    path: "C:/",
+    displayName: "System drive",
+    available: true,
+    volume: { identity: "local-volume", kind: "local", readOnly: false, availableBytes: 10, totalBytes: 20, canEject: false, availability: "available" }
+  };
+  const projection = new MountedLocationProjection(vi.fn().mockResolvedValue([local]));
+  await projection.refresh();
+
+  projection.recordNetworkBrowse(local.id, local.path, "offline", "local-browse-session");
+  projection.recordNetworkBrowseSessionResult("local-browse-session", "offline");
+  expect(projection.getSnapshot().locations).toEqual([local]);
+});
+
 it("verifies SMB only after an explicit Browse enumeration and resets stale failures for a manual retry", async () => {
   const smb: KnownLocation = {
     id: "volume:\\\\nas.example\\documents",
@@ -143,7 +160,7 @@ it("resets mounted SMB observations when the Browse Places refresh action is use
   await act(async () => { root.unmount(); });
 });
 
-it("ignores an older pane's delayed SMB result after a newer open or failure", async () => {
+it("ignores out-of-order SMB results from older panes while the newest of four panes stays authoritative", async () => {
   const smb: KnownLocation = {
     id: "volume:\\\\nas.example\\documents",
     kind: "volume",
@@ -155,20 +172,24 @@ it("ignores an older pane's delayed SMB result after a newer open or failure", a
   const projection = new MountedLocationProjection(vi.fn().mockResolvedValue([smb]));
   await projection.refresh();
 
-  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "older-pane-session");
-  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "reconnected-pane-session");
-  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
-  projection.recordNetworkBrowseSessionResult("older-pane-session", "offline");
+  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "pane-session-1");
+  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "pane-session-2");
+  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "pane-session-3");
+  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "pane-session-4");
+  projection.recordNetworkBrowseSessionResult("pane-session-4", "available");
+  projection.recordNetworkBrowseSessionResult("pane-session-1", "offline");
+  projection.recordNetworkBrowseSessionResult("pane-session-2", "permission_required");
+  projection.recordNetworkBrowseSessionResult("pane-session-3", "offline");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
-  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "offline");
+  projection.recordNetworkBrowseSessionResult("pane-session-4", "offline");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "offline" } });
-  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
+  projection.recordNetworkBrowseSessionResult("pane-session-4", "available");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
 
   // A later attempt can fail before admission returns a session id. That
   // explicit result also supersedes any still-running Browse enumeration.
   projection.recordNetworkBrowse(smb.id, smb.path, "permission_required");
-  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
+  projection.recordNetworkBrowseSessionResult("pane-session-4", "available");
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "permission_required" } });
 });
 
@@ -250,6 +271,11 @@ it("shows the latest mounted SMB browse result in Places as well as the sidebar"
 it("classifies explicit SMB Browse failures without probing network paths", () => {
   expect(networkAvailabilityFromBrowseError("browse_directory_permission_denied")).toBe("permission_required");
   expect(networkAvailabilityFromBrowseError("browse_directory_offline")).toBe("offline");
-  expect(networkAvailabilityFromBrowseError("browse_directory_not_found")).toBe("offline");
+  expect(networkAvailabilityFromBrowseError("network_unreachable")).toBe("offline");
+  expect(networkAvailabilityFromBrowseError("browse_directory_not_found")).toBe("unknown");
   expect(networkAvailabilityFromBrowseError("browse_directory_unavailable")).toBe("unknown");
+  expect(networkAvailabilityFromBrowseError("browse_cancelled")).toBeNull();
+  expect(networkAvailabilityFromBrowseError("browse_enumeration_stale")).toBeNull();
+  expect(networkAvailabilityFromBrowseError("browse_cursor_invalid")).toBeNull();
+  expect(networkAvailabilityFromBrowseError({ message: "browse_directory_permission_denied" })).toBe("permission_required");
 });

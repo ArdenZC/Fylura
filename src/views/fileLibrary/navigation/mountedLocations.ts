@@ -17,11 +17,37 @@ interface NetworkBrowseSession {
 const MAX_NETWORK_OBSERVATIONS = 48;
 const MAX_NETWORK_BROWSE_SESSIONS = 96;
 
-export function networkAvailabilityFromBrowseError(error: unknown): VolumeAvailability {
-  const message = typeof error === "string" ? error : String(error ?? "");
-  if (/permission_denied|authentication_required|logon_failure|invalid_password/i.test(message)) return "permission_required";
-  if (/directory_offline|directory_not_found|device_disconnected|network_unreachable|network_name_deleted/i.test(message)) return "offline";
+export function networkAvailabilityFromBrowseError(error: unknown): VolumeAvailability | null {
+  const message = browseErrorMessage(error);
+  if (!message) return null;
+  if (/permission_denied|authentication_required|logon_failure|invalid_password|credential_(?:expired|invalid|required)/i.test(message)) {
+    return "permission_required";
+  }
+  if (/browse_(?:directory|entry)_offline|device_disconnected|network_(?:path_not_found|unreachable|down|name_deleted)|host_unreachable|connection_(?:aborted|reset|refused)|timed_out/i.test(message)) {
+    return "offline";
+  }
+  // These failures describe request/session control, not remote reachability.
+  // In particular, stale cursors and cancellation must not overwrite the
+  // result of a newer successful access.
+  if (/browse_(?:cancelled|canceled|enumeration_stale|publication_stale|cursor_invalid|request_invalid|session_not_found|path_ref_invalid|entry_ref_invalid|sort_capacity_exceeded|page_size_invalid|temporary_state_capacity_exceeded)|ephemeral_change_(?:refresh_superseded|refresh_not_pending|monitor_disposed)|browse_open_busy|browse_platform_unavailable|\b(?:aborterror|cancelled|canceled)\b/i.test(message)) {
+    return null;
+  }
+  // A missing child path or other ambiguous I/O error is not proof that the
+  // whole SMB share is offline.
   return "unknown";
+}
+
+function browseErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error.trim();
+  if (error instanceof Error) return `${error.name} ${error.message}`.trim();
+  if (typeof error === "object" && error !== null) {
+    const value = error as { message?: unknown; code?: unknown; details?: unknown };
+    return [value.message, value.code, value.details]
+      .filter((part): part is string => typeof part === "string")
+      .join(" ")
+      .trim();
+  }
+  return "";
 }
 
 interface MountedLocationsSnapshot {

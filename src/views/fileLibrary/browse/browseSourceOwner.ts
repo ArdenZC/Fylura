@@ -2,6 +2,7 @@ import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Translator } from "../../../types/ui";
+import type { VolumeAvailability } from "../../../api/fileManagementApi";
 import type {
   BrowseEntry,
   BrowseEntryRef,
@@ -218,6 +219,7 @@ export function useBrowseSourceOwner({
   const [changeState, setChangeState] = useState<BrowseChangeState>("unavailable");
   const [changeError, setChangeError] = useState(false);
   const generationRef = useRef(0);
+  const manualRefreshRef = useRef(0);
   const activeTargetKeyRef = useRef<string | null>(null);
   const [queryTargetKey, setQueryTargetKey] = useState<string | null>(null);
   const activeEnumerationKeyRef = useRef<string | null>(null);
@@ -233,6 +235,17 @@ export function useBrowseSourceOwner({
   entriesRef.current = entries;
   focusedIdRef.current = focusedId;
   hasMoreRef.current = activePage?.nextCursor !== undefined;
+
+  const isExpectedBrowseTarget = useCallback((expectedTargetKey: string, expectedSessionId: string | null) => {
+    if (activeTargetKeyRef.current !== expectedTargetKey) return false;
+    const current = controller.workspace.getState().session.currentTarget;
+    if (current?.kind !== "browse") return false;
+    const currentSessionId = current.location.kind === "ephemeral"
+      ? current.location.browseSessionId
+      : null;
+    const currentTargetKey = `${currentSessionId ?? "managed"}:${current.pathRef.id}`;
+    return currentTargetKey === expectedTargetKey && currentSessionId === expectedSessionId;
+  }, [controller.workspace]);
 
   useEffect(() => {
     if (breadcrumbSessionRef.current === sessionId) return;
@@ -380,14 +393,35 @@ export function useBrowseSourceOwner({
     }
   }, [controller]);
 
-  const mergePage = useCallback((page: BrowsePage, generation: number, expectedTargetKey: string) => {
-    if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return false;
+  const mergePage = useCallback((
+    page: BrowsePage,
+    generation: number,
+    expectedTargetKey: string,
+    expectedSessionId: string | null
+  ) => {
+    if (expectedSessionId !== null && page.sessionId !== expectedSessionId) return false;
+    if (generationRef.current !== generation || !isExpectedBrowseTarget(expectedTargetKey, expectedSessionId)) return false;
     setActivePage(page);
     setEntries((current) => mergeBrowseEntries(current, page.entries));
     setEnumerationState(browseEnumerationStateForPage(page));
     setEnumerationError(false);
     return true;
-  }, []);
+  }, [isExpectedBrowseTarget]);
+
+  const recordNetworkBrowseResult = useCallback((expectedSessionId: string | null, availability: VolumeAvailability) => {
+    // Bind the projection update to the currently admitted Browse session.
+    // MountedLocationProjection separately rejects results from older panes
+    // when a newer session for the same share has been opened.
+    if (expectedSessionId === null
+      || sessionId !== expectedSessionId
+      || browse?.sessionId !== expectedSessionId) return;
+    mountedLocations.recordNetworkBrowseSessionResult(expectedSessionId, availability);
+  }, [browse?.sessionId, sessionId]);
+
+  const recordNetworkBrowseFailure = useCallback((expectedSessionId: string | null, error: unknown) => {
+    const availability = networkAvailabilityFromBrowseError(error);
+    if (availability !== null) recordNetworkBrowseResult(expectedSessionId, availability);
+  }, [recordNetworkBrowseResult]);
 
   const prepareEnumerationPublication = useCallback(() => {
     const generation = generationRef.current + 1;
@@ -402,12 +436,18 @@ export function useBrowseSourceOwner({
     return generation;
   }, []);
 
+  const invalidateEnumerationRequests = useCallback(() => {
+    generationRef.current += 1;
+    manualRefreshRef.current += 1;
+  }, []);
+
   const beginEnumeration = useCallback(async (
     pathRef: BrowsePathRef,
     expectedTargetKey: string,
     expectedQuery: BrowseQuerySpecV1
   ) => {
     const generation = prepareEnumerationPublication();
+    const expectedSessionId = sessionId;
     try {
       const page = await controller.workspace.startEnumeration(
         pathRef,
@@ -416,28 +456,23 @@ export function useBrowseSourceOwner({
         expectedQuery
       );
       if (page === null) {
-        if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
+        if (generationRef.current === generation && isExpectedBrowseTarget(expectedTargetKey, expectedSessionId)) {
           setEnumerationState("failed");
           setEnumerationError(true);
         }
         return;
       }
-      const published = mergePage(page, generation, expectedTargetKey);
-      if (published
-        && browse !== null
-        && pathRef.id === browse.rootPathRef.id
-        && page.sessionId === browse.sessionId) {
-        mountedLocations.recordNetworkBrowseSessionResult(page.sessionId, "available");
+      const published = mergePage(page, generation, expectedTargetKey, expectedSessionId);
+      if (published && page.sessionId === expectedSessionId) {
+        recordNetworkBrowseResult(expectedSessionId, "available");
       }
     } catch (error) {
-      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
+      if (generationRef.current !== generation || !isExpectedBrowseTarget(expectedTargetKey, expectedSessionId)) return;
       setEnumerationState("failed");
       setEnumerationError(true);
-      if (browse !== null && pathRef.id === browse.rootPathRef.id) {
-        mountedLocations.recordNetworkBrowseSessionResult(browse.sessionId, networkAvailabilityFromBrowseError(error));
-      }
+      recordNetworkBrowseFailure(expectedSessionId, error);
     }
-  }, [browse, controller.workspace, mergePage, prepareEnumerationPublication]);
+  }, [controller.workspace, isExpectedBrowseTarget, mergePage, prepareEnumerationPublication, recordNetworkBrowseFailure, recordNetworkBrowseResult, sessionId]);
 
   useEffect(() => {
     if (queryTargetKey === targetKey) return;
@@ -486,7 +521,9 @@ export function useBrowseSourceOwner({
       && !query.text && query.entryKind === "all" && !query.sort) {
       consumedAdmissionPageRef.current = initial;
       const generation = prepareEnumerationPublication();
-      mergePage(initial, generation, targetKey);
+      if (mergePage(initial, generation, targetKey, sessionId)) {
+        recordNetworkBrowseResult(sessionId, "available");
+      }
       const focus = browse.focusEntryRef;
       const targetEntry = focus && initial.entries.find((entry) =>
         entry.ref.browseSessionId === focus.browseSessionId && entry.ref.entryId === focus.entryId);
@@ -498,7 +535,7 @@ export function useBrowseSourceOwner({
       return;
     }
     void beginEnumeration(currentPathRef, targetKey, query);
-  }, [beginEnumeration, browse, currentPathRef, mergePage, prepareEnumerationPublication, query, queryTargetKey, sessionId, state.mode, state.workspace.page, state.workspace.suspended, target, targetKey, visible]);
+  }, [beginEnumeration, browse, currentPathRef, mergePage, prepareEnumerationPublication, query, queryTargetKey, recordNetworkBrowseResult, sessionId, state.mode, state.workspace.page, state.workspace.suspended, target, targetKey, visible]);
 
   useEffect(() => {
     if (!visible) { activeChangeTargetKeyRef.current = null; return; }
@@ -561,6 +598,7 @@ export function useBrowseSourceOwner({
     expectedQuery: BrowseQuerySpecV1
   ) => {
     const generation = prepareEnumerationPublication();
+    const expectedSessionId = sessionId;
     setChangeState("refreshing");
     try {
       const page = await controller.workspace.refreshChange(
@@ -569,7 +607,7 @@ export function useBrowseSourceOwner({
         expectedQuery
       );
       if (page === null) {
-        if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
+        if (generationRef.current === generation && isExpectedBrowseTarget(expectedTargetKey, expectedSessionId)) {
           setEnumerationState("failed");
           setEnumerationError(true);
           setChangeState("failed");
@@ -577,21 +615,33 @@ export function useBrowseSourceOwner({
         }
         return;
       }
-      if (!mergePage(page, generation, expectedTargetKey)) return;
+      if (!mergePage(page, generation, expectedTargetKey, expectedSessionId)) return;
+      if (page.sessionId === expectedSessionId) recordNetworkBrowseResult(expectedSessionId, "available");
       setChangeState("watching");
-    } catch {
-      if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
+    } catch (error) {
+      if (generationRef.current !== generation || !isExpectedBrowseTarget(expectedTargetKey, expectedSessionId)) return;
       setEnumerationState("failed");
       setEnumerationError(true);
       setChangeState("failed");
       setChangeError(true);
+      // Change refresh performs a new directory enumeration. Only an
+      // explicit access/permission result changes the mounted network state;
+      // stale/canceled refreshes are ignored by the classifier.
+      recordNetworkBrowseFailure(expectedSessionId, error);
     }
-  }, [controller.workspace, mergePage, prepareEnumerationPublication]);
+  }, [controller.workspace, isExpectedBrowseTarget, mergePage, prepareEnumerationPublication, recordNetworkBrowseFailure, recordNetworkBrowseResult, sessionId]);
 
   const refreshEnumeration = useCallback(async () => {
     if (currentPathRef === null || targetKey === null) return;
     const expectedTargetKey = targetKey;
     const expectedPathRef = currentPathRef;
+    const refreshRequest = ++manualRefreshRef.current;
+    const expectedGeneration = generationRef.current;
+    const expectedQuery = JSON.stringify(query);
+    const isCurrentRefresh = () => manualRefreshRef.current === refreshRequest
+      && generationRef.current === expectedGeneration
+      && isExpectedBrowseTarget(expectedTargetKey, sessionId)
+      && JSON.stringify(queryRef.current) === expectedQuery;
     const monitor = state.workspace.change;
     const monitorMatchesTarget = monitor !== null
       && sessionId !== null
@@ -607,7 +657,7 @@ export function useBrowseSourceOwner({
     setChangeError(false);
     try {
       const pending = await controller.workspace.readPendingChange();
-      if (activeTargetKeyRef.current !== expectedTargetKey) return;
+      if (!isCurrentRefresh()) return;
       if (pending !== null) {
         await beginChangeRefresh(expectedTargetKey, query);
         return;
@@ -615,12 +665,12 @@ export function useBrowseSourceOwner({
       setChangeState("watching");
       await beginEnumeration(expectedPathRef, expectedTargetKey, query);
     } catch {
-      if (activeTargetKeyRef.current !== expectedTargetKey) return;
+      if (!isCurrentRefresh()) return;
       setChangeState("failed");
       setChangeError(true);
       await beginEnumeration(expectedPathRef, expectedTargetKey, query);
     }
-  }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, query, sessionId, state.workspace.change, targetKey]);
+  }, [beginChangeRefresh, beginEnumeration, canWatch, controller.workspace, currentPathRef, isExpectedBrowseTarget, query, sessionId, state.workspace.change, targetKey]);
 
   const isQueryActive = (query.text?.trim().length ?? 0) > 0 || query.entryKind !== "all" || query.sort !== undefined;
 
@@ -639,7 +689,7 @@ export function useBrowseSourceOwner({
         loadPage: () => controller.workspace.nextPage(BROWSE_PAGE_SIZE),
         scanEmptyPages: scanEmptyQueryPages,
         isCurrent: () => generationRef.current === generation
-          && activeTargetKeyRef.current === expectedTargetKey,
+          && isExpectedBrowseTarget(expectedTargetKey, expectedSessionId),
         isPageAcceptable: (page) => page.enumerationId === expectedEnumerationId
           && page.sessionId === expectedSessionId
       });
@@ -650,17 +700,24 @@ export function useBrowseSourceOwner({
         return [];
       }
       for (const page of scan.pages) {
-        if (!mergePage(page, generation, expectedTargetKey)) return [];
+        if (!mergePage(page, generation, expectedTargetKey, expectedSessionId)) return [];
       }
+      if (scan.pages.length > 0) recordNetworkBrowseResult(expectedSessionId, "available");
       return scan.entries.map(adaptBrowseEntry);
-    } catch {
-      if (generationRef.current === generation && activeTargetKeyRef.current === expectedTargetKey) {
+    } catch (error) {
+      if (generationRef.current === generation && isExpectedBrowseTarget(expectedTargetKey, expectedSessionId)) {
         setEnumerationState("failed");
         setEnumerationError(true);
       }
+      // Rejected page reads can carry explicit remote disconnect or
+      // authentication errors. scan.stale / a null page never reaches this
+      // branch, so expired cursors and cancellations cannot poison SMB state.
+      if (generationRef.current === generation && isExpectedBrowseTarget(expectedTargetKey, expectedSessionId)) {
+        recordNetworkBrowseFailure(expectedSessionId, error);
+      }
       return [];
     }
-  }, [activePage, controller.workspace, enumerationState, isQueryActive, mergePage, targetKey]);
+  }, [activePage, controller.workspace, enumerationState, isExpectedBrowseTarget, isQueryActive, mergePage, recordNetworkBrowseFailure, recordNetworkBrowseResult, sessionId, targetKey]);
 
   const loadNextPage = useCallback(async () => {
     await loadNextPageEntries(isQueryActive);
@@ -826,21 +883,27 @@ export function useBrowseSourceOwner({
 
   const setQueryText = useCallback((text: string) => {
     const nextQuery = { ...queryRef.current, text: text || null };
+    if (JSON.stringify(nextQuery) === JSON.stringify(queryRef.current)) return;
+    invalidateEnumerationRequests();
     queryRef.current = nextQuery;
     setQuery(nextQuery);
     controller.setBrowseQuery(nextQuery);
-  }, [controller]);
+  }, [controller, invalidateEnumerationRequests]);
   const setQueryEntryKind = useCallback((entryKind: BrowseQueryEntryKind) => {
     const nextQuery = { ...queryRef.current, entryKind };
+    if (JSON.stringify(nextQuery) === JSON.stringify(queryRef.current)) return;
+    invalidateEnumerationRequests();
     queryRef.current = nextQuery;
     setQuery(nextQuery);
     controller.setBrowseQuery(nextQuery);
-  }, [controller]);
+  }, [controller, invalidateEnumerationRequests]);
 
   const setSort = useCallback((sort: BrowseQuerySpecV1["sort"]) => {
     const next = { ...queryRef.current, sort };
+    if (JSON.stringify(next) === JSON.stringify(queryRef.current)) return;
+    invalidateEnumerationRequests();
     queryRef.current = next; setQuery(next); controller.setBrowseQuery(next);
-  }, [controller]);
+  }, [controller, invalidateEnumerationRequests]);
   const selectIds = useCallback((ids: readonly string[]) => {
     const live = new Set(entries.map((e) => e.entryRef.entryId));
     setSelectedIds(new Set(ids.filter((id) => live.has(id))));

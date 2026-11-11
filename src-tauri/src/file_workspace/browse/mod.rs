@@ -1741,6 +1741,9 @@ fn map_directory_error(error: io::Error) -> BrowseError {
     if let Some(network_error) = windows_network_browse_error(error.raw_os_error()) {
         return network_error;
     }
+    if let Some(network_error) = network_io_browse_error(error.kind()) {
+        return network_error;
+    }
     match error.kind() {
         io::ErrorKind::PermissionDenied => BrowseError::DirectoryPermissionDenied,
         io::ErrorKind::NotFound => BrowseError::DirectoryNotFound,
@@ -1771,9 +1774,26 @@ fn windows_network_browse_error(raw_error: Option<i32>) -> Option<BrowseError> {
     }
 }
 
+fn network_io_browse_error(kind: io::ErrorKind) -> Option<BrowseError> {
+    match kind {
+        io::ErrorKind::ConnectionAborted
+        | io::ErrorKind::ConnectionRefused
+        | io::ErrorKind::ConnectionReset
+        | io::ErrorKind::HostUnreachable
+        | io::ErrorKind::NetworkDown
+        | io::ErrorKind::NetworkUnreachable
+        | io::ErrorKind::NotConnected
+        | io::ErrorKind::TimedOut => Some(BrowseError::DirectoryOffline),
+        _ => None,
+    }
+}
+
 fn map_entry_error(error: io::Error) -> BrowseError {
     #[cfg(windows)]
     if let Some(network_error) = windows_network_browse_error(error.raw_os_error()) {
+        return network_error;
+    }
+    if let Some(network_error) = network_io_browse_error(error.kind()) {
         return network_error;
     }
     match error.kind() {
@@ -2221,6 +2241,44 @@ mod tests {
             Some(BrowseError::DirectoryPermissionDenied)
         );
         assert_eq!(windows_network_browse_error(Some(12345)), None);
+    }
+
+    #[test]
+    fn confirmed_connection_errors_are_offline_but_missing_paths_are_not() {
+        for kind in [
+            ErrorKind::ConnectionAborted,
+            ErrorKind::ConnectionRefused,
+            ErrorKind::ConnectionReset,
+            ErrorKind::HostUnreachable,
+            ErrorKind::NetworkDown,
+            ErrorKind::NetworkUnreachable,
+            ErrorKind::NotConnected,
+            ErrorKind::TimedOut,
+        ] {
+            assert_eq!(
+                map_directory_error(io::Error::new(kind, "network unavailable")),
+                BrowseError::DirectoryOffline,
+                "directory error kind {kind:?}"
+            );
+            assert_eq!(
+                map_entry_error(io::Error::new(kind, "network unavailable")),
+                BrowseError::DirectoryOffline,
+                "entry error kind {kind:?}"
+            );
+        }
+
+        assert_eq!(
+            map_directory_error(io::Error::from(ErrorKind::NotFound)),
+            BrowseError::DirectoryNotFound
+        );
+        assert_eq!(
+            map_entry_error(io::Error::from(ErrorKind::NotFound)),
+            BrowseError::EntryNotFound
+        );
+        assert_eq!(
+            map_directory_error(io::Error::new(ErrorKind::Other, "local I/O failure")),
+            BrowseError::DirectoryUnavailable
+        );
     }
 
     #[test]

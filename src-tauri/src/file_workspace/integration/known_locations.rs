@@ -379,9 +379,7 @@ fn windows_network_connection_state_from_status(
         // not prove that the remote server is currently reachable.
         0 if is_remote => Some("connected_unverified"),
         0 if missing_root => Some("offline"),
-        5 | 65 | 86 | 1219 | 1244 | 1326..=1331 | 1385 | 1909 => {
-            Some("permission_required")
-        }
+        5 | 65 | 86 | 1219 | 1244 | 1326..=1331 | 1385 | 1909 => Some("permission_required"),
         53 | 54 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
         | 1235 | 1236 => Some("offline"),
         2250 if is_remote || missing_root => Some("offline"),

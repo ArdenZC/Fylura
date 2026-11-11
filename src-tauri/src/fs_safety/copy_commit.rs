@@ -2807,11 +2807,12 @@ mod tests {
     #[test]
     fn ordinary_file_copy_preserves_windows_attributes_and_timestamps() {
         use std::{
-            os::windows::fs::MetadataExt,
+            os::windows::fs::{MetadataExt, OpenOptionsExt},
             time::{Duration, UNIX_EPOCH},
         };
         use windows_sys::Win32::Storage::FileSystem::{
             FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_READONLY,
+            FILE_READ_ATTRIBUTES, FILE_WRITE_ATTRIBUTES,
         };
 
         let root = fixture("ordinary-copy-attributes");
@@ -2821,8 +2822,10 @@ mod tests {
         fs::create_dir_all(&target_parent_path).expect("target parent");
         let source = source_parent.join("attributes.txt");
         fs::write(&source, b"copy Windows attributes").expect("source file");
-        fs::File::open(&source)
-            .expect("open source metadata handle")
+        fs::OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES)
+            .open(&source)
+            .expect("open source metadata handle with attribute access")
             .set_times(
                 std::fs::FileTimes::new()
                     .set_accessed(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
@@ -2869,7 +2872,11 @@ mod tests {
             source_before.modified().unwrap()
         );
         assert_eq!(fs::read(&target).unwrap(), b"copy Windows attributes");
-        let _ = fs::remove_dir_all(root);
+        set_windows_copy_attributes(&source, FILE_ATTRIBUTE_ARCHIVE)
+            .expect("clear source read-only and hidden attributes");
+        set_windows_copy_attributes(&target, FILE_ATTRIBUTE_ARCHIVE)
+            .expect("clear target read-only and hidden attributes");
+        fs::remove_dir_all(root).expect("remove ordinary Copy attribute fixture");
     }
 
     #[test]

@@ -377,16 +377,30 @@ fn windows_network_connection_state_from_status(
     let is_remote = drive_type == DRIVE_REMOTE;
     let missing_root = drive_type == DRIVE_NO_ROOT_DIR;
     let unknown_root = drive_type == DRIVE_UNKNOWN;
-    match result {
+    if result == 0 {
         // WNetGetConnection success proves a mapping record, regardless of a
         // transient/unknown GetDriveType result. It does not prove reachability.
-        0 => Some("connected_unverified"),
+        return Some("connected_unverified");
+    }
+    if result == 2250 {
+        return match drive_type {
+            DRIVE_REMOTE | DRIVE_NO_ROOT_DIR => Some("offline"),
+            DRIVE_UNKNOWN => Some("unknown"),
+            _ => None,
+        };
+    }
+    // WNetGetConnection is also queried for drive letters that are not mapped.
+    // When the OS identifies a local drive type, an unexpected WNet error must
+    // not hide that volume or suppress its existing local availability check.
+    // For remote, missing-root, or unknown drive types, stay conservative and
+    // do not fall through to a path probe that could touch an SMB target.
+    if !is_remote && !missing_root && !unknown_root {
+        return None;
+    }
+    match result {
         5 | 65 | 86 | 1219 | 1244 | 1326..=1331 | 1385 | 1909 => Some("permission_required"),
         53 | 54 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
         | 1235 | 1236 => Some("offline"),
-        2250 if is_remote || missing_root => Some("offline"),
-        2250 if unknown_root => Some("unknown"),
-        2250 => None,
         // Any other WNet error is ambiguous. Keep it from falling through to
         // Path::is_dir(), which could touch or reconnect an SMB target.
         _ => Some("unknown"),
@@ -608,6 +622,14 @@ mod tests {
         );
         assert_eq!(
             windows_network_connection_state_from_status(2250, DRIVE_FIXED),
+            None
+        );
+        assert_eq!(
+            windows_network_connection_state_from_status(1219, DRIVE_FIXED),
+            None
+        );
+        assert_eq!(
+            windows_network_connection_state_from_status(12345, DRIVE_FIXED),
             None
         );
         assert_eq!(

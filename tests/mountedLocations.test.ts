@@ -128,6 +128,31 @@ it("verifies SMB only after an explicit Browse enumeration and resets stale fail
   expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
 });
 
+it("ignores an older pane's delayed SMB result after a newer open or failure", async () => {
+  const smb: KnownLocation = {
+    id: "volume:\\\\nas.example\\documents",
+    kind: "volume",
+    path: "\\\\nas.example\\documents",
+    displayName: "NAS documents",
+    available: false,
+    volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "connected_unverified" }
+  };
+  const projection = new MountedLocationProjection(vi.fn().mockResolvedValue([smb]));
+  await projection.refresh();
+
+  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "older-pane-session");
+  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "reconnected-pane-session");
+  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
+  projection.recordNetworkBrowseSessionResult("older-pane-session", "offline");
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+
+  // A later attempt can fail before admission returns a session id. That
+  // explicit result also supersedes any still-running Browse enumeration.
+  projection.recordNetworkBrowse(smb.id, smb.path, "permission_required");
+  projection.recordNetworkBrowseSessionResult("reconnected-pane-session", "available");
+  expect(projection.getSnapshot().locations[0]).toMatchObject({ available: false, volume: { availability: "permission_required" } });
+});
+
 it("renders a connected unlettered SMB share as an openable network location", () => {
   const smb: KnownLocation = {
     id: "volume:\\\\nas.example\\documents",

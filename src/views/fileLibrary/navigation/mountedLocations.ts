@@ -39,6 +39,7 @@ export class MountedLocationProjection {
   private inFlight: Promise<void> | null = null;
   private networkObservations = new Map<string, NetworkAccessObservation>();
   private networkBrowseSessions = new Map<string, NetworkBrowseSession>();
+  private latestNetworkBrowseSessionByLocation = new Map<string, string>();
   constructor(private load = () => fileManagementApi.fileLibraryKnownLocations()) {}
   getSnapshot = () => this.snapshot;
   private publish(next: MountedLocationsSnapshot) {
@@ -49,6 +50,7 @@ export class MountedLocationProjection {
     if (resetNetworkStatus) {
       this.networkObservations.clear();
       this.networkBrowseSessions.clear();
+      this.latestNetworkBrowseSessionByLocation.clear();
     }
     if (this.inFlight) return this.inFlight;
     if (this.snapshot.ejectingId) return Promise.resolve();
@@ -92,11 +94,17 @@ export class MountedLocationProjection {
     if (sessionId) {
       this.networkBrowseSessions.delete(sessionId);
       this.networkBrowseSessions.set(sessionId, { locationId, path });
+      this.latestNetworkBrowseSessionByLocation.set(locationId, sessionId);
       while (this.networkBrowseSessions.size > MAX_NETWORK_BROWSE_SESSIONS) {
         const oldest = this.networkBrowseSessions.keys().next().value;
         if (oldest === undefined) break;
         this.networkBrowseSessions.delete(oldest);
       }
+    } else {
+      // An open attempt that fails before creating a Browse session is newer
+      // than any outstanding enumeration, so an older pane must not overwrite
+      // this explicit failure after it returns.
+      this.latestNetworkBrowseSessionByLocation.delete(locationId);
     }
     this.publish({ ...this.snapshot, locations: this.snapshot.locations.map((location) =>
       location.id === locationId && location.path === path && location.volume?.kind === "network"
@@ -105,7 +113,7 @@ export class MountedLocationProjection {
   };
   recordNetworkBrowseSessionResult = (sessionId: string, availability: VolumeAvailability) => {
     const session = this.networkBrowseSessions.get(sessionId);
-    if (!session) return;
+    if (!session || this.latestNetworkBrowseSessionByLocation.get(session.locationId) !== sessionId) return;
     this.recordNetworkBrowse(session.locationId, session.path, availability);
   };
   projectKnownLocation = (location: KnownLocation) => this.applyNetworkObservation(location);

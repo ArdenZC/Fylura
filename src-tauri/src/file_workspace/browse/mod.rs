@@ -2201,7 +2201,10 @@ mod tests {
             windows_network_browse_error(Some(121)),
             Some(BrowseError::DirectoryOffline)
         );
-        assert_eq!(windows_network_browse_error(Some(5)), Some(BrowseError::DirectoryPermissionDenied));
+        assert_eq!(
+            windows_network_browse_error(Some(5)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
         assert_eq!(windows_network_browse_error(Some(12345)), None);
     }
 

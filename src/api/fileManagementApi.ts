@@ -7,7 +7,8 @@ export interface TransferPreviewRow { ticketId: string; preview: OperationPrevie
 export interface TransferPreview { id: string; destinationDirectory: string; rows: TransferPreviewRow[] }
 export interface SavedPlace { id: string; name: string; routingHint: string; favorite: boolean; visitedAt: number; unavailable: boolean; current?: boolean }
 export type KnownLocationKind = "folder" | "volume" | "cloud_provider";
-export interface VolumeState { identity: string | null; kind: "unknown" | "local" | "removable" | "network" | "cloud_provider"; readOnly: boolean | null; availableBytes: number | null; totalBytes: number | null; canEject: boolean; availability?: "unknown" | "available" | "permission_required" | "offline" }
+export type VolumeAvailability = "unknown" | "available" | "connected_unverified" | "permission_required" | "offline";
+export interface VolumeState { identity: string | null; kind: "unknown" | "local" | "removable" | "network" | "cloud_provider"; readOnly: boolean | null; availableBytes: number | null; totalBytes: number | null; canEject: boolean; availability?: VolumeAvailability }
 export interface KnownLocation { id: string; kind: KnownLocationKind; displayName: string; path: string; available: boolean; volume?: VolumeState | null }
 export interface TransferBrowseDestination { sessionId: string; pathRef: BrowsePathRef }
 export type SystemClipboardRequest = { kind: "read"; ticketIds?: string[] } | { kind: "write"; ticketIds: string[]; moveFiles: boolean };

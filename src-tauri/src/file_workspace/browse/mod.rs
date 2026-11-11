@@ -9,7 +9,7 @@
 use super::{
     BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, LocationRef, MaterializationState,
 };
-use crate::fs_safety::{capture_browse_identity, PhysicalFileIdentity};
+use crate::fs_safety::{capture_browse_identity, PhysicalFileIdentity, PhysicalIdentityError};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, DirEntry, ReadDir};
@@ -128,6 +128,8 @@ pub(crate) enum BrowseError {
     DirectoryPermissionDenied,
     #[error("browse_directory_not_found")]
     DirectoryNotFound,
+    #[error("browse_directory_offline")]
+    DirectoryOffline,
     #[error("browse_directory_unavailable")]
     DirectoryUnavailable,
     #[error("browse_entry_permission_denied")]
@@ -367,7 +369,8 @@ impl BrowseService {
         &self,
         directory: BackendResolvedDirectory,
     ) -> Result<BrowseSessionInfo, BrowseError> {
-        let root_identity = capture_browse_identity(directory.as_path()).ok();
+        let root_identity =
+            Some(capture_browse_identity(directory.as_path()).map_err(map_browse_identity_error)?);
         let mut sessions = self
             .sessions
             .lock()
@@ -499,8 +502,7 @@ impl BrowseService {
             )
         };
         validate_directory_path(&path)?;
-        let current =
-            capture_browse_identity(&path).map_err(|_| BrowseError::DirectoryUnavailable)?;
+        let current = capture_browse_identity(&path).map_err(map_browse_identity_error)?;
         if expected.physical_key.is_none()
             || current.physical_key != expected.physical_key
             || current.created_ns != expected.created_ns
@@ -1735,6 +1737,10 @@ fn validate_directory_path(path: &Path) -> Result<(), BrowseError> {
 }
 
 fn map_directory_error(error: io::Error) -> BrowseError {
+    #[cfg(windows)]
+    if let Some(network_error) = windows_network_browse_error(error.raw_os_error()) {
+        return network_error;
+    }
     match error.kind() {
         io::ErrorKind::PermissionDenied => BrowseError::DirectoryPermissionDenied,
         io::ErrorKind::NotFound => BrowseError::DirectoryNotFound,
@@ -1742,7 +1748,34 @@ fn map_directory_error(error: io::Error) -> BrowseError {
     }
 }
 
+fn map_browse_identity_error(error: PhysicalIdentityError) -> BrowseError {
+    match error {
+        PhysicalIdentityError::Missing => BrowseError::DirectoryNotFound,
+        PhysicalIdentityError::Io(error) => map_directory_error(error),
+        PhysicalIdentityError::UnsupportedLink | PhysicalIdentityError::UnsupportedType => {
+            BrowseError::DirectoryUnavailable
+        }
+    }
+}
+
+fn windows_network_browse_error(raw_error: Option<i32>) -> Option<BrowseError> {
+    match raw_error? {
+        // Access denied, invalid credentials/password, and credential conflicts.
+        5 | 65 | 86 | 1219 | 1244 | 1326..=1331 | 1385 | 1909 => {
+            Some(BrowseError::DirectoryPermissionDenied)
+        }
+        // Network path/name loss, provider unavailable, or explicit disconnect.
+        53 | 54 | 55 | 58 | 59 | 64 | 67 | 121 | 1201 | 1203 | 1222 | 1231 | 1232 | 1233 | 1234
+        | 1235 | 1236 | 2250 => Some(BrowseError::DirectoryOffline),
+        _ => None,
+    }
+}
+
 fn map_entry_error(error: io::Error) -> BrowseError {
+    #[cfg(windows)]
+    if let Some(network_error) = windows_network_browse_error(error.raw_os_error()) {
+        return network_error;
+    }
     match error.kind() {
         io::ErrorKind::PermissionDenied => BrowseError::EntryPermissionDenied,
         io::ErrorKind::NotFound => BrowseError::EntryNotFound,
@@ -2141,6 +2174,74 @@ mod tests {
 
     static FIXTURE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+    #[test]
+    fn windows_network_errors_keep_offline_permission_and_unknown_distinct() {
+        assert_eq!(
+            windows_network_browse_error(Some(53)),
+            Some(BrowseError::DirectoryOffline)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1231)),
+            Some(BrowseError::DirectoryOffline)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1326)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1219)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1244)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1330)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(1909)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(65)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(59)),
+            Some(BrowseError::DirectoryOffline)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(121)),
+            Some(BrowseError::DirectoryOffline)
+        );
+        assert_eq!(
+            windows_network_browse_error(Some(5)),
+            Some(BrowseError::DirectoryPermissionDenied)
+        );
+        assert_eq!(windows_network_browse_error(Some(12345)), None);
+    }
+
+    #[test]
+    fn browse_identity_errors_preserve_missing_permission_and_unavailable_meaning() {
+        assert_eq!(
+            map_browse_identity_error(PhysicalIdentityError::Missing),
+            BrowseError::DirectoryNotFound
+        );
+        assert_eq!(
+            map_browse_identity_error(PhysicalIdentityError::Io(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "denied",
+            ))),
+            BrowseError::DirectoryPermissionDenied
+        );
+        assert_eq!(
+            map_browse_identity_error(PhysicalIdentityError::UnsupportedType),
+            BrowseError::DirectoryUnavailable
+        );
+    }
+
     struct Fixture {
         root: PathBuf,
     }
@@ -2220,6 +2321,10 @@ mod tests {
             .re_admit_ephemeral_location(&session.location)
             .is_err());
         fs::remove_dir(&fixture.root).unwrap();
+        assert_eq!(
+            service.verify_session_root(&session.session_id),
+            Err(BrowseError::DirectoryNotFound)
+        );
         fs::rename(original, &fixture.root).unwrap();
         assert!(service.verify_session_root(&session.session_id).is_ok());
     }

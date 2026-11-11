@@ -251,6 +251,7 @@ fn map_folder_browse_error(
             PreviewFolderEnumerationError::PermissionDenied
         }
         crate::file_workspace::browse::BrowseError::DirectoryNotFound
+        | crate::file_workspace::browse::BrowseError::DirectoryOffline
         | crate::file_workspace::browse::BrowseError::DirectoryUnavailable
         | crate::file_workspace::browse::BrowseError::SessionNotFound
         | crate::file_workspace::browse::BrowseError::InvalidLocationRef

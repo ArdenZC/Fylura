@@ -22,6 +22,7 @@ import type {
   BrowsePresentationCollectionContext,
   BrowsePresentationEntry
 } from "../presentation/contracts";
+import { mountedLocations, networkAvailabilityFromBrowseError } from "../navigation/mountedLocations";
 
 export const BROWSE_PAGE_SIZE = 32;
 export const QUERY_SCAN_PAGE_BATCH = 8;
@@ -76,7 +77,11 @@ export interface BrowseSourceOwner {
   readonly loadLocations: () => Promise<void>;
   readonly openLocationPicker: () => void;
   readonly chooseFolder: () => Promise<boolean>;
-  readonly openKnownLocation: (path: string, displayName?: string) => Promise<boolean>;
+  readonly openKnownLocation: (path: string, displayName?: string) => Promise<boolean | {
+    opened: boolean;
+    sessionId?: string;
+    error?: string;
+  }>;
   readonly activateLocation: (location: LocationDescriptor) => Promise<boolean>;
   readonly refreshEnumeration: () => Promise<void>;
   readonly loadNextPage: () => Promise<void>;
@@ -317,13 +322,13 @@ export function useBrowseSourceOwner({
    * a Managed Library root, scan or index authorization.
    */
   const openKnownLocation = useCallback(async (path: string, displayName?: string) => {
-    if (admissionLoadingRef.current) return false;
+    if (admissionLoadingRef.current) return { opened: false, error: "browse_open_busy" };
     const routingHint = path.trim();
-    if (routingHint.length === 0) return false;
+    if (routingHint.length === 0) return { opened: false, error: "browse_directory_unavailable" };
     const workspacePlatform = workspacePlatformForRuntime(platform);
     if (workspacePlatform === null) {
       setAdmissionError(true);
-      return false;
+      return { opened: false, error: "browse_platform_unavailable" };
     }
 
     admissionLoadingRef.current = true;
@@ -338,13 +343,13 @@ export function useBrowseSourceOwner({
       });
       if (response === null) {
         setAdmissionError(true);
-        return false;
+        return { opened: false, error: "browse_directory_unavailable" };
       }
       setShowLocationPicker(false);
-      return true;
-    } catch {
+      return { opened: true, sessionId: response.sessionId };
+    } catch (error) {
       setAdmissionError(true);
-      return false;
+      return { opened: false, error: String(error) };
     } finally {
       admissionLoadingRef.current = false;
       setAdmissionLoading(false);
@@ -417,13 +422,22 @@ export function useBrowseSourceOwner({
         }
         return;
       }
-      mergePage(page, generation, expectedTargetKey);
-    } catch {
+      const published = mergePage(page, generation, expectedTargetKey);
+      if (published
+        && browse !== null
+        && pathRef.id === browse.rootPathRef.id
+        && page.sessionId === browse.sessionId) {
+        mountedLocations.recordNetworkBrowseSessionResult(page.sessionId, "available");
+      }
+    } catch (error) {
       if (generationRef.current !== generation || activeTargetKeyRef.current !== expectedTargetKey) return;
       setEnumerationState("failed");
       setEnumerationError(true);
+      if (browse !== null && pathRef.id === browse.rootPathRef.id) {
+        mountedLocations.recordNetworkBrowseSessionResult(browse.sessionId, networkAvailabilityFromBrowseError(error));
+      }
     }
-  }, [controller.workspace, mergePage, prepareEnumerationPublication]);
+  }, [browse, controller.workspace, mergePage, prepareEnumerationPublication]);
 
   useEffect(() => {
     if (queryTargetKey === targetKey) return;

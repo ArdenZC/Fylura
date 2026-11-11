@@ -1249,6 +1249,10 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
         "unexpected external copy journal state: {:?}",
         result.logs
     );
+    assert!(
+        result.logs[0].source_claim_path.is_none(),
+        "ordinary directory Copy must not create a source-claim journal path"
+    );
     assert_eq!(
         fs::read(destination.join("drop-source/root.txt")).unwrap(),
         b"root bytes"
@@ -1364,6 +1368,7 @@ fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with
     assert_eq!(result.logs.len(), 1);
     assert_eq!(result.logs[0].status, "skipped");
     assert_eq!(result.logs[0].operation_phase, "copying");
+    assert!(result.logs[0].source_claim_path.is_none());
     assert!(source.join("a.txt").is_file());
     assert!(source.join("b.txt").is_file());
     assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
@@ -1376,6 +1381,7 @@ fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, "skipped");
     assert_eq!(history[0].operation_phase, "copying");
+    assert!(history[0].source_claim_path.is_none());
     assert_eq!(
         crate::path_identity::normalize_for_compare(Path::new(&history[0].source_path)),
         crate::path_identity::normalize_for_compare(&source)

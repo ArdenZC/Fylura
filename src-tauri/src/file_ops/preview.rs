@@ -130,7 +130,6 @@ pub(crate) fn execute_preview_operation_with_app_data(
             ))),
         }
     };
-
     let mut log = match status {
         Ok(result) => make_operation_log(
             batch_id,
@@ -188,7 +187,21 @@ pub(crate) fn execute_preview_operation_with_app_data(
         } else {
             PathBuf::from(&log.path_after)
         };
-        if let Ok(target_fingerprint) =
+        if cfg!(windows) && matches!(operation.operation_type.as_str(), "copy" | "duplicate") {
+            if let Ok(mut target_fingerprint) =
+                crate::file_ops::identity::file_namespace_fingerprint(&identity_path)
+            {
+                if !identity_path
+                    .symlink_metadata()
+                    .is_ok_and(|metadata| metadata.is_dir())
+                {
+                    target_fingerprint.full_hash = source_fingerprint
+                        .as_ref()
+                        .and_then(|fingerprint| fingerprint.full_hash.clone());
+                }
+                apply_target_fingerprint(&mut log, &target_fingerprint);
+            }
+        } else if let Ok(target_fingerprint) =
             file_operation_fingerprint(&identity_path, &operation.operation_type)
         {
             apply_target_fingerprint(&mut log, &target_fingerprint);

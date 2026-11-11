@@ -5,8 +5,8 @@ pub(crate) struct PreparedOperation {
     pub(crate) fingerprint: FileIdentityFingerprint,
     #[cfg(any(test, feature = "native-qa"))]
     pub(crate) source_path: PathBuf,
-    pub(crate) claim_path: PathBuf,
-    pub(crate) claim_created_at: String,
+    pub(crate) claim_path: Option<PathBuf>,
+    pub(crate) claim_created_at: Option<String>,
     pub(crate) journal_log: OperationLogDto,
 }
 
@@ -124,11 +124,19 @@ pub(crate) fn persist_pending_operation_journal(
             crate::file_ops::measure_native_qa_copy_phase("preview_preflight", || {
                 db.validate_one_off_operation_identity(operation, &fingerprint)
             })?;
-            let claim_path = crate::fs_safety::source_claim::planned_claim_path(
-                Path::new(&operation.source_path),
-                &operation.id,
-            )
-            .map_err(|error| format!("cannot plan source claim: {error}"))?;
+            let needs_source_claim = !matches!(
+                operation.operation_type.as_str(),
+                "copy" | "duplicate" | "create_directory"
+            );
+            let claim_path = needs_source_claim
+                .then(|| {
+                    crate::fs_safety::source_claim::planned_claim_path(
+                        Path::new(&operation.source_path),
+                        &operation.id,
+                    )
+                    .map_err(|error| format!("cannot plan source claim: {error}"))
+                })
+                .transpose()?;
             // This unique, journaled path is also the PortableSourceRetirement
             // recovery slot. A target-first portable copy may have a verified
             // target while no safe source claim primitive is available; in
@@ -145,11 +153,13 @@ pub(crate) fn persist_pending_operation_journal(
                 operation.target_path.clone(),
             );
             apply_source_fingerprint(&mut log, &fingerprint);
-            log.source_claim_path = Some(normalize_path(&claim_path));
-            log.claim_created_at = Some(created_at.to_string());
-            log.claim_platform_file_id = fingerprint.platform_file_id.clone();
-            log.claim_platform_volume_id = fingerprint.platform_volume_id.clone();
-            log.claim_full_hash = fingerprint.full_hash.clone();
+            if let Some(claim_path) = claim_path.as_deref() {
+                log.source_claim_path = Some(normalize_path(claim_path));
+                log.claim_created_at = Some(created_at.to_string());
+                log.claim_platform_file_id = fingerprint.platform_file_id.clone();
+                log.claim_platform_volume_id = fingerprint.platform_volume_id.clone();
+                log.claim_full_hash = fingerprint.full_hash.clone();
+            }
             log.operation_phase = "prepared".to_string();
             let journal_log = log.clone();
             Ok((
@@ -159,7 +169,7 @@ pub(crate) fn persist_pending_operation_journal(
                     #[cfg(any(test, feature = "native-qa"))]
                     source_path: PathBuf::from(&operation.source_path),
                     claim_path,
-                    claim_created_at: created_at.to_string(),
+                    claim_created_at: needs_source_claim.then(|| created_at.to_string()),
                     journal_log,
                 },
             ))
@@ -178,11 +188,13 @@ pub(crate) fn persist_pending_operation_journal(
     })?;
     #[cfg(any(test, feature = "native-qa"))]
     for prepared in fingerprints.values() {
-        crate::fs_safety::source_claim::run_claim_test_hook(
-            crate::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim,
-            &prepared.source_path,
-            &prepared.claim_path,
-        );
+        if let Some(claim_path) = prepared.claim_path.as_deref() {
+            crate::fs_safety::source_claim::run_claim_test_hook(
+                crate::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim,
+                &prepared.source_path,
+                claim_path,
+            );
+        }
     }
     Ok(fingerprints)
 }

@@ -73,8 +73,10 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
         if let Some(prepared) = prepared_operations.get(&operation.id) {
             apply_source_fingerprint(log, &prepared.fingerprint);
-            log.source_claim_path = Some(normalize_path(&prepared.claim_path));
-            log.claim_created_at = Some(prepared.claim_created_at.clone());
+            if let Some(claim_path) = prepared.claim_path.as_deref() {
+                log.source_claim_path = Some(normalize_path(claim_path));
+                log.claim_created_at = prepared.claim_created_at.clone();
+            }
         }
         if log.status != "success" {
             continue;
@@ -87,10 +89,12 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
         } else {
             PathBuf::from(&log.path_after)
         };
-        if let Ok(target_fingerprint) =
-            file_operation_fingerprint(&identity_path, &operation.operation_type)
-        {
-            apply_target_fingerprint(log, &target_fingerprint);
+        if !(cfg!(windows) && matches!(operation.operation_type.as_str(), "copy" | "duplicate")) {
+            if let Ok(target_fingerprint) =
+                file_operation_fingerprint(&identity_path, &operation.operation_type)
+            {
+                apply_target_fingerprint(log, &target_fingerprint);
+            }
         }
         if operation.operation_type == "move"
             && identity_path
@@ -363,7 +367,7 @@ fn execute_moves_core_with_identity(
                     cancel_flag: Some(cancel_flag.as_ref()),
                     app_data_dir: app_data_dir.as_deref(),
                     expected_identity: expected_identity.as_ref(),
-                    planned_claim_path: prepared.map(|item| item.claim_path.as_path()),
+                    planned_claim_path: prepared.and_then(|item| item.claim_path.as_deref()),
                     phase_observer: Some(
                         &mut phase_observer as &mut crate::fs_safety::PhaseObserver<'_>,
                     ),

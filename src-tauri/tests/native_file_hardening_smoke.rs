@@ -1003,6 +1003,10 @@ fn native_file_hardening_smoke() {
             .map(|log| (&log.status, &log.error_message))
             .collect::<Vec<_>>()
     );
+    assert!(same_copy_result
+        .logs
+        .iter()
+        .all(|log| log.source_claim_path.is_none() && !log.can_restore));
     assert!(
         same_file_source.is_file(),
         "same-volume Copy must retain its source"
@@ -1022,6 +1026,159 @@ fn native_file_hardening_smoke() {
         "same-volume copied nested directory content must match"
     );
     assert!(same_directory_target.join("nested").join("empty").is_dir());
+
+    let duplicate_target = same_copy_parent.join("ordinary-copy-file-duplicate.txt");
+    let duplicate_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: format!("native-duplicate-{run_id}"),
+                file_id: format!("native-duplicate-file-{run_id}"),
+                operation_type: "duplicate".to_string(),
+                source_path: same_file_source.to_string_lossy().into_owned(),
+                target_path: duplicate_target.to_string_lossy().into_owned(),
+                old_name: "ordinary-copy-file.txt".to_string(),
+                new_name: "ordinary-copy-file-duplicate.txt".to_string(),
+                is_executable: Some(true),
+            }],
+        },
+    )
+    .expect("execute ordinary Duplicate");
+    assert_eq!(duplicate_result.logs[0].status, "success");
+    assert!(duplicate_result.logs[0].source_claim_path.is_none());
+    assert!(!duplicate_result.logs[0].can_restore);
+    assert!(
+        same_file_source.is_file(),
+        "Duplicate must retain its source"
+    );
+    assert_eq!(
+        fs::read(&duplicate_target).expect("duplicated target"),
+        fs::read(&same_file_source).expect("duplicate source")
+    );
+
+    let conflict_source = source_volume.join("ordinary-copy-conflict-source.txt");
+    let conflict_parent = source_volume.join("ordinary-copy-conflict-destination");
+    fs::create_dir_all(&conflict_parent).expect("ordinary Copy conflict parent");
+    let conflict_target = conflict_parent.join("ordinary-copy-conflict-source.txt");
+    fs::write(
+        &conflict_source,
+        b"ordinary Copy source survives target conflict",
+    )
+    .expect("ordinary Copy conflict source");
+    fs::write(&conflict_target, b"pre-existing Copy target survives")
+        .expect("pre-existing ordinary Copy target");
+    let conflict_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![
+                native_qa_transfer_copy_preview(&conflict_source, &conflict_parent)
+                    .expect("ordinary Copy conflict Preview"),
+            ],
+        },
+    )
+    .expect("ordinary Copy conflict result");
+    assert_eq!(conflict_result.logs[0].status, "failed");
+    assert_eq!(
+        fs::read(&conflict_source).expect("Copy conflict source retained"),
+        b"ordinary Copy source survives target conflict"
+    );
+    assert_eq!(
+        fs::read(&conflict_target).expect("pre-existing Copy target retained"),
+        b"pre-existing Copy target survives"
+    );
+
+    let cancel_source = source_volume.join("ordinary-copy-cancel-tree");
+    let cancel_parent = source_volume.join("ordinary-copy-cancel-destination");
+    fs::create_dir_all(cancel_source.join("nested")).expect("ordinary Copy cancel tree");
+    fs::create_dir_all(&cancel_parent).expect("ordinary Copy cancel target parent");
+    fs::write(
+        cancel_source.join("nested").join("payload.bin"),
+        vec![0x33; 1024 * 1024],
+    )
+    .expect("ordinary Copy cancel payload");
+    let cancel_target = cancel_parent.join("ordinary-copy-cancel-tree");
+    let _copy_fault_serial = test_faults::lock();
+    test_faults::set_fault(Some(AtomicFaultPoint::CancelDirectoryCopyAfterEntry));
+    let cancel_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![
+                native_qa_transfer_copy_preview(&cancel_source, &cancel_parent)
+                    .expect("ordinary Copy cancellation Preview"),
+            ],
+        },
+    )
+    .expect("ordinary Copy cancellation result");
+    test_faults::set_fault(None);
+    assert_eq!(cancel_result.logs[0].status, "skipped");
+    assert!(
+        cancel_source.is_dir(),
+        "cancelled Copy must retain its source"
+    );
+    assert!(
+        !cancel_target.exists(),
+        "cancelled Copy must not publish staging"
+    );
+    drop(_copy_fault_serial);
+
+    let space_source = source_volume.join("ordinary-copy-space-source.bin");
+    let space_parent = source_volume.join("ordinary-copy-space-destination");
+    fs::create_dir_all(&space_parent).expect("ordinary Copy space target parent");
+    fs::write(&space_source, vec![0x72; 2 * 1024 * 1024]).expect("ordinary Copy space source");
+    let space_hash = sha256_file(&space_source);
+    let space_target = space_parent.join("ordinary-copy-space-source.bin");
+    let _copy_fault_serial = test_faults::lock();
+    test_faults::set_fault(Some(AtomicFaultPoint::OutOfSpaceDuringCopy));
+    let space_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![
+                native_qa_transfer_copy_preview(&space_source, &space_parent)
+                    .expect("ordinary Copy space Preview"),
+            ],
+        },
+    )
+    .expect("ordinary Copy space failure result");
+    test_faults::set_fault(None);
+    assert_eq!(space_result.logs[0].status, "failed");
+    assert_eq!(sha256_file(&space_source), space_hash);
+    assert!(
+        !space_target.exists(),
+        "incomplete Copy must not be published"
+    );
+    drop(_copy_fault_serial);
+
+    let changing_source = source_volume.join("ordinary-copy-changing-source.bin");
+    let changing_parent = source_volume.join("ordinary-copy-changing-destination");
+    fs::create_dir_all(&changing_parent).expect("ordinary Copy changing target parent");
+    fs::write(&changing_source, vec![0x5a; 2 * 1024 * 1024])
+        .expect("ordinary Copy changing source");
+    let changing_hash = sha256_file(&changing_source);
+    let changing_target = changing_parent.join("ordinary-copy-changing-source.bin");
+    let _copy_fault_serial = test_faults::lock();
+    test_faults::set_fault(Some(AtomicFaultPoint::MutateCopySourceDuringStream));
+    let changing_result = execute_moves_with_persistence(
+        &db,
+        ExecuteMovesRequest {
+            operations: vec![
+                native_qa_transfer_copy_preview(&changing_source, &changing_parent)
+                    .expect("ordinary Copy changing-source Preview"),
+            ],
+        },
+    )
+    .expect("ordinary Copy changing-source result");
+    test_faults::set_fault(None);
+    assert_eq!(changing_result.logs[0].status, "failed");
+    assert!(
+        changing_source.is_file(),
+        "failed Copy must retain its source path"
+    );
+    assert_ne!(sha256_file(&changing_source), changing_hash);
+    assert!(
+        !changing_target.exists(),
+        "changed source must not be published"
+    );
+    drop(_copy_fault_serial);
 
     cloud_files_fixture::verify_cached_copy(&db, &source_volume, &target_volume);
     let same_move_parent = source_volume.join("ordinary-move-destination");
@@ -1146,6 +1303,10 @@ fn native_file_hardening_smoke() {
         )
         .expect("execute ordinary cross-volume Copy fixtures under the runner token");
         assert_eq!(cross_copy_result.logs.len(), 2);
+        assert!(cross_copy_result
+            .logs
+            .iter()
+            .all(|log| log.source_claim_path.is_none() && !log.can_restore));
         assert!(
             cross_copy_result
                 .logs
@@ -2091,6 +2252,12 @@ fn native_file_hardening_smoke() {
             .as_ref()
             .map(|target| target.path())
             .unwrap_or(&copy_root);
+        let copy_source_volume = physical_volume_id(&copy_root);
+        let copy_selected_target_volume = physical_volume_id(copy_destination_root);
+        println!(
+            "Windows native copy storage context sourceVolume={copy_source_volume} selectedTargetVolume={copy_selected_target_volume} selectedTargetIsSameVolume={}",
+            copy_source_volume == copy_selected_target_volume,
+        );
         let copy_bytes = 1024_u64 * 1024 * 1024;
         let copy_source = copy_root.join("copy-performance-1g.bin");
         let legacy_destination = copy_destination_root.join("copy-performance-redundant-flush");
@@ -2126,44 +2293,223 @@ fn native_file_hardening_smoke() {
             )
             .map(|result| (result, preview_elapsed))
         };
+        let run_profiled_file_copy = |destination: &Path, legacy_flushes: bool| {
+            fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(
+                legacy_flushes,
+            );
+            fylura_tauri::fs_safety::copy_commit::reset_windows_copy_extra_flush_metrics_for_qa();
+            fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
+            let resources = NativeProcessMonitor::start();
+            let start = std::time::Instant::now();
+            let (result, preview_elapsed) = run_copy(destination).expect("run profiled file Copy");
+            let elapsed = start.elapsed();
+            let resources = resources.map(NativeProcessMonitor::finish);
+            let resources = native_copy_resources::format_native_process_stats(resources);
+            let extra_flushes =
+                fylura_tauri::fs_safety::copy_commit::windows_copy_extra_flush_count_for_qa();
+            let phases = fylura_tauri::file_ops::native_qa_copy_phase_timings();
+            (
+                result,
+                preview_elapsed,
+                elapsed,
+                extra_flushes,
+                phases,
+                resources,
+            )
+        };
 
-        fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
-        fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(true);
-        fylura_tauri::fs_safety::copy_commit::reset_windows_copy_extra_flush_metrics_for_qa();
-        let legacy_resources = NativeProcessMonitor::start();
-        let legacy_start = std::time::Instant::now();
-        let (legacy_result, legacy_preview_elapsed) =
-            run_copy(&legacy_destination).expect("Windows copy with historical redundant flushes");
-        let legacy_elapsed = legacy_start.elapsed();
-        let legacy_resource_stats = legacy_resources.map(NativeProcessMonitor::finish);
-        let legacy_resource_report =
-            native_copy_resources::format_native_process_stats(legacy_resource_stats);
+        let (
+            legacy_result,
+            legacy_preview_elapsed,
+            legacy_elapsed,
+            legacy_extra_flushes,
+            legacy_phase_timings,
+            legacy_resource_report,
+        ) = run_profiled_file_copy(&legacy_destination, true);
         assert_eq!(legacy_result.logs[0].status, "success");
-        let legacy_extra_flushes =
-            fylura_tauri::fs_safety::copy_commit::windows_copy_extra_flush_count_for_qa();
-        let legacy_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
-        assert_eq!(legacy_extra_flushes, 2);
-
-        fylura_tauri::file_ops::reset_native_qa_copy_phase_timings();
-        fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(false);
-        fylura_tauri::fs_safety::copy_commit::reset_windows_copy_extra_flush_metrics_for_qa();
-        let optimized_resources = NativeProcessMonitor::start();
-        let optimized_start = std::time::Instant::now();
-        let (optimized_result, optimized_preview_elapsed) =
-            run_copy(&optimized_destination).expect("Windows copy with consolidated flush");
-        let optimized_elapsed = optimized_start.elapsed();
-        let optimized_resource_stats = optimized_resources.map(NativeProcessMonitor::finish);
-        let optimized_resource_report =
-            native_copy_resources::format_native_process_stats(optimized_resource_stats);
+        assert_eq!(legacy_extra_flushes, 3);
+        let (
+            optimized_result,
+            optimized_preview_elapsed,
+            optimized_elapsed,
+            optimized_extra_flushes,
+            optimized_phase_timings,
+            optimized_resource_report,
+        ) = run_profiled_file_copy(&optimized_destination, false);
         assert_eq!(optimized_result.logs[0].status, "success");
-        let optimized_extra_flushes =
-            fylura_tauri::fs_safety::copy_commit::windows_copy_extra_flush_count_for_qa();
-        let optimized_phase_timings = fylura_tauri::file_ops::native_qa_copy_phase_timings();
         assert_eq!(optimized_extra_flushes, 0);
         assert_eq!(fs::metadata(&legacy_target).unwrap().len(), copy_bytes);
         assert_eq!(fs::metadata(&optimized_target).unwrap().len(), copy_bytes);
         assert!(copy_source.is_file(), "Copy must retain its source");
         fylura_tauri::fs_safety::copy_commit::set_windows_copy_extra_flushes_for_qa(false);
+
+        // Repeat the same-dataset pair in reverse order to expose obvious
+        // warm-cache and run-order effects.
+        let repeated_legacy_destination =
+            copy_destination_root.join("copy-performance-repeat-legacy");
+        let repeated_optimized_destination =
+            copy_destination_root.join("copy-performance-repeat-optimized");
+        fs::create_dir_all(&repeated_legacy_destination)
+            .expect("create repeated legacy Copy destination");
+        fs::create_dir_all(&repeated_optimized_destination)
+            .expect("create repeated optimized Copy destination");
+        let repeated_legacy_target = repeated_legacy_destination.join("copy-performance-1g.bin");
+        let repeated_optimized_target =
+            repeated_optimized_destination.join("copy-performance-1g.bin");
+        let (
+            repeated_optimized_result,
+            repeated_optimized_preview,
+            repeated_optimized_elapsed,
+            repeated_optimized_syncs,
+            repeated_optimized_phases,
+            repeated_optimized_resources,
+        ) = run_profiled_file_copy(&repeated_optimized_destination, false);
+        assert_eq!(repeated_optimized_result.logs[0].status, "success");
+        let (
+            repeated_legacy_result,
+            repeated_legacy_preview,
+            repeated_legacy_elapsed,
+            repeated_legacy_syncs,
+            repeated_legacy_phases,
+            repeated_legacy_resources,
+        ) = run_profiled_file_copy(&repeated_legacy_destination, true);
+        assert_eq!(repeated_legacy_result.logs[0].status, "success");
+        assert_eq!(repeated_optimized_syncs, 0);
+        assert_eq!(repeated_legacy_syncs, 3);
+        assert_eq!(
+            fs::metadata(&repeated_legacy_target).unwrap().len(),
+            copy_bytes
+        );
+        assert_eq!(
+            fs::metadata(&repeated_optimized_target).unwrap().len(),
+            copy_bytes
+        );
+        println!(
+            "Windows native performance fileCopy1GiB sample=2 order=optimized_then_legacy sourceVolume={copy_source_volume} targetVolume={copy_selected_target_volume} optimizedPreviewMs={} optimizedElapsedMs={} optimizedMiBPerSecond={:.1} optimizedFileSyncAll=0 targetDirectorySync=1 optimizedPhaseTimingsNs={repeated_optimized_phases:?} optimizedResources={repeated_optimized_resources} legacyPreviewMs={} legacyElapsedMs={} legacyMiBPerSecond={:.1} legacyInjectedFileSyncAll={repeated_legacy_syncs} legacyPhaseTimingsNs={repeated_legacy_phases:?} legacyResources={repeated_legacy_resources}",
+            repeated_optimized_preview.as_millis(),
+            repeated_optimized_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / repeated_optimized_elapsed.as_secs_f64().max(0.001),
+            repeated_legacy_preview.as_millis(),
+            repeated_legacy_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / repeated_legacy_elapsed.as_secs_f64().max(0.001),
+        );
+
+        let cross_volume_copy_destination =
+            target_volume.join(format!("copy-performance-1g-{run_id}"));
+        fs::create_dir_all(&cross_volume_copy_destination)
+            .expect("create cross-volume 1 GiB Copy destination");
+        assert_ne!(
+            physical_volume_id(&copy_root),
+            physical_volume_id(&cross_volume_copy_destination),
+            "cross-volume performance fixture must use distinct volumes"
+        );
+        // The cross-volume pair also alternates the mode order relative to
+        // the first pair. This measures the same Copy path on both volumes.
+        let (
+            cross_optimized_result,
+            cross_optimized_preview,
+            cross_optimized_elapsed,
+            cross_optimized_syncs,
+            cross_optimized_phases,
+            cross_optimized_resources,
+        ) = run_profiled_file_copy(&cross_volume_copy_destination, false);
+        assert_eq!(cross_optimized_result.logs[0].status, "success");
+        let cross_legacy_destination =
+            target_volume.join(format!("copy-performance-1g-legacy-{run_id}"));
+        fs::create_dir_all(&cross_legacy_destination)
+            .expect("create cross-volume legacy Copy destination");
+        let (
+            cross_legacy_result,
+            cross_legacy_preview,
+            cross_legacy_elapsed,
+            cross_legacy_syncs,
+            cross_legacy_phases,
+            cross_legacy_resources,
+        ) = run_profiled_file_copy(&cross_legacy_destination, true);
+        assert_eq!(cross_legacy_result.logs[0].status, "success");
+        assert_eq!(cross_optimized_syncs, 0);
+        assert_eq!(cross_legacy_syncs, 3);
+        let cross_legacy_target = cross_legacy_destination.join("copy-performance-1g.bin");
+        let cross_optimized_target = cross_volume_copy_destination.join("copy-performance-1g.bin");
+        let cross_source_identity =
+            fylura_tauri::fs_safety::identity::capture_identity(&copy_source, None)
+                .expect("hash cross-volume 1 GiB Copy source");
+        for target in [&cross_legacy_target, &cross_optimized_target] {
+            let target_identity = fylura_tauri::fs_safety::identity::capture_identity(target, None)
+                .expect("hash cross-volume 1 GiB Copy target");
+            assert_eq!(target_identity.full_hash, cross_source_identity.full_hash);
+            assert_eq!(
+                fs::metadata(target).unwrap().modified().unwrap(),
+                fs::metadata(&copy_source).unwrap().modified().unwrap()
+            );
+        }
+        println!(
+            "Windows native performance fileCopy1GiB storage=cross_volume sample=1 order=optimized_then_legacy sourceVolume={} targetVolume={} optimizedPreviewMs={} optimizedElapsedMs={} optimizedMiBPerSecond={:.1} optimizedFileSyncAll=0 optimizedPhaseTimingsNs={cross_optimized_phases:?} optimizedResources={cross_optimized_resources} legacyPreviewMs={} legacyElapsedMs={} legacyMiBPerSecond={:.1} legacyInjectedFileSyncAll={cross_legacy_syncs} legacyPhaseTimingsNs={cross_legacy_phases:?} legacyResources={cross_legacy_resources}",
+            physical_volume_id(&copy_root),
+            physical_volume_id(&cross_volume_copy_destination),
+            cross_optimized_preview.as_millis(),
+            cross_optimized_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / cross_optimized_elapsed.as_secs_f64().max(0.001),
+            cross_legacy_preview.as_millis(),
+            cross_legacy_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / cross_legacy_elapsed.as_secs_f64().max(0.001),
+        );
+
+        let cross_repeat_legacy_destination =
+            target_volume.join(format!("copy-performance-1g-repeat-legacy-{run_id}"));
+        let cross_repeat_optimized_destination =
+            target_volume.join(format!("copy-performance-1g-repeat-optimized-{run_id}"));
+        fs::create_dir_all(&cross_repeat_legacy_destination)
+            .expect("create repeated cross-volume legacy Copy destination");
+        fs::create_dir_all(&cross_repeat_optimized_destination)
+            .expect("create repeated cross-volume optimized Copy destination");
+        let (
+            cross_repeat_legacy_result,
+            cross_repeat_legacy_preview,
+            cross_repeat_legacy_elapsed,
+            cross_repeat_legacy_syncs,
+            cross_repeat_legacy_phases,
+            cross_repeat_legacy_resources,
+        ) = run_profiled_file_copy(&cross_repeat_legacy_destination, true);
+        assert_eq!(cross_repeat_legacy_result.logs[0].status, "success");
+        let (
+            cross_repeat_optimized_result,
+            cross_repeat_optimized_preview,
+            cross_repeat_optimized_elapsed,
+            cross_repeat_optimized_syncs,
+            cross_repeat_optimized_phases,
+            cross_repeat_optimized_resources,
+        ) = run_profiled_file_copy(&cross_repeat_optimized_destination, false);
+        assert_eq!(cross_repeat_optimized_result.logs[0].status, "success");
+        assert_eq!(cross_repeat_legacy_syncs, 3);
+        assert_eq!(cross_repeat_optimized_syncs, 0);
+        let cross_repeat_source_identity =
+            fylura_tauri::fs_safety::identity::capture_identity(&copy_source, None)
+                .expect("hash repeated cross-volume source");
+        let cross_repeat_legacy_target =
+            cross_repeat_legacy_destination.join("copy-performance-1g.bin");
+        let cross_repeat_optimized_target =
+            cross_repeat_optimized_destination.join("copy-performance-1g.bin");
+        for target in [&cross_repeat_legacy_target, &cross_repeat_optimized_target] {
+            let target_identity =
+                fylura_tauri::fs_safety::identity::capture_identity(&target, None)
+                    .expect("hash repeated cross-volume target");
+            assert_eq!(
+                target_identity.full_hash,
+                cross_repeat_source_identity.full_hash
+            );
+        }
+        println!(
+            "Windows native performance fileCopy1GiB storage=cross_volume sample=2 order=legacy_then_optimized sourceVolume={} targetVolume={} legacyPreviewMs={} legacyElapsedMs={} legacyMiBPerSecond={:.1} legacyInjectedFileSyncAll={cross_repeat_legacy_syncs} legacyPhaseTimingsNs={cross_repeat_legacy_phases:?} legacyResources={cross_repeat_legacy_resources} optimizedPreviewMs={} optimizedElapsedMs={} optimizedMiBPerSecond={:.1} optimizedFileSyncAll=0 targetDirectorySync=1 optimizedPhaseTimingsNs={cross_repeat_optimized_phases:?} optimizedResources={cross_repeat_optimized_resources}",
+            physical_volume_id(&copy_root),
+            physical_volume_id(&cross_volume_copy_destination),
+            cross_repeat_legacy_preview.as_millis(),
+            cross_repeat_legacy_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / cross_repeat_legacy_elapsed.as_secs_f64().max(0.001),
+            cross_repeat_optimized_preview.as_millis(),
+            cross_repeat_optimized_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / cross_repeat_optimized_elapsed.as_secs_f64().max(0.001),
+        );
 
         let robocopy_target = copy_destination_root.join("robocopy-file-copy");
         fs::create_dir_all(&robocopy_target).expect("create Robocopy file target");
@@ -2207,10 +2553,20 @@ fn native_file_hardening_smoke() {
         let source_identity =
             fylura_tauri::fs_safety::identity::capture_identity(&copy_source, None)
                 .expect("hash Windows copy performance source");
-        for target in [&legacy_target, &optimized_target]
-            .into_iter()
-            .chain(robocopy_file_target.iter())
-        {
+        let mut file_targets = vec![
+            legacy_target.as_path(),
+            optimized_target.as_path(),
+            repeated_legacy_target.as_path(),
+            repeated_optimized_target.as_path(),
+            cross_legacy_target.as_path(),
+            cross_optimized_target.as_path(),
+            cross_repeat_legacy_target.as_path(),
+            cross_repeat_optimized_target.as_path(),
+        ];
+        if let Some(target) = robocopy_file_target.as_deref() {
+            file_targets.push(target);
+        }
+        for target in file_targets.iter().copied() {
             let target_identity = fylura_tauri::fs_safety::identity::capture_identity(target, None)
                 .expect("hash Windows copy performance target");
             assert_eq!(
@@ -2225,11 +2581,14 @@ fn native_file_hardening_smoke() {
         }
         let file_validation_elapsed = file_validation_start.elapsed();
         println!(
-            "Windows native performance fileCopy1GiB bytes={copy_bytes} legacyPreviewMs={} legacyElapsedMs={} legacyExtraFlushes={legacy_extra_flushes} legacyPhaseTimingsNs={legacy_phase_timings:?} legacyResources={legacy_resource_report} optimizedPreviewMs={} optimizedElapsedMs={} optimizedExtraFlushes={optimized_extra_flushes} optimizedPhaseTimingsNs={optimized_phase_timings:?} optimizedResources={optimized_resource_report} robocopyElapsedMs={} robocopyAvailable={} commonHashAndTimestampValidationMs={} finalStagingSyncs=1",
+            "Windows native performance fileCopy1GiB bytes={copy_bytes} validatedTargets={} sourceVolume={copy_source_volume} targetVolume={copy_selected_target_volume} legacyPreviewMs={} legacyElapsedMs={} legacyMiBPerSecond={:.1} legacyInjectedFileSyncAll={legacy_extra_flushes} legacyPhaseTimingsNs={legacy_phase_timings:?} legacyResources={legacy_resource_report} optimizedPreviewMs={} optimizedElapsedMs={} optimizedMiBPerSecond={:.1} optimizedInjectedFileSyncAll={optimized_extra_flushes} optimizedFileSyncAll=0 targetDirectorySync=1 optimizedPhaseTimingsNs={optimized_phase_timings:?} optimizedResources={optimized_resource_report} robocopyElapsedMs={} robocopyAvailable={} robocopyContract=DATA_ATTR_TIME_J_no_Fylura_journal_or_staging_verification commonHashAndTimestampValidationMs={}",
+            file_targets.len(),
             legacy_preview_elapsed.as_millis(),
             legacy_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / legacy_elapsed.as_secs_f64().max(0.001),
             optimized_preview_elapsed.as_millis(),
             optimized_elapsed.as_millis(),
+            copy_bytes as f64 / (1024.0 * 1024.0) / optimized_elapsed.as_secs_f64().max(0.001),
             robocopy_elapsed.as_millis(),
             robocopy_file_target.is_some(),
             file_validation_elapsed.as_millis(),
@@ -2254,7 +2613,9 @@ fn native_file_hardening_smoke() {
             )
             .expect("create Windows 100k directory entry");
         }
-        let run_directory_copy = |destination: &Path, legacy_full_identity: bool| {
+        let run_directory_copy = |directory_source: &Path,
+                                  destination: &Path,
+                                  legacy_full_identity: bool| {
             fylura_tauri::fs_safety::copy_commit::set_windows_directory_full_file_identity_for_qa(
                 legacy_full_identity,
             );
@@ -2299,7 +2660,7 @@ fn native_file_hardening_smoke() {
             legacy_directory_elapsed,
             legacy_directory_resources,
             legacy_directory_phase_timings,
-        ) = run_directory_copy(&legacy_directory_destination, true);
+        ) = run_directory_copy(&directory_source, &legacy_directory_destination, true);
         assert_eq!(legacy_directory_result.logs[0].status, "success");
         let legacy_copied_entries = fs::read_dir(&legacy_directory_target)
             .expect("read Windows 100k copied directory")
@@ -2317,7 +2678,7 @@ fn native_file_hardening_smoke() {
             optimized_directory_elapsed,
             optimized_directory_resources,
             optimized_directory_phase_timings,
-        ) = run_directory_copy(&optimized_directory_destination, false);
+        ) = run_directory_copy(&directory_source, &optimized_directory_destination, false);
         assert_eq!(optimized_directory_result.logs[0].status, "success");
         let copied_entries = fs::read_dir(&optimized_directory_target)
             .expect("read optimized Windows 100k copied directory")
@@ -2332,6 +2693,147 @@ fn native_file_hardening_smoke() {
             directory_source.is_dir(),
             "directory Copy must retain source"
         );
+
+        let repeated_optimized_directory_destination =
+            copy_destination_root.join("directory-100k-repeat-optimized");
+        let repeated_legacy_directory_destination =
+            copy_destination_root.join("directory-100k-repeat-legacy");
+        fs::create_dir_all(&repeated_optimized_directory_destination)
+            .expect("create repeated optimized 100k destination");
+        fs::create_dir_all(&repeated_legacy_directory_destination)
+            .expect("create repeated legacy 100k destination");
+        let (
+            repeated_optimized_result,
+            repeated_optimized_preview,
+            repeated_optimized_elapsed,
+            repeated_optimized_resources,
+            repeated_optimized_phases,
+        ) = run_directory_copy(
+            &directory_source,
+            &repeated_optimized_directory_destination,
+            false,
+        );
+        assert_eq!(repeated_optimized_result.logs[0].status, "success");
+        let (
+            repeated_legacy_result,
+            repeated_legacy_preview,
+            repeated_legacy_elapsed,
+            repeated_legacy_resources,
+            repeated_legacy_phases,
+        ) = run_directory_copy(
+            &directory_source,
+            &repeated_legacy_directory_destination,
+            true,
+        );
+        assert_eq!(repeated_legacy_result.logs[0].status, "success");
+        let repeated_optimized_directory_target =
+            repeated_optimized_directory_destination.join("directory-100k");
+        let repeated_legacy_directory_target =
+            repeated_legacy_directory_destination.join("directory-100k");
+        for target in [
+            &repeated_optimized_directory_target,
+            &repeated_legacy_directory_target,
+        ] {
+            assert_eq!(
+                fs::read_dir(target)
+                    .expect("read repeated Windows 100k target")
+                    .count(),
+                100_000
+            );
+            assert_eq!(
+                fs::read(target.join("entry-099999.bin")).expect("read repeated last entry"),
+                99_999_u32.to_le_bytes()
+            );
+        }
+        println!(
+            "Windows native performance directory100k sample=2 order=optimized_then_legacy entries=100000 bytes=400000 optimizedPreviewMs={} optimizedElapsedMs={} optimizedFilesPerSecond={:.1} optimizedMiBPerSecond={:.3} optimizedFileSyncAll=0 optimizedPhaseTimingsNs={repeated_optimized_phases:?} optimizedResources={repeated_optimized_resources} legacyPreviewMs={} legacyElapsedMs={} legacyFilesPerSecond={:.1} legacyMiBPerSecond={:.3} legacyFileSyncAll=100000 legacyPhaseTimingsNs={repeated_legacy_phases:?} legacyResources={repeated_legacy_resources}",
+            repeated_optimized_preview.as_millis(),
+            repeated_optimized_elapsed.as_millis(),
+            100_000.0 / repeated_optimized_elapsed.as_secs_f64().max(0.001),
+            400_000.0 / (1024.0 * 1024.0) / repeated_optimized_elapsed.as_secs_f64().max(0.001),
+            repeated_legacy_preview.as_millis(),
+            repeated_legacy_elapsed.as_millis(),
+            100_000.0 / repeated_legacy_elapsed.as_secs_f64().max(0.001),
+            400_000.0 / (1024.0 * 1024.0) / repeated_legacy_elapsed.as_secs_f64().max(0.001),
+        );
+
+        let ten_k_source = copy_root.join("directory-10k-4k");
+        fs::create_dir_all(&ten_k_source).expect("create Windows 10k × 4 KiB source");
+        let mut four_k_payload = vec![0x41; 4 * 1024];
+        for index in 0..10_000_u32 {
+            four_k_payload[..4].copy_from_slice(&index.to_le_bytes());
+            fs::write(
+                ten_k_source.join(format!("entry-{index:05}.bin")),
+                &four_k_payload,
+            )
+            .expect("create Windows 10k × 4 KiB fixture entry");
+        }
+
+        let mixed_source = copy_root.join("directory-mixed-size");
+        fs::create_dir_all(&mixed_source).expect("create Windows mixed-size source");
+        for index in 0..512_u32 {
+            let size = match index % 8 {
+                0 => 1024 * 1024,
+                1..=3 => 64 * 1024,
+                _ => 4 * 1024,
+            };
+            let mut contents = vec![index as u8; size];
+            contents[..4].copy_from_slice(&index.to_le_bytes());
+            fs::write(mixed_source.join(format!("entry-{index:04}.bin")), contents)
+                .expect("create Windows mixed-size fixture entry");
+        }
+
+        let run_small_directory_profile =
+            |scenario: &str, source: &Path, expected_entries: usize| {
+                let source_identity =
+                    fylura_tauri::fs_safety::identity::capture_identity(source, None)
+                        .expect("hash directory performance source");
+                let expected_bytes = source_identity.size;
+                for (sample, legacy_first) in [(1_u8, true), (2_u8, false)] {
+                    for legacy_full_identity in [legacy_first, !legacy_first] {
+                        let mode = if legacy_full_identity {
+                            "legacy"
+                        } else {
+                            "optimized"
+                        };
+                        let destination = copy_root
+                            .join(format!("same-volume-{scenario}-sample-{sample}-{mode}"));
+                        fs::create_dir_all(&destination)
+                            .expect("create repeated directory profile destination");
+                        let (result, preview_elapsed, elapsed, resources, phases) =
+                            run_directory_copy(source, &destination, legacy_full_identity);
+                        assert_eq!(result.logs[0].status, "success");
+                        let target =
+                            destination.join(source.file_name().expect("performance source name"));
+                        assert_eq!(
+                            fs::read_dir(&target)
+                                .expect("read directory profile target")
+                                .count(),
+                            expected_entries
+                        );
+                        let target_identity =
+                            fylura_tauri::fs_safety::identity::capture_identity(&target, None)
+                                .expect("hash directory performance target");
+                        assert_eq!(target_identity.full_hash, source_identity.full_hash);
+                        assert_eq!(target_identity.size, expected_bytes);
+                        let files_per_second =
+                            expected_entries as f64 / elapsed.as_secs_f64().max(0.001);
+                        let mib_per_second = expected_bytes as f64
+                            / (1024.0 * 1024.0)
+                            / elapsed.as_secs_f64().max(0.001);
+                        println!(
+                        "Windows native performance directory scenario={scenario} sample={sample} mode={mode} volumeRelationship=same sourceVolume={} targetVolume={} entries={expected_entries} bytes={expected_bytes} previewMs={} elapsedMs={} filesPerSecond={files_per_second:.1} MiBPerSecond={mib_per_second:.1} fileSyncAll={} phaseTimingsNs={phases:?} resources={resources}",
+                        physical_volume_id(source),
+                        physical_volume_id(&destination),
+                        preview_elapsed.as_millis(),
+                        elapsed.as_millis(),
+                        if legacy_full_identity { expected_entries } else { 0 },
+                    );
+                    }
+                }
+            };
+        run_small_directory_profile("10k-4k", &ten_k_source, 10_000);
+        run_small_directory_profile("mixed-size", &mixed_source, 512);
 
         let robocopy_directory_target = copy_destination_root.join("directory-100k-robocopy");
         let robocopy_directory_start = std::time::Instant::now();
@@ -2368,53 +2870,61 @@ fn native_file_hardening_smoke() {
                 }
                 Err(error) => panic!("start Robocopy directory baseline: {error}"),
             };
+        let directory_validation_start = std::time::Instant::now();
+        let source_identity =
+            fylura_tauri::fs_safety::identity::capture_identity(&directory_source, None)
+                .expect("hash Windows 100k source directory");
+        let source_sample_time = fs::metadata(directory_source.join("entry-099999.bin"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        let mut directory_targets = vec![
+            legacy_directory_target.as_path(),
+            optimized_directory_target.as_path(),
+            repeated_optimized_directory_target.as_path(),
+            repeated_legacy_directory_target.as_path(),
+        ];
         if robocopy_directory_available {
-            let directory_validation_start = std::time::Instant::now();
-            let source_identity =
-                fylura_tauri::fs_safety::identity::capture_identity(&directory_source, None)
-                    .expect("hash Windows 100k source directory");
-            let source_sample_time = fs::metadata(directory_source.join("entry-099999.bin"))
-                .unwrap()
-                .modified()
-                .unwrap();
-            for target in [
-                &legacy_directory_target,
-                &optimized_directory_target,
-                &robocopy_directory_target,
-            ] {
-                let target_identity =
-                    fylura_tauri::fs_safety::identity::capture_identity(target, None)
-                        .expect("hash Windows 100k target directory");
-                assert_eq!(
-                    target_identity.full_hash, source_identity.full_hash,
-                    "100k directory copy differs from its source"
-                );
-                assert_eq!(
-                    fs::metadata(target.join("entry-099999.bin"))
-                        .unwrap()
-                        .modified()
-                        .unwrap(),
-                    source_sample_time,
-                    "100k file modified time was not preserved"
-                );
-            }
-            println!(
-                "Windows native validation directory100k commonTreeHashValidationMs={} targets=3",
-                directory_validation_start.elapsed().as_millis(),
+            directory_targets.push(robocopy_directory_target.as_path());
+        }
+        for target in directory_targets.iter().copied() {
+            let target_identity = fylura_tauri::fs_safety::identity::capture_identity(target, None)
+                .expect("hash Windows 100k target directory");
+            assert_eq!(
+                target_identity.full_hash, source_identity.full_hash,
+                "100k directory copy differs from its source"
             );
-        } else {
+            assert_eq!(
+                fs::metadata(target.join("entry-099999.bin"))
+                    .unwrap()
+                    .modified()
+                    .unwrap(),
+                source_sample_time,
+                "100k file modified time was not preserved"
+            );
+        }
+        println!(
+            "Windows native validation directory100k commonTreeHashValidationMs={} targets={}",
+            directory_validation_start.elapsed().as_millis(),
+            directory_targets.len(),
+        );
+        if !robocopy_directory_available {
             println!(
                 "Windows native comparison robocopyDirectory=UNVERIFIED reason=tool_unavailable"
             );
         }
         println!(
-            "Windows native performance directory100k entries={copied_entries} legacyPreviewMs={} legacyElapsedMs={} legacyFilesPerSecond={:.1} legacyPhaseTimingsNs={legacy_directory_phase_timings:?} legacyResources={legacy_directory_resources} optimizedPreviewMs={} optimizedElapsedMs={} optimizedFilesPerSecond={:.1} optimizedPhaseTimingsNs={optimized_directory_phase_timings:?} optimizedResources={optimized_directory_resources} robocopyElapsedMs={} robocopyAvailable={} sourceRetained=true",
+            "Windows native performance directory100k entries={copied_entries} bytes=400000 sourceVolume={} targetVolume={} legacyPreviewMs={} legacyElapsedMs={} legacyFilesPerSecond={:.1} legacyMiBPerSecond={:.3} legacyFileSyncAll=100000 legacyPhaseTimingsNs={legacy_directory_phase_timings:?} legacyResources={legacy_directory_resources} optimizedPreviewMs={} optimizedElapsedMs={} optimizedFilesPerSecond={:.1} optimizedMiBPerSecond={:.3} optimizedFileSyncAll=0 optimizedPhaseTimingsNs={optimized_directory_phase_timings:?} optimizedResources={optimized_directory_resources} robocopyElapsedMs={} robocopyAvailable={} sourceRetained=true",
+            physical_volume_id(&directory_source),
+            physical_volume_id(&legacy_directory_destination),
             legacy_directory_preview_elapsed.as_millis(),
             legacy_directory_elapsed.as_millis(),
             100_000.0 / legacy_directory_elapsed.as_secs_f64().max(0.001),
+            400_000.0 / (1024.0 * 1024.0) / legacy_directory_elapsed.as_secs_f64().max(0.001),
             optimized_directory_preview_elapsed.as_millis(),
             optimized_directory_elapsed.as_millis(),
             100_000.0 / optimized_directory_elapsed.as_secs_f64().max(0.001),
+            400_000.0 / (1024.0 * 1024.0) / optimized_directory_elapsed.as_secs_f64().max(0.001),
             robocopy_directory_elapsed.as_millis(),
             robocopy_directory_available,
         );

@@ -1447,43 +1447,19 @@ fn atomic_copy_noreplace_uncoordinated(
         if std::fs::symlink_metadata(target).is_ok() {
             return Err(AtomicMoveError::TargetExists);
         }
-        let expected = match expected_identity {
-            Some(expected) if expected.full_hash.is_some() => expected.clone(),
-            Some(_) => {
-                return Err(AtomicMoveError::SourceClaimFailed(
-                    "source identity is incomplete".to_string(),
-                ));
-            }
-            None => {
-                identity::capture_namespace_identity(source, cancel).map_err(map_identity_error)?
-            }
-        };
-        // Source-preserving Copy leaves the source untouched. Windows creates
-        // a new target with destination-directory inheritance; this ordinary
-        // data path never inspects source SACLs or needs SeSecurityPrivilege.
-        let claim_path = match planned_claim_path {
-            Some(path) => source_claim::rebind_claim_path(source, path).map_err(map_claim_error)?,
-            None => source_claim::planned_claim_path(source, "copy").map_err(map_claim_error)?,
-        };
+        // Ordinary Copy reads from the original namespace entry. The target
+        // staging path owns the only namespace mutation in this operation;
+        // Move/Trash/Replace/Restore keep their separate SourceClaim paths.
+        let _ = planned_claim_path;
         if let Some(callback) = actual_path_observer {
-            callback(source, target, Some(&claim_path))?;
-        }
-        let mut claim =
-            source_claim::claim_source_at(source, &expected, &claim_path, "copy", cancel)
-                .map_err(map_claim_error)?;
-        if let Err(error) = notify_phase(&mut observer, "source_claimed") {
-            return match claim.rollback_to_original() {
-                Ok(()) => Err(error),
-                Err(rollback) => Err(AtomicMoveError::SourceClaimRollbackFailed(
-                    rollback.to_string(),
-                )),
-            };
+            callback(source, target, None)?;
         }
 
         #[cfg(windows)]
         {
-            copy_commit::copy_commit_claim_preserving_source(
-                &mut claim,
+            copy_commit::copy_commit_source_preserving_path(
+                source,
+                expected_identity,
                 target_parent,
                 target_name,
                 cancel,
@@ -1496,7 +1472,8 @@ fn atomic_copy_noreplace_uncoordinated(
         }
         #[cfg(not(windows))]
         {
-            let _ = claim.rollback_to_original();
+            let _ = expected_identity;
+            let _ = target_parent;
             Err(AtomicMoveError::UnsupportedPlatformLinux)
         }
     }
@@ -1515,6 +1492,7 @@ pub mod test_faults {
         SourceCleanup,
         CancelDirectoryCopyAfterEntry,
         OutOfSpaceDuringCopy,
+        MutateCopySourceDuringStream,
         MutateDirectorySourceSameSizeAfterCopy,
         TamperDirectoryStagingSameSizeBeforeVerify,
     }

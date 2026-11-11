@@ -146,6 +146,7 @@ fn push_unique(
     });
 }
 
+#[cfg(any(windows, test))]
 fn network_status_is_verified_available(availability: &str) -> bool {
     availability == "available"
 }

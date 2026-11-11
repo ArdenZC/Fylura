@@ -1396,7 +1396,7 @@ fn atomic_copy_noreplace_uncoordinated(
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     #[cfg(target_os = "macos")] observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    #[cfg(not(target_os = "macos"))] mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    #[cfg(not(target_os = "macos"))] observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     #[cfg(target_os = "macos")] actual_path_observer: Option<
         &mut crate::fs_safety::ActualPathObserver<'_>,
     >,

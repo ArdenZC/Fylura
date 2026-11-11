@@ -556,7 +556,6 @@ pub(crate) fn copy_commit_claim(
                 cancel,
                 &mut progress,
                 &mut observer,
-                true,
             )
         })?;
         progress.record_item(claim.current_path(), &mut observer)?;

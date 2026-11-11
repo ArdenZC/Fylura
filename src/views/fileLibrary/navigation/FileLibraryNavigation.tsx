@@ -192,7 +192,8 @@ export function FileLibraryNavigation({
                 if (layout === "drawer") onClose();
               }).catch((error) => {
                 if (location.volume?.kind === "network") {
-                  mounted.recordNetworkBrowse(location.id, location.path, networkAvailabilityFromBrowseError(error));
+                  const availability = networkAvailabilityFromBrowseError(error);
+                  if (availability !== null) mounted.recordNetworkBrowse(location.id, location.path, availability);
                 }
                 setTreeNavigationError(error);
               });

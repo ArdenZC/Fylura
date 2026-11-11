@@ -161,20 +161,27 @@ it("keeps a newer explicit SMB result when a slower discovery request returns st
     id: "volume:\\\\nas.example\\documents", kind: "volume", path: "\\\\nas.example\\documents", displayName: "NAS documents", available: false,
     volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "connected_unverified" }
   };
-  let finish!: (locations: KnownLocation[]) => void;
-  const load = vi.fn()
-    .mockResolvedValueOnce([smb])
-    .mockImplementationOnce(() => new Promise<KnownLocation[]>((resolve) => { finish = resolve; }));
-  const projection = new MountedLocationProjection(load);
-  await projection.refresh();
+  const staleResponses: KnownLocation[][] = [
+    [{ ...smb, volume: { ...smb.volume!, availability: "offline" } }],
+    [{ ...smb, volume: { ...smb.volume!, availability: "permission_required" } }],
+    []
+  ];
+  for (const staleResponse of staleResponses) {
+    let finish!: (locations: KnownLocation[]) => void;
+    const load = vi.fn()
+      .mockResolvedValueOnce([smb])
+      .mockImplementationOnce(() => new Promise<KnownLocation[]>((resolve) => { finish = resolve; }));
+    const projection = new MountedLocationProjection(load);
+    await projection.refresh();
 
-  const refreshStartedBeforeOpen = projection.refresh();
-  projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "newer-session");
-  projection.recordNetworkBrowseSessionResult("newer-session", "available");
-  finish([]);
-  await refreshStartedBeforeOpen;
+    const refreshStartedBeforeOpen = projection.refresh();
+    projection.recordNetworkBrowse(smb.id, smb.path, "connected_unverified", "newer-session");
+    projection.recordNetworkBrowseSessionResult("newer-session", "available");
+    finish(staleResponse);
+    await refreshStartedBeforeOpen;
 
-  expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+    expect(projection.getSnapshot().locations[0]).toMatchObject({ available: true, volume: { availability: "available" } });
+  }
 });
 
 it("renders a connected unlettered SMB share as an openable network location", () => {

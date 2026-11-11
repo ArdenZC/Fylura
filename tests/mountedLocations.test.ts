@@ -8,7 +8,7 @@ import { MountedVolumeList } from "../src/views/fileLibrary/navigation/MountedVo
 import type { KnownLocation } from "../src/api/fileManagementApi";
 import { fileManagementApi } from "../src/api/fileManagementApi";
 import { makeTranslator } from "../src/i18n";
-import { browsePlaceStatusLabel, projectKnownLocations } from "../src/views/fileLibrary/browse/useBrowsePlaces";
+import { browsePlaceStatusLabel, projectKnownLocations, projectMountedNetworkStatuses } from "../src/views/fileLibrary/browse/useBrowsePlaces";
 const usb: KnownLocation = { id: "usb", kind: "volume", path: "E:/", displayName: "USB", available: true };
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 it("shares one foreground discovery request across panes and stops polling after the last pane closes", async () => {
@@ -190,6 +190,18 @@ it("keeps connected SMB Places openable without presenting it as verified online
   const [place] = projectKnownLocations([smb], makeTranslator("en"));
   expect(place).toMatchObject({ openable: true, network: true, availability: "connected_unverified", locationId: smb.id });
   expect(browsePlaceStatusLabel(place!, makeTranslator("en"))).toBe("Connection recorded by the system; open to check access");
+});
+
+it("shows the latest mounted SMB browse result in Places as well as the sidebar", () => {
+  const smb: KnownLocation = {
+    id: "volume:\\\\nas.example\\documents", kind: "volume", path: "\\\\nas.example\\documents", displayName: "NAS documents", available: false,
+    volume: { identity: null, kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "connected_unverified" }
+  };
+  const [entry] = projectKnownLocations([smb], makeTranslator("en"));
+  const latest = { ...smb, volume: { ...smb.volume!, availability: "permission_required" as const } };
+  const [projected] = projectMountedNetworkStatuses([entry!], [latest]);
+  expect(projected).toMatchObject({ openable: true, availability: "permission_required" });
+  expect(browsePlaceStatusLabel(projected!, makeTranslator("en"))).toBe("Permission required. Connect and authorize in the system or cloud client");
 });
 
 it("classifies explicit SMB Browse failures without probing network paths", () => {

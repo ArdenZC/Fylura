@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fileManagementApi, type KnownLocation, type SavedPlace, type VolumeAvailability } from "../../../api/fileManagementApi";
 import type { Translator } from "../../../types/ui";
 import { displayNameFromRoutingHint } from "./browseSourceOwner";
-import { mountedLocations, networkAvailabilityFromBrowseError } from "../navigation/mountedLocations";
+import { mountedLocations, networkAvailabilityFromBrowseError, useMountedLocations } from "../navigation/mountedLocations";
 
 export type BrowsePlaceEntryKind = "system" | "favorite" | "recent";
 
@@ -53,6 +53,7 @@ export function useBrowsePlaces({ enabled, openPath, t }: {
   t: Translator;
 }) {
   const [entries, setEntries] = useState<BrowsePlaceEntry[]>([]);
+  const mounted = useMountedLocations(enabled);
   const [state, setState] = useState<BrowsePlacesState>("idle");
   const [openingKey, setOpeningKey] = useState<string | null>(null);
   const [openFailed, setOpenFailed] = useState(false);
@@ -100,14 +101,34 @@ export function useBrowsePlaces({ enabled, openPath, t }: {
     }
   }, [openPath, openingKey]);
 
+  const projectedEntries = useMemo(
+    () => projectMountedNetworkStatuses(entries, mounted.locations),
+    [entries, mounted.locations]
+  );
+
   return {
-    entries,
+    entries: projectedEntries,
     state,
     openingKey,
     openFailed,
     reload: load,
     openPlace
   };
+}
+
+export function projectMountedNetworkStatuses(
+  entries: readonly BrowsePlaceEntry[],
+  locations: readonly KnownLocation[]
+): BrowsePlaceEntry[] {
+  const mountedByKey = new Map(locations
+    .filter((location) => location.volume?.kind === "network")
+    .map((location) => [`${location.id}\0${location.path}`, location] as const));
+  return entries.map((entry) => {
+    if (!entry.network || !entry.locationId) return entry;
+    const mounted = mountedByKey.get(`${entry.locationId}\0${entry.path}`);
+    if (!mounted?.volume || mounted.volume.kind !== "network") return entry;
+    return { ...entry, availability: mounted.volume.availability };
+  });
 }
 
 export function projectKnownLocations(locations: readonly KnownLocation[], t: Translator): BrowsePlaceEntry[] {

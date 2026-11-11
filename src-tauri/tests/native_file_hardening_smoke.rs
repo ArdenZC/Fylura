@@ -1097,7 +1097,6 @@ fn native_file_hardening_smoke() {
     )
     .expect("ordinary Copy cancel payload");
     let cancel_target = cancel_parent.join("ordinary-copy-cancel-tree");
-    let _copy_fault_serial = test_faults::lock();
     test_faults::set_fault(Some(AtomicFaultPoint::CancelDirectoryCopyAfterEntry));
     let cancel_result = execute_moves_with_persistence(
         &db,
@@ -1119,7 +1118,6 @@ fn native_file_hardening_smoke() {
         !cancel_target.exists(),
         "cancelled Copy must not publish staging"
     );
-    drop(_copy_fault_serial);
 
     let space_source = source_volume.join("ordinary-copy-space-source.bin");
     let space_parent = source_volume.join("ordinary-copy-space-destination");
@@ -1127,7 +1125,6 @@ fn native_file_hardening_smoke() {
     fs::write(&space_source, vec![0x72; 2 * 1024 * 1024]).expect("ordinary Copy space source");
     let space_hash = sha256_file(&space_source);
     let space_target = space_parent.join("ordinary-copy-space-source.bin");
-    let _copy_fault_serial = test_faults::lock();
     test_faults::set_fault(Some(AtomicFaultPoint::OutOfSpaceDuringCopy));
     let space_result = execute_moves_with_persistence(
         &db,
@@ -1146,7 +1143,6 @@ fn native_file_hardening_smoke() {
         !space_target.exists(),
         "incomplete Copy must not be published"
     );
-    drop(_copy_fault_serial);
 
     let changing_source = source_volume.join("ordinary-copy-changing-source.bin");
     let changing_parent = source_volume.join("ordinary-copy-changing-destination");
@@ -1155,7 +1151,6 @@ fn native_file_hardening_smoke() {
         .expect("ordinary Copy changing source");
     let changing_hash = sha256_file(&changing_source);
     let changing_target = changing_parent.join("ordinary-copy-changing-source.bin");
-    let _copy_fault_serial = test_faults::lock();
     test_faults::set_fault(Some(AtomicFaultPoint::MutateCopySourceDuringStream));
     let changing_result = execute_moves_with_persistence(
         &db,
@@ -1178,7 +1173,6 @@ fn native_file_hardening_smoke() {
         !changing_target.exists(),
         "changed source must not be published"
     );
-    drop(_copy_fault_serial);
 
     cloud_files_fixture::verify_cached_copy(&db, &source_volume, &target_volume);
     let same_move_parent = source_volume.join("ordinary-move-destination");

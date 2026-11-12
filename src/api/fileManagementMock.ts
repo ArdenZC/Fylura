@@ -97,8 +97,8 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
       const ticket = tickets.get(ticketId); const skipped = request.skip?.includes(ticketId) ?? false;
       if (!ticket) return { ticketId, skipped, preview: null, error: "transfer_reference_expired" };
       if ((ticket.path.startsWith("C:/U1/") || ticket.path.startsWith("C:/U3/")) && !files.has(ticket.path)) return { ticketId, skipped, preview: null, error: "transfer_source_changed" };
-      if (ticket.isDirectory && request.action !== "move") return { ticketId, skipped, preview: null, error: "transfer_directory_not_supported" };
-      if (ticket.isDirectory && request.action === "move" && request.destinationDirectory.replace(/\\/g, "/").startsWith(`${ticket.path.replace(/\\/g, "/")}/`)) {
+      if (ticket.isDirectory && request.action !== "move" && request.action !== "duplicate") return { ticketId, skipped, preview: null, error: "transfer_directory_not_supported" };
+      if (ticket.isDirectory && (request.action === "move" || request.action === "duplicate") && request.destinationDirectory.replace(/\\/g, "/").startsWith(`${ticket.path.replace(/\\/g, "/")}/`)) {
         return { ticketId, skipped, preview: null, error: "transfer_directory_into_itself" };
       }
       if (skipped) return { ticketId, skipped: true, preview: null, error: null };
@@ -115,7 +115,7 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
       }
       const conflict = files.has(target) || reserved.has(target); if (!skipped && !conflict) reserved.add(target);
       const operationType = request.action === "trash" ? "move_to_trash" : request.action;
-      const suggestedAction = request.action === "rename" ? "Rename" : request.action === "copy" ? "Copy" : "Move";
+      const suggestedAction = request.action === "rename" ? "Rename" : request.action === "copy" ? "Copy" : request.action === "duplicate" ? "Duplicate" : "Move";
       const preview = { id: `op-transfer-mock-${++serial}`, fileId: ticketId, operation_type: operationType, source_path: ticket.path, target_path: target, old_name: ticket.name, new_name: name, reason: "Browser fixture manual transfer", status: "pending", risk_level: "Normal", confidence: 1, requires_confirmation: true, suggested_action: suggestedAction, is_executable: !conflict, operationFingerprint: `mock-${serial}` } as OperationPreview;
       return { ticketId, skipped, preview: conflict ? null : preview, error: conflict ? "transfer_target_exists" : null };
     });
@@ -144,11 +144,11 @@ export function executeManagementMockOperations(operations: OperationPreview[]) 
     const result = { batch_id: batchId, logs: operations.map((op) => { const source = files.get(op.source_path) ?? { id: `created-${++serial}`, version: 1 };
       if (op.operation_type === "create_directory") files.set(op.target_path, { ...source, id: `published-${++serial}`, directory: true });
       else {
-        if (source.directory && op.operation_type === "move") {
+        if (source.directory && (op.operation_type === "move" || op.operation_type === "duplicate")) {
           const moved = [...files.entries()].filter(([path]) => path === op.source_path || path.startsWith(`${op.source_path}/`));
           for (const [path, file] of moved) {
             files.set(`${op.target_path}${path.slice(op.source_path.length)}`, { ...file, id: `published-${++serial}` });
-            files.delete(path);
+            if (op.operation_type === "move") files.delete(path);
           }
         } else {
           files.set(op.target_path, { ...source, id: `published-${++serial}` });

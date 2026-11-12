@@ -59,7 +59,7 @@ function taskBatchStatus(batch: OperationHistoryBatch, live: boolean, t: Transla
 }
 function canRetryOperation(log: OperationLog) {
   return log.status === "failed" && log.operation_phase === "rolled_back"
-    && (log.operation_type === "copy" || log.operation_type === "move")
+    && (log.operation_type === "copy" || log.operation_type === "move" || log.operation_type === "duplicate")
     && Boolean(log.path_before && log.path_after);
 }
 export function FileManagementToolbar() {
@@ -393,6 +393,7 @@ export function FileManagementToolbar() {
     action: TransferAction,
     origin: TransferOrigin,
     options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationContextKey" | "sourcePaneId" | "sourceContextKey" | "newName">> = {},
+    initialKeepBoth: string[] = [],
   ) {
     const store = useFileManagementStore.getState();
     if (!tickets.length && action !== "create_directory") return;
@@ -439,8 +440,8 @@ export function FileManagementToolbar() {
       totalItems: action === "create_directory" ? null : tickets.length, phase: "preview", cancelRequested: false,
       preview: null, conflictTicketIds: [], skip: [], keepBoth: []
     } });
-    setTransfer(intent); setPlan(null); setConflictTicketIds([]); setSkip([]); setKeepBoth([]); setPreviewPage(0); setResultPage(0);
-    void startTransfer(intent, [], []);
+    setTransfer(intent); setPlan(null); setConflictTicketIds([]); setSkip([]); setKeepBoth(initialKeepBoth); setPreviewPage(0); setResultPage(0);
+    void startTransfer(intent, [], initialKeepBoth);
   }
   function dismissNotice() {
     setError(""); setNotice("");
@@ -472,7 +473,7 @@ export function FileManagementToolbar() {
         await releaseUnused(tickets.map((ticket) => ticket.id));
         throw Error("transfer_retry_source_changed");
       }
-      begin(tickets, log.operation_type as "copy" | "move", "external", { destinationDirectory: parentPath(log.path_after) });
+      begin(tickets, log.operation_type as "copy" | "move" | "duplicate", "external", { destinationDirectory: parentPath(log.path_after) });
     });
   }
   async function moveSelection() {
@@ -488,6 +489,36 @@ export function FileManagementToolbar() {
         await releaseUnused(tickets.map((ticket) => ticket.id)); throw Error("transfer_selection_changed");
       }
       begin(tickets, "move", "selection", { destinationDirectory, sourcePaneId: pane?.id, sourceContextKey });
+    });
+  }
+  async function duplicateSelection() {
+    if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+    await run(async () => {
+      const source = currentSurface();
+      const sourceContextKey = transferSourceContextKey(source ?? undefined);
+      const tickets = await capturedSelection();
+      if (!tickets.length) return;
+      const destinationDirectory = parentPath(tickets[0]!.path);
+      const sameDirectory = tickets.every((ticket) => {
+        const ticketDirectory = parentPath(ticket.path);
+        return platform === "win32"
+          ? ticketDirectory.toLowerCase() === destinationDirectory.toLowerCase()
+          : ticketDirectory === destinationDirectory;
+      });
+      if (!destinationDirectory || !sameDirectory) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        setError(t("fmDuplicateSingleFolder"));
+        return;
+      }
+      if (!sourceContextKey || transferSourceContextKey(currentSurface()) !== sourceContextKey) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw Error("transfer_selection_changed");
+      }
+      begin(tickets, "duplicate", "selection", {
+        destinationDirectory,
+        sourcePaneId: pane?.id,
+        sourceContextKey,
+      }, tickets.map((ticket) => ticket.id));
     });
   }
   function trashSelection() {
@@ -752,6 +783,7 @@ export function FileManagementToolbar() {
       <div className="fm-panel-body">
       {panel === "more" && <div className="fm-more-actions">
       <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
+      <button className={buttonGhost} disabled={disabled} onClick={duplicateSelection}><Copy size={14}/>{t("fmDuplicate")}</button>
       <button className={buttonGhost} disabled={disabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
       <button className={buttonGhost} disabled={disabled} title={t("fmShortcutTrash")} onClick={trashSelection}><Trash2 size={14}/>{t("fmSafeDelete")}</button>
       <label className="fm-drop-mode"><span>{t("fmExternalDropAction")}</span><select aria-label={t("fmExternalDropAction")} value={state.externalDropAction} disabled={state.transferActive} onChange={(event) => useFileManagementStore.setState({ externalDropAction: event.target.value as TransferAction })}><option value="copy">{t("fmCopy")}</option><option value="move">{t("fmMove")}</option></select></label>
@@ -779,7 +811,7 @@ export function FileManagementToolbar() {
           <div className="fm-task-heading"><strong>{t(state.activeTransferTask.phase === "awaiting_conflict" ? "fmTaskAwaitingConflict" : state.activeTransferTask.cancelRequested ? "fmCancelPending" : state.activeTransferTask.phase === "execute" ? "fmExecuting" : "fmPreparing")}</strong>
             {state.activeTransferTask.totalItems !== null && <span>{state.activeTransferTask.totalItems} {t("fmTaskItems")}</span>}
           </div>
-          <p>{t(state.activeTransferTask.action === "move" ? "fmMove" : "fmCopy")}</p>
+          <p>{t(state.activeTransferTask.action === "move" ? "fmMove" : state.activeTransferTask.action === "duplicate" ? "fmDuplicate" : "fmCopy")}</p>
           <p className="fm-path" title={state.activeTransferTask.sourceSummary}>{t("fmSource")}: {state.activeTransferTask.sourceSummary || "—"}</p>
           <p className="fm-path" title={state.activeTransferTask.destinationSummary}>{t("fmDestination")}: {state.activeTransferTask.destinationSummary || "—"}</p>
           {liveTaskProgress && taskProgressBar(liveTaskProgress)}
@@ -793,7 +825,7 @@ export function FileManagementToolbar() {
           const live = activeOperationKind === "execute" && operationProgress?.batchId === batch.id;
           return <li key={batch.id} className="fm-task-entry">
             <div className="fm-task-heading"><strong>{taskBatchStatus(batch, live, t)}</strong><span>{batch.total} · {t("fmTaskItems")}</span></div>
-            <p className="fm-path" title={batch.logs[0]?.source_path}>{batch.logs[0]?.operation_type === "move" ? t("fmMove") : batch.logs[0]?.operation_type === "copy" ? t("fmCopy") : batch.logs[0]?.operation_type}</p>
+            <p className="fm-path" title={batch.logs[0]?.source_path}>{batch.logs[0]?.operation_type === "move" ? t("fmMove") : batch.logs[0]?.operation_type === "duplicate" ? t("fmDuplicate") : batch.logs[0]?.operation_type === "copy" ? t("fmCopy") : batch.logs[0]?.operation_type}</p>
             <details><summary>{batch.success}/{batch.total} · {batch.failed ? `${batch.failed} ${t("fmTaskFailed")}` : ""}</summary>
               <ul className="fm-task-items">{batch.logs.map((log) => <li key={log.id}>
                 <div className="fm-task-heading"><strong>{log.name_after || log.name_before}</strong><span>{taskOperationStatus(log, live)}</span></div>

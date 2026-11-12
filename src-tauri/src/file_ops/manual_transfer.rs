@@ -64,6 +64,7 @@ pub struct CaptureRequest {
 pub enum TransferAction {
     Copy,
     Move,
+    Duplicate,
     Rename,
     Trash,
     CreateDirectory,
@@ -493,7 +494,10 @@ impl FileWorkspaceRuntime {
                     }
                 };
                 if request.keep_both.contains(&id)
-                    && matches!(request.action, TransferAction::Copy | TransferAction::Move)
+                    && matches!(
+                        request.action,
+                        TransferAction::Copy | TransferAction::Move | TransferAction::Duplicate
+                    )
                     && conflict(&name, &reserved)?
                 {
                     let original = Path::new(&source.ticket.name);
@@ -546,9 +550,11 @@ impl FileWorkspaceRuntime {
                     .map(String::as_str);
                 #[cfg(windows)]
                 let required_bytes = {
-                    let copies_payload = request.action == TransferAction::Copy
-                        || request.action == TransferAction::Move
-                            && source.identity.platform_volume_id != destination_volume;
+                    let copies_payload = matches!(
+                        request.action,
+                        TransferAction::Copy | TransferAction::Duplicate
+                    ) || request.action == TransferAction::Move
+                        && source.identity.platform_volume_id != destination_volume;
                     let bytes = if copies_payload && !source.ticket.is_directory {
                         source.identity.size
                     } else {
@@ -576,7 +582,10 @@ impl FileWorkspaceRuntime {
                 {
                     reserved_copy_bytes = required_bytes;
                 }
-                if matches!(request.action, TransferAction::Copy | TransferAction::Move) {
+                if matches!(
+                    request.action,
+                    TransferAction::Copy | TransferAction::Move | TransferAction::Duplicate
+                ) {
                     reserved.insert(transfer_target_key(&target));
                 }
                 operations.push(operation);
@@ -740,6 +749,7 @@ fn action_name(action: TransferAction) -> &'static str {
     match action {
         TransferAction::Copy => "copy",
         TransferAction::Move => "move",
+        TransferAction::Duplicate => "duplicate",
         TransferAction::Rename => "rename",
         TransferAction::Trash => "move_to_trash",
         TransferAction::CreateDirectory => "create_directory",
@@ -802,7 +812,10 @@ fn snapshot(
         validate_transfer_source_path(source)?
     };
     #[cfg(windows)]
-    if matches!(action, TransferAction::Copy | TransferAction::Move) {
+    if matches!(
+        action,
+        TransferAction::Copy | TransferAction::Move | TransferAction::Duplicate
+    ) {
         ensure_transfer_source_content_ready(&source)?;
     }
     let source_is_directory = source.is_dir();
@@ -810,15 +823,18 @@ fn snapshot(
     // Directory operations stay on the shared atomic-move path. The
     // platform-specific commit layer decides whether the verified volume
     // identities permit an atomic rename or require a staged copy/verify move.
-    let tree_fingerprint =
-        if source_is_directory && matches!(action, TransferAction::Copy | TransferAction::Move) {
-            Some(match validated_tree_fingerprint {
-                Some(fingerprint) => fingerprint.to_string(),
-                None => directory_tree_snapshot(&source)?,
-            })
-        } else {
-            None
-        };
+    let tree_fingerprint = if source_is_directory
+        && matches!(
+            action,
+            TransferAction::Copy | TransferAction::Move | TransferAction::Duplicate
+        ) {
+        Some(match validated_tree_fingerprint {
+            Some(fingerprint) => fingerprint.to_string(),
+            None => directory_tree_snapshot(&source)?,
+        })
+    } else {
+        None
+    };
     let destination = VerifiedDirectory::open_existing(destination_root)
         .map_err(|e| format!("transfer_destination_identity:{e}"))?;
     VerifiedDirectory::open_existing(source.parent().ok_or("transfer_source_invalid")?)
@@ -829,8 +845,10 @@ fn snapshot(
     let canonical_root = destination_root
         .canonicalize()
         .map_err(|error| format!("transfer_destination_identity:{error}"))?;
-    if matches!(action, TransferAction::Copy | TransferAction::Move)
-        && source_is_directory
+    if matches!(
+        action,
+        TransferAction::Copy | TransferAction::Move | TransferAction::Duplicate
+    ) && source_is_directory
         && canonical_root.starts_with(&source)
     {
         return Err("transfer_directory_into_itself".into());
@@ -988,6 +1006,7 @@ fn revalidate_with_tree_fingerprint(
     let action = match operation.operation_type.as_str() {
         "copy" => TransferAction::Copy,
         "move" => TransferAction::Move,
+        "duplicate" => TransferAction::Duplicate,
         "rename" => TransferAction::Rename,
         "move_to_trash" => TransferAction::Trash,
         _ => return Err("operation_preview_stale".into()),
@@ -1124,20 +1143,21 @@ pub(crate) fn execute(
     context: OperationExecutionContext<'_>,
 ) -> Result<FileOperationResult, FileMutationError> {
     #[cfg(target_os = "macos")]
-    let directory_copy_identity = if operation.operation_type == "copy"
-        && std::fs::symlink_metadata(&operation.source_path)
-            .is_ok_and(|metadata| metadata.file_type().is_dir())
-    {
-        Some(
-            crate::fs_safety::capture_identity(
-                Path::new(&operation.source_path),
-                context.cancel_flag,
+    let directory_copy_identity =
+        if matches!(operation.operation_type.as_str(), "copy" | "duplicate")
+            && std::fs::symlink_metadata(&operation.source_path)
+                .is_ok_and(|metadata| metadata.file_type().is_dir())
+        {
+            Some(
+                crate::fs_safety::capture_identity(
+                    Path::new(&operation.source_path),
+                    context.cancel_flag,
+                )
+                .map_err(|error| FileMutationError::Validation(error.to_string()))?,
             )
-            .map_err(|error| FileMutationError::Validation(error.to_string()))?,
-        )
-    } else {
-        None
-    };
+        } else {
+            None
+        };
     revalidate(operation)?;
     if context
         .cancel_flag
@@ -1190,7 +1210,7 @@ pub(crate) fn execute(
         .identity()
         .clone();
     let target = validate_target_path(target_path)?;
-    if operation.operation_type == "copy" {
+    if matches!(operation.operation_type.as_str(), "copy" | "duplicate") {
         #[cfg(target_os = "macos")]
         let expected_identity = directory_copy_identity
             .as_ref()
@@ -1200,7 +1220,7 @@ pub(crate) fn execute(
         crate::fs_safety::atomic_move::atomic_copy_with_verified_destination(
             &source,
             &target,
-            "copy",
+            &operation.operation_type,
             expected_identity,
             context.planned_claim_path,
             context.cancel_flag,

@@ -330,6 +330,30 @@ fn parent_identity_matches(expected: &str, actual: Option<&str>) -> bool {
     }
     true // Native path-fallback providers still require the no-alias directory proof.
 }
+// Filename-only Global Index admission, not file-operation authorization.
+// MFT/USN already supplies the native attributes; avoid another file stat and
+// handle-open per candidate while preserving source/parent identity checks.
+fn candidate_search_admission_ok(
+    entry: &GlobalEntryInput,
+    source: &GlobalVolume,
+    path: &Path,
+) -> bool {
+    if entry.is_directory {
+        return true;
+    }
+    #[cfg(windows)]
+    if source.platform == "windows"
+        && source.provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
+        && entry.source_provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
+    {
+        // Keep reparse, offline and recall-on-access entries conservative.
+        const UNSUPPORTED_ATTRIBUTES: i64 = 0x400 | 0x1000 | 0x40000 | 0x400000;
+        return entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0;
+    }
+    let _ = source;
+    metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))
+}
+
 pub(crate) fn observe_batch(
     policy: &CoveragePolicy,
     source: &GlobalVolume,
@@ -447,29 +471,7 @@ pub(crate) fn observe_batch(
                         rule_uncertain: best.is_some_and(|(_, _, uncertain)| uncertain),
                     }
                 });
-            // NTFS MFT/USN already reports file attributes. For filename-only
-            // admission, do not stat and open every file again to check links.
-            // Source authorization and parent-directory identity still apply.
-            let candidate_safe = if entry.is_directory {
-                true
-            } else {
-                #[cfg(windows)]
-                if source.platform == "windows"
-                    && source.provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
-                    && entry.source_provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
-                {
-                    // Reparse, offline and recall-on-access entries stay
-                    // conservative; do not follow or hydrate placeholders.
-                    const UNSUPPORTED_ATTRIBUTES: i64 = 0x400 | 0x1000 | 0x40000 | 0x400000;
-                    entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0
-                } else {
-                    metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))
-                }
-                #[cfg(not(windows))]
-                {
-                    metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))
-                }
-            };
+            let candidate_safe = candidate_search_admission_ok(entry, source, path);
             let mut evidence = Evidence {
                 directory: entry.is_directory,
                 performance_reason: facts.performance_reason,

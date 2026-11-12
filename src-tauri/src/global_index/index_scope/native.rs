@@ -447,8 +447,29 @@ pub(crate) fn observe_batch(
                         rule_uncertain: best.is_some_and(|(_, _, uncertain)| uncertain),
                     }
                 });
-            let candidate_safe = entry.is_directory
-                || metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m));
+            // NTFS MFT/USN already reports file attributes. For filename-only
+            // admission, do not stat and open every file again to check links.
+            // Source authorization and parent-directory identity still apply.
+            let candidate_safe = if entry.is_directory {
+                true
+            } else {
+                #[cfg(windows)]
+                if source.platform == "windows"
+                    && source.provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
+                    && entry.source_provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
+                {
+                    // Reparse, offline and recall-on-access entries stay
+                    // conservative; do not follow or hydrate placeholders.
+                    const UNSUPPORTED_ATTRIBUTES: i64 = 0x400 | 0x1000 | 0x40000 | 0x400000;
+                    entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0
+                } else {
+                    metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))
+                }
+                #[cfg(not(windows))]
+                {
+                    metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))
+                }
+            };
             let mut evidence = Evidence {
                 directory: entry.is_directory,
                 performance_reason: facts.performance_reason,

@@ -182,7 +182,9 @@ where
                     let sink_started = Instant::now();
                     let result = on_batch(&entries);
                     #[cfg(feature = "native-qa")]
-                    sink_write_us += sink_started.elapsed().as_micros();
+                    {
+                        sink_write_us += sink_started.elapsed().as_micros();
+                    }
                     if let Err(error) = result {
                         query.stopQuery();
                         return Err(format!("callback:{error}"));
@@ -195,7 +197,9 @@ where
                 let sink_started = Instant::now();
                 let result = on_batch(&entries);
                 #[cfg(feature = "native-qa")]
-                sink_write_us += sink_started.elapsed().as_micros();
+                {
+                    sink_write_us += sink_started.elapsed().as_micros();
+                }
                 if let Err(error) = result {
                     query.stopQuery();
                     return Err(format!("callback:{error}"));

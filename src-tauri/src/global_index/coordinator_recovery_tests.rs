@@ -1203,6 +1203,7 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
     let mut sink = DatabaseIndexSink {
         db: db.clone(),
         owners: HashMap::new(),
+        write_timings: HashMap::new(),
     };
     sink.admit_source_operation(
         &source.volume,
@@ -1245,6 +1246,7 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
     let mut retry_sink = DatabaseIndexSink {
         db: db.clone(),
         owners: HashMap::new(),
+        write_timings: HashMap::new(),
     };
     retry_sink
         .admit_source_operation(

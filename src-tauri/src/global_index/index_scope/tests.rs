@@ -696,7 +696,7 @@ fn smart_lean_ingestion_cost() {
                 );
                 serde_json::json!({"mode":reindex_mode,"seconds":reindex_seconds,"metadataAttempts":reindex_metadata_attempts,"retiredRows":retired,"activeRows":reindex_active,"retainedRows":reindex_retained})
             };
-            let candidates_per_second = n as f64 / elapsed.as_secs_f64();
+            let candidates_per_second = n as f64 / elapsed;
             let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"candidatesPerSecond":candidates_per_second,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"coverageEvaluationSeconds":coverage_evaluation.as_secs_f64(),"sqliteTransactionSeconds":sqlite_transaction.as_secs_f64(),"timedWriterBatches":timed_writer_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
             println!("SMART_LEAN_AB {record}");
             rows.push(record);

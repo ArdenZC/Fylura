@@ -143,6 +143,47 @@ fn u1_batch_collects_managed_and_disposed_browse_sources_then_copies_with_journa
     assert_eq!(f.db.get_operation_logs(Some(10)).unwrap().len(), 2);
     runtime.dispose();
 }
+
+#[test]
+fn file_management_duplicate_copies_in_place_and_preserves_source() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let ticket = capture(&runtime, &f).remove(0);
+    let source_directory = f.source.parent().unwrap().to_path_buf();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id.clone()],
+        &source_directory,
+        TransferAction::Duplicate,
+        vec![ticket.id],
+        vec![],
+    );
+    let row = &plan.rows[0];
+    let operation = row.preview.as_ref().unwrap();
+    assert_eq!(operation.operation_type, "duplicate");
+    assert_eq!(operation.new_name, "original (2).txt");
+
+    let request = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let result = execute_moves_with_persistence(&f.db, request).unwrap();
+
+    assert_eq!(result.logs.len(), 1);
+    assert_eq!(result.logs[0].operation_type, "duplicate");
+    assert_eq!(result.logs[0].status, "success");
+    assert!(!result.logs[0].can_restore);
+    assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
+    assert_eq!(
+        fs::read(source_directory.join("original (2).txt")).unwrap(),
+        b"owned fixture"
+    );
+    assert_eq!(f.db.get_operation_logs(Some(10)).unwrap().len(), 1);
+    runtime.dispose();
+}
+
 #[test]
 fn u1_conflict_keep_both_skip_and_cancel_do_not_overwrite() {
     let f = Fixture::new();

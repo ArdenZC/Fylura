@@ -94,6 +94,54 @@ describe("File Library manual management workflow", () => {
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(refresh).toHaveBeenCalledOnce();expect(clear).toHaveBeenCalledOnce();expect(mocks.close).toHaveBeenCalled();
   });
+  it("duplicates a same-folder selection through the Copy executor and records the duplicate action", async () => {
+    const duplicateTickets: TransferTicket[] = [
+      { id: "one", name: "one.txt", path: "C:/Source/one.txt", isDirectory: false },
+      { id: "two", name: "two.txt", path: "C:/Source/two.txt", isDirectory: false },
+    ];
+    vi.mocked(api.captureTransfer).mockResolvedValueOnce(duplicateTickets);
+    const duplicatePreview = plan();
+    duplicatePreview.id = "duplicate-preview";
+    duplicatePreview.destinationDirectory = "C:/Source";
+    duplicatePreview.rows.forEach((row, index) => {
+      row.preview!.operation_type = "duplicate";
+      row.preview!.suggested_action = "Duplicate";
+      row.preview!.source_path = duplicateTickets[index]!.path;
+      row.preview!.target_path = `C:/Source/${duplicateTickets[index]!.name.replace(".txt", " (2).txt")}`;
+    });
+    vi.mocked(api.previewTransfer).mockResolvedValueOnce(duplicatePreview);
+    vi.mocked(api.executeTransfer).mockResolvedValueOnce({
+      batch_id: "duplicate-batch",
+      logs: result(["success", "success"]).map((log, index) => ({
+        ...log,
+        operation_type: "duplicate",
+        path_after: duplicatePreview.rows[index]!.preview!.target_path,
+      })),
+    });
+
+    await render();
+    await click(t("fmMore"));
+    await click(t("fmDuplicate"));
+
+    expect(api.previewTransfer).toHaveBeenCalledWith({
+      ticketIds: ["one", "two"],
+      action: "duplicate",
+      destinationDirectory: "C:/Source",
+      skip: [],
+      keepBoth: ["one", "two"],
+    });
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "duplicate-preview", confirmed: true });
+    expect(useFileManagementStore.getState().results.every((log) => log.operation_type === "duplicate")).toBe(true);
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  });
+  it("keeps mixed-folder selections from being duplicated into one source folder", async () => {
+    await render();
+    await click(t("fmMore"));
+    await click(t("fmDuplicate"));
+
+    expect(api.previewTransfer).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(t("fmDuplicateSingleFolder"));
+  });
   it.each([
     ["win32", "windows", "copy", "D:/"],
     ["win32", "windows", "move", "D:\\"],

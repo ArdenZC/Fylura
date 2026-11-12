@@ -796,7 +796,8 @@ fn mft_fast_path_uses_native_attributes_without_extra_file_io() {
         vec![Decision::Include]
     );
     let fast_metadata = super::native::take_metadata_attempts();
-    file.source_provider = crate::global_index::PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+    file.source_provider =
+        crate::global_index::PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
     let _ = observe_batch(&policy, &f.source, std::slice::from_ref(&file));
     let fallback_metadata = super::native::take_metadata_attempts();
     assert!(

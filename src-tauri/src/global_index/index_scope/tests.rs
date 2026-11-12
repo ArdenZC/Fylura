@@ -309,6 +309,155 @@ fn production_admission_excludes_only_proven_trees_and_keeps_graph_identity() {
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn merged_scope_write_preserves_rebuild_incremental_fts_and_managed_links() {
+    use crate::global_index::AddManagedScopeRequest;
+
+    let f = Fixture::new();
+    let current_path = f.root.join("include/currenttoken.txt");
+    fs::create_dir_all(current_path.parent().unwrap()).unwrap();
+    fs::write(&current_path, b"managed input").unwrap();
+    let mut current = GlobalEntryInput::from_path(&f.source.id, &current_path, &f.source.provider);
+    // Keep the synthetic native identity stable across this fixture rename.
+    current.platform_file_id = "mac:fixture:managed-current".into();
+    let duplicate_included = f.file("include/duplicate.txt");
+    let duplicate_elsewhere = f.file("archive/duplicate.txt");
+    let excluded = f.file("exclude/hiddenneedle.txt");
+    let include_path = f.root.join("include");
+    let exclude_path = f.root.join("exclude");
+    let scope =
+        f.db.add_managed_scope(AddManagedScopeRequest {
+            path: include_path.to_string_lossy().into_owned(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .unwrap();
+    let entries = [
+        current.clone(),
+        duplicate_included.clone(),
+        duplicate_elsewhere.clone(),
+        excluded.clone(),
+    ];
+
+    // Seed existing rows and managed associations, then verify that a policy
+    // rebuild can retire/reinsert rows without losing those relationships.
+    f.db.upsert_global_entries_batch(&entries).unwrap();
+    let include_rule = bind_rule(&f.source, &include_path.to_string_lossy(), true).unwrap();
+    let exclude_rule = bind_rule(&f.source, &exclude_path.to_string_lossy(), false).unwrap();
+    f.db.save_global_index_coverage(1, CoverageMode::Custom, vec![include_rule, exclude_rule])
+        .unwrap();
+    let owner = f.owner();
+    f.db.mark_global_entries_stale_for_volume_owned(&owner)
+        .unwrap();
+    f.db.upsert_global_entries_batch_owned(&entries, &owner)
+        .unwrap();
+    f.db.finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), true)
+        .unwrap();
+
+    let conn = f.db.conn().unwrap();
+    let status: (i64, String) = conn
+        .query_row(
+            "SELECT is_stale,scope_decision FROM global_entries WHERE id=?1",
+            [current.entry_id()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, (0, "include".into()));
+    let excluded_status: (i64, String) = conn
+        .query_row(
+            "SELECT is_stale,scope_decision FROM global_entries WHERE id=?1",
+            [excluded.entry_id()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(excluded_status, (1, "custom_exclude".into()));
+    assert!(f
+        .db
+        .search_global_entries("hiddenneedle", 20, 0)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        f.db.search_global_entries("duplicate", 20, 0)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        f.db.search_global_entries("currenttoken", 20, 0)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM managed_entries WHERE global_entry_id=?1 AND managed_scope_id=?2 AND enabled=1",
+            rusqlite::params![current.entry_id(), scope.id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        1
+    );
+    conn.execute(
+        "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let renamed_path = f.root.join("include/renamedtoken.txt");
+    fs::rename(&current_path, &renamed_path).unwrap();
+    current.path = renamed_path.to_string_lossy().into_owned();
+    current.name = "renamedtoken.txt".into();
+    current.last_seen_at = crate::global_index::unix_now();
+    let owner =
+        f.db.claim_global_index_operation(
+            &f.source,
+            &uuid::Uuid::new_v4().to_string(),
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Coordinator,
+        )
+        .unwrap()
+        .unwrap();
+    f.db.upsert_global_entries_batch_owned(std::slice::from_ref(&current), &owner)
+        .unwrap();
+    f.db.finish_global_index_operation(&owner, "ready", None, None, Some(2), false)
+        .unwrap();
+
+    assert!(f
+        .db
+        .search_global_entries("currenttoken", 20, 0)
+        .unwrap()
+        .is_empty());
+    let renamed = f.db.search_global_entries("renamedtoken", 20, 0).unwrap();
+    assert_eq!(renamed.len(), 1);
+    assert_eq!(renamed[0].id, current.entry_id());
+    let conn = f.db.conn().unwrap();
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM managed_entries WHERE global_entry_id=?1 AND managed_scope_id=?2 AND enabled=1",
+            rusqlite::params![current.entry_id(), scope.id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        1,
+        "incremental rename keeps the managed entry association"
+    );
+    assert!(conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM ai_jobs WHERE global_entry_id=?1 AND managed_scope_id=?2 AND status='stale') AND EXISTS(SELECT 1 FROM ai_jobs WHERE global_entry_id=?1 AND managed_scope_id=?2 AND status='pending')",
+            rusqlite::params![current.entry_id(), scope.id],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap());
+    conn.execute(
+        "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+        [],
+    )
+    .unwrap();
+}
 #[test]
 fn policy_switch_fences_old_writes_hides_old_results_and_survives_restart() {
     let f = Fixture::new();
@@ -486,6 +635,329 @@ fn outside_authorized_root_is_fenced_without_probing_it() {
     );
 }
 
+/// Writer-only paired benchmark. The baseline branch retains the previous UPSERT,
+/// per-row scope decision UPDATE, and empty-scope AI fingerprint work; the candidate
+/// branch uses the optimized production path. Both use the same task-owned files.
+#[test]
+#[ignore = "explicit bounded performance run"]
+fn global_index_writer_ingestion_100k_pair() {
+    use std::time::Instant;
+
+    let n = std::env::var("ZEN_GLOBAL_WRITER_ENTRIES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(100_000);
+    assert_eq!(
+        n, 100_000,
+        "this paired workflow is intentionally fixed at 100k"
+    );
+
+    let f = Fixture::new();
+    f.file("project/package.json");
+    f.file("project/node_modules/.package-lock.json");
+    f.file("rust/Cargo.toml");
+    f.file("rust/target/.rustc_info.json");
+    let entries = (0..n)
+        .map(|index| {
+            f.file(&match index % 10 {
+                0..=2 => format!("project/node_modules/lib/dependency{index}.js"),
+                3 => format!("rust/target/debug/generated{index}.o"),
+                4 => format!("project/src/source{index}.rs"),
+                5 => format!("project/docs/README{index}.md"),
+                6 => format!("documents/report{index}.pdf"),
+                7 => format!("Projects/Windows/README{index}.md"),
+                8 => format!("Design/build/logo{index}.ai"),
+                _ => format!("资料/作品{index}.png"),
+            })
+        })
+        .collect::<Vec<_>>();
+    let expected_rows = (0..n).filter(|index| index % 10 >= 4).count() as i64;
+    let mut system = sysinfo::System::new();
+    let pid = sysinfo::get_current_pid().unwrap();
+    let mut records = Vec::new();
+
+    for repetition in 0..3 {
+        // Rotate order to limit filesystem and runner warm-up bias.
+        let groups = if repetition % 2 == 0 {
+            ["legacy_writer", "optimized_writer"]
+        } else {
+            ["optimized_writer", "legacy_writer"]
+        };
+        for group in groups {
+            let canonical_writer = group == "legacy_writer";
+            let db_path = f.root.join(format!("writer-{repetition}-{group}.sqlite"));
+            let db = Database::open(&db_path).unwrap();
+            db.upsert_global_volume(&f.source).unwrap();
+            db.save_global_index_coverage(1, CoverageMode::SmartLean, vec![])
+                .unwrap();
+            let owner = db
+                .claim_global_index_operation(
+                    &f.source,
+                    &uuid::Uuid::new_v4().to_string(),
+                    SourceOperationKind::Rebuild,
+                    SourceOperationRoute::Coordinator,
+                )
+                .unwrap()
+                .unwrap();
+            system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+            let rss_before = system.process(pid).map_or(0, sysinfo::Process::memory);
+            let mut rss_peak = rss_before;
+            let _ = super::native::take_metadata_attempts();
+            let mut passes = Vec::new();
+
+            for pass in ["initial", "replay"] {
+                let begin = Instant::now();
+                let mut sampling = std::time::Duration::ZERO;
+                let mut writer_timing =
+                    crate::global_index::repository::GlobalIndexBatchTiming::default();
+                let mut sampled_batches = 0;
+                for (batch_index, batch) in entries.chunks(512).enumerate() {
+                    let write = || {
+                        db.upsert_global_entries_batch_owned_timed(batch, &owner)
+                            .unwrap()
+                    };
+                    let (_, timing) = if canonical_writer {
+                        crate::global_index::repository::with_canonical_scope_decision_writes(write)
+                    } else {
+                        write()
+                    };
+                    writer_timing.add(timing);
+                    if batch_index % 32 == 0 || batch_index + 1 == n.div_ceil(512) {
+                        let sample_begin = Instant::now();
+                        system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                        rss_peak =
+                            rss_peak.max(system.process(pid).map_or(0, sysinfo::Process::memory));
+                        sampling += sample_begin.elapsed();
+                        sampled_batches += 1;
+                    }
+                }
+                let instrumented = begin.elapsed();
+                let elapsed = instrumented.saturating_sub(sampling).as_secs_f64();
+                let pass_record = serde_json::json!({
+                    "pass": pass,
+                    "seconds": elapsed,
+                    "candidatesPerSecond": n as f64 / elapsed,
+                    "rssSamplingSeconds": sampling.as_secs_f64(),
+                    "rssSampledBatches": sampled_batches,
+                    "coverageEvaluationSeconds": writer_timing.coverage_evaluation.as_secs_f64(),
+                    "sqliteTransactionSeconds": writer_timing.sqlite_transaction.as_secs_f64(),
+                    "connectionAcquisitionSeconds": writer_timing.connection_acquisition.as_secs_f64(),
+                    "transactionAcquisitionSeconds": writer_timing.transaction_acquisition.as_secs_f64(),
+                    "transactionSetupSeconds": writer_timing.transaction_setup.as_secs_f64(),
+                    "entryUpsertSeconds": writer_timing.entry_upsert.as_secs_f64(),
+                    "aiTaskQualificationSeconds": writer_timing.ai_task_qualification.as_secs_f64(),
+                    "recordDecisionsSeconds": writer_timing.record_decisions.as_secs_f64(),
+                    "commitSeconds": writer_timing.commit.as_secs_f64(),
+                    "timedWriterBatches": n.div_ceil(512)
+                });
+                println!("GLOBAL_INDEX_WRITER_PAIR {pass_record}");
+                passes.push(pass_record);
+            }
+
+            db.finish_global_index_operation(&owner, "ready", None, Some(1), Some(1), true)
+                .unwrap();
+            let conn = db.conn().unwrap();
+            let rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM global_entries WHERE is_stale=0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(rows, expected_rows, "no false exclusions in writer pair");
+            assert!(
+                !db.search_global_entries("README", 20, 0)
+                    .unwrap()
+                    .is_empty(),
+                "FTS must expose visible filename rows"
+            );
+            conn.execute(
+                "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+                [],
+            )
+            .unwrap();
+            assert_eq!(
+                conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+                0
+            );
+            let fts_bytes: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name GLOB 'global_entries_fts*'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let page_bytes: i64 = conn
+                .query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))
+                .unwrap()
+                * conn
+                    .query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))
+                    .unwrap();
+            let source_facts: (i64, i64) = conn
+                .query_row(
+                    "SELECT active_rows,active_ids FROM global_entry_source_facts WHERE volume_id=?1",
+                    [&f.source.id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(source_facts, (expected_rows, expected_rows));
+            drop(conn);
+            let metadata_attempts = super::native::take_metadata_attempts();
+            let wal_path = std::path::PathBuf::from(format!("{}-wal", db_path.display()));
+            let database_file_bytes = fs::metadata(&db_path).map_or(0, |metadata| metadata.len());
+            let wal_bytes = fs::metadata(&wal_path).map_or(0, |metadata| metadata.len());
+            let shm_path = std::path::PathBuf::from(format!("{}-shm", db_path.display()));
+            let shm_bytes = fs::metadata(&shm_path).map_or(0, |metadata| metadata.len());
+            let record = serde_json::json!({
+                "platform": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+                "profile": if cfg!(debug_assertions) { "debug" } else { "release" },
+                "group": group,
+                "repetition": repetition,
+                "candidates": n,
+                "rows": rows,
+                "ftsBytes": fts_bytes,
+                "databasePageBytes": page_bytes,
+                "databaseFileBytes": database_file_bytes,
+                "walBytes": wal_bytes,
+                "shmBytes": shm_bytes,
+                "databaseAndWalBytes": database_file_bytes + wal_bytes,
+                "rssBeforeBytes": rss_before,
+                "rssPeakSampledBytes": rss_peak,
+                "nativeObserverMetadataAttempts": metadata_attempts,
+                "sourceFactsActiveRows": source_facts.0,
+                "passes": passes
+            });
+            println!("GLOBAL_INDEX_WRITER_RESULT {record}");
+            records.push(record);
+        }
+    }
+    if let Ok(path) = std::env::var("ZEN_GLOBAL_WRITER_REPORT") {
+        fs::write(path, serde_json::to_vec_pretty(&records).unwrap()).unwrap();
+    }
+}
+
+/// Isolates the marginal insert cost of the live search and source-facts
+/// triggers. Trigger removal is confined to disposable test databases; this
+/// never changes the production schema or application write path.
+#[test]
+#[ignore = "explicit bounded performance run"]
+fn global_index_writer_trigger_contribution_25k() {
+    use std::time::Instant;
+
+    const N: usize = 25_000;
+    let f = Fixture::new();
+    let entries = (0..N)
+        .map(|index| f.file(&format!("trigger-sample/entry{index}.txt")))
+        .collect::<Vec<_>>();
+    let mut records = Vec::new();
+    for repetition in 0..3 {
+        let mut modes = ["full_triggers", "without_fts", "without_source_stats"];
+        modes.rotate_left(repetition);
+        for mode in modes {
+            let db_path = f.root.join(format!("trigger-{repetition}-{mode}.sqlite"));
+            let db = Database::open(&db_path).unwrap();
+            db.upsert_global_volume(&f.source).unwrap();
+            if mode == "without_fts" {
+                db.conn()
+                    .unwrap()
+                    .execute_batch(
+                        "DROP TRIGGER global_entries_ai; DROP TRIGGER global_entries_ad; DROP TRIGGER global_entries_au;",
+                    )
+                    .unwrap();
+            } else if mode == "without_source_stats" {
+                db.conn()
+                    .unwrap()
+                    .execute_batch(
+                        "DROP TRIGGER global_entry_source_facts_ai; DROP TRIGGER global_entry_source_facts_ad; DROP TRIGGER global_entry_source_facts_au; DROP TRIGGER global_entries_count_ai; DROP TRIGGER global_entries_count_ad; DROP TRIGGER global_entries_count_au;",
+                    )
+                    .unwrap();
+            }
+
+            let begin = Instant::now();
+            let mut timing = crate::global_index::repository::GlobalIndexBatchTiming::default();
+            for batch in entries.chunks(512) {
+                let (_, batch_timing) = db.upsert_global_entries_batch_timed(batch).unwrap();
+                timing.add(batch_timing);
+            }
+            let seconds = begin.elapsed().as_secs_f64();
+            let conn = db.conn().unwrap();
+            let fts_bytes: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name GLOB 'global_entries_fts*'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let source_fact_rows: i64 = conn
+                .query_row(
+                    "SELECT active_rows FROM global_entry_source_facts WHERE volume_id=?1",
+                    [&f.source.id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let volume_entry_count: i64 = conn
+                .query_row(
+                    "SELECT entry_count FROM global_volumes WHERE id=?1",
+                    [&f.source.id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let database_bytes = conn
+                .query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))
+                .unwrap()
+                * conn
+                    .query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))
+                    .unwrap();
+            let database_file_bytes = fs::metadata(&db_path).map_or(0, |metadata| metadata.len());
+            let wal_path = std::path::PathBuf::from(format!("{}-wal", db_path.display()));
+            let wal_bytes = fs::metadata(&wal_path).map_or(0, |metadata| metadata.len());
+            if mode == "full_triggers" {
+                assert_eq!(source_fact_rows, N as i64);
+                assert_eq!(volume_entry_count, N as i64);
+                conn.execute(
+                    "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+                    [],
+                )
+                .unwrap();
+            } else if mode == "without_source_stats" {
+                assert_eq!(source_fact_rows, 0);
+                assert_eq!(volume_entry_count, 0);
+            }
+            let record = serde_json::json!({
+                "platform": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+                "profile": if cfg!(debug_assertions) { "debug" } else { "release" },
+                "group": mode,
+                "repetition": repetition,
+                "candidates": N,
+                "seconds": seconds,
+                "candidatesPerSecond": N as f64 / seconds,
+                "sqliteTransactionSeconds": timing.sqlite_transaction.as_secs_f64(),
+                "entryUpsertSeconds": timing.entry_upsert.as_secs_f64(),
+                "commitSeconds": timing.commit.as_secs_f64(),
+                "ftsBytes": fts_bytes,
+                "databasePageBytes": database_bytes,
+                "databaseFileBytes": database_file_bytes,
+                "walBytes": wal_bytes,
+                "databaseAndWalBytes": database_file_bytes + wal_bytes,
+                "sourceFactsActiveRows": source_fact_rows,
+                "volumeEntryCount": volume_entry_count
+            });
+            println!("GLOBAL_INDEX_TRIGGER_COST {record}");
+            records.push(record);
+            drop(conn);
+            drop(db);
+        }
+    }
+    if let Ok(path) = std::env::var("ZEN_GLOBAL_WRITER_TRIGGER_REPORT") {
+        fs::write(path, serde_json::to_vec_pretty(&records).unwrap()).unwrap();
+    }
+}
+
 /// Production repository A/B on a task-owned filesystem corpus; no MFT/Spotlight
 /// enumeration and no user disks. Reuses ISG-00E's paired writer/FTS measurements,
 /// but exercises the current native context observer and owned admission path.
@@ -560,20 +1032,19 @@ fn smart_lean_ingestion_cost() {
             let begin = Instant::now();
             let mut sampling = std::time::Duration::ZERO;
             let mut sampled_batches = 0;
-            let mut coverage_evaluation = std::time::Duration::ZERO;
-            let mut sqlite_transaction = std::time::Duration::ZERO;
+            let mut writer_timing =
+                crate::global_index::repository::GlobalIndexBatchTiming::default();
             let mut timed_writer_batches = 0u64;
             for (batch_index, batch) in entries.chunks(512).enumerate() {
                 if raw_baseline {
                     let (_, timing) = db.upsert_global_entries_batch_timed(batch).unwrap();
-                    sqlite_transaction += timing.sqlite_transaction;
+                    writer_timing.add(timing);
                     timed_writer_batches += 1;
                 } else {
                     let (_, timing) = db
                         .upsert_global_entries_batch_owned_timed(batch, &owner)
                         .unwrap();
-                    coverage_evaluation += timing.coverage_evaluation;
-                    sqlite_transaction += timing.sqlite_transaction;
+                    writer_timing.add(timing);
                     timed_writer_batches += 1;
                 }
                 // Process inspection on hosted Windows is expensive. Keep its
@@ -697,7 +1168,7 @@ fn smart_lean_ingestion_cost() {
                 serde_json::json!({"mode":reindex_mode,"seconds":reindex_seconds,"metadataAttempts":reindex_metadata_attempts,"retiredRows":retired,"activeRows":reindex_active,"retainedRows":reindex_retained})
             };
             let candidates_per_second = n as f64 / elapsed;
-            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"candidatesPerSecond":candidates_per_second,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"coverageEvaluationSeconds":coverage_evaluation.as_secs_f64(),"sqliteTransactionSeconds":sqlite_transaction.as_secs_f64(),"timedWriterBatches":timed_writer_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
+            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"candidatesPerSecond":candidates_per_second,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"coverageEvaluationSeconds":writer_timing.coverage_evaluation.as_secs_f64(),"sqliteTransactionSeconds":writer_timing.sqlite_transaction.as_secs_f64(),"connectionAcquisitionSeconds":writer_timing.connection_acquisition.as_secs_f64(),"transactionAcquisitionSeconds":writer_timing.transaction_acquisition.as_secs_f64(),"transactionSetupSeconds":writer_timing.transaction_setup.as_secs_f64(),"entryUpsertSeconds":writer_timing.entry_upsert.as_secs_f64(),"aiTaskQualificationSeconds":writer_timing.ai_task_qualification.as_secs_f64(),"recordDecisionsSeconds":writer_timing.record_decisions.as_secs_f64(),"commitSeconds":writer_timing.commit.as_secs_f64(),"timedWriterBatches":timed_writer_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
             println!("SMART_LEAN_AB {record}");
             rows.push(record);
         }

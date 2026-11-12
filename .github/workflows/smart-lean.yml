@@ -81,8 +81,10 @@ jobs:
           rustc -vV
           uname -a
         shell: bash
-      - name: Run writer and trigger diagnostics in Release
-        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index_writer_ -- --ignored --nocapture
+      - name: Run 100k writer pair in Release
+        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index_writer_ingestion_100k_pair -- --ignored --nocapture --test-threads=1
+      - name: Run trigger attribution after writer pair
+        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index_writer_trigger_contribution_25k -- --ignored --nocapture --test-threads=1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:

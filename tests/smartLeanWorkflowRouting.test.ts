@@ -76,7 +76,14 @@ describe("Global Index performance workflow routing", () => {
     expect(writerJob).toContain("[run-global-index-performance]");
     expect(writerJob).toContain("run-global-index-performance");
     expect(writerJob).toContain("ZEN_GLOBAL_WRITER_ENTRIES: '100000'");
-    expect(writerJob).toContain("global_index_writer_ -- --ignored --nocapture");
+    expect(writerJob).toContain("Run 100k writer pair in Release");
+    expect(writerJob).toContain(
+      "global_index_writer_ingestion_100k_pair -- --ignored --nocapture --test-threads=1",
+    );
+    expect(writerJob).toContain("Run trigger attribution after writer pair");
+    expect(writerJob).toContain(
+      "global_index_writer_trigger_contribution_25k -- --ignored --nocapture --test-threads=1",
+    );
     expect(writerJob).toContain("cancel-in-progress: false");
     expect(writerJob).not.toContain("github.event_name == 'pull_request' &&");
   });

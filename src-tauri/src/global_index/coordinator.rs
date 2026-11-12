@@ -483,6 +483,7 @@ struct DatabaseIndexSink {
 struct SourceWriteTimings {
     batches: u64,
     coverage_evaluation: Duration,
+    coverage_policy_load: Duration,
     sqlite_transaction: Duration,
     connection_acquisition: Duration,
     transaction_acquisition: Duration,
@@ -497,6 +498,7 @@ impl SourceWriteTimings {
     fn record(&mut self, timing: crate::global_index::repository::GlobalIndexBatchTiming) {
         self.batches = self.batches.saturating_add(1);
         self.coverage_evaluation += timing.coverage_evaluation;
+        self.coverage_policy_load += timing.coverage_policy_load;
         self.sqlite_transaction += timing.sqlite_transaction;
         self.connection_acquisition += timing.connection_acquisition;
         self.transaction_acquisition += timing.transaction_acquisition;
@@ -647,10 +649,11 @@ impl GlobalIndexSink for DatabaseIndexSink {
             if timings.batches > 0 {
                 log::info!(
                     target: "global_index::repository",
-                    "source_operation_write status={} completed={} batches={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={}",
+                    "source_operation_write status={} completed={} batches={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={}",
                     status,
                     completed,
                     timings.batches,
+                    timings.coverage_policy_load.as_micros(),
                     timings.coverage_evaluation.as_micros(),
                     timings.sqlite_transaction.as_micros(),
                     timings.connection_acquisition.as_micros(),
@@ -663,8 +666,9 @@ impl GlobalIndexSink for DatabaseIndexSink {
                     finalize_us
                 );
                 crate::global_index::qa_trace::record(&format!(
-                    "source_operation_write status={status} completed={completed} batches={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={finalize_us}",
+                    "source_operation_write status={status} completed={completed} batches={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={finalize_us}",
                     timings.batches,
+                    timings.coverage_policy_load.as_micros(),
                     timings.coverage_evaluation.as_micros(),
                     timings.sqlite_transaction.as_micros(),
                     timings.connection_acquisition.as_micros(),

@@ -140,6 +140,125 @@ jobs:
         env:
           ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-after.json
         run: cargo test ${{ ((inputs.entries || '100000') != '1000' && '--release') || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+      - name: Build frontend assets for native MFT comparison
+        if: runner.os == 'Windows'
+        run: npm run build:frontend
+      - name: Prepare Windows native master worktree
+        if: runner.os == 'Windows'
+        id: native-baseline
+        shell: pwsh
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-native-baseline
+        run: |
+          $ErrorActionPreference = "Stop"
+          git worktree add --detach $env:BASELINE_WORKTREE $env:BASELINE_REF
+          if ($LASTEXITCODE -ne 0) { throw "could not create Windows native baseline worktree" }
+          $baselineSha = (& git -C $env:BASELINE_WORKTREE rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "could not resolve Windows native baseline HEAD" }
+          "sha=$baselineSha" >> $env:GITHUB_OUTPUT
+          $baselineDist = Join-Path $env:BASELINE_WORKTREE "dist"
+          New-Item -ItemType Directory -Path $baselineDist -Force | Out-Null
+          if (Test-Path -LiteralPath (Join-Path $PWD "dist")) {
+            Copy-Item -Path (Join-Path $PWD "dist\*") -Destination $baselineDist -Recurse -Force
+          }
+      - name: Build Windows native master and candidate binaries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-native-baseline
+        run: |
+          $ErrorActionPreference = "Stop"
+          $baselineRoot = [IO.Path]::GetFullPath($env:BASELINE_WORKTREE)
+          $baselineTarget = Join-Path $baselineRoot ".qa-target"
+          $baselineProbe = Join-Path $baselineRoot ".qa-bin\zb05-global-index-qa.exe"
+          New-Item -ItemType Directory -Path (Split-Path -Parent $baselineProbe) -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "src-tauri/src/global_index/windows/smart_lean_qa.rs") -Destination (Join-Path $baselineRoot "src-tauri/src/global_index/windows/smart_lean_qa.rs") -Force
+          $env:CARGO_TARGET_DIR = $baselineTarget
+          Push-Location $baselineRoot
+          try {
+            cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin fylura
+            if ($LASTEXITCODE -ne 0) { throw "Windows native master app build failed with exit code $LASTEXITCODE" }
+            Copy-Item -LiteralPath (Join-Path $baselineTarget "release/fylura.exe") -Destination (Join-Path $baselineRoot ".qa-bin/fylura.exe") -Force
+            cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin zb05-global-index-qa
+            if ($LASTEXITCODE -ne 0) { throw "Windows native master QA probe build failed with exit code $LASTEXITCODE" }
+            Copy-Item -LiteralPath (Join-Path $baselineTarget "release/zb05-global-index-qa.exe") -Destination $baselineProbe -Force
+          } finally {
+            Pop-Location
+          }
+          $env:CARGO_TARGET_DIR = Join-Path $env:GITHUB_WORKSPACE "src-tauri/target"
+          cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin fylura
+          if ($LASTEXITCODE -ne 0) { throw "Windows native candidate app build failed with exit code $LASTEXITCODE" }
+          cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin zb05-global-index-qa
+          if ($LASTEXITCODE -ne 0) { throw "Windows native candidate QA probe build failed with exit code $LASTEXITCODE" }
+      - name: Measure master direct MFT qualification on task-owned NTFS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-native-baseline
+          EXPECTED_SOURCE_SHA: ${{ steps.native-baseline.outputs.sha }}
+          ZC_GLOBAL_INDEX_QA_HARNESS_OVERLAY: ${{ github.sha }}/src-tauri/src/global_index/windows/smart_lean_qa.rs (timing-only)
+        run: |
+          $ErrorActionPreference = "Stop"
+          $previousRunId = $env:GITHUB_RUN_ID
+          $env:GITHUB_RUN_ID = "$previousRunId-before"
+          $root = [IO.Path]::GetFullPath($env:BASELINE_WORKTREE)
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP "windows-global-index-mft-before"
+          New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
+          try {
+            Push-Location $root
+            try {
+              & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE "scripts/qualifyWindowsGlobalIndexService.ps1") -CandidateExe (Join-Path $root ".qa-bin/fylura.exe") -ProbeExe (Join-Path $root ".qa-bin/zb05-global-index-qa.exe") -EvidencePath (Join-Path $evidenceRoot "evidence.json") -DirectOnly
+              if ($LASTEXITCODE -ne 0) { throw "Windows master direct MFT qualification failed with exit code $LASTEXITCODE" }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            $env:GITHUB_RUN_ID = $previousRunId
+          }
+      - name: Measure candidate direct MFT qualification on task-owned NTFS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP "windows-global-index-mft-after"
+          New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe (Join-Path $PWD "src-tauri/target/release/fylura.exe") -ProbeExe (Join-Path $PWD "src-tauri/target/release/zb05-global-index-qa.exe") -EvidencePath (Join-Path $evidenceRoot "evidence.json") -DirectOnly
+          if ($LASTEXITCODE -ne 0) { throw "Windows candidate direct MFT qualification failed with exit code $LASTEXITCODE" }
+      - name: Require paired native MFT evidence
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($side in @("before", "after")) {
+            $path = Join-Path $env:RUNNER_TEMP "windows-global-index-mft-$side/evidence.json"
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "missing $side direct MFT evidence" }
+            $report = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            if ($report.sourceHead -ne $report.expectedSourceHead -or $report.directMftQualificationElapsedMs -le 0 -or $report.failure) { throw "$side direct MFT evidence is incomplete" }
+            if ($report.smartLeanDirect.route -ne "Direct MFT" -or $report.smartLeanDirect.firstSearchableUs -le 0 -or $report.smartLeanDirect.databaseReopenBackfillUs -le 0) { throw "$side direct MFT timing evidence is incomplete" }
+          }
+      - name: Remove Windows native master worktree
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-native-baseline
+        run: |
+          if (Test-Path -LiteralPath $env:BASELINE_WORKTREE) {
+            git worktree remove --force $env:BASELINE_WORKTREE
+            if ($LASTEXITCODE -ne 0) { throw "could not remove the task-owned Windows native baseline worktree" }
+          }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && runner.os == 'Windows'
+        with:
+          name: windows-native-master-candidate-mft-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/windows-global-index-mft-before/evidence.json
+            ${{ runner.temp }}/windows-global-index-mft-before/mft-initial-index-timing.log
+            ${{ runner.temp }}/windows-global-index-mft-after/evidence.json
+            ${{ runner.temp }}/windows-global-index-mft-after/mft-initial-index-timing.log
+          if-no-files-found: warn
       - name: Remove master worktree
         if: always()
         shell: bash

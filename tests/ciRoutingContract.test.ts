@@ -299,7 +299,6 @@ describe("CI change routing", () => {
 
   it("reserves all-domain checks for the shared CI/benchmark orchestrator", () => {
     for (const file of [
-      ".github/workflows/ci.yml",
       ".github/workflows/ci-full.yml",
       "scripts/classifyCiChanges.mjs",
       "scripts/ciValidationPlan.mjs",
@@ -309,6 +308,16 @@ describe("CI change routing", () => {
       expect(scope.all_domains_100k, file).toBe(true);
       expect(performanceFlags(scope), file).toEqual([true, true, true, true, true, true]);
     }
+  });
+
+  it("validates interactive CI workflow edits without forcing six 100k suites", () => {
+    const scope = route([".github/workflows/ci.yml"]);
+    expect(scope.workflow_changed).toBe(true);
+    expect(scope.high_risk).toBe(true);
+    expect(scope.full_validation).toBe(false);
+    expect(scope.all_domains_100k).toBe(false);
+    expect(scope.performance_sensitive).toBe(false);
+    expect(performanceFlags(scope)).toEqual([false, false, false, false, false, false]);
   });
 
   it("keeps unrelated workflow YAML changes out of six 100k benchmarks", () => {

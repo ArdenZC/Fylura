@@ -676,8 +676,8 @@ fn global_index_writer_ingestion_100k_pair() {
     let pid = sysinfo::get_current_pid().unwrap();
     let mut records = Vec::new();
 
-    for repetition in 0..3 {
-        // Rotate order to limit filesystem and runner warm-up bias.
+    for repetition in 0..4 {
+        // Balance first/second position across four paired repetitions.
         let groups = if repetition % 2 == 0 {
             ["legacy_writer", "optimized_writer"]
         } else {
@@ -739,6 +739,7 @@ fn global_index_writer_ingestion_100k_pair() {
                     "candidatesPerSecond": n as f64 / elapsed,
                     "rssSamplingSeconds": sampling.as_secs_f64(),
                     "rssSampledBatches": sampled_batches,
+                    "coveragePolicyLoadSeconds": writer_timing.coverage_policy_load.as_secs_f64(),
                     "coverageEvaluationSeconds": writer_timing.coverage_evaluation.as_secs_f64(),
                     "sqliteTransactionSeconds": writer_timing.sqlite_transaction.as_secs_f64(),
                     "connectionAcquisitionSeconds": writer_timing.connection_acquisition.as_secs_f64(),
@@ -937,6 +938,7 @@ fn global_index_writer_trigger_contribution_25k() {
                 "seconds": seconds,
                 "candidatesPerSecond": N as f64 / seconds,
                 "sqliteTransactionSeconds": timing.sqlite_transaction.as_secs_f64(),
+                "coveragePolicyLoadSeconds": timing.coverage_policy_load.as_secs_f64(),
                 "entryUpsertSeconds": timing.entry_upsert.as_secs_f64(),
                 "commitSeconds": timing.commit.as_secs_f64(),
                 "ftsBytes": fts_bytes,
@@ -1168,7 +1170,7 @@ fn smart_lean_ingestion_cost() {
                 serde_json::json!({"mode":reindex_mode,"seconds":reindex_seconds,"metadataAttempts":reindex_metadata_attempts,"retiredRows":retired,"activeRows":reindex_active,"retainedRows":reindex_retained})
             };
             let candidates_per_second = n as f64 / elapsed;
-            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"candidatesPerSecond":candidates_per_second,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"coverageEvaluationSeconds":writer_timing.coverage_evaluation.as_secs_f64(),"sqliteTransactionSeconds":writer_timing.sqlite_transaction.as_secs_f64(),"connectionAcquisitionSeconds":writer_timing.connection_acquisition.as_secs_f64(),"transactionAcquisitionSeconds":writer_timing.transaction_acquisition.as_secs_f64(),"transactionSetupSeconds":writer_timing.transaction_setup.as_secs_f64(),"entryUpsertSeconds":writer_timing.entry_upsert.as_secs_f64(),"aiTaskQualificationSeconds":writer_timing.ai_task_qualification.as_secs_f64(),"recordDecisionsSeconds":writer_timing.record_decisions.as_secs_f64(),"commitSeconds":writer_timing.commit.as_secs_f64(),"timedWriterBatches":timed_writer_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
+            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"candidatesPerSecond":candidates_per_second,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"coveragePolicyLoadSeconds":writer_timing.coverage_policy_load.as_secs_f64(),"coverageEvaluationSeconds":writer_timing.coverage_evaluation.as_secs_f64(),"sqliteTransactionSeconds":writer_timing.sqlite_transaction.as_secs_f64(),"connectionAcquisitionSeconds":writer_timing.connection_acquisition.as_secs_f64(),"transactionAcquisitionSeconds":writer_timing.transaction_acquisition.as_secs_f64(),"transactionSetupSeconds":writer_timing.transaction_setup.as_secs_f64(),"entryUpsertSeconds":writer_timing.entry_upsert.as_secs_f64(),"aiTaskQualificationSeconds":writer_timing.ai_task_qualification.as_secs_f64(),"recordDecisionsSeconds":writer_timing.record_decisions.as_secs_f64(),"commitSeconds":writer_timing.commit.as_secs_f64(),"timedWriterBatches":timed_writer_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
             println!("SMART_LEAN_AB {record}");
             rows.push(record);
         }

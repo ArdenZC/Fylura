@@ -14,6 +14,7 @@ static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLoc
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct GlobalIndexBatchTiming {
     pub(crate) coverage_evaluation: Duration,
+    pub(crate) coverage_policy_load: Duration,
     pub(crate) sqlite_transaction: Duration,
     pub(crate) connection_acquisition: Duration,
     pub(crate) transaction_acquisition: Duration,
@@ -28,6 +29,7 @@ pub(crate) struct GlobalIndexBatchTiming {
 impl GlobalIndexBatchTiming {
     pub(crate) fn add(&mut self, other: Self) {
         self.coverage_evaluation += other.coverage_evaluation;
+        self.coverage_policy_load += other.coverage_policy_load;
         self.sqlite_transaction += other.sqlite_transaction;
         self.connection_acquisition += other.connection_acquisition;
         self.transaction_acquisition += other.transaction_acquisition;
@@ -1265,10 +1267,12 @@ impl Database {
                     "global_index_source_identity_changed".into(),
                 ));
             }
-            let policy = {
-                let conn = self.conn()?;
-                super::coverage::load_policy(&conn)?
-            };
+            let connection_started = Instant::now();
+            let policy_conn = self.conn()?;
+            timing.connection_acquisition += connection_started.elapsed();
+            let policy_load_started = Instant::now();
+            let policy = super::coverage::load_policy(&policy_conn)?;
+            timing.coverage_policy_load = policy_load_started.elapsed();
             let coverage_started = Instant::now();
             let decisions = super::coverage::observe_batch(&policy, &source, entries);
             timing.coverage_evaluation = coverage_started.elapsed();
@@ -1287,7 +1291,7 @@ impl Database {
         let sqlite_started = Instant::now();
         let connection_started = Instant::now();
         let mut conn = self.conn()?;
-        timing.connection_acquisition = connection_started.elapsed();
+        timing.connection_acquisition += connection_started.elapsed();
         // Reserve the WAL writer before reading owner/scope policy state. A
         // DEFERRED read transaction can hold an obsolete snapshot and fail
         // with SQLITE_BUSY_SNAPSHOT when this batch later upgrades to write.

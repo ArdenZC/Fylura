@@ -91,6 +91,10 @@ describe("Global Index performance workflow routing", () => {
     expect(baselineJob).toContain("smart_lean_ingestion_cost -- --ignored --nocapture");
     expect(baselineJob).toContain("smart-lean-before.json");
     expect(baselineJob).toContain("smart-lean-after.json");
+    expect(baselineJob).toContain("Build Windows native master and candidate binaries");
+    expect(baselineJob).toContain("Measure master direct MFT qualification on task-owned NTFS");
+    expect(baselineJob).toContain("Measure candidate direct MFT qualification on task-owned NTFS");
+    expect(baselineJob).toContain("-DirectOnly");
   });
 
   it("reports hosted macOS Spotlight capability independently", () => {

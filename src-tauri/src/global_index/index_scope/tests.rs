@@ -810,7 +810,9 @@ fn mft_fast_path_uses_native_attributes_without_extra_file_io() {
         file.file_attributes = flag;
         assert_eq!(
             observe_batch(&policy, &f.source, std::slice::from_ref(&file)),
-            vec![Decision::Undetermined("identity_permission_or_alias_unverified")]
+            vec![Decision::Undetermined(
+                "identity_permission_or_alias_unverified"
+            )]
         );
     }
 }

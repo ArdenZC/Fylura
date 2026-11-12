@@ -1052,6 +1052,7 @@ impl Database {
             .map(|(count, _)| count)
     }
 
+    #[cfg(test)]
     pub(crate) fn upsert_global_entries_batch_owned(
         &self,
         entries: &[GlobalEntryInput],

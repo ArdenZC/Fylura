@@ -14,7 +14,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -617,35 +617,38 @@ impl GlobalIndexSink for DatabaseIndexSink {
                 "source completion without operation admission: {volume_id}"
             )));
         };
-        let finish = self.db.finish_global_index_operation(
+        let finalize_started = Instant::now();
+        let completed = self.db.finish_global_index_operation(
             &owner,
             status,
             error,
             full_index_at,
             incremental_sync_at,
             complete_rebuild_intent,
-        );
+        )?;
+        let finalize_us = finalize_started.elapsed().as_micros();
+        self.owners.remove(volume_id);
+        self.db.forget_local_global_index_operation(&owner);
         if let Some(timings) = self.write_timings.remove(volume_id) {
             if timings.batches > 0 {
                 log::info!(
                     target: "global_index::repository",
-                    "source_operation_write status={} batches={} coverage_evaluation_us={} sqlite_transaction_us={}",
+                    "source_operation_write status={} completed={} batches={} coverage_evaluation_us={} sqlite_transaction_us={} finalize_us={}",
                     status,
+                    completed,
                     timings.batches,
                     timings.coverage_evaluation.as_micros(),
-                    timings.sqlite_transaction.as_micros()
+                    timings.sqlite_transaction.as_micros(),
+                    finalize_us
                 );
                 crate::global_index::qa_trace::record(&format!(
-                    "source_operation_write status={status} batches={} coverage_evaluation_us={} sqlite_transaction_us={}",
+                    "source_operation_write status={status} completed={completed} batches={} coverage_evaluation_us={} sqlite_transaction_us={} finalize_us={finalize_us}",
                     timings.batches,
                     timings.coverage_evaluation.as_micros(),
                     timings.sqlite_transaction.as_micros()
                 ));
             }
         }
-        let completed = finish?;
-        self.owners.remove(volume_id);
-        self.db.forget_local_global_index_operation(&owner);
         if completed {
             Ok(())
         } else {

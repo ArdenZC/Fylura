@@ -363,7 +363,7 @@ pub(crate) fn observe_batch(
 ) -> Vec<Decision> {
     // Identity-proven directory context lives only in this immutable source /
     // policy batch. Native parent IDs bind the key; source/policy/mount changes
-    // cannot reuse previous batches. File link/alias checks remain per candidate.
+    // cannot reuse previous batches. Path admission remains per candidate.
     let mut contexts = HashMap::<(PathBuf, String), DirectoryFacts>::new();
     let root = Path::new(&source.mount_path);
     let boundaries = protected_roots(root);

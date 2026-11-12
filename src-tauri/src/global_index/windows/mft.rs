@@ -82,8 +82,8 @@ struct MftInitialIndexTimings {
     path_resolution_us: u128,
     staging_read_us: u128,
     metadata_us: u128,
-    sink_us: u128,
-    stream_us: u128,
+    sink_call_us: u128,
+    stream_inclusive_us: u128,
     checkpoint_us: u128,
     cleanup_us: u128,
     total_us: u128,
@@ -162,7 +162,7 @@ fn enumerate_with_handle(
             cancel,
             timings,
         );
-        timings.stream_us = stream_started.elapsed().as_micros();
+        timings.stream_inclusive_us = stream_started.elapsed().as_micros();
         let stream = stream_result?;
         timings.resolved_entries = stream.resolved_entries;
         timings.consumed_entries = stream.emitted_entries;
@@ -205,7 +205,7 @@ fn report_initial_index_timings(timings: &MftInitialIndexTimings, succeeded: boo
     };
     log::info!(
         target: "global_index::windows::mft",
-        "initial_index outcome={} staged={} directories={} resolved={} consumed={} volume_open_us={} journal_query_us={} staging_open_us={} mft_read_parse_us={} staging_write_us={} directory_load_us={} path_resolution_us={} staging_read_us={} metadata_us={} sink_us={} stream_us={} checkpoint_us={} cleanup_us={} temporary_db_cleanup={} total_us={}",
+        "initial_index outcome={} staged={} directories={} resolved={} consumed={} volume_open_us={} journal_query_us={} staging_open_us={} mft_read_parse_us={} staging_write_us={} directory_load_us={} path_resolution_us={} staging_read_us={} metadata_us={} sink_call_us={} stream_inclusive_us={} checkpoint_us={} cleanup_us={} temporary_db_cleanup={} total_us={}",
         outcome,
         timings.staged_records,
         timings.directories,
@@ -220,15 +220,15 @@ fn report_initial_index_timings(timings: &MftInitialIndexTimings, succeeded: boo
         timings.path_resolution_us,
         timings.staging_read_us,
         timings.metadata_us,
-        timings.sink_us,
-        timings.stream_us,
+        timings.sink_call_us,
+        timings.stream_inclusive_us,
         timings.checkpoint_us,
         timings.cleanup_us,
         timings.temporary_db_cleanup.unwrap_or("not_created"),
         timings.total_us
     );
     crate::global_index::qa_trace::record(&format!(
-        "mft_initial_index outcome={outcome} staged={} directories={} resolved={} consumed={} volume_open_us={} journal_query_us={} staging_open_us={} mft_read_parse_us={} staging_write_us={} directory_load_us={} path_resolution_us={} staging_read_us={} metadata_us={} sink_us={} stream_us={} checkpoint_us={} cleanup_us={} temporary_db_cleanup={} total_us={}",
+        "mft_initial_index outcome={outcome} staged={} directories={} resolved={} consumed={} volume_open_us={} journal_query_us={} staging_open_us={} mft_read_parse_us={} staging_write_us={} directory_load_us={} path_resolution_us={} staging_read_us={} metadata_us={} sink_call_us={} stream_inclusive_us={} checkpoint_us={} cleanup_us={} temporary_db_cleanup={} total_us={}",
         timings.staged_records,
         timings.directories,
         timings.resolved_entries,
@@ -242,8 +242,8 @@ fn report_initial_index_timings(timings: &MftInitialIndexTimings, succeeded: boo
         timings.path_resolution_us,
         timings.staging_read_us,
         timings.metadata_us,
-        timings.sink_us,
-        timings.stream_us,
+        timings.sink_call_us,
+        timings.stream_inclusive_us,
         timings.checkpoint_us,
         timings.cleanup_us,
         timings.temporary_db_cleanup.unwrap_or("not_created"),
@@ -583,7 +583,7 @@ fn stream_staged_entries(
             if batch.len() >= 512 {
                 let sink_started = Instant::now();
                 let write_result = sink.write_batch(&batch);
-                timings.sink_us += sink_started.elapsed().as_micros();
+                timings.sink_call_us += sink_started.elapsed().as_micros();
                 stats.emitted_entries = stats.emitted_entries.saturating_add(write_result? as u64);
                 batch.clear();
             }
@@ -592,7 +592,7 @@ fn stream_staged_entries(
     if !batch.is_empty() {
         let sink_started = Instant::now();
         let write_result = sink.write_batch(&batch);
-        timings.sink_us += sink_started.elapsed().as_micros();
+        timings.sink_call_us += sink_started.elapsed().as_micros();
         stats.emitted_entries = stats.emitted_entries.saturating_add(write_result? as u64);
     }
     Ok(stats)

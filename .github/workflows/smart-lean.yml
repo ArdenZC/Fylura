@@ -41,7 +41,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    timeout-minutes: ${{ ((inputs.entries || '100000') == '200000' && 240) || ((inputs.entries || '100000') == '100000' && 180) || 120 }}
     concurrency:
       group: smart-lean-${{ github.ref }}-${{ matrix.os }}
       cancel-in-progress: true
@@ -120,11 +120,11 @@ jobs:
           BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
           ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-before.json
         run: |
-          cargo test ${{ ((inputs.entries || '100000') == '100000' && '--release') || '' }} --locked --manifest-path "$BASELINE_WORKTREE/src-tauri/Cargo.toml" --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+          cargo test ${{ ((inputs.entries || '100000') != '1000' && '--release') || '' }} --locked --manifest-path "$BASELINE_WORKTREE/src-tauri/Cargo.toml" --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
       - name: Benchmark pull request commit on the same runner
         id: candidate
         if: always() && steps.policy.outcome == 'success'
-        run: cargo test ${{ ((inputs.entries || '100000') == '100000' && '--release') || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+        run: cargo test ${{ ((inputs.entries || '100000') != '1000' && '--release') || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
       - name: Remove benchmark worktree
         if: always() && steps.baseline.outcome != 'skipped'
         shell: bash

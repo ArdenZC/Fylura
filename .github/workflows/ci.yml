@@ -762,7 +762,6 @@ jobs:
         run: npm run build:frontend
       - name: Prepare base revision worktree
         id: baseline-worktree
-        continue-on-error: true
         shell: pwsh
         env:
           BASELINE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
@@ -791,7 +790,6 @@ jobs:
       - name: Build base Global Index QA binaries
         id: baseline-build
         if: steps.baseline-worktree.outcome == 'success'
-        continue-on-error: true
         shell: pwsh
         env:
           BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
@@ -804,6 +802,8 @@ jobs:
             cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin fylura
             if ($LASTEXITCODE -ne 0) { throw "base desktop build failed with exit code $LASTEXITCODE" }
             Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR "release/fylura.exe") -Destination (Join-Path $baselineBin "fylura.exe") -Force
+            # Reuse the timing-only QA module for the baseline probe; the base app executable is already built from the untouched base tree.
+            Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "src-tauri/src/global_index/windows/smart_lean_qa.rs") -Destination (Join-Path $env:BASELINE_WORKTREE "src-tauri/src/global_index/windows/smart_lean_qa.rs") -Force
             cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin zb05-global-index-qa
             if ($LASTEXITCODE -ne 0) { throw "base qualification probe build failed with exit code $LASTEXITCODE" }
             Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR "release/zb05-global-index-qa.exe") -Destination (Join-Path $baselineBin "zb05-global-index-qa.exe") -Force
@@ -820,11 +820,11 @@ jobs:
       - name: Measure base MFT qualification on a task-owned NTFS volume
         id: baseline-native
         if: steps.baseline-build.outcome == 'success'
-        continue-on-error: true
         shell: pwsh
         env:
           BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
           EXPECTED_SOURCE_SHA: ${{ steps.baseline-worktree.outputs.sha }}
+          ZC_GLOBAL_INDEX_QA_HARNESS_OVERLAY: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}/src-tauri/src/global_index/windows/smart_lean_qa.rs (timing-only)
         run: |
           $ErrorActionPreference = "Stop"
           $baselineRoot = [IO.Path]::GetFullPath($env:BASELINE_WORKTREE)
@@ -836,7 +836,7 @@ jobs:
             $env:GITHUB_RUN_ID = "{0}-before" -f $previousRunId
             Push-Location $baselineRoot
             try {
-              & pwsh -NoProfile -File (Join-Path $baselineRoot "scripts/qualifyWindowsGlobalIndexService.ps1") `
+              & pwsh -NoProfile -File (Join-Path $env:GITHUB_WORKSPACE "scripts/qualifyWindowsGlobalIndexService.ps1") `
                 -CandidateExe (Join-Path $baselineRoot ".qa-bin/fylura.exe") `
                 -ProbeExe (Join-Path $baselineRoot ".qa-bin/zb05-global-index-qa.exe") `
                 -EvidencePath (Join-Path $evidenceRoot "evidence.json") -DirectOnly
@@ -859,14 +859,16 @@ jobs:
           & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe $candidate -ProbeExe $probe -EvidencePath $evidence
           if ($LASTEXITCODE -ne 0) { throw "Windows Global Index service qualification failed with exit code $LASTEXITCODE" }
       - name: Require base MFT comparison evidence
-        if: ${{ always() && steps.baseline-native.outcome == 'success' }}
+        if: ${{ always() }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $evidencePath = Join-Path $env:RUNNER_TEMP "windows-global-index-mft-before/evidence.json"
           if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) { throw "missing base direct MFT evidence" }
           $report = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
-          if ($report.sourceHead -ne $report.expectedSourceHead -or $report.directMftQualificationElapsedMs -le 0) { throw "base direct MFT evidence did not identify its source and elapsed time" }
+          if ($report.sourceHead -ne $report.expectedSourceHead -or $report.directMftQualificationElapsedMs -le 0 -or $report.failure) { throw "base direct MFT evidence did not identify a successful source and elapsed time" }
+          if ($report.smartLeanDirect.route -ne "Direct MFT") { throw "base direct MFT evidence lacks the direct MFT route" }
+          if ($report.smartLeanDirect.firstSearchableUs -le 0 -or $report.smartLeanDirect.databaseReopenBackfillUs -le 0 -or -not $report.qaHarnessOverlay) { throw "base direct MFT evidence lacks paired first-search/reopen timing" }
       - name: Require retained exact-service qualification evidence
         if: ${{ always() }}
         shell: pwsh
@@ -876,6 +878,8 @@ jobs:
           foreach ($name in @("zb05-global-index-service-evidence.json", "service-recovery.json", "recovery-trace.log", "mft-initial-index-timing.log")) {
             if (-not (Test-Path -LiteralPath (Join-Path $evidenceRoot $name) -PathType Leaf)) { throw "missing required qualification evidence: $name" }
           }
+          $report = Get-Content -LiteralPath (Join-Path $evidenceRoot "zb05-global-index-service-evidence.json") -Raw | ConvertFrom-Json
+          if ($report.smartLeanDirect.firstSearchableUs -le 0 -or $report.smartLeanDirect.databaseReopenBackfillUs -le 0) { throw "exact-service evidence lacks direct first-search/reopen timing" }
           if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log")) -cnotcontains "windows_recovery_rebuild_admitted") { throw "retained recovery trace lacks Background admission evidence" }
       - name: Upload exact-service qualification evidence
         if: ${{ always() }}

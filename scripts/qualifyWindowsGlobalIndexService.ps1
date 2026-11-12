@@ -43,6 +43,7 @@ $script:evidence = [ordered]@{
     residentSamples = @()
     serviceSamples = @()
     nativeMftTrace = @()
+    qaHarnessOverlay = [Environment]::GetEnvironmentVariable("ZC_GLOBAL_INDEX_QA_HARNESS_OVERLAY")
     residentStartup = $null
     residentClassification = "UNVERIFIED"
     expectedSourceHead = $env:EXPECTED_SOURCE_SHA

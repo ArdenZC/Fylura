@@ -1,54 +1,96 @@
-name: Smart Lean product qualification
+name: Global Index synthetic performance
 on:
+  # PR performance work is an explicit label or marked-commit action. Normal
+  # Rust CI remains the correctness gate and does not build both revisions.
   pull_request:
+    types: [labeled]
     paths:
-      # Policy, source-bound entry persistence and provider admission are all
-      # production inputs to Smart Lean. SQL-only query/activation edits do not
-      # trigger the expensive benchmark; a PR touching shared ingestion owners
-      # (even when also touching Search, e.g. #518) must still qualify.
       - 'src-tauri/src/global_index/index_scope/**'
       - 'src-tauri/src/db/schema_index_coverage.rs'
       - 'src-tauri/src/global_index/repository.rs'
       - 'src-tauri/src/global_index/coordinator.rs'
       - 'src-tauri/src/global_index/models.rs'
-      - 'src-tauri/src/global_index/windows/mod.rs'
-      - 'src-tauri/src/global_index/windows/service.rs'
-      - 'src-tauri/src/global_index/macos/mod.rs'
-      # Native ingestion changes can affect coverage and admission on one OS.
-      - 'src-tauri/src/global_index/windows/mft.rs'
-      - 'src-tauri/src/global_index/windows/usn.rs'
-      - 'src-tauri/src/global_index/windows/fallback.rs'
-      - 'src-tauri/src/global_index/windows/smart_lean_qa.rs'
-      - 'src-tauri/src/global_index/macos/spotlight.rs'
-      - 'src-tauri/src/global_index/macos/fsevents.rs'
-      - 'src-tauri/src/global_index/macos/smart_lean_qa.rs'
+      - 'src-tauri/src/global_index/windows/**'
+      - 'src-tauri/src/global_index/macos/**'
       - 'scripts/qualifySmartLeanMacos.sh'
-      # Workflow edits and routing tests are validated in normal CI.
-      # A deliberate full qualification is still available via workflow_dispatch.
+      - '.github/workflows/smart-lean.yml'
+  push:
+    branches: ['perf/**']
   workflow_dispatch:
     inputs:
-      entries:
-        description: Task-owned production admission corpus size
+      mode:
+        description: Select one isolated performance workflow
         type: choice
-        default: '100000'
-        options: ['1000', '100000', '200000']
+        default: writer_pair
+        options: [writer_pair, master_candidate, macos_spotlight]
 permissions:
   contents: read
 jobs:
-  product:
+  writer-pair:
+    name: Writer optimization pair (${{ matrix.os }})
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'writer_pair') ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-performance]')) ||
+      contains(github.event.pull_request.labels.*.name, 'run-global-index-performance')
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ ((inputs.entries || '100000') == '200000' && 240) || ((inputs.entries || '100000') == '100000' && 180) || 120 }}
+    timeout-minutes: 180
     concurrency:
-      group: smart-lean-${{ github.ref }}-${{ matrix.os }}
-      cancel-in-progress: true
+      group: global-index-writer-${{ github.ref }}-${{ matrix.os }}
+      cancel-in-progress: false
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '100000' }}
-      ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-ab.json
+      ZEN_GLOBAL_WRITER_ENTRIES: '100000'
+      ZEN_GLOBAL_WRITER_REPORT: ${{ github.workspace }}/global-index-writer-pair.json
+      ZEN_GLOBAL_WRITER_TRIGGER_REPORT: ${{ github.workspace }}/global-index-writer-triggers.json
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: global-index-writer-${{ runner.os }}-v1
+      - run: npm ci --no-audit --no-fund
+      - name: Record tested source and runner
+        run: |
+          git log -1 --format="%H %T"
+          rustc -vV
+          uname -a
+        shell: bash
+      - name: Run writer and trigger diagnostics in Release
+        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index_writer_ -- --ignored --nocapture
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: global-index-writer-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            global-index-writer-pair.json
+            global-index-writer-triggers.json
+          if-no-files-found: warn
+
+  master-candidate-baseline:
+    name: Manual master/candidate Smart Lean baseline (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'master_candidate'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ZEN_SMART_LEAN_ENTRIES: '100000'
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -62,90 +104,91 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          shared-key: zen-smart-lean-${{ runner.os }}-v1
+          shared-key: global-index-master-candidate-${{ runner.os }}-v1
       - run: npm ci --no-audit --no-fund
-      - name: Record tested source
-        run: git log -1 --format="%H %T"
-      - name: Production policy and recovery tests
-        id: policy
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::coverage::tests -- --nocapture
-      - name: Prepare base revision worktree
-        id: baseline-worktree
-        if: always() && steps.policy.outcome == 'success'
-        shell: bash
-        env:
-          BASELINE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
-          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
-        run: git -C "$GITHUB_WORKSPACE" worktree add --detach "$BASELINE_WORKTREE" "$BASELINE_REF"
-      - name: Scoped macOS native source qualification
-        id: native
-        if: runner.os == 'macOS'
-        timeout-minutes: 10
-        shell: bash
-        env:
-          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
-        run: |
-          set +e
-          (
-            cd "$BASELINE_WORKTREE" || exit 1
-            GITHUB_RUN_ID="${GITHUB_RUN_ID}-before" \
-              ZC_GLOBAL_INDEX_QA_TRACE="$BASELINE_WORKTREE/smart-lean-native-macos-before-trace.txt" \
-              bash scripts/qualifySmartLeanMacos.sh
-          )
-          before_status=$?
-          if [ -f "$BASELINE_WORKTREE/smart-lean-native-macos.json" ]; then
-            cp "$BASELINE_WORKTREE/smart-lean-native-macos.json" "$GITHUB_WORKSPACE/smart-lean-native-macos-before.json"
-          fi
-          if [ -f "$BASELINE_WORKTREE/smart-lean-native-macos-before-trace.txt" ]; then
-            cp "$BASELINE_WORKTREE/smart-lean-native-macos-before-trace.txt" "$GITHUB_WORKSPACE/smart-lean-native-macos-before-trace.txt"
-          fi
-          if [ -d "$BASELINE_WORKTREE/smart-lean-native-phase" ]; then
-            cp -R "$BASELINE_WORKTREE/smart-lean-native-phase" "$GITHUB_WORKSPACE/smart-lean-native-macos-before-phase"
-          fi
-          ZC_GLOBAL_INDEX_QA_TRACE="$GITHUB_WORKSPACE/smart-lean-native-macos-after-trace.txt" \
-            bash scripts/qualifySmartLeanMacos.sh
-          after_status=$?
-          if [ -f "$GITHUB_WORKSPACE/smart-lean-native-macos-after-trace.txt" ]; then
-            cp "$GITHUB_WORKSPACE/smart-lean-native-macos-after-trace.txt" "$GITHUB_WORKSPACE/smart-lean-native-macos-trace.txt"
-          fi
-          if [ "$before_status" -ne 0 ] || [ "$after_status" -ne 0 ]; then
-            exit 1
-          fi
-      - name: Benchmark base commit on the same runner
+      - name: Prepare master worktree
         id: baseline
-        if: always() && steps.policy.outcome == 'success'
         shell: bash
         env:
           BASELINE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
-          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
-          ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-before.json
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
         run: |
-          cargo test ${{ ((inputs.entries || '100000') != '1000' && '--release') || '' }} --locked --manifest-path "$BASELINE_WORKTREE/src-tauri/Cargo.toml" --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
-      - name: Benchmark pull request commit on the same runner
-        id: candidate
-        if: always() && steps.policy.outcome == 'success'
-        run: cargo test ${{ ((inputs.entries || '100000') != '1000' && '--release') || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
-      - name: Remove benchmark worktree
-        if: always() && steps.baseline.outcome != 'skipped'
+          git worktree add --detach "$BASELINE_WORKTREE" "$BASELINE_REF"
+          git -C "$BASELINE_WORKTREE" log -1 --format="%H %T"
+      - name: Master Smart Lean synthetic baseline
         shell: bash
         env:
-          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
+          ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-before.json
+        run: cargo test --release --locked --manifest-path "$BASELINE_WORKTREE/src-tauri/Cargo.toml" --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+      - name: Candidate Smart Lean synthetic baseline
+        env:
+          ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-after.json
+        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+      - name: Remove master worktree
+        if: always()
+        shell: bash
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
         run: |
-          if [ -d "$BASELINE_WORKTREE" ]; then
-            git -C "$GITHUB_WORKSPACE" worktree remove --force "$BASELINE_WORKTREE"
-          fi
+          if [ -d "$BASELINE_WORKTREE" ]; then git worktree remove --force "$BASELINE_WORKTREE"; fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
-          name: smart-lean-${{ matrix.os }}-${{ env.ZEN_SMART_LEAN_ENTRIES }}
+          name: smart-lean-master-candidate-${{ runner.os }}-${{ github.run_id }}
           path: |
             smart-lean-before.json
-            smart-lean-ab.json
-            smart-lean-native-macos-before.json
-            smart-lean-native-macos-before-trace.txt
-            smart-lean-native-macos-before-phase/
+            smart-lean-after.json
+          if-no-files-found: warn
+
+  macos-spotlight-capability:
+    name: macOS hosted Spotlight capability (separate)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'macos_spotlight'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - run: npm ci --no-audit --no-fund
+      - name: Run isolated native Spotlight qualification
+        id: native
+        continue-on-error: true
+        run: bash scripts/qualifySmartLeanMacos.sh
+      - name: Report Spotlight capability separately from synthetic timings
+        if: always()
+        env:
+          NATIVE_OUTCOME: ${{ steps.native.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+          path = pathlib.Path("smart-lean-native-macos.json")
+          if not path.exists():
+              print("Hosted Spotlight native qualification: FAIL (report missing)")
+              sys.exit(1)
+          report = json.loads(path.read_text())
+          status = report.get("status", "FAIL")
+          summary = f"Hosted Spotlight native qualification: {status}. Synthetic writer results are reported in the separate writer-pair job."
+          pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary + "\n")
+          print(summary)
+          if status == "UNVERIFIED":
+              sys.exit(0)
+          if os.environ["NATIVE_OUTCOME"] != "success":
+              sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: macos-hosted-spotlight-${{ github.run_id }}
+          path: |
             smart-lean-native-macos.json
-            smart-lean-native-macos-trace.txt
             smart-lean-native-macos-sample.txt
             smart-lean-native-phase/
           if-no-files-found: warn

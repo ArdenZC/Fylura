@@ -15,6 +15,28 @@ static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLoc
 pub(crate) struct GlobalIndexBatchTiming {
     pub(crate) coverage_evaluation: Duration,
     pub(crate) sqlite_transaction: Duration,
+    pub(crate) connection_acquisition: Duration,
+    pub(crate) transaction_acquisition: Duration,
+    pub(crate) transaction_setup: Duration,
+    pub(crate) entry_upsert: Duration,
+    pub(crate) ai_task_qualification: Duration,
+    pub(crate) record_decisions: Duration,
+    pub(crate) commit: Duration,
+}
+
+#[cfg(test)]
+impl GlobalIndexBatchTiming {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.coverage_evaluation += other.coverage_evaluation;
+        self.sqlite_transaction += other.sqlite_transaction;
+        self.connection_acquisition += other.connection_acquisition;
+        self.transaction_acquisition += other.transaction_acquisition;
+        self.transaction_setup += other.transaction_setup;
+        self.entry_upsert += other.entry_upsert;
+        self.ai_task_qualification += other.ai_task_qualification;
+        self.record_decisions += other.record_decisions;
+        self.commit += other.commit;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +154,61 @@ const UPSERT_GLOBAL_ENTRY_SQL: &str = r#"
                     name, name_normalized, path, path_normalized, extension,
                     is_directory, size, created_at_fs, modified_at_fs,
                     file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at, scope_decision
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                    CASE WHEN ?19 = 'minimal_ancestor' THEN 1 ELSE 0 END,
+                    ?17, ?18, COALESCE(?19, 'include')
+                )
+                ON CONFLICT(id) DO UPDATE SET
+                    volume_id = excluded.volume_id,
+                    platform_file_id = excluded.platform_file_id,
+                    parent_platform_file_id = excluded.parent_platform_file_id,
+                    name = excluded.name,
+                    name_normalized = excluded.name_normalized,
+                    path = excluded.path,
+                    path_normalized = excluded.path_normalized,
+                    extension = excluded.extension,
+                    is_directory = excluded.is_directory,
+                    size = excluded.size,
+                    created_at_fs = excluded.created_at_fs,
+                    modified_at_fs = excluded.modified_at_fs,
+                    file_attributes = excluded.file_attributes,
+                    is_hidden = excluded.is_hidden,
+                    is_system = excluded.is_system,
+                    is_stale = excluded.is_stale,
+                    source_provider = excluded.source_provider,
+                    last_seen_at = excluded.last_seen_at,
+                    scope_decision = CASE WHEN ?19 IS NULL
+                        THEN global_entries.scope_decision ELSE excluded.scope_decision END
+                WHERE global_entries.volume_id IS NOT excluded.volume_id
+                    OR global_entries.platform_file_id IS NOT excluded.platform_file_id
+                    OR global_entries.parent_platform_file_id IS NOT excluded.parent_platform_file_id
+                    OR global_entries.name IS NOT excluded.name
+                    OR global_entries.name_normalized IS NOT excluded.name_normalized
+                    OR global_entries.path IS NOT excluded.path
+                    OR global_entries.path_normalized IS NOT excluded.path_normalized
+                    OR global_entries.extension IS NOT excluded.extension
+                    OR global_entries.is_directory IS NOT excluded.is_directory
+                    OR global_entries.size IS NOT excluded.size
+                    OR global_entries.created_at_fs IS NOT excluded.created_at_fs
+                    OR global_entries.modified_at_fs IS NOT excluded.modified_at_fs
+                    OR global_entries.file_attributes IS NOT excluded.file_attributes
+                    OR global_entries.is_hidden IS NOT excluded.is_hidden
+                    OR global_entries.is_system IS NOT excluded.is_system
+                    OR global_entries.is_stale IS NOT excluded.is_stale
+                    OR global_entries.source_provider IS NOT excluded.source_provider
+                    OR global_entries.last_seen_at IS NOT excluded.last_seen_at
+                    OR ( ?19 IS NOT NULL AND global_entries.scope_decision IS NOT excluded.scope_decision )
+                "#;
+
+#[cfg(test)]
+const UPSERT_GLOBAL_ENTRY_SQL_CANONICAL: &str = r#"
+                INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
                     source_provider, last_seen_at
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 0, ?17, ?18)
                 ON CONFLICT(id) DO UPDATE SET
@@ -158,15 +235,68 @@ const UPSERT_GLOBAL_ENTRY_SQL: &str = r#"
 fn execute_entry_upsert(
     _transaction: &rusqlite::Transaction<'_>,
     statement: &mut rusqlite::Statement<'_>,
-    values: &[&dyn rusqlite::ToSql],
+    _sql: &str,
+    entry_id: &str,
+    entry: &GlobalEntryInput,
+    scope_decision: Option<&str>,
+    canonical_writer: bool,
 ) -> Result<usize, DbError> {
-    #[cfg(test)]
-    if CANONICAL_FACTS_READ.with(std::cell::Cell::get) {
-        // Exact previous producer preparation strategy for the paired writer
-        // baseline; production reuses one compiled statement for the batch.
-        return Ok(_transaction.execute(UPSERT_GLOBAL_ENTRY_SQL, values)?);
+    macro_rules! execute_values {
+        ($values:expr) => {{
+            #[cfg(test)]
+            if CANONICAL_FACTS_READ.with(std::cell::Cell::get) {
+                // Exact previous producer preparation strategy for the paired writer
+                // baseline; production reuses one compiled statement for the batch.
+                return Ok(_transaction.execute(_sql, $values)?);
+            }
+            Ok(statement.execute($values)?)
+        }};
     }
-    Ok(statement.execute(values)?)
+
+    if canonical_writer {
+        execute_values!(params![
+            entry_id,
+            entry.volume_id,
+            entry.platform_file_id,
+            entry.parent_platform_file_id,
+            entry.name,
+            entry.name.to_lowercase(),
+            entry.path,
+            normalize_path(&entry.path),
+            entry.extension,
+            bool_to_i64(entry.is_directory),
+            entry.size,
+            entry.created_at_fs,
+            entry.modified_at_fs,
+            entry.file_attributes,
+            bool_to_i64(entry.is_hidden),
+            bool_to_i64(entry.is_system),
+            entry.source_provider,
+            entry.last_seen_at,
+        ])
+    } else {
+        execute_values!(params![
+            entry_id,
+            entry.volume_id,
+            entry.platform_file_id,
+            entry.parent_platform_file_id,
+            entry.name,
+            entry.name.to_lowercase(),
+            entry.path,
+            normalize_path(&entry.path),
+            entry.extension,
+            bool_to_i64(entry.is_directory),
+            entry.size,
+            entry.created_at_fs,
+            entry.modified_at_fs,
+            entry.file_attributes,
+            bool_to_i64(entry.is_hidden),
+            bool_to_i64(entry.is_system),
+            entry.source_provider,
+            entry.last_seen_at,
+            scope_decision,
+        ])
+    }
 }
 
 const PREPARED_SOURCE_HEALTH_SQL: &str = r#"
@@ -180,6 +310,7 @@ const PREPARED_SOURCE_HEALTH_SQL: &str = r#"
 #[cfg(test)]
 std::thread_local! {
     static CANONICAL_FACTS_READ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CANONICAL_DECISION_WRITES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg(test)]
@@ -193,6 +324,29 @@ pub(crate) fn with_canonical_source_facts<T>(run: impl FnOnce() -> T) -> T {
     let old = CANONICAL_FACTS_READ.with(|v| v.replace(true));
     let _reset = Reset(old);
     run()
+}
+
+#[cfg(test)]
+pub(crate) fn with_canonical_scope_decision_writes<T>(run: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CANONICAL_DECISION_WRITES.with(|value| value.set(self.0));
+        }
+    }
+    let old = CANONICAL_DECISION_WRITES.with(|value| value.replace(true));
+    let _reset = Reset(old);
+    run()
+}
+
+#[cfg(test)]
+fn canonical_scope_decision_writes() -> bool {
+    CANONICAL_DECISION_WRITES.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn canonical_scope_decision_writes() -> bool {
+    false
 }
 
 fn use_prepared_source_facts(conn: &rusqlite::Connection) -> Result<bool, DbError> {
@@ -1131,13 +1285,18 @@ impl Database {
             None
         };
         let sqlite_started = Instant::now();
+        let connection_started = Instant::now();
         let mut conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
         // Reserve the WAL writer before reading owner/scope policy state. A
         // DEFERRED read transaction can hold an obsolete snapshot and fail
         // with SQLITE_BUSY_SNAPSHOT when this batch later upgrades to write.
         // This is scoped to the batch's existing atomic unit, with no
         // filesystem/process/network work under the writer reservation.
+        let transaction_started = Instant::now();
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        timing.transaction_acquisition = transaction_started.elapsed();
+        let setup_started = Instant::now();
         if let Some(owner) = owner {
             if entries
                 .iter()
@@ -1159,7 +1318,17 @@ impl Database {
         let scope_policies = load_enabled_scope_policies(&transaction)?;
         let mut count = 0;
         let mut has_eligible_pending_work = false;
-        let mut statement = transaction.prepare(UPSERT_GLOBAL_ENTRY_SQL)?;
+        let canonical_writer = canonical_scope_decision_writes();
+        #[cfg(test)]
+        let upsert_sql = if canonical_writer {
+            UPSERT_GLOBAL_ENTRY_SQL_CANONICAL
+        } else {
+            UPSERT_GLOBAL_ENTRY_SQL
+        };
+        #[cfg(not(test))]
+        let upsert_sql = UPSERT_GLOBAL_ENTRY_SQL;
+        let mut statement = transaction.prepare(upsert_sql)?;
+        timing.transaction_setup = setup_started.elapsed();
         for (index, entry) in entries.iter().enumerate() {
             let visible = coverage
                 .as_ref()
@@ -1167,46 +1336,56 @@ impl Database {
             if !visible && !entry.is_directory {
                 continue;
             }
+            let scope_decision = coverage.as_ref().map(|(_, decisions)| {
+                let decision = &decisions[index];
+                if entry.is_directory && !decision.visible() {
+                    "minimal_ancestor"
+                } else if matches!(decision, super::coverage::Decision::Undetermined(_)) {
+                    "undetermined"
+                } else if decision.visible() {
+                    "include"
+                } else {
+                    decision.reason()
+                }
+            });
+            let scope_decision = if canonical_writer {
+                None
+            } else {
+                scope_decision
+            };
+            let upsert_started = Instant::now();
             let entry_id = entry.entry_id();
             execute_entry_upsert(
                 &transaction,
                 &mut statement,
-                params![
-                    entry_id,
-                    entry.volume_id,
-                    entry.platform_file_id,
-                    entry.parent_platform_file_id,
-                    entry.name,
-                    entry.name.to_lowercase(),
-                    entry.path,
-                    normalize_path(&entry.path),
-                    entry.extension,
-                    bool_to_i64(entry.is_directory),
-                    entry.size,
-                    entry.created_at_fs,
-                    entry.modified_at_fs,
-                    entry.file_attributes,
-                    bool_to_i64(entry.is_hidden),
-                    bool_to_i64(entry.is_system),
-                    entry.source_provider,
-                    entry.last_seen_at,
-                ],
+                upsert_sql,
+                &entry_id,
+                entry,
+                scope_decision,
+                canonical_writer,
             )?;
+            timing.entry_upsert += upsert_started.elapsed();
             if visible {
+                let qualification_started = Instant::now();
                 has_eligible_pending_work |= enqueue_ai_jobs_for_entry_with_scopes(
                     &transaction,
                     &entry_id,
                     entry,
                     &scope_policies,
                 )?;
+                timing.ai_task_qualification += qualification_started.elapsed();
             }
             count += 1;
         }
         drop(statement);
         if let Some((_, decisions)) = &coverage {
-            super::coverage::record_decisions(&transaction, entries, decisions)?;
+            let decisions_started = Instant::now();
+            super::coverage::record_decisions(&transaction, entries, decisions, canonical_writer)?;
+            timing.record_decisions = decisions_started.elapsed();
         }
+        let commit_started = Instant::now();
         transaction.commit()?;
+        timing.commit = commit_started.elapsed();
         timing.sqlite_transaction = sqlite_started.elapsed();
         if has_eligible_pending_work {
             self.notify_managed_ai_work();
@@ -1989,6 +2168,9 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
     entry: &GlobalEntryInput,
     scopes: &[ManagedScopePolicy],
 ) -> Result<bool, DbError> {
+    if scopes.is_empty() && !canonical_scope_decision_writes() {
+        return Ok(false);
+    }
     let fingerprint = metadata_fingerprint(entry);
     let path_normalized = normalize_path(&entry.path);
     let Some(scope) = scopes

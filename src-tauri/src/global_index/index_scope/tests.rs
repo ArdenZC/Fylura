@@ -771,14 +771,47 @@ fn rule_specificity_and_identity_replacement_are_conservative() {
     );
 }
 #[test]
-fn hardlinks_are_fenced_on_native_filesystems() {
+fn hardlink_search_admission_uses_native_index_policy() {
     let f = Fixture::new();
     let e = f.dependencies();
     fs::hard_link(&e.path, f.root.join("user-copy.js")).unwrap();
-    assert!(matches!(
-        observe_batch(&CoveragePolicy::default(), &f.source, &[e])[0],
-        Decision::Undetermined(_)
-    ));
+    let decision = observe_batch(&CoveragePolicy::default(), &f.source, &[e])[0].clone();
+    // Read-only filename indexing need not open a handle just to reject
+    // hardlinks. The original dependency-tree exclusion still applies.
+    #[cfg(windows)]
+    assert_eq!(decision, Decision::Exclude("npm_dependencies"));
+    #[cfg(not(windows))]
+    assert!(matches!(decision, Decision::Undetermined(_)));
+}
+
+#[cfg(windows)]
+#[test]
+fn mft_fast_path_uses_native_attributes_without_extra_file_io() {
+    let f = Fixture::new();
+    let mut file = f.file("docs/ordinary.txt");
+    let policy = CoveragePolicy::default();
+    super::native::take_metadata_attempts();
+    assert_eq!(
+        observe_batch(&policy, &f.source, std::slice::from_ref(&file)),
+        vec![Decision::Include]
+    );
+    let fast_metadata = super::native::take_metadata_attempts();
+    file.source_provider = crate::global_index::PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+    let _ = observe_batch(&policy, &f.source, std::slice::from_ref(&file));
+    let fallback_metadata = super::native::take_metadata_attempts();
+    assert!(
+        fast_metadata < fallback_metadata,
+        "MFT filename admission should avoid per-file stat and handle checks"
+    );
+
+    file.source_provider = crate::global_index::PROVIDER_WINDOWS_MFT_USN.to_string();
+    for flag in [0x400, 0x1000, 0x40000, 0x400000] {
+        file.file_attributes = flag;
+        assert_eq!(
+            observe_batch(&policy, &f.source, std::slice::from_ref(&file)),
+            vec![Decision::Undetermined("identity_permission_or_alias_unverified")]
+        );
+    }
 }
 
 #[test]

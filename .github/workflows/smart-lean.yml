@@ -34,9 +34,6 @@ on:
         options: ['1000', '100000', '200000']
 permissions:
   contents: read
-concurrency:
-  group: smart-lean-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   product:
     strategy:
@@ -45,6 +42,9 @@ jobs:
         os: [windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
+    concurrency:
+      group: smart-lean-${{ github.ref }}-${{ matrix.os }}
+      cancel-in-progress: true
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '100000' }}

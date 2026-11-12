@@ -49,10 +49,12 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       ZEN_SMART_LEAN_ENTRIES: ${{ inputs.entries || '100000' }}
       ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-ab.json
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -67,21 +69,83 @@ jobs:
       - name: Production policy and recovery tests
         id: policy
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index::coverage::tests -- --nocapture
+      - name: Prepare base revision worktree
+        id: baseline-worktree
+        if: always() && steps.policy.outcome == 'success'
+        shell: bash
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
+        run: git -C "$GITHUB_WORKSPACE" worktree add --detach "$BASELINE_WORKTREE" "$BASELINE_REF"
       - name: Scoped macOS native source qualification
         id: native
         if: runner.os == 'macOS'
         timeout-minutes: 10
-        run: bash scripts/qualifySmartLeanMacos.sh
-      - name: Paired production ingestion benchmark
+        shell: bash
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
+        run: |
+          set +e
+          (
+            cd "$BASELINE_WORKTREE" || exit 1
+            GITHUB_RUN_ID="${GITHUB_RUN_ID}-before" \
+              ZC_GLOBAL_INDEX_QA_TRACE="$BASELINE_WORKTREE/smart-lean-native-macos-before-trace.txt" \
+              bash scripts/qualifySmartLeanMacos.sh
+          )
+          before_status=$?
+          if [ -f "$BASELINE_WORKTREE/smart-lean-native-macos.json" ]; then
+            cp "$BASELINE_WORKTREE/smart-lean-native-macos.json" "$GITHUB_WORKSPACE/smart-lean-native-macos-before.json"
+          fi
+          if [ -f "$BASELINE_WORKTREE/smart-lean-native-macos-before-trace.txt" ]; then
+            cp "$BASELINE_WORKTREE/smart-lean-native-macos-before-trace.txt" "$GITHUB_WORKSPACE/smart-lean-native-macos-before-trace.txt"
+          fi
+          if [ -d "$BASELINE_WORKTREE/smart-lean-native-phase" ]; then
+            cp -R "$BASELINE_WORKTREE/smart-lean-native-phase" "$GITHUB_WORKSPACE/smart-lean-native-macos-before-phase"
+          fi
+          ZC_GLOBAL_INDEX_QA_TRACE="$GITHUB_WORKSPACE/smart-lean-native-macos-after-trace.txt" \
+            bash scripts/qualifySmartLeanMacos.sh
+          after_status=$?
+          if [ -f "$GITHUB_WORKSPACE/smart-lean-native-macos-after-trace.txt" ]; then
+            cp "$GITHUB_WORKSPACE/smart-lean-native-macos-after-trace.txt" "$GITHUB_WORKSPACE/smart-lean-native-macos-trace.txt"
+          fi
+          if [ "$before_status" -ne 0 ] || [ "$after_status" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Benchmark base commit on the same runner
+        id: baseline
+        if: always() && steps.policy.outcome == 'success'
+        shell: bash
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
+          ZEN_SMART_LEAN_REPORT: ${{ github.workspace }}/smart-lean-before.json
+        run: |
+          cargo test ${{ ((inputs.entries || '100000') == '100000' && '--release') || '' }} --locked --manifest-path "$BASELINE_WORKTREE/src-tauri/Cargo.toml" --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+      - name: Benchmark pull request commit on the same runner
+        id: candidate
         if: always() && steps.policy.outcome == 'success'
         run: cargo test ${{ ((inputs.entries || '100000') == '100000' && '--release') || '' }} --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib smart_lean_ingestion_cost -- --ignored --nocapture
+      - name: Remove benchmark worktree
+        if: always() && steps.baseline.outcome != 'skipped'
+        shell: bash
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-smart-lean-baseline
+        run: |
+          if [ -d "$BASELINE_WORKTREE" ]; then
+            git -C "$GITHUB_WORKSPACE" worktree remove --force "$BASELINE_WORKTREE"
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: smart-lean-${{ matrix.os }}-${{ env.ZEN_SMART_LEAN_ENTRIES }}
           path: |
+            smart-lean-before.json
             smart-lean-ab.json
+            smart-lean-native-macos-before.json
+            smart-lean-native-macos-before-trace.txt
+            smart-lean-native-macos-before-phase/
             smart-lean-native-macos.json
+            smart-lean-native-macos-trace.txt
             smart-lean-native-macos-sample.txt
             smart-lean-native-phase/
           if-no-files-found: warn

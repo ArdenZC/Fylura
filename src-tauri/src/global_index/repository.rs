@@ -6,9 +6,16 @@ use std::{
     collections::HashSet,
     path::Path,
     sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 
 static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct GlobalIndexBatchTiming {
+    pub(crate) coverage_evaluation: Duration,
+    pub(crate) sqlite_transaction: Duration,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceOperationKind {
@@ -1042,6 +1049,7 @@ impl Database {
         entries: &[GlobalEntryInput],
     ) -> Result<usize, DbError> {
         self.upsert_global_entries_batch_inner(entries, None)
+            .map(|(count, _)| count)
     }
 
     pub(crate) fn upsert_global_entries_batch_owned(
@@ -1050,15 +1058,33 @@ impl Database {
         owner: &SourceOperationOwner,
     ) -> Result<usize, DbError> {
         self.upsert_global_entries_batch_inner(entries, Some(owner))
+            .map(|(count, _)| count)
+    }
+
+    pub(crate) fn upsert_global_entries_batch_owned_timed(
+        &self,
+        entries: &[GlobalEntryInput],
+        owner: &SourceOperationOwner,
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        self.upsert_global_entries_batch_inner(entries, Some(owner))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn upsert_global_entries_batch_timed(
+        &self,
+        entries: &[GlobalEntryInput],
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        self.upsert_global_entries_batch_inner(entries, None)
     }
 
     fn upsert_global_entries_batch_inner(
         &self,
         entries: &[GlobalEntryInput],
         owner: Option<&SourceOperationOwner>,
-    ) -> Result<usize, DbError> {
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
         if entries.is_empty() {
-            return Ok(0);
+            return Ok((0, timing));
         }
         // Native context acquisition must precede the writer lock and follow
         // source authorization. Unowned access is reserved for repository fixtures.
@@ -1088,7 +1114,9 @@ impl Database {
                 let conn = self.conn()?;
                 super::coverage::load_policy(&conn)?
             };
+            let coverage_started = Instant::now();
             let decisions = super::coverage::observe_batch(&policy, &source, entries);
+            timing.coverage_evaluation = coverage_started.elapsed();
             if decisions
                 .iter()
                 .any(|d| d.reason() == "outside_authorized_source")
@@ -1101,6 +1129,7 @@ impl Database {
         } else {
             None
         };
+        let sqlite_started = Instant::now();
         let mut conn = self.conn()?;
         // Reserve the WAL writer before reading owner/scope policy state. A
         // DEFERRED read transaction can hold an obsolete snapshot and fail
@@ -1177,16 +1206,20 @@ impl Database {
             super::coverage::record_decisions(&transaction, entries, decisions)?;
         }
         transaction.commit()?;
+        timing.sqlite_transaction = sqlite_started.elapsed();
         if has_eligible_pending_work {
             self.notify_managed_ai_work();
         }
         // Provider emission counts consumed observations, including lawful zero
         // search-visible rows. Native-seen=0 remains an independent provider error.
-        Ok(if owner.is_some() {
-            entries.len()
-        } else {
-            count
-        })
+        Ok((
+            if owner.is_some() {
+                entries.len()
+            } else {
+                count
+            },
+            timing,
+        ))
     }
 
     pub fn mark_global_entries_stale_for_volume(&self, volume_id: &str) -> Result<usize, DbError> {

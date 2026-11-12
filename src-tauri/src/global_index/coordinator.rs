@@ -476,6 +476,22 @@ impl GlobalIndexCoordinator {
 struct DatabaseIndexSink {
     db: Database,
     owners: HashMap<String, SourceOperationOwner>,
+    write_timings: HashMap<String, SourceWriteTimings>,
+}
+
+#[derive(Debug, Default)]
+struct SourceWriteTimings {
+    batches: u64,
+    coverage_evaluation: Duration,
+    sqlite_transaction: Duration,
+}
+
+impl SourceWriteTimings {
+    fn record(&mut self, timing: crate::global_index::repository::GlobalIndexBatchTiming) {
+        self.batches = self.batches.saturating_add(1);
+        self.coverage_evaluation += timing.coverage_evaluation;
+        self.sqlite_transaction += timing.sqlite_transaction;
+    }
 }
 
 #[cfg(all(test, target_os = "windows"))]
@@ -491,6 +507,7 @@ pub(crate) fn database_sink_for_qualification(db: Database) -> impl GlobalIndexS
     DatabaseIndexSink {
         db,
         owners: HashMap::new(),
+        write_timings: HashMap::new(),
     }
 }
 
@@ -567,6 +584,8 @@ impl GlobalIndexSink for DatabaseIndexSink {
             )));
         };
         self.owners.insert(source.id.clone(), owner);
+        self.write_timings
+            .insert(source.id.clone(), SourceWriteTimings::default());
         Ok(())
     }
 
@@ -578,6 +597,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
         if let Some(owner) = self.owners.get(volume_id).cloned() {
             let _ = self.db.mark_global_index_operation_unknown(&owner)?;
             self.owners.remove(volume_id);
+            self.write_timings.remove(volume_id);
             self.db.forget_local_global_index_operation(&owner);
         }
         Ok(())
@@ -597,14 +617,33 @@ impl GlobalIndexSink for DatabaseIndexSink {
                 "source completion without operation admission: {volume_id}"
             )));
         };
-        let completed = self.db.finish_global_index_operation(
+        let finish = self.db.finish_global_index_operation(
             &owner,
             status,
             error,
             full_index_at,
             incremental_sync_at,
             complete_rebuild_intent,
-        )?;
+        );
+        if let Some(timings) = self.write_timings.remove(volume_id) {
+            if timings.batches > 0 {
+                log::info!(
+                    target: "global_index::repository",
+                    "source_operation_write status={} batches={} coverage_evaluation_us={} sqlite_transaction_us={}",
+                    status,
+                    timings.batches,
+                    timings.coverage_evaluation.as_micros(),
+                    timings.sqlite_transaction.as_micros()
+                );
+                crate::global_index::qa_trace::record(&format!(
+                    "source_operation_write status={status} batches={} coverage_evaluation_us={} sqlite_transaction_us={}",
+                    timings.batches,
+                    timings.coverage_evaluation.as_micros(),
+                    timings.sqlite_transaction.as_micros()
+                ));
+            }
+        }
+        let completed = finish?;
         self.owners.remove(volume_id);
         self.db.forget_local_global_index_operation(&owner);
         if completed {
@@ -620,10 +659,17 @@ impl GlobalIndexSink for DatabaseIndexSink {
         if entries.is_empty() {
             return Ok(0);
         }
-        let owner = self.owner(&entries[0].volume_id)?;
-        self.db
-            .upsert_global_entries_batch_owned(entries, owner)
-            .map_err(Self::map_owned_write_error)
+        let volume_id = entries[0].volume_id.clone();
+        let owner = self.owner(&volume_id)?;
+        let (written, timing) = self
+            .db
+            .upsert_global_entries_batch_owned_timed(entries, owner)
+            .map_err(Self::map_owned_write_error)?;
+        self.write_timings
+            .entry(volume_id)
+            .or_default()
+            .record(timing);
+        Ok(written)
     }
 
     fn mark_entry_stale(&mut self, entry_id: &str) -> Result<(), GlobalIndexError> {
@@ -933,6 +979,7 @@ fn run_index_cycle_with_topology(
     let mut sink = DatabaseIndexSink {
         db: db.clone(),
         owners: HashMap::new(),
+        write_timings: HashMap::new(),
     };
     for volume in volumes {
         if cancel.load(Ordering::Acquire) {
@@ -2029,6 +2076,7 @@ mod tests {
         let mut sink = DatabaseIndexSink {
             db: db.clone(),
             owners: HashMap::new(),
+            write_timings: HashMap::new(),
         };
         sink.admit_source_operation(
             &volume,

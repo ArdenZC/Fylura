@@ -140,23 +140,35 @@ where
                 let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
                 run_loop.runUntilDate(&deadline);
             }
+            #[cfg(feature = "native-qa")]
+            let gather_us = gather_started.elapsed().as_micros();
             super::trace_native_qa_phase("spotlight.initial.gather", "end");
             let mut entries = Vec::with_capacity(512);
             let mut summary = SpotlightCollectionSummary::default();
+            if !super::volumes::source_id_matches(volume_id, source_root) {
+                query.stopQuery();
+                return Err("macos_volume_identity_changed".to_string());
+            }
             super::trace_native_qa_phase("spotlight.initial.result_iteration", "begin");
+            #[cfg(feature = "native-qa")]
+            let result_iteration_started = Instant::now();
+            #[cfg(feature = "native-qa")]
+            let mut sink_write_us = 0u128;
             for index in 0..query.resultCount() {
                 if cancel.load(Ordering::Acquire) {
                     query.stopQuery();
                     return Err("macos_spotlight_query_paused".to_string());
                 }
                 let object = query.resultAtIndex(index);
-                if path_from_object(&object)
-                    .as_deref()
-                    .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
-                {
+                let Some(path) = path_from_object(&object) else {
+                    summary.skipped += 1;
+                    continue;
+                };
+                if !path_in_source(source_root, Path::new(&path)) {
                     continue;
                 }
-                let Some(entry) = metadata_item_to_entry(volume_id, source_root, &object) else {
+                let Some(entry) = metadata_item_to_entry(volume_id, source_root, &object, &path)
+                else {
                     summary.skipped += 1;
                     continue;
                 };
@@ -166,7 +178,12 @@ where
                 }
                 entries.push(entry);
                 if entries.len() >= 512 {
-                    if let Err(error) = on_batch(&entries) {
+                    #[cfg(feature = "native-qa")]
+                    let sink_started = Instant::now();
+                    let result = on_batch(&entries);
+                    #[cfg(feature = "native-qa")]
+                    sink_write_us += sink_started.elapsed().as_micros();
+                    if let Err(error) = result {
                         query.stopQuery();
                         return Err(format!("callback:{error}"));
                     }
@@ -174,11 +191,29 @@ where
                 }
             }
             if !entries.is_empty() {
-                if let Err(error) = on_batch(&entries) {
+                #[cfg(feature = "native-qa")]
+                let sink_started = Instant::now();
+                let result = on_batch(&entries);
+                #[cfg(feature = "native-qa")]
+                sink_write_us += sink_started.elapsed().as_micros();
+                if let Err(error) = result {
                     query.stopQuery();
                     return Err(format!("callback:{error}"));
                 }
             }
+            #[cfg(feature = "native-qa")]
+            let result_iteration_us = result_iteration_started.elapsed().as_micros();
+            #[cfg(feature = "native-qa")]
+            crate::global_index::qa_trace::record(&format!(
+                "spotlight_initial_collection processed={} path_fallbacks={} skipped={} gather_us={} result_iteration_us={} conversion_and_filter_us={} sink_write_us={}",
+                summary.processed,
+                summary.path_fallbacks,
+                summary.skipped,
+                gather_us,
+                result_iteration_us,
+                result_iteration_us.saturating_sub(sink_write_us),
+                sink_write_us
+            ));
             super::trace_native_qa_phase("spotlight.initial.result_iteration", "end");
             super::trace_native_qa_phase("spotlight.initial.stop_query", "begin");
             query.stopQuery();
@@ -257,6 +292,13 @@ fn run_update_watcher(
     let wake_for_block = wake.clone();
     let update_block = RcBlock::new(move |notification: NonNull<NSNotification>| {
         let notification = unsafe { notification.as_ref() };
+        if !super::volumes::source_id_matches(&volume_id_for_block, &source_root_for_block) {
+            if let Ok(mut pending) = pending_for_block.lock() {
+                pending.append_incremental(Vec::new(), Vec::new(), true);
+            }
+            wake_for_block.notify(GlobalIndexWakeReason::ProviderChange);
+            return;
+        }
         let Some(user_info) = notification.userInfo() else {
             return;
         };
@@ -420,15 +462,16 @@ fn collect_update_items(
     };
     for index in 0..items.count() {
         let object = items.objectAtIndex(index);
-        let path = path_from_object(&object).map(|path| normalize_path(&path));
-        if path
+        let path = path_from_object(&object);
+        let normalized_path = path.as_deref().map(normalize_path);
+        if normalized_path
             .as_deref()
             .is_some_and(|p| !path_in_source(source_root, Path::new(p)))
         {
             continue;
         }
         if removed {
-            if let Some(entry_id) = path.as_deref().and_then(|path| {
+            if let Some(entry_id) = normalized_path.as_deref().and_then(|path| {
                 known_entries
                     .lock()
                     .ok()
@@ -439,7 +482,11 @@ fn collect_update_items(
             }
         }
         if let Some(entry) = object.downcast_ref::<NSMetadataItem>() {
-            match metadata_item_to_entry(volume_id, source_root, entry.as_ref()) {
+            let Some(path) = path.as_deref() else {
+                *full_reconcile = true;
+                continue;
+            };
+            match metadata_item_to_entry(volume_id, source_root, entry.as_ref(), path) {
                 Some(input) => {
                     match classify_spotlight_update(removed, has_path_identity(&input)) {
                         SpotlightUpdateAction::Upsert => entries.push(input),
@@ -451,7 +498,7 @@ fn collect_update_items(
             }
             continue;
         }
-        if path.is_some() {
+        if normalized_path.is_some() {
             *full_reconcile = true;
         }
     }
@@ -461,16 +508,13 @@ fn metadata_item_to_entry(
     volume_id: &str,
     source_root: &Path,
     object: &AnyObject,
+    path: &str,
 ) -> Option<GlobalEntryInput> {
-    if !super::volumes::source_id_matches(volume_id, source_root) {
-        return None;
-    }
     let item = object.downcast_ref::<NSMetadataItem>()?;
-    let path = metadata_string(item, unsafe { NSMetadataItemPathKey })
-        .or_else(|| metadata_url_path(item, unsafe { NSMetadataItemURLKey }))?;
     if path.trim().is_empty() {
         return None;
     }
+    let path = path.to_string();
     let path_buf = PathBuf::from(&path);
     if !path_in_source(source_root, &path_buf) {
         return None;

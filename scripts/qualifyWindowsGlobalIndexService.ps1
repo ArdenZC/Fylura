@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$CandidateExe,
     [Parameter(Mandatory = $true)][string]$ProbeExe,
     [Parameter(Mandatory = $true)][string]$EvidencePath,
-    [switch]$ResidentQualification
+    [switch]$ResidentQualification,
+    [switch]$DirectOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,6 +42,7 @@ $script:evidence = [ordered]@{
     rawTrace = @()
     residentSamples = @()
     serviceSamples = @()
+    nativeMftTrace = @()
     residentStartup = $null
     residentClassification = "UNVERIFIED"
     expectedSourceHead = $env:EXPECTED_SOURCE_SHA
@@ -68,6 +70,7 @@ $script:evidence = [ordered]@{
     sourceLastError = $null
     baselineEntryCount = $null
     baselineWaitMs = $null
+    directMftQualificationElapsedMs = $null
     fixtureRoot = $null
     fixtureVolume = $null
     usnJournalProbes = @()
@@ -480,17 +483,26 @@ try {
     New-Item -ItemType Directory -Path $nativeTempRoot -Force | Out-Null
     $previousTemp = $env:TEMP
     $previousTmp = $env:TMP
+    $directTimer = [Diagnostics.Stopwatch]::StartNew()
     try {
         $env:TEMP = $nativeTempRoot
         $env:TMP = $nativeTempRoot
         $directJson = & $ProbeExe --qualify-smart-lean-direct $directProfile $script:evidence.expectedQualificationSourceId $smartIncluded $smartExcluded
     } finally {
+        $directTimer.Stop()
+        $script:evidence.directMftQualificationElapsedMs = [long]$directTimer.Elapsed.TotalMilliseconds
         $env:TEMP = $previousTemp
         $env:TMP = $previousTmp
     }
     if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct native qualification failed" }
     $script:evidence.smartLeanDirect = $directJson | ConvertFrom-Json
-
+    if (Test-Path -LiteralPath $tracePath -PathType Leaf) {
+        $script:evidence.nativeMftTrace = @(Get-Content -LiteralPath $tracePath)
+        $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
+        New-Item -ItemType Directory -Path $retainedEvidenceDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $tracePath -Destination (Join-Path $retainedEvidenceDirectory "mft-initial-index-timing.log") -Force
+    }
+    if (-not $DirectOnly) {
     $serviceImagePath = '"' + $CandidateExe + '" --index-service'
     $create = Invoke-ServiceControl @("create", $serviceName, "binPath=", $serviceImagePath, "start=", "demand", "obj=", "LocalSystem")
     if ($create.ExitCode -ne 0) {
@@ -827,6 +839,7 @@ try {
     if ($script:evidence.settledCoordinatorCycleDelta -ne 0 -or $script:evidence.settledCoordinatorWaitDelta -ne 0) {
         throw "settled idle was not quiet: cycleDelta=$($script:evidence.settledCoordinatorCycleDelta) waitDelta=$($script:evidence.settledCoordinatorWaitDelta)"
     }
+    }
 } catch {
     $script:failureMessage = $_.Exception.ToString()
     $script:evidence.failure = $script:failureMessage
@@ -1001,4 +1014,8 @@ if ($script:cleanupFailure) {
     Write-Error "disposable Windows qualification cleanup did not fully complete"
     exit 1
 }
-Write-Output "Windows Global Index service qualification passed; evidence: $EvidencePath"
+if ($DirectOnly) {
+    Write-Output "Windows Direct MFT qualification passed; evidence: $EvidencePath"
+} else {
+    Write-Output "Windows Global Index service qualification passed; evidence: $EvidencePath"
+}

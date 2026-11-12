@@ -71,16 +71,51 @@ struct MftEntryStreamStats {
     emitted_entries: u64,
 }
 
+#[derive(Debug, Default)]
+struct MftInitialIndexTimings {
+    volume_open_us: u128,
+    journal_query_us: u128,
+    staging_open_us: u128,
+    mft_read_parse_us: u128,
+    staging_write_us: u128,
+    directory_load_us: u128,
+    path_resolution_us: u128,
+    staging_read_us: u128,
+    metadata_us: u128,
+    sink_us: u128,
+    stream_us: u128,
+    checkpoint_us: u128,
+    cleanup_us: u128,
+    total_us: u128,
+    staged_records: u64,
+    directories: usize,
+    resolved_entries: u64,
+    consumed_entries: u64,
+    temporary_db_cleanup: Option<&'static str>,
+}
+
 pub(crate) fn enumerate_volume(
     source: &GlobalSourceDescriptor,
     sink: &mut dyn GlobalIndexSink,
     cancel: &AtomicBool,
 ) -> Result<MftJournalState, GlobalIndexError> {
-    let handle = open_volume(&source.volume.mount_path)?;
-    let result = enumerate_with_handle(source, handle, sink, cancel);
-    unsafe {
-        CloseHandle(handle);
-    }
+    let started = Instant::now();
+    let mut timings = MftInitialIndexTimings::default();
+    let open_started = Instant::now();
+    let opened = open_volume(&source.volume.mount_path);
+    timings.volume_open_us = open_started.elapsed().as_micros();
+    let result = match opened {
+        Ok(handle) => {
+            let result = enumerate_with_handle(source, handle, sink, cancel, &mut timings);
+            unsafe {
+                CloseHandle(handle);
+            }
+            result
+        }
+        Err(error) => Err(error),
+    };
+    timings.total_us = started.elapsed().as_micros();
+    report_initial_index_timings(&timings, result.is_ok());
     result
 }
 
@@ -89,31 +124,48 @@ fn enumerate_with_handle(
     handle: HANDLE,
     sink: &mut dyn GlobalIndexSink,
     cancel: &AtomicBool,
+    timings: &mut MftInitialIndexTimings,
 ) -> Result<MftJournalState, GlobalIndexError> {
-    let journal = query_journal(handle)?;
+    let journal_started = Instant::now();
+    let journal_result = query_journal(handle);
+    timings.journal_query_us = journal_started.elapsed().as_micros();
+    let journal = journal_result?;
     let staging_path = std::env::temp_dir().join(format!(
         "zen-canvas-mft-{}-{}.sqlite",
         source.volume.id,
         uuid::Uuid::new_v4()
     ));
     let result = (|| {
-        let started = Instant::now();
-        let mut staging = open_staging_database(&staging_path)?;
-        let staged_records = stage_mft_records(&mut staging, handle, journal.NextUsn, cancel)?;
-        let stage_ms = started.elapsed().as_millis();
-        let directories = load_staged_directories(&staging)?;
+        let staging_open_started = Instant::now();
+        let staging_result = open_staging_database(&staging_path);
+        timings.staging_open_us = staging_open_started.elapsed().as_micros();
+        let mut staging = staging_result?;
+        let staged_records =
+            stage_mft_records(&mut staging, handle, journal.NextUsn, cancel, timings)?;
+        timings.staged_records = staged_records;
+        let directory_load_started = Instant::now();
+        let directories_result = load_staged_directories(&staging);
+        timings.directory_load_us = directory_load_started.elapsed().as_micros();
+        let directories = directories_result?;
+        timings.directories = directories.len();
+        let path_resolution_started = Instant::now();
         let (directory_paths, parent_paths) =
             resolve_directory_paths(&source.volume.mount_path, &directories);
-        let paths_ms = started.elapsed().as_millis() - stage_ms;
-        let stream = stream_staged_entries(
+        timings.path_resolution_us = path_resolution_started.elapsed().as_micros();
+        let stream_started = Instant::now();
+        let stream_result = stream_staged_entries(
             source,
             &staging,
             &directory_paths,
             &parent_paths,
             sink,
             cancel,
-        )?;
-        let stream_ms = started.elapsed().as_millis() - stage_ms - paths_ms;
+            timings,
+        );
+        timings.stream_us = stream_started.elapsed().as_micros();
+        let stream = stream_result?;
+        timings.resolved_entries = stream.resolved_entries;
+        timings.consumed_entries = stream.emitted_entries;
         let baseline = MftBaselineStats {
             staged_records,
             resolved_entries: stream.resolved_entries,
@@ -121,31 +173,82 @@ fn enumerate_with_handle(
             checkpoint_usn: journal.NextUsn,
         };
         validate_initial_baseline(baseline)?;
-        sink.checkpoint(
+        let checkpoint_started = Instant::now();
+        let checkpoint_result = sink.checkpoint(
             &source.volume.id,
             Some(&journal.UsnJournalID.to_string()),
             Some(&journal.NextUsn.to_string()),
-        )?;
-        log::info!(
-            target: "global_index::windows::mft",
-            "initial_index staged={} directories={} resolved={} written={} stage_ms={} paths_ms={} stream_ms={} total_ms={}",
-            staged_records,
-            directories.len(),
-            stream.resolved_entries,
-            stream.emitted_entries,
-            stage_ms,
-            paths_ms,
-            stream_ms,
-            started.elapsed().as_millis()
         );
+        timings.checkpoint_us = checkpoint_started.elapsed().as_micros();
+        checkpoint_result?;
         Ok(MftJournalState {
             journal_id: journal.UsnJournalID,
             next_usn: journal.NextUsn,
             baseline,
         })
     })();
-    let _ = std::fs::remove_file(&staging_path);
+    let cleanup_started = Instant::now();
+    timings.temporary_db_cleanup = Some(match std::fs::remove_file(&staging_path) {
+        Ok(()) => "removed",
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "already_absent",
+        Err(_) => "failed",
+    };
+    timings.cleanup_us = cleanup_started.elapsed().as_micros();
     result
+}
+
+fn report_initial_index_timings(timings: &MftInitialIndexTimings, succeeded: bool) {
+    let outcome = if succeeded {
+        "enumeration_complete"
+    } else {
+        "failed"
+    };
+    log::info!(
+        target: "global_index::windows::mft",
+        "initial_index outcome={} staged={} directories={} resolved={} consumed={} volume_open_us={} journal_query_us={} staging_open_us={} mft_read_parse_us={} staging_write_us={} directory_load_us={} path_resolution_us={} staging_read_us={} metadata_us={} sink_us={} stream_us={} checkpoint_us={} cleanup_us={} temporary_db_cleanup={} total_us={}",
+        outcome,
+        timings.staged_records,
+        timings.directories,
+        timings.resolved_entries,
+        timings.consumed_entries,
+        timings.volume_open_us,
+        timings.journal_query_us,
+        timings.staging_open_us,
+        timings.mft_read_parse_us,
+        timings.staging_write_us,
+        timings.directory_load_us,
+        timings.path_resolution_us,
+        timings.staging_read_us,
+        timings.metadata_us,
+        timings.sink_us,
+        timings.stream_us,
+        timings.checkpoint_us,
+        timings.cleanup_us,
+        timings.temporary_db_cleanup.unwrap_or("not_created"),
+        timings.total_us
+    );
+    crate::global_index::qa_trace::record(&format!(
+        "mft_initial_index outcome={outcome} staged={} directories={} resolved={} consumed={} volume_open_us={} journal_query_us={} staging_open_us={} mft_read_parse_us={} staging_write_us={} directory_load_us={} path_resolution_us={} staging_read_us={} metadata_us={} sink_us={} stream_us={} checkpoint_us={} cleanup_us={} temporary_db_cleanup={} total_us={}",
+        timings.staged_records,
+        timings.directories,
+        timings.resolved_entries,
+        timings.consumed_entries,
+        timings.volume_open_us,
+        timings.journal_query_us,
+        timings.staging_open_us,
+        timings.mft_read_parse_us,
+        timings.staging_write_us,
+        timings.directory_load_us,
+        timings.path_resolution_us,
+        timings.staging_read_us,
+        timings.metadata_us,
+        timings.sink_us,
+        timings.stream_us,
+        timings.checkpoint_us,
+        timings.cleanup_us,
+        timings.temporary_db_cleanup.unwrap_or("not_created"),
+        timings.total_us
+    ));
 }
 
 fn open_staging_database(path: &Path) -> Result<Connection, GlobalIndexError> {
@@ -158,7 +261,7 @@ fn open_staging_database(path: &Path) -> Result<Connection, GlobalIndexError> {
             PRAGMA synchronous = OFF;
             PRAGMA temp_store = MEMORY;
             CREATE TABLE mft_records (
-                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                sequence INTEGER PRIMARY KEY,
                 file_reference TEXT NOT NULL,
                 parent_reference TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -166,8 +269,6 @@ fn open_staging_database(path: &Path) -> Result<Connection, GlobalIndexError> {
                 reason INTEGER NOT NULL,
                 attributes INTEGER NOT NULL
             );
-            CREATE INDEX idx_mft_records_reference ON mft_records(file_reference);
-            CREATE INDEX idx_mft_records_parent ON mft_records(parent_reference);
             "#,
         )
         .map_err(|error| {
@@ -181,6 +282,7 @@ fn stage_mft_records(
     handle: HANDLE,
     high_usn: i64,
     cancel: &AtomicBool,
+    timings: &mut MftInitialIndexTimings,
 ) -> Result<u64, GlobalIndexError> {
     let mut cursor = 0u64;
     let mut staged_records = 0u64;
@@ -200,19 +302,27 @@ fn stage_mft_records(
             )
         };
         let mut output = vec![0u8; ENUM_BUFFER_SIZE];
-        let bytes = match unsafe {
-            device_io_control_bytes(handle, FSCTL_ENUM_USN_DATA, input_bytes, &mut output)
-        } {
-            Ok(bytes) => bytes,
-            Err(error) if is_win32_error(&error, ERROR_HANDLE_EOF) => break,
-            Err(error) => return Err(error),
+        let page_started = Instant::now();
+        let page_result: Result<Option<(u64, Vec<MftRecord>)>, GlobalIndexError> = (|| {
+            let bytes = match unsafe {
+                device_io_control_bytes(handle, FSCTL_ENUM_USN_DATA, input_bytes, &mut output)
+            } {
+                Ok(bytes) => bytes,
+                Err(error) if is_win32_error(&error, ERROR_HANDLE_EOF) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            parse_mft_page(&output[..bytes]).map(Some)
+        })();
+        timings.mft_read_parse_us += page_started.elapsed().as_micros();
+        let Some((next_cursor, records)) = page_result? else {
+            break;
         };
-        let (next_cursor, records) = parse_mft_page(&output[..bytes])?;
         if next_cursor <= cursor {
             return Err(mft_integrity_error(
                 "MFT continuation cursor did not advance",
             ));
         }
+        let staging_write_started = Instant::now();
         let transaction = staging.transaction().map_err(|error| {
             GlobalIndexError::Provider(format!("mft_staging_transaction_failed: {error}"))
         })?;
@@ -243,6 +353,7 @@ fn stage_mft_records(
         transaction.commit().map_err(|error| {
             GlobalIndexError::Provider(format!("mft_staging_commit_failed: {error}"))
         })?;
+        timings.staging_write_us += staging_write_started.elapsed().as_micros();
         cursor = next_cursor;
     }
     Ok(staged_records)
@@ -373,6 +484,7 @@ fn stream_staged_entries(
     parent_paths: &HashMap<String, String>,
     sink: &mut dyn GlobalIndexSink,
     cancel: &AtomicBool,
+    timings: &mut MftInitialIndexTimings,
 ) -> Result<MftEntryStreamStats, GlobalIndexError> {
     let mut last_sequence = 0i64;
     let mut batch = Vec::with_capacity(512);
@@ -381,6 +493,7 @@ fn stream_staged_entries(
         if cancel.load(Ordering::Acquire) {
             return Err(GlobalIndexError::Paused);
         }
+        let staging_read_started = Instant::now();
         let rows = {
             let mut statement = staging
                 .prepare(
@@ -403,6 +516,7 @@ fn stream_staged_entries(
                 GlobalIndexError::Provider(format!("mft_staging_decode_failed: {error}"))
             })?
         };
+        timings.staging_read_us += staging_read_started.elapsed().as_micros();
         if rows.is_empty() {
             break;
         }
@@ -433,9 +547,14 @@ fn stream_staged_entries(
                     .map(|value| value.to_string_lossy().to_lowercase())
                     .unwrap_or_default()
             };
-            let metadata = (!is_directory)
-                .then(|| std::fs::symlink_metadata(&path).ok())
-                .flatten();
+            let metadata = if is_directory {
+                None
+            } else {
+                let metadata_started = Instant::now();
+                let metadata = std::fs::symlink_metadata(&path).ok();
+                timings.metadata_us += metadata_started.elapsed().as_micros();
+                metadata
+            };
             batch.push(GlobalEntryInput {
                 volume_id: source.volume.id.clone(),
                 platform_file_id: record.file_reference,
@@ -462,17 +581,23 @@ fn stream_staged_entries(
                 last_seen_at: crate::global_index::models::unix_now(),
             });
             if batch.len() >= 512 {
+                let sink_started = Instant::now();
+                let write_result = sink.write_batch(&batch);
+                timings.sink_us += sink_started.elapsed().as_micros();
                 stats.emitted_entries = stats
                     .emitted_entries
-                    .saturating_add(sink.write_batch(&batch)? as u64);
+                    .saturating_add(write_result? as u64);
                 batch.clear();
             }
         }
     }
     if !batch.is_empty() {
+        let sink_started = Instant::now();
+        let write_result = sink.write_batch(&batch);
+        timings.sink_us += sink_started.elapsed().as_micros();
         stats.emitted_entries = stats
             .emitted_entries
-            .saturating_add(sink.write_batch(&batch)? as u64);
+            .saturating_add(write_result? as u64);
     }
     Ok(stats)
 }

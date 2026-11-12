@@ -331,8 +331,9 @@ fn parent_identity_matches(expected: &str, actual: Option<&str>) -> bool {
     true // Native path-fallback providers still require the no-alias directory proof.
 }
 // Filename-only Global Index admission, not file-operation authorization.
-// MFT/USN already supplies the native attributes; avoid another file stat and
-// handle-open per candidate while preserving source/parent identity checks.
+// MFT/USN supplies the native attributes; retain a fresh path check for
+// existence/reparse changes, but skip the per-file handle open used only to
+// reject hardlinks in the broader file-operation safety path.
 fn candidate_search_admission_ok(
     entry: &GlobalEntryInput,
     source: &GlobalVolume,
@@ -348,7 +349,8 @@ fn candidate_search_admission_ok(
     {
         // Keep reparse, offline and recall-on-access entries conservative.
         const UNSUPPORTED_ATTRIBUTES: i64 = 0x400 | 0x1000 | 0x40000 | 0x400000;
-        return entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0;
+        return entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0
+            && metadata(path).is_ok_and(|m| !fenced(&m));
     }
     let _ = source;
     metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))

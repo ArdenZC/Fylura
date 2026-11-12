@@ -742,6 +742,8 @@ jobs:
     if: ${{ needs.change-scope.outputs.windows_global_index_service_qualification_changed == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 60
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
     steps:
       - name: Checkout exact PR source or pushed commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -758,6 +760,26 @@ jobs:
         run: npm ci
       - name: Build frontend assets for the exact candidate
         run: npm run build:frontend
+      - name: Prepare base revision worktree
+        id: baseline-worktree
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BASELINE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (Test-Path -LiteralPath $env:BASELINE_WORKTREE) { throw "refusing existing baseline worktree path: $env:BASELINE_WORKTREE" }
+          git worktree add --detach $env:BASELINE_WORKTREE $env:BASELINE_REF
+          if ($LASTEXITCODE -ne 0) { throw "could not create base revision worktree" }
+          $baselineSha = (& git -C $env:BASELINE_WORKTREE rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "could not resolve base revision worktree HEAD" }
+          "sha=$baselineSha" >> $env:GITHUB_OUTPUT
+          $baselineDist = Join-Path $env:BASELINE_WORKTREE "dist"
+          if (-not (Test-Path -LiteralPath $baselineDist)) { New-Item -ItemType Directory -Path $baselineDist | Out-Null }
+          if (Test-Path -LiteralPath (Join-Path $PWD "dist")) {
+            Copy-Item -Path (Join-Path $PWD "dist\*") -Destination $baselineDist -Recurse -Force
+          }
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -766,6 +788,28 @@ jobs:
           cache-workspace-crates: true
           cache-targets: true
           cache-on-failure: true
+      - name: Build base Global Index QA binaries
+        id: baseline-build
+        if: steps.baseline-worktree.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
+        run: |
+          $ErrorActionPreference = "Stop"
+          $baselineBin = Join-Path $env:BASELINE_WORKTREE ".qa-bin"
+          New-Item -ItemType Directory -Path $baselineBin -Force | Out-Null
+          Push-Location $env:BASELINE_WORKTREE
+          try {
+            cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin fylura
+            if ($LASTEXITCODE -ne 0) { throw "base desktop build failed with exit code $LASTEXITCODE" }
+            Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR "release/fylura.exe") -Destination (Join-Path $baselineBin "fylura.exe") -Force
+            cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin zb05-global-index-qa
+            if ($LASTEXITCODE -ne 0) { throw "base qualification probe build failed with exit code $LASTEXITCODE" }
+            Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR "release/zb05-global-index-qa.exe") -Destination (Join-Path $baselineBin "zb05-global-index-qa.exe") -Force
+          } finally {
+            Pop-Location
+          }
       - name: Build exact desktop candidate and QA probe
         shell: pwsh
         run: |
@@ -773,6 +817,36 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "candidate build failed with exit code $LASTEXITCODE" }
           cargo build --manifest-path src-tauri/Cargo.toml --release --features "desktop-runtime native-qa" --bin zb05-global-index-qa
           if ($LASTEXITCODE -ne 0) { throw "qualification probe build failed with exit code $LASTEXITCODE" }
+      - name: Measure base MFT qualification on a task-owned NTFS volume
+        id: baseline-native
+        if: steps.baseline-build.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
+          EXPECTED_SOURCE_SHA: ${{ steps.baseline-worktree.outputs.sha }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $baselineRoot = [IO.Path]::GetFullPath($env:BASELINE_WORKTREE)
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP "windows-global-index-mft-before"
+          if (Test-Path -LiteralPath $evidenceRoot) { throw "refusing existing baseline evidence path: $evidenceRoot" }
+          New-Item -ItemType Directory -Path $evidenceRoot | Out-Null
+          $previousRunId = $env:GITHUB_RUN_ID
+          try {
+            $env:GITHUB_RUN_ID = "{0}-before" -f $previousRunId
+            Push-Location $baselineRoot
+            try {
+              & pwsh -NoProfile -File (Join-Path $baselineRoot "scripts/qualifyWindowsGlobalIndexService.ps1") `
+                -CandidateExe (Join-Path $baselineRoot ".qa-bin/fylura.exe") `
+                -ProbeExe (Join-Path $baselineRoot ".qa-bin/zb05-global-index-qa.exe") `
+                -EvidencePath (Join-Path $evidenceRoot "evidence.json") -DirectOnly
+              if ($LASTEXITCODE -ne 0) { throw "base direct MFT qualification failed with exit code $LASTEXITCODE" }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            $env:GITHUB_RUN_ID = $previousRunId
+          }
       - name: Run disposable exact-service qualification
         shell: pwsh
         env:
@@ -784,13 +858,22 @@ jobs:
           $evidence = Join-Path $evidenceRoot "zb05-global-index-service-evidence.json"
           & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexService.ps1 -CandidateExe $candidate -ProbeExe $probe -EvidencePath $evidence
           if ($LASTEXITCODE -ne 0) { throw "Windows Global Index service qualification failed with exit code $LASTEXITCODE" }
+      - name: Require base MFT comparison evidence
+        if: ${{ always() && steps.baseline-native.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidencePath = Join-Path $env:RUNNER_TEMP "windows-global-index-mft-before/evidence.json"
+          if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) { throw "missing base direct MFT evidence" }
+          $report = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+          if ($report.sourceHead -ne $report.expectedSourceHead -or $report.directMftQualificationElapsedMs -le 0) { throw "base direct MFT evidence did not identify its source and elapsed time" }
       - name: Require retained exact-service qualification evidence
         if: ${{ always() }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $evidenceRoot = Join-Path $env:RUNNER_TEMP "zb05-global-index-service-evidence-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          foreach ($name in @("zb05-global-index-service-evidence.json", "service-recovery.json", "recovery-trace.log")) {
+          foreach ($name in @("zb05-global-index-service-evidence.json", "service-recovery.json", "recovery-trace.log", "mft-initial-index-timing.log")) {
             if (-not (Test-Path -LiteralPath (Join-Path $evidenceRoot $name) -PathType Leaf)) { throw "missing required qualification evidence: $name" }
           }
           if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log")) -cnotcontains "windows_recovery_rebuild_admitted") { throw "retained recovery trace lacks Background admission evidence" }
@@ -803,6 +886,9 @@ jobs:
             ${{ runner.temp }}/zb05-global-index-service-evidence-${{ github.run_id }}-${{ github.run_attempt }}/zb05-global-index-service-evidence.json
             ${{ runner.temp }}/zb05-global-index-service-evidence-${{ github.run_id }}-${{ github.run_attempt }}/service-recovery.json
             ${{ runner.temp }}/zb05-global-index-service-evidence-${{ github.run_id }}-${{ github.run_attempt }}/recovery-trace.log
+            ${{ runner.temp }}/zb05-global-index-service-evidence-${{ github.run_id }}-${{ github.run_attempt }}/mft-initial-index-timing.log
+            ${{ runner.temp }}/windows-global-index-mft-before/evidence.json
+            ${{ runner.temp }}/windows-global-index-mft-before/mft-initial-index-timing.log
           if-no-files-found: error
       - name: Stop disposable service and remove task profile
         if: ${{ always() }}
@@ -875,6 +961,16 @@ jobs:
             if (-not ($ownsQualificationVhd -and $qualificationVhdLetter) -and (Test-Path -LiteralPath $fixtureRoot)) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
           }
           if (Test-Path -LiteralPath $taskRoot) { Remove-Item -LiteralPath $taskRoot -Recurse -Force }
+      - name: Remove base revision worktree
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          BASELINE_WORKTREE: ${{ runner.temp }}/fylura-global-index-baseline
+        run: |
+          if (Test-Path -LiteralPath $env:BASELINE_WORKTREE) {
+            git worktree remove --force $env:BASELINE_WORKTREE
+            if ($LASTEXITCODE -ne 0) { throw "could not remove the task-owned base revision worktree" }
+          }
 
   rust-macos:
     name: Rust quality (macos-latest) (${{ matrix.validation_lane }})

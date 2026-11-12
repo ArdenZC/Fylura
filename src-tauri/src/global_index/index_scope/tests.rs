@@ -560,11 +560,21 @@ fn smart_lean_ingestion_cost() {
             let begin = Instant::now();
             let mut sampling = std::time::Duration::ZERO;
             let mut sampled_batches = 0;
+            let mut coverage_evaluation = std::time::Duration::ZERO;
+            let mut sqlite_transaction = std::time::Duration::ZERO;
+            let mut timed_writer_batches = 0u64;
             for (batch_index, batch) in entries.chunks(512).enumerate() {
                 if raw_baseline {
-                    db.upsert_global_entries_batch(batch).unwrap();
+                    let (_, timing) = db.upsert_global_entries_batch_timed(batch).unwrap();
+                    sqlite_transaction += timing.sqlite_transaction;
+                    timed_writer_batches += 1;
                 } else {
-                    db.upsert_global_entries_batch_owned(batch, &owner).unwrap();
+                    let (_, timing) = db
+                        .upsert_global_entries_batch_owned_timed(batch, &owner)
+                        .unwrap();
+                    coverage_evaluation += timing.coverage_evaluation;
+                    sqlite_transaction += timing.sqlite_transaction;
+                    timed_writer_batches += 1;
                 }
                 // Process inspection on hosted Windows is expensive. Keep its
                 // cost explicit and outside admission timing, with bounded RSS
@@ -686,7 +696,8 @@ fn smart_lean_ingestion_cost() {
                 );
                 serde_json::json!({"mode":reindex_mode,"seconds":reindex_seconds,"metadataAttempts":reindex_metadata_attempts,"retiredRows":retired,"activeRows":reindex_active,"retainedRows":reindex_retained})
             };
-            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
+            let candidates_per_second = n as f64 / elapsed.as_secs_f64();
+            let record = serde_json::json!({"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"profile":if cfg!(debug_assertions) {"debug"} else {"release"},"group":group,"mode":mode,"repetition":repetition,"candidates":n,"candidatesPerSecond":candidates_per_second,"rows":count,"ftsBytes":fts,"dbPageBytes":pages*page_size,"seconds":elapsed,"instrumentedSeconds":instrumented.as_secs_f64(),"rssSamplingSeconds":sampling.as_secs_f64(),"rssSampledBatches":sampled_batches,"coverageEvaluationSeconds":coverage_evaluation.as_secs_f64(),"sqliteTransactionSeconds":sqlite_transaction.as_secs_f64(),"timedWriterBatches":timed_writer_batches,"excludedObservations":observation.excluded,"undetermined":observation.undetermined,"falseExclusions":0,"rawEnumeration":"not measured","nativeObserverMetadataAttempts":metadata_attempts,"rssBeforeBytes":rss_before,"rssPeakSampledBytes":rss_peak,"writerBatches":n.div_ceil(512),"wakeCycles":"not measured","reindex":reindex});
             println!("SMART_LEAN_AB {record}");
             rows.push(record);
         }
@@ -774,19 +785,36 @@ fn rule_specificity_and_identity_replacement_are_conservative() {
 fn hardlink_search_admission_uses_native_index_policy() {
     let f = Fixture::new();
     let e = f.dependencies();
-    fs::hard_link(&e.path, f.root.join("user-copy.js")).unwrap();
-    let decision = observe_batch(&CoveragePolicy::default(), &f.source, &[e])[0].clone();
+    let alias_path = f.root.join("user-copy.js");
+    fs::hard_link(&e.path, &alias_path).unwrap();
+    let original_decision =
+        observe_batch(&CoveragePolicy::default(), &f.source, std::slice::from_ref(&e))[0].clone();
+    let mut alias = e;
+    alias.path = alias_path.to_string_lossy().into_owned();
+    alias.name = "user-copy.js".into();
+    alias.extension = "js".into();
+    super::native::enrich_fixture_identity(&mut alias);
+    let alias_decision = observe_batch(&CoveragePolicy::default(), &f.source, &[alias])[0].clone();
     // Read-only filename indexing need not open a handle just to reject
-    // hardlinks. The original dependency-tree exclusion still applies.
+    // hardlinks. Each visible name still follows its own Index Scope path.
     #[cfg(windows)]
-    assert_eq!(decision, Decision::Exclude("npm_dependencies"));
+    {
+        assert_eq!(
+            original_decision,
+            Decision::Exclude("npm_dependencies")
+        );
+        assert_eq!(alias_decision, Decision::Include);
+    }
     #[cfg(not(windows))]
-    assert!(matches!(decision, Decision::Undetermined(_)));
+    {
+        assert!(matches!(original_decision, Decision::Undetermined(_)));
+        assert!(matches!(alias_decision, Decision::Undetermined(_)));
+    }
 }
 
 #[cfg(windows)]
 #[test]
-fn mft_fast_path_uses_native_attributes_without_extra_file_io() {
+fn mft_fast_path_uses_native_attributes_without_extra_handle_checks() {
     let f = Fixture::new();
     let mut file = f.file("docs/ordinary.txt");
     let policy = CoveragePolicy::default();
@@ -796,13 +824,12 @@ fn mft_fast_path_uses_native_attributes_without_extra_file_io() {
         vec![Decision::Include]
     );
     let fast_metadata = super::native::take_metadata_attempts();
-    file.source_provider =
-        crate::global_index::PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+    file.source_provider = crate::global_index::PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
     let _ = observe_batch(&policy, &f.source, std::slice::from_ref(&file));
     let fallback_metadata = super::native::take_metadata_attempts();
     assert!(
         fast_metadata < fallback_metadata,
-        "MFT filename admission should avoid per-file stat and handle checks"
+        "MFT filename admission should avoid the extra per-file handle check"
     );
 
     file.source_provider = crate::global_index::PROVIDER_WINDOWS_MFT_USN.to_string();

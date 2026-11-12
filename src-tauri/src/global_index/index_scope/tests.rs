@@ -787,8 +787,12 @@ fn hardlink_search_admission_uses_native_index_policy() {
     let e = f.dependencies();
     let alias_path = f.root.join("user-copy.js");
     fs::hard_link(&e.path, &alias_path).unwrap();
-    let original_decision =
-        observe_batch(&CoveragePolicy::default(), &f.source, std::slice::from_ref(&e))[0].clone();
+    let original_decision = observe_batch(
+        &CoveragePolicy::default(),
+        &f.source,
+        std::slice::from_ref(&e),
+    )[0]
+    .clone();
     let mut alias = e;
     alias.path = alias_path.to_string_lossy().into_owned();
     alias.name = "user-copy.js".into();
@@ -799,10 +803,7 @@ fn hardlink_search_admission_uses_native_index_policy() {
     // hardlinks. Each visible name still follows its own Index Scope path.
     #[cfg(windows)]
     {
-        assert_eq!(
-            original_decision,
-            Decision::Exclude("npm_dependencies")
-        );
+        assert_eq!(original_decision, Decision::Exclude("npm_dependencies"));
         assert_eq!(alias_decision, Decision::Include);
     }
     #[cfg(not(windows))]

@@ -192,7 +192,7 @@ fn enumerate_with_handle(
         Ok(()) => "removed",
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => "already_absent",
         Err(_) => "failed",
-    };
+    });
     timings.cleanup_us = cleanup_started.elapsed().as_micros();
     result
 }
@@ -584,9 +584,7 @@ fn stream_staged_entries(
                 let sink_started = Instant::now();
                 let write_result = sink.write_batch(&batch);
                 timings.sink_us += sink_started.elapsed().as_micros();
-                stats.emitted_entries = stats
-                    .emitted_entries
-                    .saturating_add(write_result? as u64);
+                stats.emitted_entries = stats.emitted_entries.saturating_add(write_result? as u64);
                 batch.clear();
             }
         }
@@ -595,9 +593,7 @@ fn stream_staged_entries(
         let sink_started = Instant::now();
         let write_result = sink.write_batch(&batch);
         timings.sink_us += sink_started.elapsed().as_micros();
-        stats.emitted_entries = stats
-            .emitted_entries
-            .saturating_add(write_result? as u64);
+        stats.emitted_entries = stats.emitted_entries.saturating_add(write_result? as u64);
     }
     Ok(stats)
 }

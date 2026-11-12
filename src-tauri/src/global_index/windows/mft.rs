@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, ERROR_HANDLE_EOF, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE,
 };
@@ -96,11 +97,14 @@ fn enumerate_with_handle(
         uuid::Uuid::new_v4()
     ));
     let result = (|| {
+        let started = Instant::now();
         let mut staging = open_staging_database(&staging_path)?;
         let staged_records = stage_mft_records(&mut staging, handle, journal.NextUsn, cancel)?;
+        let stage_ms = started.elapsed().as_millis();
         let directories = load_staged_directories(&staging)?;
         let (directory_paths, parent_paths) =
             resolve_directory_paths(&source.volume.mount_path, &directories);
+        let paths_ms = started.elapsed().as_millis() - stage_ms;
         let stream = stream_staged_entries(
             source,
             &staging,
@@ -109,6 +113,7 @@ fn enumerate_with_handle(
             sink,
             cancel,
         )?;
+        let stream_ms = started.elapsed().as_millis() - stage_ms - paths_ms;
         let baseline = MftBaselineStats {
             staged_records,
             resolved_entries: stream.resolved_entries,
@@ -121,6 +126,18 @@ fn enumerate_with_handle(
             Some(&journal.UsnJournalID.to_string()),
             Some(&journal.NextUsn.to_string()),
         )?;
+        log::info!(
+            target: "global_index::windows::mft",
+            "initial_index staged={} directories={} resolved={} written={} stage_ms={} paths_ms={} stream_ms={} total_ms={}",
+            staged_records,
+            directories.len(),
+            stream.resolved_entries,
+            stream.emitted_entries,
+            stage_ms,
+            paths_ms,
+            stream_ms,
+            started.elapsed().as_millis()
+        );
         Ok(MftJournalState {
             journal_id: journal.UsnJournalID,
             next_usn: journal.NextUsn,

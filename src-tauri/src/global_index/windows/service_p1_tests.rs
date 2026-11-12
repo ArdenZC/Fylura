@@ -43,6 +43,97 @@ pub(super) fn response(request: &IndexServiceRequest, code: Option<&str>) -> Ind
         status: None,
     }
 }
+
+fn entry_input(index: usize, path: String) -> GlobalEntryInput {
+    GlobalEntryInput {
+        volume_id: "v".into(),
+        platform_file_id: format!("file-{index}"),
+        parent_platform_file_id: "parent".into(),
+        name: format!("name-{index}.txt"),
+        path,
+        extension: "txt".into(),
+        is_directory: false,
+        size: 1,
+        created_at_fs: None,
+        modified_at_fs: None,
+        file_attributes: 0,
+        is_hidden: false,
+        is_system: false,
+        source_provider: PROVIDER_WINDOWS_MFT_USN.into(),
+        last_seen_at: 1,
+    }
+}
+
+#[test]
+fn adjacent_entry_events_are_coalesced_and_flushed_at_ordered_boundaries() {
+    let mut batcher = IndexServiceEntryBatcher::default();
+    let observed = std::cell::RefCell::new(Vec::new());
+    let mut collect = |event| {
+        observed.borrow_mut().push(match event {
+            IndexServiceEvent::Entries { entries } => entries.len(),
+            IndexServiceEvent::Checkpoint { .. } => 0,
+            other => panic!("unexpected batched event: {other:?}"),
+        });
+        Ok::<_, ()>(())
+    };
+
+    for start in (0..512).step_by(64) {
+        batcher
+            .dispatch(
+                IndexServiceEvent::Entries {
+                    entries: (start..start + 64)
+                        .map(|index| entry_input(index, format!("Z:\\{index}.txt")))
+                        .collect(),
+                },
+                &mut collect,
+            )
+            .unwrap();
+    }
+    assert_eq!(observed.borrow().as_slice(), &[512]);
+
+    batcher
+        .dispatch(
+            IndexServiceEvent::Entries {
+                entries: (512..515)
+                    .map(|index| entry_input(index, format!("Z:\\{index}.txt")))
+                    .collect(),
+            },
+            &mut collect,
+        )
+        .unwrap();
+    batcher
+        .dispatch(
+            IndexServiceEvent::Checkpoint {
+                volume_id: "v".into(),
+                journal_id: Some("7".into()),
+                journal_cursor: Some("42".into()),
+            },
+            &mut collect,
+        )
+        .unwrap();
+    assert_eq!(
+        observed.borrow().as_slice(),
+        &[512, 3, 0],
+        "entries flush before checkpoint"
+    );
+
+    batcher
+        .dispatch(
+            IndexServiceEvent::Entries {
+                entries: vec![entry_input(515, format!("Z:\\{}", "x".repeat(600 * 1024)))],
+            },
+            &mut collect,
+        )
+        .unwrap();
+    assert_eq!(
+        observed.borrow().as_slice(),
+        &[512, 3, 0, 1],
+        "byte cap flushes a large entry"
+    );
+    batcher.flush(&mut collect).unwrap();
+    assert_eq!(observed.borrow().as_slice(), &[512, 3, 0, 1]);
+}
+
 fn marker() -> IndexServiceEvent {
     IndexServiceEvent::Sources {
         sources: vec![source()],
@@ -196,6 +287,29 @@ fn run(
     admission.finish(&response)?;
     Ok(response)
 }
+
+#[test]
+fn p1_exchange_coalesces_pipe_sized_entry_events_before_repository_writes() {
+    let request = request(true);
+    let mut events = vec![marker(), provider(), stale()];
+    for start in (0..448).step_by(64) {
+        events.push(IndexServiceEvent::Entries {
+            entries: (start..start + 64)
+                .map(|index| entry_input(index, format!("Z:\\{index}.txt")))
+                .collect(),
+        });
+    }
+    events.push(checkpoint());
+
+    let mut sink = Sink::default();
+    run(&request, events, Some(response(&request, None)), &mut sink)
+        .expect("coalesced stream remains a valid full rebuild");
+    assert_eq!(
+        sink.batch_writes, 1,
+        "entries flush once at the following checkpoint boundary"
+    );
+}
+
 #[test]
 fn p1_t01_busy_before_admission_has_zero_sink_writes() {
     let request = request(true);

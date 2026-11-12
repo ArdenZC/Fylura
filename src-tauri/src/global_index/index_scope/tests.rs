@@ -651,7 +651,6 @@ fn global_index_writer_ingestion_100k_pair() {
         n, 100_000,
         "this paired workflow is intentionally fixed at 100k"
     );
-
     let f = Fixture::new();
     f.file("project/package.json");
     f.file("project/node_modules/.package-lock.json");
@@ -685,6 +684,15 @@ fn global_index_writer_ingestion_100k_pair() {
         };
         for group in groups {
             let canonical_writer = group == "legacy_writer";
+            // The baseline models the previous Windows 64-row IPC writer.
+            // The candidate models MFT's native 512-row batch, subject to the
+            // production IPC frame-size bound. Spotlight already writes 512.
+            let writer_batch_size = if cfg!(target_os = "windows") && canonical_writer {
+                64
+            } else {
+                512
+            };
+            let writer_batches = n.div_ceil(writer_batch_size);
             let db_path = f.root.join(format!("writer-{repetition}-{group}.sqlite"));
             let db = Database::open(&db_path).unwrap();
             db.upsert_global_volume(&f.source).unwrap();
@@ -711,7 +719,8 @@ fn global_index_writer_ingestion_100k_pair() {
                 let mut writer_timing =
                     crate::global_index::repository::GlobalIndexBatchTiming::default();
                 let mut sampled_batches = 0;
-                for (batch_index, batch) in entries.chunks(512).enumerate() {
+                let sample_stride = writer_batches.div_ceil(8).max(1);
+                for (batch_index, batch) in entries.chunks(writer_batch_size).enumerate() {
                     let write = || {
                         db.upsert_global_entries_batch_owned_timed(batch, &owner)
                             .unwrap()
@@ -722,7 +731,7 @@ fn global_index_writer_ingestion_100k_pair() {
                         write()
                     };
                     writer_timing.add(timing);
-                    if batch_index % 32 == 0 || batch_index + 1 == n.div_ceil(512) {
+                    if batch_index % sample_stride == 0 || batch_index + 1 == writer_batches {
                         let sample_begin = Instant::now();
                         system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
                         rss_peak =
@@ -749,7 +758,9 @@ fn global_index_writer_ingestion_100k_pair() {
                     "aiTaskQualificationSeconds": writer_timing.ai_task_qualification.as_secs_f64(),
                     "recordDecisionsSeconds": writer_timing.record_decisions.as_secs_f64(),
                     "commitSeconds": writer_timing.commit.as_secs_f64(),
-                    "timedWriterBatches": n.div_ceil(512)
+                    "timedWriterBatches": writer_batches,
+                    "writerBatchSize": writer_batch_size,
+                    "writerBatches": writer_batches
                 });
                 println!("GLOBAL_INDEX_WRITER_PAIR {pass_record}");
                 passes.push(pass_record);

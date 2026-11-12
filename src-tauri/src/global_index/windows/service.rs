@@ -240,23 +240,30 @@ where
 {
     validate_request(request).map_err(IndexServiceCallError::Protocol)?;
     io.send_request(request)?;
+    let mut entry_batcher = IndexServiceEntryBatcher::default();
     loop {
-        match io.read_frame()? {
+        let frame = match io.read_frame() {
+            Ok(frame) => frame,
+            Err(error) => {
+                flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
+                return Err(error);
+            }
+        };
+        match frame {
             IndexServiceFrame::Event {
                 request_id,
                 event: item,
             } => {
                 if request_id != request.request_id {
+                    flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
                     return Err(IndexServiceCallError::Protocol(
                         "event request identity mismatch".into(),
                     ));
                 }
-                if let Some(response) = event(item)? {
-                    io.send_lookup(response)
-                        .map_err(IndexServiceCallError::UnknownOutcome)?;
-                }
+                dispatch_exchange_event(&mut entry_batcher, item, &mut event, io)?;
             }
             IndexServiceFrame::Response { response } => {
+                flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
                 if response.protocol_version != IPC_PROTOCOL_VERSION
                     || response.request_id != request.request_id
                 {
@@ -278,12 +285,123 @@ where
                 return Ok(response);
             }
             IndexServiceFrame::LookupResponse { .. } => {
+                flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
                 return Err(IndexServiceCallError::Protocol(
                     "unsolicited lookup response".into(),
-                ))
+                ));
             }
         }
     }
+}
+
+const MAX_COALESCED_ENTRY_COUNT: usize = 512;
+const MAX_COALESCED_ENTRY_BYTES: usize = 512 * 1024;
+
+#[derive(Default)]
+pub(crate) struct IndexServiceEntryBatcher {
+    entries: Vec<GlobalEntryInput>,
+    estimated_bytes: usize,
+}
+
+impl IndexServiceEntryBatcher {
+    fn dispatch<F, E>(&mut self, event: IndexServiceEvent, callback: &mut F) -> Result<(), E>
+    where
+        F: FnMut(IndexServiceEvent) -> Result<(), E>,
+    {
+        match event {
+            IndexServiceEvent::Entries { entries } => {
+                for entry in entries {
+                    let entry_bytes = entry_buffer_size(&entry);
+                    if !self.entries.is_empty()
+                        && (self.entries.len() >= MAX_COALESCED_ENTRY_COUNT
+                            || self.estimated_bytes.saturating_add(entry_bytes)
+                                > MAX_COALESCED_ENTRY_BYTES)
+                    {
+                        self.flush(callback)?;
+                    }
+                    self.estimated_bytes = self.estimated_bytes.saturating_add(entry_bytes);
+                    self.entries.push(entry);
+                    if self.entries.len() >= MAX_COALESCED_ENTRY_COUNT
+                        || self.estimated_bytes >= MAX_COALESCED_ENTRY_BYTES
+                    {
+                        self.flush(callback)?;
+                    }
+                }
+                Ok(())
+            }
+            other => {
+                self.flush(callback)?;
+                callback(other)
+            }
+        }
+    }
+
+    fn flush<F, E>(&mut self, callback: &mut F) -> Result<(), E>
+    where
+        F: FnMut(IndexServiceEvent) -> Result<(), E>,
+    {
+        if self.entries.is_empty() {
+            return Ok(());
+        }
+        self.estimated_bytes = 0;
+        callback(IndexServiceEvent::Entries {
+            entries: std::mem::take(&mut self.entries),
+        })
+    }
+}
+
+fn dispatch_exchange_event<F>(
+    batcher: &mut IndexServiceEntryBatcher,
+    item: IndexServiceEvent,
+    event: &mut F,
+    io: &mut impl IndexServiceIo,
+) -> Result<(), IndexServiceCallError>
+where
+    F: FnMut(
+        IndexServiceEvent,
+    ) -> Result<Option<IndexServiceLookupResponse>, IndexServiceCallError>,
+{
+    batcher.dispatch(item, &mut |item| {
+        if let Some(response) = event(item)? {
+            io.send_lookup(response)
+                .map_err(IndexServiceCallError::UnknownOutcome)?;
+        }
+        Ok(())
+    })
+}
+
+fn flush_exchange_entries<F>(
+    batcher: &mut IndexServiceEntryBatcher,
+    event: &mut F,
+    io: &mut impl IndexServiceIo,
+) -> Result<(), IndexServiceCallError>
+where
+    F: FnMut(
+        IndexServiceEvent,
+    ) -> Result<Option<IndexServiceLookupResponse>, IndexServiceCallError>,
+{
+    batcher.flush(&mut |item| {
+        if let Some(response) = event(item)? {
+            io.send_lookup(response)
+                .map_err(IndexServiceCallError::UnknownOutcome)?;
+        }
+        Ok(())
+    })
+}
+
+fn entry_buffer_size(entry: &GlobalEntryInput) -> usize {
+    std::mem::size_of::<GlobalEntryInput>()
+        + [
+            entry.volume_id.capacity(),
+            entry.platform_file_id.capacity(),
+            entry.parent_platform_file_id.capacity(),
+            entry.name.capacity(),
+            entry.path.capacity(),
+            entry.extension.capacity(),
+            entry.source_provider.capacity(),
+        ]
+        .into_iter()
+        .sum::<usize>()
 }
 
 pub(crate) trait IndexServiceConnection: Send {
@@ -712,9 +830,18 @@ mod named_pipe {
         validate_request(request)?;
         let mut client = connect()?;
         client.send_request(request)?;
+        let mut entry_batcher = super::IndexServiceEntryBatcher::default();
         loop {
-            match client.read_frame()? {
+            let frame = match client.read_frame() {
+                Ok(frame) => frame,
+                Err(error) => {
+                    entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
+                    return Err(error);
+                }
+            };
+            match frame {
                 IndexServiceFrame::Response { response } => {
+                    entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
                     if response.protocol_version != super::IPC_PROTOCOL_VERSION
                         || response.request_id != request.request_id
                         || (response.ok && response.error_code.is_some())
@@ -730,11 +857,13 @@ mod named_pipe {
                 }
                 IndexServiceFrame::Event { request_id, event } => {
                     if request_id != request.request_id {
+                        entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
                         return Err("index_service_event_identity_mismatch".into());
                     }
-                    on_event(&mut client, event)?;
+                    entry_batcher.dispatch(event, &mut |event| on_event(&mut client, event))?;
                 }
                 IndexServiceFrame::LookupResponse { .. } => {
+                    entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
                     return Err("index_service_unexpected_lookup_response".to_string());
                 }
             }

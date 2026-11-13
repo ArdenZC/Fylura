@@ -91,7 +91,7 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
     )
     .expect("mark source collection incomplete");
     claim_transient_test_operation(&db, "transient-operation");
-    let included = fixture_entry(
+    let mut included = fixture_entry(
         "gv_test",
         r"C:\Global\transient-report-budget.txt",
         "transient-report-budget.txt",
@@ -99,6 +99,8 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
         Some(50),
         false,
     );
+    // Model a stable native identity so the changed name reuses one catalog slot.
+    included.platform_file_id = "mac:stable-transient-identity".into();
     let excluded = fixture_entry(
         "gv_test",
         r"C:\Global\ignored-transient-report.txt",

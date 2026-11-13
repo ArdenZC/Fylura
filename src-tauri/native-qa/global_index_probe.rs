@@ -132,9 +132,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .first()
         .is_some_and(|a| a == "--qualify-filename-first")
     {
-        if arguments.len() != 7 {
+        if arguments.len() != 8 {
             return Err(
-                "usage: --qualify-filename-first <profile> <source-id> <first-query> <first-file> <complete-query> <complete-file>".into(),
+                "usage: --qualify-filename-first <profile> <source-id> <first-query> <first-file> <complete-query> <complete-file> <fixture-file-count>".into(),
             );
         }
         #[cfg(windows)]
@@ -146,6 +146,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 std::path::Path::new(&arguments[4]),
                 &arguments[5],
                 std::path::Path::new(&arguments[6]),
+                arguments[7].parse::<usize>()?,
             )?;
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());

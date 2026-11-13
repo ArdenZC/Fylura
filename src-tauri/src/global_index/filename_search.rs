@@ -6,11 +6,11 @@
 //! SQLite's connection-local hooks; a dedicated read-only connection binds a
 //! compact base plus the bounded in-memory overlay to one SQLite snapshot.
 
+use super::coverage::Decision;
 use crate::db::DbError;
 use crate::global_index::models::{
     normalize_path, GlobalEntry, GlobalEntryInput, GlobalSearchResult,
 };
-use super::coverage::Decision;
 #[cfg(test)]
 use rusqlite::StatementStatus;
 use rusqlite::{hooks::Action, Connection, OpenFlags, OptionalExtension, Transaction};

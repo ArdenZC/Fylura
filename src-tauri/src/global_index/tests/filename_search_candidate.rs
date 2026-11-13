@@ -1,5 +1,6 @@
 use super::*;
 use crate::global_index::filename_search::FilenameSearchDiagnostics;
+use crate::global_index::coverage::Decision;
 use crate::global_index::models::{GlobalEntryInput, GlobalSearchResult, GlobalVolume};
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -117,7 +118,7 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
             "transient-operation",
             1,
             &[included.clone(), excluded],
-            &[true, false],
+            &[Decision::Include, Decision::Exclude("test_scope")],
         )
         .expect("append preflighted MFT entries");
 
@@ -175,7 +176,7 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
             "transient-operation",
             1,
             &[refreshed.clone()],
-            &[true],
+            &[Decision::Include],
         )
         .expect("refresh the same native identity");
     let stale_name = db
@@ -261,7 +262,7 @@ fn transient_filename_catalog_keeps_existing_managed_link_during_rebuild() {
             "managed-rebuild",
             policy_revision,
             std::slice::from_ref(&input),
-            &[true],
+            &[Decision::Include],
         )
         .expect("publish the rebuilt filename row");
 

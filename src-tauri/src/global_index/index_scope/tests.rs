@@ -481,8 +481,7 @@ fn identical_replay_and_last_seen_refresh_rescan_keep_scope_fts_and_facts_consis
     .unwrap();
 
     let initial_owner = f.owner();
-    f.db
-        .mark_global_entries_stale_for_volume_owned(&initial_owner)
+    f.db.mark_global_entries_stale_for_volume_owned(&initial_owner)
         .unwrap();
     f.db.upsert_global_entries_batch_owned(&entries, &initial_owner)
         .unwrap();
@@ -509,8 +508,14 @@ fn identical_replay_and_last_seen_refresh_rescan_keep_scope_fts_and_facts_consis
             )
             .unwrap();
         assert_eq!(facts, (1, 1, Some(expected_last_seen)));
-        assert!(f.db.get_global_entry(&entries[1].entry_id()).unwrap().is_none());
-        let visible = f.db.search_global_entries("replayvisible-token", 25, 0).unwrap();
+        assert!(f
+            .db
+            .get_global_entry(&entries[1].entry_id())
+            .unwrap()
+            .is_none());
+        let visible =
+            f.db.search_global_entries("replayvisible-token", 25, 0)
+                .unwrap();
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].id, included_id);
         assert_eq!(visible[0].path, included_path);
@@ -527,9 +532,8 @@ fn identical_replay_and_last_seen_refresh_rescan_keep_scope_fts_and_facts_consis
     };
     assert_index_facts(entries[0].last_seen_at);
 
-    let identical_owner = f
-        .db
-        .claim_global_index_operation(
+    let identical_owner =
+        f.db.claim_global_index_operation(
             &f.source,
             &uuid::Uuid::new_v4().to_string(),
             SourceOperationKind::Incremental,
@@ -550,9 +554,8 @@ fn identical_replay_and_last_seen_refresh_rescan_keep_scope_fts_and_facts_consis
     for (index, entry) in rescanned.iter_mut().enumerate() {
         entry.last_seen_at = refreshed_last_seen + index as i64;
     }
-    let rescan_owner = f
-        .db
-        .claim_global_index_operation(
+    let rescan_owner =
+        f.db.claim_global_index_operation(
             &f.source,
             &uuid::Uuid::new_v4().to_string(),
             SourceOperationKind::Incremental,

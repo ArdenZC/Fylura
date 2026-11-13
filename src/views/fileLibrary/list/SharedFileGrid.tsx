@@ -197,7 +197,7 @@ export function SharedFileGrid({
       }
       return;
     }
-    if (event.key === "F5") {
+    if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r")) {
       if (onRefresh) {
         event.preventDefault();
         onRefresh();

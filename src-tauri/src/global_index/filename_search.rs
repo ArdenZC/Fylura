@@ -204,7 +204,6 @@ struct TransientFilenameCatalog {
     by_name: BTreeMap<String, Vec<usize>>,
     by_extension: BTreeMap<String, Vec<usize>>,
     by_filename_gram: HashMap<u64, Vec<usize>>,
-    by_path_gram: HashMap<u64, Vec<usize>>,
 }
 
 struct TransientFilenameEntry {
@@ -212,9 +211,7 @@ struct TransientFilenameEntry {
     input: GlobalEntryInput,
     normalized_name: String,
     normalized_extension: String,
-    normalized_path: String,
     filename_grams: Vec<u64>,
-    path_grams: Vec<u64>,
     visible: bool,
 }
 
@@ -305,7 +302,6 @@ impl FilenameSearchManager {
             by_name,
             by_extension,
             by_filename_gram,
-            by_path_gram,
             visible_unpersisted_entries,
             ..
         } = &mut *catalog;
@@ -322,9 +318,6 @@ impl FilenameSearchManager {
                 );
                 for gram in &catalog_entries[index].filename_grams {
                     remove_transient_gram(by_filename_gram, *gram, index);
-                }
-                for gram in &catalog_entries[index].path_grams {
-                    remove_transient_gram(by_path_gram, *gram, index);
                 }
                 catalog_entries[index] = value;
                 if previous_visible && !*visible {
@@ -346,9 +339,6 @@ impl FilenameSearchManager {
                     for gram in &catalog_entries[index].filename_grams {
                         by_filename_gram.entry(*gram).or_default().push(index);
                     }
-                    for gram in &catalog_entries[index].path_grams {
-                        by_path_gram.entry(*gram).or_default().push(index);
-                    }
                 }
             } else {
                 let index = catalog_entries.len();
@@ -368,9 +358,6 @@ impl FilenameSearchManager {
                     );
                     for gram in &catalog_entries[index].filename_grams {
                         by_filename_gram.entry(*gram).or_default().push(index);
-                    }
-                    for gram in &catalog_entries[index].path_grams {
-                        by_path_gram.entry(*gram).or_default().push(index);
                     }
                 }
             }
@@ -734,26 +721,15 @@ impl FilenameSearchManager {
                 }
             }
             if heap.len() < target {
-                if let Some(indices) =
-                    most_selective_transient_gram(&query_grams, &catalog.by_path_gram)
-                {
-                    for index in indices {
-                        let entry = &catalog.entries[*index];
-                        if entry.visible
-                            && !seen.contains(&entry.id)
-                            && entry.normalized_path.contains(&normalized_query)
-                        {
-                            push_transient_entry(&mut heap, target, &mut seen, 6, entry);
-                        }
+                // Parent-path substring search is less common than filename
+                // lookup. Scan paths on demand instead of retaining a second,
+                // much larger trigram posting list for every discovered path.
+                for entry in &catalog.entries {
+                    if !entry.visible || seen.contains(&entry.id) {
+                        continue;
                     }
-                } else if query_grams.is_empty() {
-                    for entry in &catalog.entries {
-                        if !entry.visible || seen.contains(&entry.id) {
-                            continue;
-                        }
-                        if entry.normalized_path.contains(&normalized_query) {
-                            push_transient_entry(&mut heap, target, &mut seen, 6, entry);
-                        }
+                    if entry.input.path.to_lowercase().contains(&normalized_query) {
+                        push_transient_entry(&mut heap, target, &mut seen, 6, entry);
                     }
                 }
             }
@@ -1345,18 +1321,12 @@ fn transient_filename_entry(
     grams.extend(filename_grams(&normalized_extension));
     grams.sort_unstable();
     grams.dedup();
-    let normalized_path = input.path.to_lowercase();
-    let mut path_grams = filename_grams(&normalized_path);
-    path_grams.sort_unstable();
-    path_grams.dedup();
     TransientFilenameEntry {
         id,
         input: input.clone(),
         normalized_name,
         normalized_extension,
-        normalized_path,
         filename_grams: grams,
-        path_grams,
         visible,
     }
 }

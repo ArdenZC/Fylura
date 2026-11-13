@@ -31,12 +31,27 @@ describe("App Shell v4", () => {
     expect(appShell).toContain('id: "advanced"');
   });
 
-  it("uses the specified shell geometry and semantic selected navigation", () => {
-    expect(appShell).toContain("h-12");
-    expect(appShell).toContain("grid-cols-[228px_minmax(0,1fr)]");
-    expect(appShell).toContain("min-w-[720px]");
-    expect(appShell).toContain("var(--zc-sidebar)");
-    expect(appShell).toContain("selectedSurface");
+  it("uses the approved v3.40 shell geometry and semantic selected navigation", () => {
+    const shell = read("src/styles/v340-shell.css");
+
+    // One 44px glass titlebar, then two panels separated by the shell gutter.
+    expect(appShell).toContain("zc-titlebar");
+    expect(appShell).toContain("zc-shell-body");
+    expect(appShell).toContain("data-sidebar-mode={sidebarMode}");
+    expect(shell).toContain("--zc-titlebar-height");
+    expect(shell).toContain("grid-template-rows: var(--zc-titlebar-height) minmax(0, 1fr)");
+    expect(shell).toContain("grid-template-columns: var(--zc-shell-sidebar-width) minmax(0, 1fr)");
+    expect(shell).toContain("gap: var(--zc-shell-gap)");
+    expect(shell).toContain("--zc-glass-sidebar");
+    expect(shell).toContain("--zc-glass-main");
+
+    // Three reachable sidebar states, each with a stated next action.
+    expect(appShell).toContain("resolveSidebarMode");
+    expect(appShell).toContain("nextSidebarMode");
+    expect(appShell).toContain('export type SidebarMode = "expanded" | "rail" | "hidden"');
+    expect(shell).toContain('.zc-shell-body[data-sidebar-mode="rail"]');
+    expect(shell).toContain('.zc-shell-body[data-sidebar-mode="hidden"]');
+
     expect(appShell).toContain("focusVisibleState");
     expect(appShell).not.toContain("before:w-0.5");
     expect(appShell).not.toMatch(/(?:hover|active):scale-/);
@@ -85,10 +100,17 @@ describe("App Shell v4", () => {
   });
 
   it("keeps platform controls native to each platform and drag-safe", () => {
+    const shell = read("src/styles/v340-shell.css");
     expect(appShell).toContain("MacWindowControls");
     expect(appShell).toContain("WindowsControls");
-    expect(appShell).toContain("h-6 w-6");
-    expect(appShell).toContain("var(--zc-window-close-hover)");
+    // macOS traffic lights lead; the Windows cluster trails (DESIGN-SPEC §4.2).
+    const titlebarLead = appShell.slice(appShell.indexOf("zc-titlebar-lead"), appShell.indexOf("zc-titlebar-trail"));
+    expect(titlebarLead).toContain("isWindows && <MacWindowControls");
+    expect(appShell).toContain("{isWindows && <WindowsControls");
+    expect(shell).toContain(".zc-mac-controls");
+    expect(shell).toContain(".zc-window-controls");
+    expect(shell).toContain("var(--zc-window-close-hover)");
+    expect(shell).toContain("var(--zc-window-mac-close)");
     expect(appShell).not.toContain("overflow-hidden rounded-lg border");
     expect(appShell).toContain("[-webkit-app-region:no-drag]");
     expect(shellChrome).toContain("[-webkit-app-region:no-drag]");

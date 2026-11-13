@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./styles/tokens.css";
+@import "./styles/v340-shell.css";
 @import "./styles/w6-07-shell-v26.css";
 @import "./views/fileLibrary/fileLibraryV26.css";
 

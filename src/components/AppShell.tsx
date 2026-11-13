@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   LockKeyhole,
   Minus,
+  PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   Radar,
@@ -24,6 +25,7 @@ import { CommandModal } from "./CommandModal";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, WorkspaceTopActions } from "./ShellChrome";
+import { BrandMark } from "./ui/BrandMark";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useCommandContext, useI18nContext, useNavigationContext, useWindowContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
@@ -38,7 +40,7 @@ import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingMod
 import type { DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
-import { cn, focusVisibleState, selectedFocusVisibleState, selectedSurface, statusToast, toastTone } from "../utils/tw";
+import { cn, focusVisibleState, statusToast, toastTone } from "../utils/tw";
 import { libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActivation";
 import { useSearchNavigationHandoff } from "../hooks/useSearchNavigationHandoff";
@@ -55,37 +57,75 @@ const AutomationWorkspace = lazy(() => import("../views/automation/AutomationWor
 const RestoreView = lazy(() => import("../views/restore/RestoreView").then((module) => ({ default: module.RestoreView })));
 const SettingsView = lazy(() => import("../views/settings/SettingsView").then((module) => ({ default: module.SettingsView })));
 
-const appRoot =
-  cn(pageFrame, "relative h-screen min-h-0 min-w-0 bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]");
+const appRoot = cn(pageFrame, "zc-app-frame");
 const searchWindowRoot =
   "relative h-full w-full overflow-hidden bg-transparent text-[var(--zc-text-primary)]";
-const titlebar =
-  "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2";
-const windowChrome =
-  "relative z-40 flex h-[38px] min-h-[38px] shrink-0 items-center border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] px-3 text-[11px] text-[var(--zc-text-tertiary)] [-webkit-app-region:drag]";
-const windowTitle = "absolute left-3 top-1/2 -translate-y-1/2 font-semibold tracking-[0.01em] text-[var(--zc-text-secondary)]";
 const noDrag = "[-webkit-app-region:no-drag]";
-const spotlightButton =
-  cn("mx-auto grid h-8 w-[min(42vw,440px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] px-3 text-xs text-[var(--zc-text-secondary)] shadow-none transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)]", focusVisibleState, "[&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--zc-divider)] [&_kbd]:bg-[var(--zc-surface)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--zc-text-tertiary)]");
-const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[228px_minmax(0,1fr)] max-[1100px]:grid-cols-[176px_minmax(0,1fr)]";
-const sidebarClass =
-  "flex min-h-0 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-[var(--zc-divider)] bg-[var(--zc-sidebar)] px-4 py-5";
-const navItemBase =
-  cn("relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
-const navItemActive = selectedSurface;
-const workspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3";
-const libraryWorkspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden max-[1100px]:min-w-0";
 const viewStageClass = viewStage;
-const windowsControlButton =
-  cn("grid h-[38px] w-[46px] place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState);
-const windowsCloseButton =
-  cn("grid h-[38px] w-[46px] place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)]", focusVisibleState);
-const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
-const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]";
+
+/**
+ * Shared presentation hooks. Kept as named constants so the shell retheming
+ * stays a one-line change and the design contract remains inspectable.
+ */
+const spotlightButton = "zc-titlebar-search";
+export const windowsControlButton = "zc-window-control";
+export const windowsCloseButton = "zc-window-control zc-window-control-close";
+
+function sidebarWindowAction(action: "close" | "minimize" | "maximize") {
+  return action === "close" ? windowsCloseButton : windowsControlButton;
+}
 
 type NavItemId = View | "global-search";
 type NavItem = { id: NavItemId; label: string; icon: typeof Radar; action?: "open_search" };
 type NavGroup = { id: "primary" | "workflow" | "advanced"; label: string; items: NavItem[] };
+
+/**
+ * Three-state sidebar: expanded (216), icon rail (64) and hidden.
+ *
+ * The toggle walks expanded → rail → hidden → expanded so every state stays
+ * reachable from one predictable control, and its label always states what
+ * the next click does.
+ */
+export type SidebarMode = "expanded" | "rail" | "hidden";
+
+export function resolveSidebarMode(hidden: boolean, rail: boolean): SidebarMode {
+  if (hidden) return "hidden";
+  return rail ? "rail" : "expanded";
+}
+
+export function nextSidebarMode(mode: SidebarMode): SidebarMode {
+  if (mode === "expanded") return "rail";
+  if (mode === "rail") return "hidden";
+  return "expanded";
+}
+
+export function sidebarToggleLabel(mode: SidebarMode, t: Translator) {
+  if (mode === "expanded") return t("shellCollapseSidebar");
+  if (mode === "rail") return t("shellHideSidebar");
+  return t("shellShowSidebar");
+}
+
+/**
+ * Narrow windows converge to the icon rail: the global navigation stays
+ * reachable without eating the file list's width. The stored preference is not
+ * overwritten, so widening the window restores the user's own choice.
+ */
+const NARROW_RAIL_QUERY = "(max-width: 1180px)";
+
+export function useNarrowRail() {
+  const [narrow, setNarrow] = useState(() => {
+    try { return window.matchMedia(NARROW_RAIL_QUERY).matches; } catch { return false; }
+  });
+  useEffect(() => {
+    let query: MediaQueryList;
+    try { query = window.matchMedia(NARROW_RAIL_QUERY); } catch { return; }
+    const update = () => setNarrow(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
 
 export function AppShell() {
   const { isSearchMode, setIsCommandOpen, hotkeyLabel, isCommandOpen } = useCommandContext();
@@ -97,7 +137,9 @@ export function AppShell() {
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
   const sidebarHidden = useAppStore((state) => state.sidebarHidden);
+  const sidebarRail = useAppStore((state) => state.sidebarRail);
   const setSidebarHidden = useAppStore((state) => state.setSidebarHidden);
+  const setSidebarRail = useAppStore((state) => state.setSidebarRail);
   const density = useAppStore((state) => state.density);
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
@@ -126,6 +168,22 @@ export function AppShell() {
     : groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
+  const storedSidebarMode = resolveSidebarMode(sidebarHidden, sidebarRail);
+  const narrow = useNarrowRail();
+  const sidebarMode: SidebarMode = storedSidebarMode === "hidden"
+    ? "hidden"
+    : narrow ? "rail" : storedSidebarMode;
+
+  const cycleSidebar = useCallback(() => {
+    // Narrow windows only swap between the rail and full hiding; the rail is
+    // already the widest presentation that fits.
+    const current = resolveSidebarMode(sidebarHidden, sidebarRail);
+    const next = narrow
+      ? (current === "hidden" ? "rail" : "hidden")
+      : nextSidebarMode(current);
+    setSidebarHidden(next === "hidden");
+    setSidebarRail(next === "rail");
+  }, [narrow, setSidebarHidden, setSidebarRail, sidebarHidden, sidebarRail]);
 
   return (
     <FileLibraryExperienceProvider active={!isSearchMode && (view === "library" || hasOpenedLibrary)}>
@@ -133,44 +191,42 @@ export function AppShell() {
       {isSearchMode ? <SearchWindow /> : (
         <div className={appRoot} data-density={density}>
           <AmbientMesh />
-          <WindowChrome />
-          <div id={APP_SHELL_CONTENT_ID} className={cn(workspaceShell, "zc-app-shell-content")} data-sidebar-hidden={sidebarHidden}>
-            {!sidebarHidden && <Sidebar groups={groups} />}
-            <div className="zc-app-workspace">
-              <header className={titlebar}>
-                <div className="flex min-w-0 items-center gap-1.5 truncate text-[var(--zc-text-secondary)]">
-                  <button type="button" className={cn("zc-sidebar-toggle grid h-8 w-8 shrink-0 place-items-center rounded-md hover:bg-[var(--zc-surface-hover)]", noDrag, focusVisibleState)} aria-label={t(sidebarHidden ? "shellShowSidebar" : "shellHideSidebar")} title={t(sidebarHidden ? "shellShowSidebar" : "shellHideSidebar")} aria-expanded={!sidebarHidden} aria-controls="zc-main-sidebar" onClick={() => setSidebarHidden(!sidebarHidden)}>
-                    {sidebarHidden ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-                  </button>
-                  <strong className="truncate text-[13px]">{activeLabel}</strong>
-                  {view !== "library" && <><span aria-hidden="true" className="text-[var(--zc-text-tertiary)]">/</span>
-                  <span className="truncate text-[11px] text-[var(--zc-text-tertiary)]">{topbarContext(view, t)}</span></>}
-                </div>
-                <div className="flex items-center justify-center">
-                  <button ref={spotlightTriggerRef} className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
-                    <Search size={15} className="text-[var(--zc-primary)]" />
-                    <span className="min-w-0 truncate text-left">{t("topbarSearch")}</span>
-                    <kbd>{hotkeyLabel}</kbd>
-                  </button>
-                </div>
-                <div className="flex items-center justify-end">
-                  <WorkspaceTopActions />
-                </div>
-              </header>
-              <main className={view === "library" ? libraryWorkspaceClass : workspaceClass}>
-                {view !== "library" ? (
-                  <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
-                ) : null}
-                <ToastContainer />
-                <div className={viewStageClass}>
-                  {(hasOpenedLibrary || view === "library") && <div hidden={view !== "library"} className="h-full min-h-0 min-w-0">
-                    <ViewErrorBoundary><Suspense fallback={<div className={softPanel}>{t("loading")}</div>}><FileLibraryWorkspace active={view === "library"}/></Suspense></ViewErrorBoundary>
-                  </div>}
-                  {view !== "library" && <ViewErrorBoundary key={view}>
-                    <AppViewContent />
-                  </ViewErrorBoundary>}
-                </div>
-              </main>
+          <div id={APP_SHELL_CONTENT_ID} className="zc-shell">
+            <Titlebar
+              mode={sidebarMode}
+              onCycleSidebar={cycleSidebar}
+              activeLabel={activeLabel}
+              context={topbarContext(view, t)}
+              spotlightTriggerRef={spotlightTriggerRef}
+              hotkeyLabel={hotkeyLabel}
+              onOpenSearch={() => setIsCommandOpen(true)}
+              t={t}
+            />
+            <div className="zc-shell-body" data-sidebar-mode={sidebarMode}>
+              {sidebarMode !== "hidden" && (
+                <Sidebar
+                  groups={groups}
+                  mode={sidebarMode}
+                  canExpand={!narrow}
+                  onExpand={() => { setSidebarHidden(false); setSidebarRail(false); }}
+                />
+              )}
+              <div className="zc-app-workspace">
+                <main data-flush={view === "library" ? "true" : undefined}>
+                  {view !== "library" ? (
+                    <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
+                  ) : null}
+                  <ToastContainer />
+                  <div className={viewStageClass}>
+                    {(hasOpenedLibrary || view === "library") && <div hidden={view !== "library"} className="h-full min-h-0 min-w-0">
+                      <ViewErrorBoundary><Suspense fallback={<div className={softPanel}>{t("loading")}</div>}><FileLibraryWorkspace active={view === "library"}/></Suspense></ViewErrorBoundary>
+                    </div>}
+                    {view !== "library" && <ViewErrorBoundary key={view}>
+                      <AppViewContent />
+                    </ViewErrorBoundary>}
+                  </div>
+                </main>
+              </div>
             </div>
             {isCommandOpen && <CommandLauncher restoreFocusRef={spotlightTriggerRef} />}
             {isCloseChoiceOpen && (
@@ -185,15 +241,67 @@ export function AppShell() {
   );
 }
 
-function WindowChrome() {
+/**
+ * One 44px glass titlebar replaces the previous two stacked bars (a 38px
+ * window chrome plus a 46px workspace header). It carries the app mark, the
+ * current route breadcrumb, the only global search entry, display controls and
+ * the platform window cluster.
+ */
+export function Titlebar({
+  mode,
+  onCycleSidebar,
+  activeLabel,
+  context,
+  spotlightTriggerRef,
+  hotkeyLabel,
+  onOpenSearch,
+  t
+}: {
+  mode: SidebarMode;
+  onCycleSidebar: () => void;
+  activeLabel: string;
+  context: string;
+  spotlightTriggerRef: React.RefObject<HTMLButtonElement | null>;
+  hotkeyLabel: string;
+  onOpenSearch: () => void;
+  t: Translator;
+}) {
   const { isWindows } = useWindowContext();
-  const { t } = useI18nContext();
+  const label = sidebarToggleLabel(mode, t);
 
   return (
-    <header className={windowChrome} aria-label={t("windowControls")}>
-      <span className={windowTitle}>{t("appName")}</span>
-      <div className="ml-auto">
-        {isWindows ? <WindowsControls /> : <MacWindowControls />}
+    <header className="zc-titlebar" aria-label={t("appName")}>
+      <div className="zc-titlebar-lead">
+        {!isWindows && <MacWindowControls />}
+        <button
+          type="button"
+          className={cn("zc-titlebar-toggle", noDrag)}
+          data-sidebar-mode={mode}
+          aria-label={label}
+          title={label}
+          aria-expanded={mode === "expanded"}
+          aria-controls="zc-main-sidebar"
+          onClick={onCycleSidebar}
+        >
+          {mode === "expanded" ? <PanelLeftClose size={16} /> : mode === "rail" ? <PanelLeft size={16} /> : <PanelLeftOpen size={16} />}
+        </button>
+        <span className="zc-titlebar-mark" aria-hidden="true"><BrandMark size="micro" decorative /></span>
+        <div className="zc-titlebar-crumb">
+          <strong>{activeLabel}</strong>
+          <span aria-hidden="true">/</span>
+          <span>{context}</span>
+        </div>
+      </div>
+      <div className="flex min-w-0 items-center justify-center">
+        <button ref={spotlightTriggerRef} className={cn(spotlightButton, noDrag)} onClick={onOpenSearch}>
+          <Search size={15} aria-hidden="true" />
+          <span className="min-w-0 truncate text-left">{t("topbarSearch")}</span>
+          <kbd>{hotkeyLabel}</kbd>
+        </button>
+      </div>
+      <div className="zc-titlebar-trail">
+        <WorkspaceTopActions />
+        {isWindows && <WindowsControls />}
       </div>
     </header>
   );
@@ -261,16 +369,10 @@ function MacWindowControls() {
   const { t } = useI18nContext();
 
   return (
-    <div className={cn("flex items-center gap-1", noDrag)} aria-label={t("windowControls")}>
-      <button className={macControlButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
-        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-close)] shadow-sm" />
-      </button>
-      <button className={macControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
-        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-minimize)] shadow-sm" />
-      </button>
-      <button className={macControlButton} onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
-        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-maximize)] shadow-sm" />
-      </button>
+    <div className={cn("zc-mac-controls", noDrag)} aria-label={t("windowControls")}>
+      <button type="button" data-action="close" onClick={() => handleWindowAction("close")} aria-label={t("close")} />
+      <button type="button" data-action="minimize" onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")} />
+      <button type="button" data-action="maximize" onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")} />
     </div>
   );
 }
@@ -280,29 +382,39 @@ function WindowsControls() {
   const { t } = useI18nContext();
 
   return (
-    <div className={cn("flex h-[38px] items-center", noDrag)} aria-label={t("windowControls")}>
-      <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
+    <div className={cn("zc-window-controls", noDrag)} aria-label={t("windowControls")}>
+      <button type="button" className={sidebarWindowAction("minimize")} data-action="minimize" onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
-      <button className={windowsControlButton} onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
-        <Square size={12} strokeWidth={1.6} />
+      <button type="button" className={sidebarWindowAction("maximize")} data-action="maximize" onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
+        <Square size={11} strokeWidth={1.6} />
       </button>
-      <button className={windowsCloseButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
-        <X size={16} strokeWidth={1.6} />
+      <button type="button" className={sidebarWindowAction("close")} data-action="close" onClick={() => handleWindowAction("close")} aria-label={t("close")}>
+        <X size={15} strokeWidth={1.6} />
       </button>
     </div>
   );
 }
 
-export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] }) {
+export const Sidebar = memo(function Sidebar({
+  groups,
+  mode = "expanded",
+  canExpand = true,
+  onExpand = () => undefined
+}: {
+  groups: NavGroup[];
+  mode?: SidebarMode;
+  canExpand?: boolean;
+  onExpand?: () => void;
+}) {
   const { view, setView } = useNavigationContext();
-  const { setIsCommandOpen } = useCommandContext();
   const { t } = useI18nContext();
   const previewActionCount = useOrganizationPlanStore((state) => organizationPlanPendingReview(state.plans, state.activePlan));
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
   const aiModeError = useAIProcessingModeStore((state) => state.error);
   const loadAIProcessingMode = useAIProcessingModeStore((state) => state.load);
+  const rail = mode === "rail";
 
   useEffect(() => {
     void loadAIProcessingMode();
@@ -313,27 +425,38 @@ export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] })
   }
 
   return (
-    <aside id="zc-main-sidebar" className={sidebarClass}>
-      <div className="zc-sidebar-brand flex items-center gap-2.5">
-        <span className="zc-sidebar-brand-mark" aria-hidden="true">Z</span>
-        <strong className="block text-sm font-semibold">{t("appName")}</strong>
+    <aside id="zc-main-sidebar" className="zc-sidebar" aria-label={t("appName")} data-sidebar-mode={mode}>
+      <div className="zc-sidebar-brand">
+        <BrandMark size="sidebar" decorative />
+        {!rail && (
+          <div className="zc-sidebar-brand-text">
+            <strong>{t("appName")}</strong>
+            <span>{t("appTagline")}</span>
+          </div>
+        )}
+        {rail && canExpand && (
+          <button type="button" className="zc-titlebar-tool" onClick={onExpand} aria-label={t("shellShowSidebar")} title={t("shellShowSidebar")}>
+            <PanelLeftOpen size={15} />
+          </button>
+        )}
       </div>
-      <nav className="flex flex-1 flex-col gap-3">
+      <nav className="zc-sidebar-nav" aria-label={t("appName")}>
         {groups.map((group) => (
-          <section className="grid gap-1 border-t border-[var(--zc-divider)] pt-3 first:border-t-0 first:pt-0" key={group.id}>
-            {group.label ? <span className={navGroupTitle}>{group.label}</span> : null}
+          <section className="zc-nav-group" key={group.id}>
+            {group.label ? <span className="zc-nav-group-label">{group.label}</span> : null}
             {group.items.map((item) => (
               <button
                 key={item.id}
-                className={cn(navItemBase, view === item.id && navItemActive, view === item.id && selectedFocusVisibleState)}
-                onClick={() => item.action === "open_search" ? setIsCommandOpen(true) : setView(item.id as View)}
+                className="zc-nav-item"
+                title={rail ? item.label : undefined}
+                onClick={() => { if (item.action !== "open_search") setView(item.id as View); }}
                 aria-current={view === item.id ? "page" : undefined}
                 data-nav-action={item.action ?? undefined}
               >
-                <item.icon size={18} strokeWidth={1.7} className="shrink-0" />
-                <span>{item.label}</span>
+                <item.icon size={16} strokeWidth={1.7} aria-hidden="true" />
+                <span className="zc-nav-text">{item.label}</span>
                 {item.id === "organize" && previewActionCount > 0 && (
-                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--zc-warning-soft)] px-1 text-[11px] font-medium text-[var(--zc-warning-text)]" aria-label={t("organizePendingBadge").replace("{count}", previewActionCount.toLocaleString())}>
+                  <span className="zc-nav-badge" aria-label={t("organizePendingBadge").replace("{count}", previewActionCount.toLocaleString())}>
                     {previewActionCount}
                   </span>
                 )}
@@ -342,20 +465,20 @@ export const Sidebar = memo(function Sidebar({ groups }: { groups: NavGroup[] })
           </section>
         ))}
       </nav>
-      <div className="zc-sidebar-account border-t border-[var(--zc-divider)] pt-2">
-        <div className="flex items-center gap-2 px-2 py-1.5">
+      <div className="zc-sidebar-footer">
+        <div className="zc-sidebar-account">
           <span className="zc-sidebar-avatar" aria-hidden="true">ZS</span>
-          <div className="min-w-0">
-            <strong className="block truncate text-xs font-semibold text-[var(--zc-text-primary)]">{t("localWorkspace")}</strong>
-            <span className="block truncate text-[11px] leading-4 text-[var(--zc-text-tertiary)]">{t("localOnly")} · {t("modeAIDisabled")}</span>
+          <div className="zc-sidebar-account-text">
+            <strong>{t("localWorkspace")}</strong>
+            <span>{t("localOnly")} · {t("modeAIDisabled")}</span>
           </div>
         </div>
+        <AIProcessingModeStatus
+          state={{ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }}
+          t={t}
+          onCheckSettings={openAISettings}
+        />
       </div>
-      <AIProcessingModeStatus
-        state={{ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }}
-        t={t}
-        onCheckSettings={openAISettings}
-      />
     </aside>
   );
 });
@@ -452,14 +575,14 @@ export function AIProcessingModeStatus({
   if (!shouldShowAIProcessingModeStatus(state)) return null;
   const mode = sidebarMode(state, t);
   return (
-    <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")} data-ai-processing-mode={resolvedMode}>
+    <div className={cn(softPanel, "mt-1 flex items-start gap-2 p-2 text-xs")} data-ai-processing-mode={resolvedMode}>
       <AIProcessingModeIcon mode={mode.id} />
       <div className="min-w-0 flex-1">
-        <strong className="block text-sm text-[var(--zc-text-primary)]">{mode.title}</strong>
-        <span className="block text-xs leading-5 text-[var(--zc-text-secondary)]">{mode.description}</span>
+        <strong className="block text-xs text-[var(--zc-text-primary)]">{mode.title}</strong>
+        <span className="block text-[11px] leading-4 text-[var(--zc-text-secondary)]">{mode.description}</span>
         {mode.id === "failed" && onCheckSettings ? (
           <button
-            className={cn("mt-1 rounded px-1 py-0.5 text-xs font-semibold text-[var(--zc-warning-text)] hover:bg-[var(--zc-warning-soft)]", focusVisibleState)}
+            className={cn("mt-1 rounded px-1 py-0.5 text-[11px] font-semibold text-[var(--zc-warning-text)] hover:bg-[var(--zc-warning-soft)]", focusVisibleState)}
             onClick={onCheckSettings}
           >
             {t("modeCheckSettings")}
@@ -473,18 +596,18 @@ export function AIProcessingModeStatus({
 function AIProcessingModeIcon({ mode }: { mode: ReturnType<typeof resolveAIProcessingMode> }) {
   const iconClass = "mt-0.5 shrink-0";
   if (mode === "loading") {
-    return <LoaderCircle data-ai-mode-icon="loader" size={17} className={cn(iconClass, "animate-spin text-[var(--zc-info-text)]")} />;
+    return <LoaderCircle data-ai-mode-icon="loader" size={15} className={cn(iconClass, "animate-spin text-[var(--zc-info-text)]")} />;
   }
   if (mode === "failed") {
-    return <TriangleAlert data-ai-mode-icon="warning" size={17} className={cn(iconClass, "text-[var(--zc-warning-text)]")} />;
+    return <TriangleAlert data-ai-mode-icon="warning" size={15} className={cn(iconClass, "text-[var(--zc-warning-text)]")} />;
   }
   if (mode === "disabled") {
-    return <LockKeyhole data-ai-mode-icon="disabled" size={17} className={cn(iconClass, "text-[var(--zc-neutral-text)]")} />;
+    return <LockKeyhole data-ai-mode-icon="disabled" size={15} className={cn(iconClass, "text-[var(--zc-neutral-text)]")} />;
   }
   if (mode === "local") {
-    return <Cpu data-ai-mode-icon="local" size={17} className={cn(iconClass, "text-[var(--zc-success-text)]")} />;
+    return <Cpu data-ai-mode-icon="local" size={15} className={cn(iconClass, "text-[var(--zc-success-text)]")} />;
   }
-  return <Cloud data-ai-mode-icon="cloud" size={17} className={cn(iconClass, "text-[var(--zc-info-text)]")} />;
+  return <Cloud data-ai-mode-icon="cloud" size={15} className={cn(iconClass, "text-[var(--zc-info-text)]")} />;
 }
 
 export function openAIProcessingModeSettings(
@@ -509,7 +632,7 @@ function viewDescription(
     case "cleanup":
       return t("viewDescCleanup");
     case "organize":
-      return t("viewDescOrganize");
+      return `${t("currentOrganizeScope")}: ${scopeText} · ${t("viewDescOrganize")}`;
     case "library":
       return fileLibraryHeadingDescription(scope, stats.totalFiles, scopeText, t);
     case "preview":
@@ -531,8 +654,10 @@ export function navGroups(t: Translator): NavGroup[] {
       id: "primary",
       label: "",
       items: [
-        // Files is the default destination; Global Search uses the top search bar. Files opens
+        // ADR-0016 four core jobs. Files is the default destination and opens
         // in Browse without any Managed Library scope or index authorization.
+        // Global search deliberately has no rail entry: its only entry point is
+        // the titlebar field plus Ctrl/⌘ K (DESIGN-SPEC §4.3).
         { id: "library", label: t("filesWorkspace"), icon: Library },
         { id: "organize", label: t("organizeFiles"), icon: Sparkles },
         { id: "cleanup", label: t("storageCleanup"), icon: Brush }

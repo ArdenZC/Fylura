@@ -226,8 +226,15 @@ describe("Overview v4", () => {
     const shell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
     const priority = readFileSync(resolve("src/views/overview/OverviewPriorityTask.tsx"), "utf8");
     const sections = readFileSync(resolve("src/views/overview/OverviewSections.tsx"), "utf8");
-    expect(shell).toContain("max-[720px]:grid-cols-[0_minmax(0,1fr)_auto]");
-    expect(shell).toContain("overflow-y-auto overscroll-contain");
+    const shellCss = readFileSync(resolve("src/styles/v340-shell.css"), "utf8");
+    // At 200% text the titlebar drops the secondary crumb and the search field
+    // keeps a usable minimum instead of pushing the window controls off-screen.
+    expect(shellCss).toContain("@media (max-width: 720px)");
+    expect(shellCss).toContain(".zc-titlebar-crumb span");
+    expect(shellCss).toContain("min-width: 96px");
+    // The sidebar keeps its own scroll container with contained overscroll.
+    expect(shellCss).toContain("overflow-y: auto;");
+    expect(shellCss).toContain("overscroll-behavior: contain;");
     expect(priority).toContain("[overflow-wrap:anywhere]");
     expect(sections).toContain("[overflow-wrap:anywhere]");
   });

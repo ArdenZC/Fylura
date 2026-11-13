@@ -42,8 +42,8 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(styles).toContain("background: var(--zc-preview-canvas);");
     expect(styles).toContain('.zc-quick-preview-card > [data-preview-state-announcement="true"]');
     expect(styles).toContain("position: absolute;");
-    expect(tokens).toContain("--zc-preview-canvas: #eef0f2;");
-    expect(tokens).toContain("--zc-preview-canvas: #181b1f;");
+    expect(tokens).toContain("--zc-preview-canvas: #eaf1f9;");
+    expect(tokens).toContain("--zc-preview-canvas: #151a20;");
     const documentModeRule = styles.match(/\.zc-quick-preview-content\[data-preview-content-mode="safe_html"\]\s*\{([^}]*)\}/u)?.[1] ?? "";
     expect(documentModeRule).toContain("display: block;");
     expect(documentModeRule).toContain("padding: 34px 40px;");
@@ -59,9 +59,16 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(styles).toMatch(/\.zc-preview-image-stage\s*\{[\s\S]*?background: transparent;/u);
     expect(content).toContain('data-preview-progress="true"');
     expect(content).toContain('data-preview-image-failed="true"');
+    // v3.40 reserves glass for the shell tier (titlebar / sidebar / main /
+    // floating overlays). The preview surface itself never stacks glass or a
+    // second blur on top of a card.
     expect(styles).not.toContain("--zc-glass-");
     expect(styles).not.toContain("backdrop-filter");
-    expect(tokens).not.toContain("--zc-glass-");
+    for (const shellGlass of ["--zc-glass-titlebar:", "--zc-glass-sidebar:", "--zc-glass-main:", "--zc-glass-float:"]) {
+      expect(tokens).toContain(shellGlass);
+    }
+    expect(tokens).not.toContain("--zc-glass-card");
+    expect(tokens).not.toContain("--zc-glass-row");
     expect(styles).toContain("place-items: center;");
     expect(styles).toContain("forced-colors");
   });

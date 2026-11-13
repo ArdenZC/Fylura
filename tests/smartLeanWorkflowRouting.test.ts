@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 // workflow keeps controlled writer pairs and master/candidate baselines apart.
 const workflow = readFileSync(".github/workflows/smart-lean.yml", "utf8");
 const filenameFirstQualification = readFileSync("scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1", "utf8");
+const mft = readFileSync("src-tauri/src/global_index/windows/mft.rs", "utf8");
 const prBlock = workflow.split("\n  push:")[0];
 const routes = [...prBlock.matchAll(/^      - '([^']+)'$/gmu)].map((match) => match[1]);
 const writerJob = workflow.split("\n  master-candidate-baseline:")[0];
@@ -137,9 +138,14 @@ describe("Global Index performance workflow routing", () => {
   it("compares the filename-first path against SQLite using the same Release binary", () => {
     expect(workflow).toContain("Build one Release QA executable for both feature modes");
     expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
-    expect(filenameFirstQualification).toContain("same_release_binary_filename_first_disabled_sqlite_vs_enabled_catalog");
-    expect(workflow).toContain("same Release binary, filename-first disabled SQLite path versus enabled transient-catalog path");
+    expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_8192");
+    expect(workflow).toContain("same Release binary, direct SQLite path with 8192-row SQL batches versus transient filename catalog fed in 512-row MFT chunks and persisted in 8192-row batches");
     expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
+    expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
+    expect(filenameFirstQualification).toContain("fixtureFilenameIndexTargetMet = $candidateFull -le 10000000");
+    expect(filenameFirstQualification).toContain("sourceIndexStatus -ne 'ready' -or $run.result.coveragePending");
+    expect(mft).toContain("let batch_size = if defer_metadata {");
+    expect(mft).toContain("fn mft_emit_batch_size_from(value: Option<&str>) -> usize");
   });
 });

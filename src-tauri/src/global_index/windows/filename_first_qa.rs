@@ -159,26 +159,61 @@ pub fn run_initial(
     }
     let (database_total_entries, database_active_entries) =
         db.native_qa_global_entry_counts(source_id)?;
+    let fixture_file_pattern = expected_path
+        .rsplit_once('/')
+        .and_then(|(bucket_path, _)| bucket_path.rsplit_once('/'))
+        .map(|(fixture_root, _)| {
+            format!("{fixture_root}/bucket-%/filename-first-item-______.txt")
+        })
+        .ok_or("qualification fixture path is not nested under a bucket directory")?;
+    let fixture_file_entries = db.conn()?.query_row(
+        "SELECT COUNT(*) FROM global_entries WHERE volume_id=?1 AND is_stale=0 AND path_normalized LIKE ?2",
+        rusqlite::params![source_id, fixture_file_pattern],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let integrity_conn = db.conn()?;
+    integrity_conn.execute(
+        "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+        [],
+    )?;
+    drop(integrity_conn);
     let database_path = profile.join("fylura.sqlite3");
     let database_bytes = file_size(&database_path)
         .saturating_add(file_size(&sidecar(&database_path, "-wal")))
         .saturating_add(file_size(&sidecar(&database_path, "-shm")));
     let final_status = db.global_index_status()?;
-    if !final_status.collection_complete {
-        let source_status = db
-            .get_global_volume(source_id)?
-            .ok_or("qualification source disappeared before completion check")?;
-        let coverage = db.global_index_coverage()?;
-        let source_coverage = coverage
-            .sources
-            .iter()
-            .find(|source| source.source_id == source_id);
+    let source_status = db
+        .get_global_volume(source_id)?
+        .ok_or("qualification source disappeared before completion check")?;
+    if source_status.index_status != crate::global_index::models::INDEX_STATUS_READY {
         return Err(format!(
-            "native index worker exited without a complete source status: global={final_status:?} source_status={} coverage={source_coverage:?}",
-            source_status.index_status,
+            "native index worker exited without a ready source: global={final_status:?} source_status={}",
+            source_status.index_status
         )
         .into());
     }
+    let coverage = db.global_index_coverage()?;
+    let source_coverage = coverage
+        .sources
+        .iter()
+        .find(|source| source.source_id == source_id)
+        .ok_or("qualification source has no coverage progress")?;
+    let undetermined_entries = {
+        let connection = db.conn()?;
+        let mut statement = connection.prepare(
+            "SELECT name,path,file_attributes,is_directory FROM global_entries WHERE volume_id=?1 AND is_stale=0 AND scope_decision='undetermined' ORDER BY path",
+        )?;
+        statement
+            .query_map([source_id], |row| {
+                Ok(json!({
+                    "name": row.get::<_, String>(0)?,
+                    "path": row.get::<_, String>(1)?,
+                    "fileAttributes": row.get::<_, i64>(2)?,
+                    "isDirectory": row.get::<_, i64>(3)? != 0,
+                }))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
     drop(db);
     let reopened = Database::open(profile.join("fylura.sqlite3"))?;
@@ -208,10 +243,15 @@ pub fn run_initial(
         "fullIndexUs": full_index_us,
         "databaseTotalEntries": database_total_entries,
         "databaseActiveEntries": database_active_entries,
+        "fixtureFileEntries": fixture_file_entries,
         "databaseBytesWithWal": database_bytes,
         "restartedSearchVisible": restarted_search_visible,
         "restartedCompleteCoverageSearchVisible": restarted_complete_coverage_visible,
         "indexComplete": final_status.collection_complete,
+        "sourceIndexStatus": source_status.index_status,
+        "coverageUndetermined": source_coverage.undetermined,
+        "coveragePending": source_coverage.pending,
+        "undeterminedEntries": undetermined_entries,
     }))
 }
 

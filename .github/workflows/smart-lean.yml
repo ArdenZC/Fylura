@@ -335,7 +335,9 @@ jobs:
 
   filename-first-native-pair:
     name: Real NTFS MFT first-search pair (100k)
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'filename_first_pair'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'filename_first_pair') ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]'))
     runs-on: windows-latest
     timeout-minutes: 180
     env:
@@ -386,11 +388,13 @@ jobs:
           $summary = @(
             "Real NTFS MFT pair status: $($report.status)",
             "File count: $($report.fileCount); repetitions per path: $($report.repetitions)",
-            'Comparison: same Release binary, filename-first disabled SQLite path versus enabled transient-catalog path.',
+            'Comparison: same Release binary, direct SQLite path with 8192-row SQL batches versus transient filename catalog fed in 512-row MFT chunks and persisted in 8192-row batches.',
             "Average first-search baseline/candidate: $($report.averages.baselineFirstSearchableUs) / $($report.averages.candidateFirstSearchableUs) us",
             "First-search improvement: $($report.averages.firstSearchImprovementPercent)% (10s candidate target met: $($report.firstSearchTargetMet))",
             "Average complete-index baseline/candidate: $($report.averages.baselineFullIndexUs) / $($report.averages.candidateFullIndexUs) us",
             "Complete-index improvement: $($report.averages.fullIndexImprovementPercent)% (10s candidate target met: $($report.fullIndexTargetMet))",
+            "Task fixture filename-index target met: $($report.fixtureFilenameIndexTargetMet); authorized-source completeness by candidate run: $($report.completeCoveragePerPath.candidate -join ',')",
+            "Fixture files indexed by candidate run: $(@($report.candidate | ForEach-Object { $_.result.fixtureFileEntries }) -join ','); unresolved native coverage rows: $(@($report.candidate | ForEach-Object { $_.result.coverageUndetermined }) -join ',')",
             "MFT read/parse baseline/candidate: $($report.phaseAverages.baselineMftReadParseUs) / $($report.phaseAverages.candidateMftReadParseUs) us",
             "Path resolution baseline/candidate: $($report.phaseAverages.baselinePathResolutionUs) / $($report.phaseAverages.candidatePathResolutionUs) us",
             "Metadata baseline MFT/deferred candidate: $($report.phaseAverages.baselineMftMetadataUs) / $($report.phaseAverages.candidateDeferredMetadataUs) us",

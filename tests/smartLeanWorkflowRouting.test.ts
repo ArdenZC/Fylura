@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 // Performance comparisons are opt-in. Rust CI owns routine correctness; this
 // workflow keeps controlled writer pairs and master/candidate baselines apart.
 const workflow = readFileSync(".github/workflows/smart-lean.yml", "utf8");
+const filenameFirstQualification = readFileSync("scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1", "utf8");
 const prBlock = workflow.split("\n  push:")[0];
 const routes = [...prBlock.matchAll(/^      - '([^']+)'$/gmu)].map((match) => match[1]);
 const writerJob = workflow.split("\n  master-candidate-baseline:")[0];
@@ -109,5 +110,16 @@ describe("Global Index performance workflow routing", () => {
     expect(spotlightJob).toContain("inputs.mode == 'macos_spotlight'");
     expect(spotlightJob).toContain("UNVERIFIED");
     expect(spotlightJob).toContain("Synthetic writer results are reported in the separate writer-pair job");
+  });
+
+  it("mounts the owned NTFS volume before resolving its fixture path as a PowerShell drive", () => {
+    const mount = filenameFirstQualification.indexOf('"assign letter=$driveLetter"');
+    const volumeVisible = filenameFirstQualification.indexOf("Get-CimInstance Win32_LogicalDisk");
+    const fixturePath = filenameFirstQualification.indexOf("$script:fixtureRoot = Join-Path $driveRoot");
+    const fixtureCreate = filenameFirstQualification.indexOf("New-Item -ItemType Directory -Path $script:fixtureRoot");
+    expect(mount).toBeGreaterThanOrEqual(0);
+    expect(volumeVisible).toBeGreaterThan(mount);
+    expect(fixturePath).toBeGreaterThan(volumeVisible);
+    expect(fixtureCreate).toBeGreaterThan(fixturePath);
   });
 });

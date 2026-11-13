@@ -148,6 +148,11 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
         .expect("query a transient parent-path fragment through the on-demand path scan");
     assert_eq!(parent_path_match.results.len(), 1);
     assert_eq!(parent_path_match.results[0].path, included.path);
+    let nested_path_match = db
+        .search_global_entries_snapshot(r"global\transient-report-budget", 20, 0)
+        .expect("query a path fragment spanning a directory and filename");
+    assert_eq!(nested_path_match.results.len(), 1);
+    assert_eq!(nested_path_match.results[0].path, included.path);
     let transient_entry = db
         .get_global_entry_or_transient(&included.entry_id())
         .expect("resolve a pre-persistence search selection")

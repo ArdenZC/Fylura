@@ -203,8 +203,12 @@ struct TransientFilenameCatalog {
     by_id: HashMap<String, usize>,
     by_name: BTreeMap<String, Vec<usize>>,
     by_extension: BTreeMap<String, Vec<usize>>,
-    // Posting lists are append-only; every hit is checked against the current entry text.
+    // Filename postings are append-only and validated against current text.
     by_filename_gram: HashMap<u64, Vec<usize>>,
+    // Parent folders are deduplicated, avoiding one path trigram list per file.
+    by_path_directory: HashMap<String, usize>,
+    path_directories: Vec<TransientPathDirectory>,
+    by_path_gram: HashMap<u64, Vec<usize>>,
 }
 
 struct TransientFilenameEntry {
@@ -212,7 +216,13 @@ struct TransientFilenameEntry {
     input: GlobalEntryInput,
     normalized_name: String,
     normalized_extension: String,
+    parent_directory_index: Option<usize>,
     visible: bool,
+}
+
+struct TransientPathDirectory {
+    normalized_path: String,
+    entries: Vec<usize>,
 }
 
 impl FilenameSearchManager {
@@ -302,12 +312,30 @@ impl FilenameSearchManager {
             by_name,
             by_extension,
             by_filename_gram,
+            by_path_directory,
+            path_directories,
+            by_path_gram,
             visible_unpersisted_entries,
             ..
         } = &mut *catalog;
         for (input, visible) in entries.iter().zip(visible) {
             let id = input.entry_id();
-            let value = transient_filename_entry(id.clone(), input, *visible);
+            let parent_directory_index = if *visible {
+                Some(transient_path_directory_index(
+                    &input.path,
+                    path_directories,
+                    by_path_directory,
+                    by_path_gram,
+                ))
+            } else {
+                None
+            };
+            let value = transient_filename_entry(
+                id.clone(),
+                input,
+                parent_directory_index,
+                *visible,
+            );
             if let Some(index) = by_id.get(&id).copied() {
                 let previous_visible = catalog_entries[index].visible;
                 remove_transient_key(by_name, &catalog_entries[index].normalized_name, index);
@@ -316,6 +344,13 @@ impl FilenameSearchManager {
                     &catalog_entries[index].normalized_extension,
                     index,
                 );
+                if let Some(previous_directory) =
+                    catalog_entries[index].parent_directory_index
+                {
+                    path_directories[previous_directory]
+                        .entries
+                        .retain(|candidate| *candidate != index);
+                }
                 catalog_entries[index] = value;
                 if previous_visible && !*visible {
                     *visible_unpersisted_entries = visible_unpersisted_entries.saturating_sub(1);
@@ -333,6 +368,11 @@ impl FilenameSearchManager {
                         catalog_entries[index].normalized_extension.clone(),
                         index,
                     );
+                    if let Some(directory_index) =
+                        catalog_entries[index].parent_directory_index
+                    {
+                        path_directories[directory_index].entries.push(index);
+                    }
                     for gram in transient_filename_grams(
                         &catalog_entries[index].normalized_name,
                         &catalog_entries[index].normalized_extension,
@@ -356,6 +396,11 @@ impl FilenameSearchManager {
                         catalog_entries[index].normalized_extension.clone(),
                         index,
                     );
+                    if let Some(directory_index) =
+                        catalog_entries[index].parent_directory_index
+                    {
+                        path_directories[directory_index].entries.push(index);
+                    }
                     for gram in transient_filename_grams(
                         &catalog_entries[index].normalized_name,
                         &catalog_entries[index].normalized_extension,
@@ -724,16 +769,34 @@ impl FilenameSearchManager {
                 }
             }
             if heap.len() < target {
-                // Parent-path substring search is less common than filename
-                // lookup. Scan paths on demand instead of retaining a second,
-                // much larger trigram posting list for every discovered path.
-                for entry in &catalog.entries {
-                    if !entry.visible || seen.contains(&entry.id) {
-                        continue;
-                    }
-                    if entry.input.path.to_lowercase().contains(&normalized_query) {
-                        push_transient_entry(&mut heap, target, &mut seen, 6, entry);
-                    }
+                let normalized_path_query = normalized_query.replace('\\', "/");
+                let directory_fragment = normalized_path_query
+                    .rsplit_once('/')
+                    .map_or(normalized_path_query.as_str(), |(parent, _)| parent);
+                let directory_grams = filename_grams(directory_fragment);
+                if let Some(indices) = most_selective_transient_path_gram(
+                    &directory_grams,
+                    &catalog.by_path_gram,
+                ) {
+                    push_transient_path_matches(
+                        &catalog,
+                        indices.iter().copied(),
+                        directory_fragment,
+                        &normalized_query,
+                        &mut heap,
+                        target,
+                        &mut seen,
+                    );
+                } else {
+                    push_transient_path_matches(
+                        &catalog,
+                        0..catalog.path_directories.len(),
+                        directory_fragment,
+                        &normalized_query,
+                        &mut heap,
+                        target,
+                        &mut seen,
+                    );
                 }
             }
         }
@@ -1313,9 +1376,82 @@ impl FilenameSearchManager {
     }
 }
 
+fn transient_parent_directory(path: &str) -> String {
+    let Some(separator) = path.rfind(|character| matches!(character, '\\' | '/')) else {
+        return String::new();
+    };
+    path[..separator]
+        .to_lowercase()
+        .replace('\\', "/")
+}
+
+fn transient_path_directory_index(
+    path: &str,
+    directories: &mut Vec<TransientPathDirectory>,
+    by_directory: &mut HashMap<String, usize>,
+    by_gram: &mut HashMap<u64, Vec<usize>>,
+) -> usize {
+    let normalized_path = transient_parent_directory(path);
+    if let Some(index) = by_directory.get(&normalized_path) {
+        return *index;
+    }
+    let index = directories.len();
+    let mut grams = filename_grams(&normalized_path);
+    grams.sort_unstable();
+    grams.dedup();
+    for gram in grams {
+        by_gram.entry(gram).or_default().push(index);
+    }
+    by_directory.insert(normalized_path.clone(), index);
+    directories.push(TransientPathDirectory {
+        normalized_path,
+        entries: Vec::new(),
+    });
+    index
+}
+
+fn push_transient_path_matches(
+    catalog: &TransientFilenameCatalog,
+    directory_indices: impl Iterator<Item = usize>,
+    directory_fragment: &str,
+    normalized_query: &str,
+    heap: &mut BinaryHeap<TransientRankedCandidate>,
+    target: usize,
+    seen: &mut HashSet<String>,
+) {
+    for directory_index in directory_indices {
+        let Some(directory) = catalog.path_directories.get(directory_index) else {
+            continue;
+        };
+        if !directory.normalized_path.contains(directory_fragment) {
+            continue;
+        }
+        for &entry_index in &directory.entries {
+            let entry = &catalog.entries[entry_index];
+            if entry.visible
+                && !seen.contains(&entry.id)
+                && entry.input.path.to_lowercase().contains(normalized_query)
+            {
+                push_transient_entry(heap, target, seen, 6, entry);
+            }
+        }
+    }
+}
+
+fn most_selective_transient_path_gram<'a>(
+    query_grams: &[u64],
+    index: &'a HashMap<u64, Vec<usize>>,
+) -> Option<&'a Vec<usize>> {
+    query_grams
+        .iter()
+        .filter_map(|gram| index.get(gram))
+        .min_by_key(|indices| indices.len())
+}
+
 fn transient_filename_entry(
     id: String,
     input: &GlobalEntryInput,
+    parent_directory_index: Option<usize>,
     visible: bool,
 ) -> TransientFilenameEntry {
     let normalized_name = input.name.to_lowercase();
@@ -1325,6 +1461,7 @@ fn transient_filename_entry(
         input: input.clone(),
         normalized_name,
         normalized_extension,
+        parent_directory_index,
         visible,
     }
 }

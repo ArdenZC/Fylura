@@ -153,6 +153,8 @@ describe("Global Index performance workflow routing", () => {
     expect(filenameFirstQualification).toContain("$baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'");
     expect(filenameFirstQualification).toContain("$candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'");
     expect(workflow).toContain("Average peak working set baseline/candidate:");
+    expect(filenameFirstQualification).toContain("stages.writer.transient_staging_us");
+    expect(workflow).toContain("Transient catalog staging baseline/candidate:");
     expect(workflow).toContain("Average database+WAL bytes baseline/candidate:");
     expect(workflow).toContain("Write-Output $summary");
   });

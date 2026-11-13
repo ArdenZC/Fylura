@@ -143,7 +143,7 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
     assert_eq!(interior_match.results[0].path, included.path);
     let parent_path_match = db
         .search_global_entries_snapshot("global", 20, 0)
-        .expect("query a transient parent-path fragment through its gram index");
+        .expect("query a transient parent-path fragment through the on-demand path scan");
     assert_eq!(parent_path_match.results.len(), 1);
     assert_eq!(parent_path_match.results[0].path, included.path);
     let transient_entry = db

@@ -134,7 +134,12 @@ function FileLibraryPane() {
     if (nextOpen && contextOpen) controller.setContextOpen(false);
     setNavigationOpen(nextOpen);
   }, [contextOpen, controller, layout, navigationOpen]);
-  const applyTreeWidth = useCallback((width: number) => {
+  /** Live width during a drag: state only, so pointer moves stay cheap. */
+  const previewTreeWidth = useCallback((width: number) => {
+    setTreeWidth(clampTreeWidth(width));
+  }, []);
+  /** Committed width: the release, the keyboard step or the reset. */
+  const commitTreeWidth = useCallback((width: number) => {
     const next = clampTreeWidth(width);
     setTreeWidth(next);
     try { window.localStorage.setItem(LIBRARY_TREE_WIDTH_KEY, String(next)); } catch { /* optional preference */ }
@@ -235,7 +240,12 @@ function FileLibraryPane() {
                     />
                   ) : null}
                   {treeInline ? (
-                    <TreeResizeHandle width={treeWidth} onResize={applyTreeWidth} label={t("fileLibraryTreeResize")} />
+                    <TreeResizeHandle
+                      width={treeWidth}
+                      onPreview={previewTreeWidth}
+                      onCommit={commitTreeWidth}
+                      label={t("fileLibraryTreeResize")}
+                    />
                   ) : null}
                 </aside>
                 {layout === "large" && !treeOpen ? (
@@ -280,14 +290,20 @@ function FileLibraryPane() {
  */
 function TreeResizeHandle({
   width,
-  onResize,
+  onPreview,
+  onCommit,
   label
 }: {
   width: number;
-  onResize: (width: number) => void;
+  onPreview: (width: number) => void;
+  onCommit: (width: number) => void;
   label: string;
 }) {
   const drag = useRef<{ x: number; width: number } | null>(null);
+  // The last previewed width also lives in a ref so a pointerup that arrives in
+  // the same task as the final pointermove still commits the newest value.
+  const latest = useRef(width);
+  latest.current = width;
   return (
     <div
       role="separator"
@@ -305,21 +321,25 @@ function TreeResizeHandle({
       }}
       onPointerMove={(event) => {
         if (!drag.current) return;
-        onResize(drag.current.width + (event.clientX - drag.current.x));
+        const next = drag.current.width + (event.clientX - drag.current.x);
+        latest.current = next;
+        onPreview(next);
       }}
       onPointerUp={(event) => {
+        if (!drag.current) return;
         drag.current = null;
+        onCommit(latest.current);
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
       }}
       onPointerCancel={() => { drag.current = null; }}
-      onDoubleClick={() => onResize(TREE_WIDTH_DEFAULT)}
+      onDoubleClick={() => onCommit(TREE_WIDTH_DEFAULT)}
       onKeyDown={(event) => {
         const step = event.shiftKey ? 24 : 8;
-        if (event.key === "ArrowLeft") { event.preventDefault(); onResize(width - step); }
-        else if (event.key === "ArrowRight") { event.preventDefault(); onResize(width + step); }
-        else if (event.key === "Home") { event.preventDefault(); onResize(TREE_WIDTH_DEFAULT); }
+        if (event.key === "ArrowLeft") { event.preventDefault(); onCommit(width - step); }
+        else if (event.key === "ArrowRight") { event.preventDefault(); onCommit(width + step); }
+        else if (event.key === "Home") { event.preventDefault(); onCommit(TREE_WIDTH_DEFAULT); }
       }}
     />
   );

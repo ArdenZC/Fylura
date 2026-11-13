@@ -174,6 +174,14 @@ pub fn run_initial(
         "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
         [],
     )?;
+    let fts_trigger_count = integrity_conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('global_entries_ai','global_entries_ad','global_entries_au')",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if fts_trigger_count != 3 {
+        return Err(format!("expected all FTS triggers restored, found {fts_trigger_count}").into());
+    }
     drop(integrity_conn);
     let database_path = profile.join("fylura.sqlite3");
     let database_bytes = file_size(&database_path)
@@ -244,6 +252,8 @@ pub fn run_initial(
         "databaseActiveEntries": database_active_entries,
         "fixtureFileEntries": fixture_file_entries,
         "databaseBytesWithWal": database_bytes,
+        "ftsIntegrityVerified": true,
+        "ftsTriggerCount": fts_trigger_count,
         "restartedSearchVisible": restarted_search_visible,
         "restartedCompleteCoverageSearchVisible": restarted_complete_coverage_visible,
         "indexComplete": final_status.collection_complete,

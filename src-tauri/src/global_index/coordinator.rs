@@ -504,6 +504,7 @@ struct SourceWriteTimings {
     entry_upsert: Duration,
     ai_task_qualification: Duration,
     record_decisions: Duration,
+    fts_rebuild: Duration,
     commit: Duration,
     transient_staging: Duration,
     deferred_metadata: Duration,
@@ -549,6 +550,7 @@ impl SourceWriteTimings {
         self.entry_upsert += timing.entry_upsert;
         self.ai_task_qualification += timing.ai_task_qualification;
         self.record_decisions += timing.record_decisions;
+        self.fts_rebuild += timing.fts_rebuild;
         self.commit += timing.commit;
     }
 }
@@ -643,6 +645,7 @@ impl DatabaseIndexSink {
             .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
         let batch_size = initial_mft_persist_batch_size();
         let mut offset = 0;
+        let mut deferred_metadata = Duration::default();
         while offset < entry_count {
             let entries = self
                 .db
@@ -653,6 +656,11 @@ impl DatabaseIndexSink {
                         "transient_initial_catalog_lost_before_persist".into(),
                     )
                 })?;
+            if entries.is_empty() || offset.saturating_add(entries.len()) > entry_count {
+                return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                    "transient_initial_catalog_batch_invalid".into(),
+                ));
+            }
             let metadata_started = Instant::now();
             let mut entries = entries;
             for entry in &mut entries {
@@ -669,34 +677,36 @@ impl DatabaseIndexSink {
                         .or(entry.modified_at_fs);
                 }
             }
-            let metadata_elapsed = metadata_started.elapsed();
+            deferred_metadata += metadata_started.elapsed();
             self.db
                 .filename_search
                 .update_transient_metadata(volume_id, operation_id, &entries)
                 .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
-            let (written, timing) = self
-                .db
-                .upsert_global_entries_batch_owned_timed(&entries, owner)
-                .map_err(Self::map_owned_write_error)?;
-            if written != entries.len() {
-                return Err(GlobalIndexError::ServiceOutcomeUnknown(
-                    "transient_initial_catalog_persist_count_mismatch".into(),
-                ));
-            }
-            self.write_timings
-                .entry(volume_id.to_owned())
-                .or_default()
-                .record_persisted(timing);
-            self.write_timings
-                .entry(volume_id.to_owned())
-                .or_default()
-                .deferred_metadata += metadata_elapsed;
-            self.db
-                .filename_search
-                .mark_transient_persisted(volume_id, operation_id, entries.len())
-                .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
             offset += entries.len();
         }
+
+        let (written, timing) = self
+            .db
+            .upsert_transient_mft_catalog_bulk_owned_timed(
+                volume_id,
+                operation_id,
+                entry_count,
+                batch_size,
+                owner,
+            )
+            .map_err(Self::map_owned_write_error)?;
+        if written != entry_count {
+            return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                "transient_initial_catalog_persist_count_mismatch".into(),
+            ));
+        }
+        let source_timings = self.write_timings.entry(volume_id.to_owned()).or_default();
+        source_timings.record_persisted(timing);
+        source_timings.deferred_metadata += deferred_metadata;
+        self.db
+            .filename_search
+            .mark_transient_persisted(volume_id, operation_id, entry_count)
+            .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
         self.deferred_initial_sources.remove(volume_id);
         log::info!(
             target: "global_index::repository",
@@ -825,7 +835,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
             if timings.batches > 0 {
                 log::info!(
                     target: "global_index::repository",
-                    "source_operation_write status={} completed={} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={}",
+                    "source_operation_write status={} completed={} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_rebuild_us={} commit_us={} finalize_us={}",
                     status,
                     completed,
                     timings.batches,
@@ -841,11 +851,12 @@ impl GlobalIndexSink for DatabaseIndexSink {
                     timings.entry_upsert.as_micros(),
                     timings.ai_task_qualification.as_micros(),
                     timings.record_decisions.as_micros(),
+                    timings.fts_rebuild.as_micros(),
                     timings.commit.as_micros(),
                     finalize_us
                 );
                 crate::global_index::qa_trace::record(&format!(
-                    "source_operation_write status={status} completed={completed} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={finalize_us}",
+                    "source_operation_write status={status} completed={completed} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_rebuild_us={} commit_us={} finalize_us={finalize_us}",
                     timings.batches,
                     timings.sqlite_transactions,
                     timings.transient_staging.as_micros(),
@@ -859,6 +870,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
                     timings.entry_upsert.as_micros(),
                     timings.ai_task_qualification.as_micros(),
                     timings.record_decisions.as_micros(),
+                    timings.fts_rebuild.as_micros(),
                     timings.commit.as_micros()
                 ));
             }

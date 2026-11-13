@@ -311,6 +311,9 @@ try {
             if (-not $run.result.restartedSearchVisible -or -not $run.result.restartedCompleteCoverageSearchVisible) {
                 throw "$side initial run $repetition did not persist the tested filenames across restart"
             }
+            if (-not $run.result.ftsIntegrityVerified -or [long]$run.result.ftsTriggerCount -ne 3) {
+                throw "$side initial run $repetition did not verify FTS content and restore all triggers"
+            }
             if ($run.result.sourceIndexStatus -ne 'ready' -or $run.result.coveragePending) {
                 throw "$side initial run $repetition did not finish its source operation: status=$($run.result.sourceIndexStatus) coveragePending=$($run.result.coveragePending)"
             }
@@ -402,11 +405,13 @@ try {
         candidateTransactionSetupUs = Get-Average $candidateRows.ToArray() 'stages.writer.transaction_setup_us'
         baselineEntryUpsertUs = Get-Average $baselineRows.ToArray() 'stages.writer.entry_upsert_us'
         candidateEntryUpsertUs = Get-Average $candidateRows.ToArray() 'stages.writer.entry_upsert_us'
+        baselineFtsRebuildUs = Get-Average $baselineRows.ToArray() 'stages.writer.fts_rebuild_us'
+        candidateFtsRebuildUs = Get-Average $candidateRows.ToArray() 'stages.writer.fts_rebuild_us'
         baselineCommitUs = Get-Average $baselineRows.ToArray() 'stages.writer.commit_us'
         candidateCommitUs = Get-Average $candidateRows.ToArray() 'stages.writer.commit_us'
         baselineSqliteTransactionCount = Get-Average $baselineRows.ToArray() 'stages.writer.sqlite_transactions'
         candidateSqliteTransactionCount = Get-Average $candidateRows.ToArray() 'stages.writer.sqlite_transactions'
-        ftsTiming = 'FTS5 is synchronous inside entry_upsert_us; use the paired 25k trigger attribution report to isolate trigger cost.'
+        ftsTiming = 'Baseline uses synchronous FTS triggers; candidate initial persistence rebuilds FTS once in the atomic bulk transaction before restoring triggers.'
     }
     $script:evidence.firstSearchTargetMet = $candidateFirst -le 10000000
     $allCandidateCollectionsComplete = @($candidateRows | Where-Object { -not $_.result.indexComplete }).Count -eq 0

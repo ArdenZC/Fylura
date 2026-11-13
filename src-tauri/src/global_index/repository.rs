@@ -22,6 +22,7 @@ pub(crate) struct GlobalIndexBatchTiming {
     pub(crate) entry_upsert: Duration,
     pub(crate) ai_task_qualification: Duration,
     pub(crate) record_decisions: Duration,
+    pub(crate) fts_rebuild: Duration,
     pub(crate) commit: Duration,
 }
 
@@ -37,6 +38,7 @@ impl GlobalIndexBatchTiming {
         self.entry_upsert += other.entry_upsert;
         self.ai_task_qualification += other.ai_task_qualification;
         self.record_decisions += other.record_decisions;
+        self.fts_rebuild += other.fts_rebuild;
         self.commit += other.commit;
     }
 }
@@ -1236,6 +1238,214 @@ impl Database {
         owner: &SourceOperationOwner,
     ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
         self.upsert_global_entries_batch_inner(entries, Some(owner))
+    }
+
+    /// Persist a completed filename-first MFT catalogue atomically. FTS5 is a
+    /// derived search cache: rebuild it once from committed rows, while the
+    /// source, Scope, AI, count, and decision triggers remain enabled.
+    pub(crate) fn upsert_transient_mft_catalog_bulk_owned_timed(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        entry_count: usize,
+        batch_size: usize,
+        owner: &SourceOperationOwner,
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
+        if entry_count == 0 {
+            return Ok((0, timing));
+        }
+        if volume_id != owner.volume_id.as_str()
+            || operation_id != owner.operation_id.as_str()
+            || batch_size == 0
+        {
+            return Err(DbError::Validation(
+                "transient_initial_catalog_owner_mismatch".into(),
+            ));
+        }
+
+        let source = self
+            .get_global_volume(volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        let state = self
+            .global_index_operation_state(volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        if !source.enabled
+            || (source.platform == "windows"
+                && source.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED)
+            || state.revision != owner.revision
+            || state.owner_id.as_deref() != Some(operation_id)
+        {
+            return Err(DbError::Validation(
+                "global_index_operation_owner_lost".into(),
+            ));
+        }
+        if !super::coverage::source_identity_current(&source) {
+            return Err(DbError::Validation(
+                "global_index_source_identity_changed".into(),
+            ));
+        }
+
+        let sqlite_started = Instant::now();
+        let connection_started = Instant::now();
+        let mut conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
+        let transaction_started = Instant::now();
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        timing.transaction_acquisition = transaction_started.elapsed();
+
+        let setup_started = Instant::now();
+        ensure_source_operation_owner_tx(&transaction, owner)?;
+        let policy_started = Instant::now();
+        let policy = super::coverage::load_policy(&transaction)?;
+        timing.coverage_policy_load = policy_started.elapsed();
+        let scope_policies = load_enabled_scope_policies(&transaction)?;
+        transaction.execute_batch(
+            "DROP TRIGGER IF EXISTS global_entries_ai;
+             DROP TRIGGER IF EXISTS global_entries_ad;
+             DROP TRIGGER IF EXISTS global_entries_au;",
+        )?;
+        let canonical_writer = canonical_scope_decision_writes();
+        #[cfg(test)]
+        let upsert_sql = if canonical_writer {
+            UPSERT_GLOBAL_ENTRY_SQL_CANONICAL
+        } else {
+            UPSERT_GLOBAL_ENTRY_SQL
+        };
+        #[cfg(not(test))]
+        let upsert_sql = UPSERT_GLOBAL_ENTRY_SQL;
+        let mut statement = transaction.prepare(upsert_sql)?;
+        timing.transaction_setup = setup_started.elapsed();
+
+        let mut offset = 0usize;
+        let mut processed_entries = 0usize;
+        let mut has_eligible_pending_work = false;
+        while offset < entry_count {
+            let entries = self
+                .filename_search
+                .transient_catalog_batch(volume_id, operation_id, offset, batch_size)
+                .ok_or_else(|| {
+                    DbError::Validation("transient_initial_catalog_lost_before_persist".into())
+                })?;
+            if entries.is_empty()
+                || entries.len() > batch_size
+                || offset.saturating_add(entries.len()) > entry_count
+                || entries.iter().any(|entry| entry.volume_id != volume_id)
+            {
+                return Err(DbError::Validation(
+                    "transient_initial_catalog_batch_invalid".into(),
+                ));
+            }
+
+            let coverage_started = Instant::now();
+            let decisions = super::coverage::observe_batch(&policy, &source, &entries);
+            timing.coverage_evaluation += coverage_started.elapsed();
+            if decisions
+                .iter()
+                .any(|decision| decision.reason() == "outside_authorized_source")
+            {
+                return Err(DbError::Validation(
+                    "global_index_entry_outside_authorized_source".into(),
+                ));
+            }
+
+            for (index, entry) in entries.iter().enumerate() {
+                let decision = &decisions[index];
+                let visible = decision.visible();
+                if !visible && !entry.is_directory {
+                    continue;
+                }
+                let scope_decision = if entry.is_directory && !visible {
+                    "minimal_ancestor"
+                } else if matches!(decision, super::coverage::Decision::Undetermined(_)) {
+                    "undetermined"
+                } else if visible {
+                    "include"
+                } else {
+                    decision.reason()
+                };
+                let scope_decision = if canonical_writer {
+                    None
+                } else {
+                    Some(scope_decision)
+                };
+                let upsert_started = Instant::now();
+                let entry_id = entry.entry_id();
+                execute_entry_upsert(
+                    &transaction,
+                    &mut statement,
+                    upsert_sql,
+                    &entry_id,
+                    entry,
+                    scope_decision,
+                    canonical_writer,
+                )?;
+                timing.entry_upsert += upsert_started.elapsed();
+                if visible {
+                    let qualification_started = Instant::now();
+                    has_eligible_pending_work |= enqueue_ai_jobs_for_entry_with_scopes(
+                        &transaction,
+                        &entry_id,
+                        entry,
+                        &scope_policies,
+                    )?;
+                    timing.ai_task_qualification += qualification_started.elapsed();
+                }
+            }
+            let decisions_started = Instant::now();
+            super::coverage::record_decisions(
+                &transaction,
+                &entries,
+                &decisions,
+                canonical_writer,
+            )?;
+            timing.record_decisions += decisions_started.elapsed();
+            offset += entries.len();
+            processed_entries += entries.len();
+        }
+        drop(statement);
+        if processed_entries != entry_count {
+            return Err(DbError::Validation(
+                "transient_initial_catalog_persist_count_mismatch".into(),
+            ));
+        }
+
+        let fts_started = Instant::now();
+        transaction.execute(
+            "INSERT INTO global_entries_fts(global_entries_fts) VALUES('rebuild')",
+            [],
+        )?;
+        transaction.execute_batch(
+            r#"
+            CREATE TRIGGER IF NOT EXISTS global_entries_ai AFTER INSERT ON global_entries BEGIN
+                INSERT INTO global_entries_fts(rowid, name, path, extension)
+                VALUES (new.rowid, new.name, new.path, new.extension);
+            END;
+            CREATE TRIGGER IF NOT EXISTS global_entries_ad AFTER DELETE ON global_entries BEGIN
+                INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+                VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            END;
+            CREATE TRIGGER IF NOT EXISTS global_entries_au
+            AFTER UPDATE OF name, path, extension ON global_entries
+            WHEN old.name IS NOT new.name OR old.path IS NOT new.path OR old.extension IS NOT new.extension
+            BEGIN
+                INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+                VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+                INSERT INTO global_entries_fts(rowid, name, path, extension)
+                VALUES (new.rowid, new.name, new.path, new.extension);
+            END;
+            "#,
+        )?;
+        timing.fts_rebuild = fts_started.elapsed();
+
+        let commit_started = Instant::now();
+        transaction.commit()?;
+        timing.commit = commit_started.elapsed();
+        timing.sqlite_transaction = sqlite_started.elapsed();
+        if has_eligible_pending_work {
+            self.notify_managed_ai_work();
+        }
+        Ok((entry_count, timing))
     }
 
     /// Performs the authorization and Scope evaluation needed before an MFT

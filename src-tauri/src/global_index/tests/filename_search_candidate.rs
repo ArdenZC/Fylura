@@ -62,6 +62,174 @@ fn build_index(db: &Database) -> FilenameSearchDiagnostics {
     diagnostics
 }
 
+fn claim_transient_test_operation(db: &Database, operation_id: &str) {
+    let source = db
+        .get_global_volume("gv_test")
+        .expect("load source to claim test operation")
+        .expect("test source exists");
+    db.claim_global_index_operation(
+        &source,
+        operation_id,
+        crate::global_index::SourceOperationKind::Initial,
+        crate::global_index::SourceOperationRoute::Service,
+    )
+    .expect("claim test source operation")
+    .expect("test operation owner is available");
+}
+
+#[test]
+fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() {
+    let (db, _path) = open_candidate_database();
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_INDEXING,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("mark source collection incomplete");
+    claim_transient_test_operation(&db, "transient-operation");
+    let included = fixture_entry(
+        "gv_test",
+        r"C:\Global\transient-report-budget.txt",
+        "transient-report-budget.txt",
+        "txt",
+        Some(50),
+        false,
+    );
+    let excluded = fixture_entry(
+        "gv_test",
+        r"C:\Global\ignored-transient-report.txt",
+        "ignored-transient-report.txt",
+        "txt",
+        Some(40),
+        false,
+    );
+    db.filename_search
+        .begin_transient_catalog("gv_test", "transient-operation");
+    db.filename_search
+        .append_transient_catalog(
+            "gv_test",
+            "transient-operation",
+            1,
+            &[included.clone(), excluded],
+            &[true, false],
+        )
+        .expect("append preflighted MFT entries");
+
+    let snapshot = db
+        .search_global_entries_snapshot("transient-report", 20, 0)
+        .expect("search transient filename catalog");
+    assert_eq!(snapshot.results.len(), 1);
+    assert_eq!(snapshot.results[0].path, included.path);
+    assert_eq!(snapshot.results[0].id, included.entry_id());
+    assert!(!snapshot.index_status.collection_complete);
+    assert_eq!(snapshot.index_status.processed_entries, 1);
+    assert_eq!(snapshot.index_status.total_entries, 1);
+    let interior_match = db
+        .search_global_entries_snapshot("report-budget", 20, 0)
+        .expect("query filename grams before SQLite rowids exist");
+    assert_eq!(interior_match.results.len(), 1);
+    assert_eq!(interior_match.results[0].path, included.path);
+    let parent_path_match = db
+        .search_global_entries_snapshot("global", 20, 0)
+        .expect("query a transient parent-path fragment through its gram index");
+    assert_eq!(parent_path_match.results.len(), 1);
+    assert_eq!(parent_path_match.results[0].path, included.path);
+    let transient_entry = db
+        .get_global_entry_or_transient(&included.entry_id())
+        .expect("resolve a pre-persistence search selection")
+        .expect("authorized transient entry remains openable");
+    assert_eq!(transient_entry.path, included.path);
+    assert!(!transient_entry.is_stale);
+    assert_eq!(
+        db.conn()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+
+    db.save_global_index_coverage(
+        1,
+        crate::global_index::coverage::CoverageMode::SmartLean,
+        vec![],
+    )
+    .expect("publish a new scope revision");
+    assert!(db
+        .search_global_entries_snapshot("transient-report", 20, 0)
+        .expect("stale catalog must fall back to the fenced database snapshot")
+        .results
+        .is_empty());
+}
+
+#[test]
+fn transient_filename_catalog_keeps_existing_managed_link_during_rebuild() {
+    let (db, _path) = open_candidate_database();
+    let input = fixture_entry(
+        "gv_test",
+        r"C:\Global\managed-transient-budget.txt",
+        "managed-transient-budget.txt",
+        "txt",
+        Some(50),
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&input))
+        .expect("persist the prior generation");
+    db.add_managed_scope(AddManagedScopeRequest {
+        path: r"C:\Global".into(),
+        global_entry_id: None,
+        enabled: true,
+        allow_local_ai: true,
+        allow_cloud_ai: false,
+    })
+    .expect("associate the prior generation with its managed scope");
+    db.conn()
+        .unwrap()
+        .execute(
+            "UPDATE global_entries SET is_stale=1 WHERE id=?1",
+            [input.entry_id()],
+        )
+        .expect("hide the previous generation while rebuilding");
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_INDEXING,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("mark rebuild incomplete");
+    claim_transient_test_operation(&db, "managed-rebuild");
+
+    let policy_revision = crate::global_index::coverage::load_policy(&db.conn().unwrap())
+        .expect("read current scope revision")
+        .revision;
+    db.filename_search
+        .begin_transient_catalog("gv_test", "managed-rebuild");
+    db.filename_search
+        .append_transient_catalog(
+            "gv_test",
+            "managed-rebuild",
+            policy_revision,
+            std::slice::from_ref(&input),
+            &[true],
+        )
+        .expect("publish the rebuilt filename row");
+
+    let snapshot = db
+        .search_global_entries_snapshot("managed-transient-budget", 10, 0)
+        .expect("query the transient rebuild overlay");
+    assert_eq!(snapshot.results.len(), 1);
+    assert!(snapshot.results[0].managed);
+    assert_eq!(snapshot.results[0].id, input.entry_id());
+    assert!(!snapshot.index_status.collection_complete);
+}
+
 #[derive(Debug)]
 struct OracleRow {
     result: GlobalSearchResult,

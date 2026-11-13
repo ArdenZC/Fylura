@@ -19,8 +19,8 @@ use super::filename_search::{
 };
 use super::models::GlobalSearchResult;
 use crate::db::{Database, DbError};
-use rusqlite::{params, Connection, OptionalExtension, Params};
-use std::collections::HashSet;
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
+use std::collections::{HashMap, HashSet};
 
 const MAX_SEARCH_LIMIT: u32 = 200;
 const MAX_SEARCH_OFFSET: u32 = 1_000_000;
@@ -172,6 +172,20 @@ pub fn search_global_entries(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    if db.filename_search.has_transient_catalog() {
+        let mut conn = db.conn()?;
+        let transaction = conn.transaction()?;
+        if let Some(results) = search_global_entries_with_transient_catalog_on_connection(
+            &transaction,
+            &db.filename_search,
+            query,
+            limit,
+            offset,
+        )? {
+            transaction.commit()?;
+            return Ok(results);
+        }
+    }
     if db.filename_search.is_enabled() && filename_relevance_query_supported(query.trim()) {
         if let Ok(Some(results)) =
             db.filename_search
@@ -217,6 +231,23 @@ pub(crate) fn search_global_entries_on_connection(
     }
 
     let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let results = search_global_entries_candidates_on_connection(conn, query, target)?;
+    Ok(results
+        .into_iter()
+        .skip(offset as usize)
+        .take(limit as usize)
+        .collect())
+}
+
+fn search_global_entries_candidates_on_connection(
+    conn: &Connection,
+    query: &str,
+    target: u32,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    if target == 0 || query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let target = target.min(MAX_TIER_CANDIDATES);
     let (mut results, mut seen) = search_fast_tiers(conn, query, target)?;
 
     if results.len() < target as usize && query.chars().count() >= 3 {
@@ -242,11 +273,144 @@ pub(crate) fn search_global_entries_on_connection(
         }
     }
 
-    Ok(results
+    Ok(results)
+}
+
+/// Combines the disposable, in-memory initial filename projection with rows
+/// already durable in SQLite. The caller's transaction pins both the source
+/// authorization facts and the current scope revision used to admit the
+/// transient projection.
+pub(crate) fn search_global_entries_with_transient_catalog_on_connection(
+    conn: &Connection,
+    filename_search: &super::filename_search::FilenameSearchManager,
+    query: &str,
+    limit: u32,
+    offset: u32,
+) -> Result<Option<Vec<GlobalSearchResult>>, DbError> {
+    if !filename_search.has_transient_catalog() {
+        return Ok(None);
+    }
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(None);
+    }
+    let offset = offset.min(MAX_SEARCH_OFFSET);
+    if offset >= MAX_TIER_CANDIDATES {
+        return Ok(Some(Vec::new()));
+    }
+    let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
+    let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let policy = super::coverage::load_policy(conn)?;
+    let Some(transient) =
+        filename_search.search_transient_catalog(conn, policy.revision, query, target, 0)?
+    else {
+        return Ok(None);
+    };
+    let persisted = search_global_entries_candidates_on_connection(conn, query, target)?;
+    let merged = merge_transient_results(query, persisted, transient, target as usize);
+    let mut results = merged
         .into_iter()
         .skip(offset as usize)
         .take(limit as usize)
-        .collect())
+        .collect::<Vec<_>>();
+    hydrate_transient_managed_flags(conn, &mut results)?;
+    Ok(Some(results))
+}
+
+fn hydrate_transient_managed_flags(
+    conn: &Connection,
+    results: &mut [GlobalSearchResult],
+) -> Result<(), DbError> {
+    let ids = results
+        .iter()
+        .filter(|result| !result.managed)
+        .map(|result| result.id.clone())
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT me.global_entry_id FROM managed_entries me JOIN managed_scopes ms ON ms.id=me.managed_scope_id WHERE me.enabled=1 AND ms.enabled=1 AND me.global_entry_id IN ({placeholders})"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let managed_ids = statement
+        .query_map(params_from_iter(ids.iter()), |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    for result in results {
+        result.managed |= managed_ids.contains(&result.id);
+    }
+    Ok(())
+}
+
+fn merge_transient_results(
+    query: &str,
+    persisted: Vec<GlobalSearchResult>,
+    transient: Vec<GlobalSearchResult>,
+    target: usize,
+) -> Vec<GlobalSearchResult> {
+    let mut by_id = HashMap::<String, GlobalSearchResult>::with_capacity(
+        persisted.len().saturating_add(transient.len()),
+    );
+    for result in persisted.into_iter().chain(transient) {
+        // The durable row carries any established managed/AI association and
+        // wins when the same identity is present in both projections.
+        by_id.entry(result.id.clone()).or_insert(result);
+    }
+    let query = query.to_lowercase();
+    let mut ranked = by_id
+        .into_values()
+        .map(|result| {
+            let name = result.name.to_lowercase();
+            let extension = result.extension.to_lowercase();
+            let path = result.path.to_lowercase();
+            let tier = if name == query {
+                0
+            } else if name.starts_with(&query) {
+                1
+            } else if extension == query {
+                2
+            } else if extension.starts_with(&query) {
+                3
+            } else if name.contains(&query) || extension.contains(&query) {
+                4 + filename_match_class(&name, &query)
+            } else if path.contains(&query) {
+                6
+            } else {
+                7
+            };
+            (tier, result)
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_unstable_by(|(left_tier, left), (right_tier, right)| {
+        left_tier
+            .cmp(right_tier)
+            .then_with(|| {
+                if *left_tier == 4 || *left_tier == 5 {
+                    left.rank.total_cmp(&right.rank)
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .then_with(|| right.modified_at_fs.cmp(&left.modified_at_fs))
+            .then_with(|| left.id.as_bytes().cmp(right.id.as_bytes()))
+    });
+    ranked
+        .into_iter()
+        .take(target)
+        .map(|(_, result)| result)
+        .collect()
+}
+
+fn filename_match_class(name: &str, query: &str) -> u8 {
+    name.match_indices(query).any(|(start, matched)| {
+        let before = name[..start].chars().next_back();
+        let after = name[start + matched.len()..].chars().next();
+        !before.is_some_and(|value| value.is_ascii_alphanumeric() || value == '_')
+            && !after.is_some_and(|value| value.is_ascii_alphanumeric() || value == '_')
+    }) as u8
 }
 
 fn search_fast_tiers(

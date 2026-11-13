@@ -1001,13 +1001,18 @@ fn global_index_writer_trigger_contribution_25k() {
         .collect::<Vec<_>>();
     let mut records = Vec::new();
     for repetition in 0..3 {
-        let mut modes = ["full_triggers", "without_fts", "without_source_stats"];
+        let mut modes = [
+            "full_triggers",
+            "without_fts",
+            "without_source_stats",
+            "bulk_fts",
+        ];
         modes.rotate_left(repetition);
         for mode in modes {
             let db_path = f.root.join(format!("trigger-{repetition}-{mode}.sqlite"));
             let db = Database::open(&db_path).unwrap();
             db.upsert_global_volume(&f.source).unwrap();
-            if mode == "without_fts" {
+            if mode == "without_fts" || mode == "bulk_fts" {
                 db.conn()
                     .unwrap()
                     .execute_batch(
@@ -1029,8 +1034,19 @@ fn global_index_writer_trigger_contribution_25k() {
                 let (_, batch_timing) = db.upsert_global_entries_batch_timed(batch).unwrap();
                 timing.add(batch_timing);
             }
-            let seconds = begin.elapsed().as_secs_f64();
             let conn = db.conn().unwrap();
+            let bulk_fts_build_seconds = if mode == "bulk_fts" {
+                let fts_started = Instant::now();
+                conn.execute(
+                    "INSERT INTO global_entries_fts(rowid,name,path,extension) SELECT rowid,name,path,extension FROM global_entries",
+                    [],
+                )
+                .unwrap();
+                fts_started.elapsed().as_secs_f64()
+            } else {
+                0.0
+            };
+            let seconds = begin.elapsed().as_secs_f64();
             let fts_bytes: i64 = conn
                 .query_row(
                     "SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name GLOB 'global_entries_fts*'",
@@ -1061,7 +1077,7 @@ fn global_index_writer_trigger_contribution_25k() {
             let database_file_bytes = fs::metadata(&db_path).map_or(0, |metadata| metadata.len());
             let wal_path = std::path::PathBuf::from(format!("{}-wal", db_path.display()));
             let wal_bytes = fs::metadata(&wal_path).map_or(0, |metadata| metadata.len());
-            if mode == "full_triggers" {
+            if mode == "full_triggers" || mode == "bulk_fts" {
                 assert_eq!(source_fact_rows, N as i64);
                 assert_eq!(volume_entry_count, N as i64);
                 conn.execute(
@@ -1081,6 +1097,7 @@ fn global_index_writer_trigger_contribution_25k() {
                 "repetition": repetition,
                 "candidates": N,
                 "seconds": seconds,
+                "bulkFtsBuildSeconds": bulk_fts_build_seconds,
                 "candidatesPerSecond": N as f64 / seconds,
                 "sqliteTransactionSeconds": timing.sqlite_transaction.as_secs_f64(),
                 "coveragePolicyLoadSeconds": timing.coverage_policy_load.as_secs_f64(),
@@ -1433,7 +1450,7 @@ fn hardlink_search_admission_uses_native_index_policy() {
 
 #[cfg(windows)]
 #[test]
-fn mft_fast_path_uses_native_attributes_without_extra_handle_checks() {
+fn mft_fast_path_uses_native_attributes_without_per_file_metadata_checks() {
     let f = Fixture::new();
     let mut file = f.file("docs/ordinary.txt");
     let policy = CoveragePolicy::default();
@@ -1448,7 +1465,7 @@ fn mft_fast_path_uses_native_attributes_without_extra_handle_checks() {
     let fallback_metadata = super::native::take_metadata_attempts();
     assert!(
         fast_metadata < fallback_metadata,
-        "MFT filename admission should avoid the extra per-file handle check"
+        "MFT filename admission should avoid a redundant per-file metadata lookup"
     );
 
     file.source_provider = crate::global_index::PROVIDER_WINDOWS_MFT_USN.to_string();

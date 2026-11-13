@@ -7,17 +7,20 @@
 //! compact base plus the bounded in-memory overlay to one SQLite snapshot.
 
 use crate::db::DbError;
+use crate::global_index::models::{
+    normalize_path, GlobalEntry, GlobalEntryInput, GlobalSearchResult,
+};
 #[cfg(test)]
 use rusqlite::StatementStatus;
 use rusqlite::{hooks::Action, Connection, OpenFlags, OptionalExtension, Transaction};
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{
     AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering as AtomicOrdering,
 };
-use std::sync::{Arc, Mutex, TryLockError};
+use std::sync::{Arc, Mutex, RwLock, TryLockError};
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
@@ -186,6 +189,33 @@ pub(crate) struct FilenameSearchManager {
     enabled: AtomicBool,
     rebuild_in_progress: AtomicBool,
     counters: DiagnosticCounters,
+    transient_catalogs: Mutex<HashMap<String, Arc<RwLock<TransientFilenameCatalog>>>>,
+}
+
+#[derive(Default)]
+struct TransientFilenameCatalog {
+    operation_id: String,
+    policy_revision: Option<u64>,
+    complete: bool,
+    persisted_entries: usize,
+    visible_unpersisted_entries: usize,
+    entries: Vec<TransientFilenameEntry>,
+    by_id: HashMap<String, usize>,
+    by_name: BTreeMap<String, Vec<usize>>,
+    by_extension: BTreeMap<String, Vec<usize>>,
+    by_filename_gram: HashMap<u64, Vec<usize>>,
+    by_path_gram: HashMap<u64, Vec<usize>>,
+}
+
+struct TransientFilenameEntry {
+    id: String,
+    input: GlobalEntryInput,
+    normalized_name: String,
+    normalized_extension: String,
+    normalized_path: String,
+    filename_grams: Vec<u64>,
+    path_grams: Vec<u64>,
+    visible: bool,
 }
 
 impl FilenameSearchManager {
@@ -197,7 +227,536 @@ impl FilenameSearchManager {
             enabled: AtomicBool::new(candidate_enabled_from_environment()),
             rebuild_in_progress: AtomicBool::new(false),
             counters: DiagnosticCounters::default(),
+            transient_catalogs: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Starts a disposable filename projection for an admitted full MFT
+    /// baseline. The catalogue is process memory only; SQLite remains the
+    /// durable source and the caller must commit the source checkpoint before
+    /// reporting the operation complete.
+    pub(crate) fn begin_transient_catalog(&self, volume_id: &str, operation_id: &str) {
+        let catalog = Arc::new(RwLock::new(TransientFilenameCatalog {
+            operation_id: operation_id.to_owned(),
+            ..TransientFilenameCatalog::default()
+        }));
+        self.transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(volume_id.to_owned(), catalog);
+    }
+
+    pub(crate) fn has_transient_catalog(&self) -> bool {
+        !self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty()
+    }
+
+    pub(crate) fn append_transient_catalog(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        policy_revision: u64,
+        entries: &[GlobalEntryInput],
+        visible: &[bool],
+    ) -> Result<(), &'static str> {
+        if entries.len() != visible.len() {
+            return Err("entry_visibility_count_mismatch");
+        }
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()
+            .ok_or("transient_catalog_not_started")?;
+        let mut catalog = catalog
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if catalog.operation_id != operation_id || catalog.complete {
+            return Err("transient_catalog_owner_changed");
+        }
+        if catalog
+            .policy_revision
+            .is_some_and(|revision| revision != policy_revision)
+        {
+            return Err("transient_catalog_scope_changed");
+        }
+        catalog.policy_revision = Some(policy_revision);
+        let TransientFilenameCatalog {
+            entries: catalog_entries,
+            by_id,
+            by_name,
+            by_extension,
+            by_filename_gram,
+            by_path_gram,
+            visible_unpersisted_entries,
+            ..
+        } = &mut *catalog;
+        for (input, visible) in entries.iter().zip(visible) {
+            let id = input.entry_id();
+            let value = transient_filename_entry(id.clone(), input, *visible);
+            if let Some(index) = by_id.get(&id).copied() {
+                let previous_visible = catalog_entries[index].visible;
+                remove_transient_key(by_name, &catalog_entries[index].normalized_name, index);
+                remove_transient_key(
+                    by_extension,
+                    &catalog_entries[index].normalized_extension,
+                    index,
+                );
+                for gram in &catalog_entries[index].filename_grams {
+                    remove_transient_gram(by_filename_gram, *gram, index);
+                }
+                for gram in &catalog_entries[index].path_grams {
+                    remove_transient_gram(by_path_gram, *gram, index);
+                }
+                catalog_entries[index] = value;
+                if previous_visible && !*visible {
+                    *visible_unpersisted_entries = visible_unpersisted_entries.saturating_sub(1);
+                } else if !previous_visible && *visible {
+                    *visible_unpersisted_entries = visible_unpersisted_entries.saturating_add(1);
+                }
+                if catalog_entries[index].visible {
+                    insert_transient_key(
+                        by_name,
+                        catalog_entries[index].normalized_name.clone(),
+                        index,
+                    );
+                    insert_transient_key(
+                        by_extension,
+                        catalog_entries[index].normalized_extension.clone(),
+                        index,
+                    );
+                    for gram in &catalog_entries[index].filename_grams {
+                        by_filename_gram.entry(*gram).or_default().push(index);
+                    }
+                    for gram in &catalog_entries[index].path_grams {
+                        by_path_gram.entry(*gram).or_default().push(index);
+                    }
+                }
+            } else {
+                let index = catalog_entries.len();
+                by_id.insert(id, index);
+                catalog_entries.push(value);
+                if catalog_entries[index].visible {
+                    *visible_unpersisted_entries = visible_unpersisted_entries.saturating_add(1);
+                    insert_transient_key(
+                        by_name,
+                        catalog_entries[index].normalized_name.clone(),
+                        index,
+                    );
+                    insert_transient_key(
+                        by_extension,
+                        catalog_entries[index].normalized_extension.clone(),
+                        index,
+                    );
+                    for gram in &catalog_entries[index].filename_grams {
+                        by_filename_gram.entry(*gram).or_default().push(index);
+                    }
+                    for gram in &catalog_entries[index].path_grams {
+                        by_path_gram.entry(*gram).or_default().push(index);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn complete_transient_catalog(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+    ) -> Result<usize, &'static str> {
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()
+            .ok_or("transient_catalog_not_started")?;
+        let mut catalog = catalog
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if catalog.operation_id != operation_id {
+            return Err("transient_catalog_owner_changed");
+        }
+        catalog.complete = true;
+        Ok(catalog.entries.len())
+    }
+
+    pub(crate) fn mark_transient_persisted(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        count: usize,
+    ) -> Result<(), &'static str> {
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()
+            .ok_or("transient_catalog_not_started")?;
+        let mut catalog = catalog
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if catalog.operation_id != operation_id || !catalog.complete {
+            return Err("transient_catalog_owner_changed");
+        }
+        let start = catalog.persisted_entries;
+        let end = start.saturating_add(count).min(catalog.entries.len());
+        let persisted_visible = catalog.entries[start..end]
+            .iter()
+            .filter(|entry| entry.visible)
+            .count();
+        catalog.visible_unpersisted_entries = catalog
+            .visible_unpersisted_entries
+            .saturating_sub(persisted_visible);
+        catalog.persisted_entries = end;
+        Ok(())
+    }
+
+    pub(crate) fn update_transient_metadata(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        entries: &[GlobalEntryInput],
+    ) -> Result<(), &'static str> {
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()
+            .ok_or("transient_catalog_not_started")?;
+        let mut catalog = catalog
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if catalog.operation_id != operation_id || !catalog.complete {
+            return Err("transient_catalog_owner_changed");
+        }
+        for entry in entries {
+            let id = entry.entry_id();
+            let Some(index) = catalog.by_id.get(&id).copied() else {
+                return Err("transient_catalog_entry_missing");
+            };
+            let stored = &mut catalog.entries[index].input;
+            stored.size = entry.size;
+            stored.modified_at_fs = entry.modified_at_fs;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn transient_visible_count(
+        &self,
+        connection: &Connection,
+        policy_revision: u64,
+    ) -> rusqlite::Result<i64> {
+        let catalogs = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(volume_id, catalog)| (volume_id.clone(), Arc::clone(catalog)))
+            .collect::<Vec<_>>();
+        let mut total = 0i64;
+        for (volume_id, catalog) in catalogs {
+            let catalog = catalog
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if catalog.policy_revision != Some(policy_revision) {
+                continue;
+            }
+            let active: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM global_volumes WHERE id=?1 AND enabled=1 AND coverage_pending=0 AND operation_owner_id=?2 AND operation_state='running' AND (platform!='windows' OR scope_authorization_state='authorized'))",
+                rusqlite::params![volume_id, catalog.operation_id],
+                |row| row.get(0),
+            )?;
+            if active {
+                total = total.saturating_add(catalog.visible_unpersisted_entries as i64);
+            }
+        }
+        Ok(total)
+    }
+
+    pub(crate) fn transient_global_entry(
+        &self,
+        connection: &Connection,
+        policy_revision: u64,
+        entry_id: &str,
+    ) -> rusqlite::Result<Option<GlobalEntry>> {
+        let catalogs = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(volume_id, catalog)| (volume_id.clone(), Arc::clone(catalog)))
+            .collect::<Vec<_>>();
+        for (volume_id, catalog) in catalogs {
+            let catalog = catalog
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if catalog.policy_revision != Some(policy_revision) {
+                continue;
+            }
+            let Some(index) = catalog.by_id.get(entry_id).copied() else {
+                continue;
+            };
+            let entry = &catalog.entries[index];
+            if !entry.visible {
+                continue;
+            }
+            let active: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM global_volumes WHERE id=?1 AND enabled=1 AND coverage_pending=0 AND operation_owner_id=?2 AND operation_state='running' AND (platform!='windows' OR scope_authorization_state='authorized'))",
+                rusqlite::params![volume_id, catalog.operation_id],
+                |row| row.get(0),
+            )?;
+            if !active {
+                continue;
+            }
+            return Ok(Some(GlobalEntry {
+                id: entry.id.clone(),
+                volume_id: entry.input.volume_id.clone(),
+                platform_file_id: entry.input.platform_file_id.clone(),
+                parent_platform_file_id: entry.input.parent_platform_file_id.clone(),
+                name: entry.input.name.clone(),
+                name_normalized: entry.normalized_name.clone(),
+                path: entry.input.path.clone(),
+                path_normalized: normalize_path(&entry.input.path),
+                extension: entry.input.extension.clone(),
+                is_directory: entry.input.is_directory,
+                size: entry.input.size,
+                created_at_fs: entry.input.created_at_fs,
+                modified_at_fs: entry.input.modified_at_fs,
+                file_attributes: entry.input.file_attributes,
+                is_hidden: entry.input.is_hidden,
+                is_system: entry.input.is_system,
+                is_stale: false,
+                source_provider: entry.input.source_provider.clone(),
+                last_seen_at: entry.input.last_seen_at,
+            }));
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn transient_catalog_batch(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        start: usize,
+        limit: usize,
+    ) -> Option<Vec<GlobalEntryInput>> {
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()?;
+        let catalog = catalog
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (catalog.operation_id == operation_id).then(|| {
+            catalog
+                .entries
+                .iter()
+                .skip(start)
+                .take(limit)
+                .map(|entry| entry.input.clone())
+                .collect()
+        })
+    }
+
+    pub(crate) fn clear_transient_catalog(&self, volume_id: &str, operation_id: &str) {
+        let mut catalogs = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let should_remove = catalogs.get(volume_id).is_some_and(|catalog| {
+            catalog
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .operation_id
+                == operation_id
+        });
+        if should_remove {
+            catalogs.remove(volume_id);
+        }
+    }
+
+    /// Query the in-memory first-pass filename catalogue. The database
+    /// transaction supplies the current scope revision and active-source
+    /// authorization so a stale catalogue is never widened into search.
+    pub(crate) fn search_transient_catalog(
+        &self,
+        connection: &Connection,
+        policy_revision: u64,
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> rusqlite::Result<Option<Vec<GlobalSearchResult>>> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(None);
+        }
+        let catalogs = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(volume_id, catalog)| (volume_id.clone(), Arc::clone(catalog)))
+            .collect::<Vec<_>>();
+        if catalogs.is_empty() {
+            return Ok(None);
+        }
+
+        let limit = limit.clamp(1, 4_096) as usize;
+        let offset = offset.min(1_000_000) as usize;
+        let target = offset.saturating_add(limit).min(4_096);
+        if offset >= 4_096 {
+            return Ok(Some(Vec::new()));
+        }
+        let normalized_query = query.to_lowercase();
+        let mut heap = BinaryHeap::with_capacity(target.min(4_096));
+        let mut found_active_catalog = false;
+        let mut seen = HashSet::new();
+        for (volume_id, catalog) in &catalogs {
+            let catalog = catalog
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let active: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM global_volumes WHERE id=?1 AND enabled=1 AND coverage_pending=0 AND operation_owner_id=?2 AND operation_state='running' AND (platform!='windows' OR scope_authorization_state='authorized'))",
+                rusqlite::params![volume_id, catalog.operation_id],
+                |row| row.get(0),
+            )?;
+            if !active {
+                continue;
+            }
+            if catalog.policy_revision != Some(policy_revision) {
+                continue;
+            }
+            found_active_catalog = true;
+
+            if let Some(indices) = catalog.by_name.get(&normalized_query) {
+                for index in indices {
+                    let entry = &catalog.entries[*index];
+                    push_transient_entry(&mut heap, target, &mut seen, 0, entry);
+                }
+            }
+            for (key, indices) in catalog.by_name.range(normalized_query.clone()..) {
+                if !key.starts_with(&normalized_query) {
+                    break;
+                }
+                if key == &normalized_query {
+                    continue;
+                }
+                for index in indices {
+                    let entry = &catalog.entries[*index];
+                    push_transient_entry(&mut heap, target, &mut seen, 1, entry);
+                }
+            }
+            if let Some(indices) = catalog.by_extension.get(&normalized_query) {
+                for index in indices {
+                    let entry = &catalog.entries[*index];
+                    push_transient_entry(&mut heap, target, &mut seen, 2, entry);
+                }
+            }
+            for (key, indices) in catalog.by_extension.range(normalized_query.clone()..) {
+                if !key.starts_with(&normalized_query) {
+                    break;
+                }
+                if key == &normalized_query {
+                    continue;
+                }
+                for index in indices {
+                    let entry = &catalog.entries[*index];
+                    push_transient_entry(&mut heap, target, &mut seen, 3, entry);
+                }
+            }
+            let query_grams = filename_grams(&normalized_query);
+            if let Some(indices) =
+                most_selective_transient_gram(&query_grams, &catalog.by_filename_gram)
+            {
+                for index in indices {
+                    let entry = &catalog.entries[*index];
+                    if !entry.visible || seen.contains(&entry.id) {
+                        continue;
+                    }
+                    if entry.normalized_name.contains(&normalized_query) {
+                        let tier =
+                            4 + filename_match_class(&entry.normalized_name, &normalized_query)
+                                .unwrap_or(SUBSTRING_CLASS);
+                        push_transient_entry(&mut heap, target, &mut seen, tier, entry);
+                    } else if entry.normalized_extension.contains(&normalized_query) {
+                        push_transient_entry(
+                            &mut heap,
+                            target,
+                            &mut seen,
+                            4 + SUBSTRING_CLASS,
+                            entry,
+                        );
+                    }
+                }
+            } else if query_grams.is_empty() {
+                for entry in &catalog.entries {
+                    if !entry.visible || seen.contains(&entry.id) {
+                        continue;
+                    }
+                    if entry.normalized_name.contains(&normalized_query) {
+                        let tier =
+                            4 + filename_match_class(&entry.normalized_name, &normalized_query)
+                                .unwrap_or(SUBSTRING_CLASS);
+                        push_transient_entry(&mut heap, target, &mut seen, tier, entry);
+                    } else if entry.normalized_extension.contains(&normalized_query) {
+                        push_transient_entry(
+                            &mut heap,
+                            target,
+                            &mut seen,
+                            4 + SUBSTRING_CLASS,
+                            entry,
+                        );
+                    }
+                }
+            }
+            if heap.len() < target {
+                if let Some(indices) =
+                    most_selective_transient_gram(&query_grams, &catalog.by_path_gram)
+                {
+                    for index in indices {
+                        let entry = &catalog.entries[*index];
+                        if entry.visible
+                            && !seen.contains(&entry.id)
+                            && entry.normalized_path.contains(&normalized_query)
+                        {
+                            push_transient_entry(&mut heap, target, &mut seen, 6, entry);
+                        }
+                    }
+                } else if query_grams.is_empty() {
+                    for entry in &catalog.entries {
+                        if !entry.visible || seen.contains(&entry.id) {
+                            continue;
+                        }
+                        if entry.normalized_path.contains(&normalized_query) {
+                            push_transient_entry(&mut heap, target, &mut seen, 6, entry);
+                        }
+                    }
+                }
+            }
+        }
+        if !found_active_catalog {
+            return Ok(None);
+        }
+        let mut ranked = heap.into_vec();
+        ranked.sort_unstable();
+        Ok(Some(
+            ranked
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .map(|candidate| candidate.result)
+                .collect(),
+        ))
     }
 
     pub(crate) fn is_enabled(&self) -> bool {
@@ -759,6 +1318,64 @@ impl FilenameSearchManager {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
     }
+}
+
+fn transient_filename_entry(
+    id: String,
+    input: &GlobalEntryInput,
+    visible: bool,
+) -> TransientFilenameEntry {
+    let normalized_name = input.name.to_lowercase();
+    let normalized_extension = input.extension.to_lowercase();
+    let mut grams = filename_grams(&normalized_name);
+    grams.extend(filename_grams(&normalized_extension));
+    grams.sort_unstable();
+    grams.dedup();
+    let normalized_path = input.path.to_lowercase();
+    let mut path_grams = filename_grams(&normalized_path);
+    path_grams.sort_unstable();
+    path_grams.dedup();
+    TransientFilenameEntry {
+        id,
+        input: input.clone(),
+        normalized_name,
+        normalized_extension,
+        normalized_path,
+        filename_grams: grams,
+        path_grams,
+        visible,
+    }
+}
+
+fn most_selective_transient_gram<'a>(
+    query_grams: &[u64],
+    index: &'a HashMap<u64, Vec<usize>>,
+) -> Option<&'a Vec<usize>> {
+    query_grams
+        .iter()
+        .filter_map(|gram| index.get(gram))
+        .min_by_key(|indices| indices.len())
+}
+
+fn encode_filename_trigram(characters: [char; 3]) -> u64 {
+    characters.into_iter().fold(0u64, |encoded, character| {
+        (encoded << 21) | u64::from(character as u32)
+    })
+}
+
+fn filename_grams(value: &str) -> Vec<u64> {
+    let characters = value.chars().collect::<Vec<_>>();
+    let mut grams = Vec::with_capacity(characters.len().saturating_sub(2));
+    if characters.len() >= 3 {
+        for start in 0..=characters.len() - 3 {
+            grams.push(encode_filename_trigram([
+                characters[start],
+                characters[start + 1],
+                characters[start + 2],
+            ]));
+        }
+    }
+    grams
 }
 
 fn candidate_enabled_from_environment() -> bool {
@@ -1930,6 +2547,109 @@ pub(crate) struct RankedFileCandidate<'a> {
     pub stable_id: Cow<'a, [u8]>,
 }
 
+struct TransientRankedCandidate {
+    tier: u8,
+    modified_at: Option<i64>,
+    result: GlobalSearchResult,
+}
+
+impl PartialEq for TransientRankedCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        compare_transient_candidates(self, other) == Ordering::Equal
+    }
+}
+impl Eq for TransientRankedCandidate {}
+impl PartialOrd for TransientRankedCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for TransientRankedCandidate {
+    fn cmp(&self, other: &Self) -> Ordering {
+        compare_transient_candidates(self, other)
+    }
+}
+
+fn compare_transient_candidates(
+    left: &TransientRankedCandidate,
+    right: &TransientRankedCandidate,
+) -> Ordering {
+    left.tier
+        .cmp(&right.tier)
+        .then_with(|| right.modified_at.cmp(&left.modified_at))
+        .then_with(|| left.result.id.as_bytes().cmp(right.result.id.as_bytes()))
+}
+
+fn push_transient_entry(
+    heap: &mut BinaryHeap<TransientRankedCandidate>,
+    capacity: usize,
+    seen: &mut HashSet<String>,
+    tier: u8,
+    entry: &TransientFilenameEntry,
+) {
+    if capacity == 0 || !entry.visible || seen.contains(&entry.id) {
+        return;
+    }
+    let input = &entry.input;
+    let candidate = TransientRankedCandidate {
+        tier,
+        modified_at: input.modified_at_fs,
+        result: GlobalSearchResult {
+            id: entry.id.clone(),
+            volume_id: input.volume_id.clone(),
+            platform_file_id: input.platform_file_id.clone(),
+            name: input.name.clone(),
+            path: input.path.clone(),
+            extension: input.extension.clone(),
+            is_directory: input.is_directory,
+            size: input.size,
+            created_at_fs: input.created_at_fs,
+            modified_at_fs: input.modified_at_fs,
+            file_attributes: input.file_attributes,
+            is_hidden: input.is_hidden,
+            is_system: input.is_system,
+            source_provider: input.source_provider.clone(),
+            managed: false,
+            rank: tier as f64,
+        },
+    };
+    if heap.len() < capacity {
+        seen.insert(entry.id.clone());
+        heap.push(candidate);
+    } else if heap
+        .peek()
+        .is_some_and(|worst| compare_transient_candidates(&candidate, worst) == Ordering::Less)
+    {
+        if let Some(removed) = heap.pop() {
+            seen.remove(&removed.result.id);
+        }
+        seen.insert(entry.id.clone());
+        heap.push(candidate);
+    }
+}
+
+fn insert_transient_key(index: &mut BTreeMap<String, Vec<usize>>, key: String, value: usize) {
+    index.entry(key).or_default().push(value);
+}
+
+fn remove_transient_key(index: &mut BTreeMap<String, Vec<usize>>, key: &str, value: usize) {
+    if let Some(values) = index.get_mut(key) {
+        values.retain(|index| *index != value);
+        if values.is_empty() {
+            index.remove(key);
+        }
+    }
+}
+
+fn remove_transient_gram(index: &mut HashMap<u64, Vec<usize>>, gram: u64, value: usize) {
+    if let Some(values) = index.get_mut(&gram) {
+        values.retain(|index| *index != value);
+        if values.is_empty() {
+            index.remove(&gram);
+        }
+    }
+}
+
 impl PartialEq for RankedFileCandidate<'_> {
     fn eq(&self, other: &Self) -> bool {
         compare_candidates(self, other) == Ordering::Equal
@@ -1996,6 +2716,20 @@ fn is_ascii_word_character(character: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_search_uses_the_rarest_query_gram() {
+        let query = filename_grams("filename-first-item-000000.txt");
+        let common = query[0];
+        let rare = *query.last().expect("query has filename grams");
+        let index = HashMap::from([
+            (common, (0..100_000).collect::<Vec<_>>()),
+            (rare, vec![17, 23]),
+        ]);
+        let selected = most_selective_transient_gram(&query, &index)
+            .expect("one query gram exists in the index");
+        assert_eq!(selected, &vec![17, 23]);
+    }
 
     #[test]
     fn bounded_occurrence_checks_later_occurrences_and_uses_ascii_word_contract() {

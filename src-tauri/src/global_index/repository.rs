@@ -1238,6 +1238,74 @@ impl Database {
         self.upsert_global_entries_batch_inner(entries, Some(owner))
     }
 
+    /// Performs the authorization and Scope evaluation needed before an MFT
+    /// batch may enter the disposable in-memory filename catalogue. The same
+    /// checks run again when the staged entries are persisted to SQLite.
+    pub(crate) fn preflight_global_entries_batch_owned(
+        &self,
+        entries: &[GlobalEntryInput],
+        owner: &SourceOperationOwner,
+    ) -> Result<(Vec<bool>, u64, GlobalIndexBatchTiming), DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
+        if entries.is_empty() {
+            return Ok((Vec::new(), 0, timing));
+        }
+        if entries
+            .iter()
+            .any(|entry| entry.volume_id != owner.volume_id)
+        {
+            return Err(DbError::Validation(
+                "global_index_operation_foreign_volume_write".into(),
+            ));
+        }
+        let source = self
+            .get_global_volume(&owner.volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        let state = self
+            .global_index_operation_state(&owner.volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        if !source.enabled
+            || (source.platform == "windows"
+                && source.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED)
+            || state.revision != owner.revision
+            || state.owner_id.as_deref() != Some(&owner.operation_id)
+        {
+            return Err(DbError::Validation(
+                "global_index_operation_owner_lost".into(),
+            ));
+        }
+        if !super::coverage::source_identity_current(&source) {
+            return Err(DbError::Validation(
+                "global_index_source_identity_changed".into(),
+            ));
+        }
+        let connection_started = Instant::now();
+        let policy_conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
+        let policy_load_started = Instant::now();
+        let policy = super::coverage::load_policy(&policy_conn)?;
+        timing.coverage_policy_load = policy_load_started.elapsed();
+        let coverage_started = Instant::now();
+        let decisions = super::coverage::observe_batch(&policy, &source, entries);
+        timing.coverage_evaluation = coverage_started.elapsed();
+        if decisions
+            .iter()
+            .any(|decision| decision.reason() == "outside_authorized_source")
+        {
+            return Err(DbError::Validation(
+                "global_index_entry_outside_authorized_source".into(),
+            ));
+        }
+        Ok((
+            decisions
+                .iter()
+                .map(super::coverage::Decision::visible)
+                .collect(),
+            policy.revision,
+            timing,
+        ))
+    }
+
     #[cfg(test)]
     pub(crate) fn upsert_global_entries_batch_timed(
         &self,
@@ -1544,9 +1612,32 @@ impl Database {
         .map_err(DbError::from)
     }
 
+    pub(crate) fn get_global_entry_or_transient(
+        &self,
+        entry_id: &str,
+    ) -> Result<Option<GlobalEntry>, DbError> {
+        if let Some(entry) = self.get_global_entry(entry_id)? {
+            if !entry.is_stale {
+                return Ok(Some(entry));
+            }
+        }
+        if !self.filename_search.has_transient_catalog() {
+            return Ok(None);
+        }
+        let conn = self.conn()?;
+        let policy_revision = super::coverage::load_policy(&conn)?.revision;
+        self.filename_search
+            .transient_global_entry(&conn, policy_revision, entry_id)
+            .map_err(DbError::from)
+    }
+
     pub fn global_index_status(&self) -> Result<GlobalIndexStatus, DbError> {
         let conn = self.conn()?;
-        global_index_status_from_connection(&conn)
+        with_transient_catalog_progress(
+            global_index_status_from_connection(&conn)?,
+            &conn,
+            &self.filename_search,
+        )
     }
 
     /// True while an enabled source cannot observe changes.
@@ -1580,6 +1671,34 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> Result<GlobalSearchSnapshot, DbError> {
+        if self.filename_search.has_transient_catalog() {
+            let mut conn = self.conn()?;
+            let transaction = conn.transaction()?;
+            if let Some(results) =
+                super::search::search_global_entries_with_transient_catalog_on_connection(
+                    &transaction,
+                    &self.filename_search,
+                    query,
+                    limit,
+                    offset,
+                )?
+            {
+                let (source_health, source_revision, enabled_rows) =
+                    load_snapshot_source_health(&transaction)?;
+                let index_status = with_transient_catalog_progress(
+                    global_index_status_with_total(&transaction, enabled_rows)?,
+                    &transaction,
+                    &self.filename_search,
+                )?;
+                transaction.commit()?;
+                return Ok(GlobalSearchSnapshot {
+                    results,
+                    source_health,
+                    source_revision,
+                    index_status,
+                });
+            }
+        }
         if self.filename_search.is_enabled()
             && super::search::filename_relevance_query_supported(query.trim())
         {
@@ -1609,8 +1728,11 @@ impl Database {
                         );
                         #[cfg(test)]
                         let index_status_started = std::time::Instant::now();
-                        let index_status =
-                            global_index_status_with_total(transaction, enabled_rows)?;
+                        let index_status = with_transient_catalog_progress(
+                            global_index_status_with_total(transaction, enabled_rows)?,
+                            transaction,
+                            &self.filename_search,
+                        )?;
                         #[cfg(test)]
                         super::filename_search::record_candidate_search_stage(
                             "snapshot_index_status",
@@ -1633,7 +1755,11 @@ impl Database {
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
         let (source_health, source_revision, enabled_rows) =
             load_snapshot_source_health(&transaction)?;
-        let index_status = global_index_status_with_total(&transaction, enabled_rows)?;
+        let index_status = with_transient_catalog_progress(
+            global_index_status_with_total(&transaction, enabled_rows)?,
+            &transaction,
+            &self.filename_search,
+        )?;
         transaction.commit()?;
         Ok(GlobalSearchSnapshot {
             results,
@@ -1745,6 +1871,21 @@ fn global_index_status_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<GlobalIndexStatus, DbError> {
     global_index_status_with_total(conn, None)
+}
+
+fn with_transient_catalog_progress(
+    mut status: GlobalIndexStatus,
+    conn: &Connection,
+    filename_search: &super::filename_search::FilenameSearchManager,
+) -> Result<GlobalIndexStatus, DbError> {
+    if !filename_search.has_transient_catalog() {
+        return Ok(status);
+    }
+    let policy_revision = super::coverage::load_policy(conn)?.revision;
+    let transient_entries = filename_search.transient_visible_count(conn, policy_revision)?;
+    status.processed_entries = status.processed_entries.saturating_add(transient_entries);
+    status.total_entries = status.total_entries.saturating_add(transient_entries);
+    Ok(status)
 }
 
 fn global_index_status_with_total(

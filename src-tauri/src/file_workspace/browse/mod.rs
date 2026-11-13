@@ -1651,7 +1651,7 @@ fn is_hidden_entry(name: &str, metadata: &std::fs::Metadata) -> bool {
     }
     #[cfg(target_os = "macos")]
     {
-        use std::os::macos::fs::MetadataExt;
+        use std::os::darwin::fs::MetadataExt;
         metadata.st_flags() & 0x8000 != 0
     }
     #[cfg(not(any(windows, target_os = "macos")))]

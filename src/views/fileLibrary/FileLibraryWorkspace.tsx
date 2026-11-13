@@ -22,6 +22,7 @@ import {
 } from "./fileLibraryCommandBarSurface";
 import { FileManagementToolbar } from "./management/FileManagementToolbar";
 import "./fileLibraryWorkspace.css";
+import "./fileLibraryV340.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
 const BrowseMode = lazy(() => import("./browse/BrowseMode").then((module) => ({ default: module.BrowseMode })));
@@ -33,6 +34,16 @@ export const layoutForWidth = (width: number): FileLibraryLayout => {
   if (width >= 820) return "medium";
   return "compact";
 };
+
+const LIBRARY_TREE_PREFERENCE_KEY = "fylura:file-tree-open";
+
+function readTreeOpenPreference() {
+  try {
+    return window.localStorage.getItem(LIBRARY_TREE_PREFERENCE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
 
 export function FileLibraryWorkspace({ active = true }: { active?: boolean }) { return <FileLibraryWorkbench Pane={FileLibraryPane} active={active}/>; }
 
@@ -46,6 +57,7 @@ function FileLibraryPane() {
   const navigationToggleRef = useRef<HTMLButtonElement | null>(null);
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [treeOpen, setTreeOpen] = useState(readTreeOpenPreference);
   const [commandBarSurface, setCommandBarSurface] = useState<FileLibraryCommandBarSurface | null>(null);
 
   const registerSurface = useCallback((surface: FileLibraryCommandBarSurface) => {
@@ -81,9 +93,26 @@ function FileLibraryPane() {
     : state.workspace.browse?.location.displayName ?? t("fileLibraryNoFolderOpen");
 
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
+  /**
+   * The directory tree has two presentations: an inline 196px column on wide
+   * layouts and a drawer below that. They keep separate state so resizing does
+   * not silently open a drawer, and the inline column's choice is remembered.
+   */
+  const treeInline = layout === "large" && treeOpen;
+  const navigationVisible = layout === "large" ? treeOpen : navigationOpen;
   const toggleNavigation = useCallback(() => {
+    if (layout === "large") {
+      setTreeOpen((open) => {
+        const next = !open;
+        try { window.localStorage.setItem(LIBRARY_TREE_PREFERENCE_KEY, String(next)); } catch { /* optional preference */ }
+        return next;
+      });
+      return;
+    }
     const nextOpen = !navigationOpen;
-    if (nextOpen && layout !== "large" && contextOpen) controller.setContextOpen(false);
+    // Drawer presentation may only own one overlay: opening the tree gives the
+    // inspector back to the layout rather than stacking two overlays.
+    if (nextOpen && contextOpen) controller.setContextOpen(false);
     setNavigationOpen(nextOpen);
   }, [contextOpen, controller, layout, navigationOpen]);
   const toggleContext = useCallback(() => {
@@ -130,7 +159,8 @@ function FileLibraryPane() {
             data-mode={state.mode}
             data-detached-browse={state.detachedBrowse ? "true" : "false"}
             data-context-open={contextOpen ? "true" : "false"}
-            data-file-library-navigation-open={navigationOpen ? "true" : "false"}
+            data-file-library-navigation-open={navigationVisible ? "true" : "false"}
+            data-tree-inline={treeInline ? "true" : "false"}
           >
             <div className="file-library-location-row">
             <PathBar />
@@ -144,7 +174,7 @@ function FileLibraryPane() {
               canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
               onBack={() => void controller.back()}
               onForward={() => void controller.forward()}
-              navigationOpen={navigationOpen}
+              navigationOpen={navigationVisible}
               onNavigationToggle={toggleNavigation}
               navigationToggleRef={navigationToggleRef}
               localSearch={commandBarSurface?.search}
@@ -167,9 +197,9 @@ function FileLibraryPane() {
                   id={pane ? `file-library-navigation-slot-${pane.id}` : "file-library-navigation-slot"}
                   className="file-library-navigation-slot"
                   data-workspace-slot="navigation"
-                  aria-hidden={!navigationOpen}
+                  aria-hidden={!navigationVisible}
                 >
-                  {navigationOpen && (pane?.visible ?? true) ? (
+                  {navigationVisible && (pane?.visible ?? true) ? (
                     <FileLibraryNavigation
                       controller={controller}
                       state={state}

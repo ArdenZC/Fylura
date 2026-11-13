@@ -112,8 +112,14 @@ describe("W2-10 interaction/accessibility/responsive integration contracts", () 
     const workspace = read("src/views/fileLibrary/FileLibraryWorkspace.tsx");
     const workspaceCss = read("src/views/fileLibrary/fileLibraryWorkspace.css");
     const browseCss = read("src/views/fileLibrary/browse/browseMode.css");
-    expect(workspace).toContain("if (nextOpen && layout !== \"large\" && contextOpen) controller.setContextOpen(false)");
-    expect(workspace).toContain("if (nextOpen && layout !== \"large\") setNavigationOpen(false)");
+    // v3.40 keeps one overlay owner per presentation: opening the drawer closes
+    // the inspector, and opening the inspector closes the drawer below `large`.
+    expect(workspace).toContain("if (nextOpen && contextOpen) controller.setContextOpen(false)");
+    expect(workspace).toContain('if (nextOpen && layout !== "large") setNavigationOpen(false)');
+    // The inline tree and the drawer keep separate state so a resize never
+    // silently opens an overlay.
+    expect(workspace).toContain('const treeInline = layout === "large" && treeOpen');
+    expect(workspace).toContain('const navigationVisible = layout === "large" ? treeOpen : navigationOpen');
     expect(workspaceCss).toContain("@media (prefers-reduced-motion: reduce)");
     expect(browseCss).toContain("@media (prefers-reduced-motion: reduce)");
   });

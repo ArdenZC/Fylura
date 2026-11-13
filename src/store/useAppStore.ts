@@ -11,6 +11,7 @@ interface AppStore {
   theme: ThemeMode;
   density: Density;
   sidebarHidden: boolean;
+  sidebarRail: boolean;
   view: View;
   automationSurface: AutomationSurface;
   searchQuery: string;
@@ -20,6 +21,7 @@ interface AppStore {
   setTheme: (theme: ThemeMode) => void;
   setDensity: (density: Density) => void;
   setSidebarHidden: (hidden: boolean) => void;
+  setSidebarRail: (rail: boolean) => void;
   setView: (view: View) => void;
   setAutomationSurface: (surface: AutomationSurface) => void;
   setSearchQuery: (searchQuery: string) => void;
@@ -35,6 +37,7 @@ export const useAppStore = create<AppStore>((set) => ({
   theme: preferredTheme(),
   density: preferredDensity(),
   sidebarHidden: preferredSidebarHidden(),
+  sidebarRail: preferredSidebarRail(),
   view: initialMainView(),
   automationSurface: "intents",
   searchQuery: "",
@@ -55,6 +58,10 @@ export const useAppStore = create<AppStore>((set) => ({
   setSidebarHidden: (sidebarHidden) => {
     set({ sidebarHidden });
     try { window.localStorage.setItem("zc-sidebar-hidden", String(sidebarHidden)); } catch { /* optional preference */ }
+  },
+  setSidebarRail: (sidebarRail) => {
+    set({ sidebarRail });
+    try { window.localStorage.setItem("zc-sidebar-rail", String(sidebarRail)); } catch { /* optional preference */ }
   },
   setView: (view) => set((state) => {
     const canonicalView = normalizeViewInput(view) ?? "library";
@@ -85,5 +92,16 @@ function preferredDensity(): Density {
 
 function preferredSidebarHidden(): boolean {
   try { return window.localStorage.getItem("zc-sidebar-hidden") === "true"; }
+  catch { return false; }
+}
+
+/**
+ * Icon-rail preference. Kept separate from `sidebarHidden` so the two states
+ * stay independently restorable: the rail is "collapsed but reachable", the
+ * hidden state is "no sidebar at all". Both persist; a narrow window may
+ * transiently render the rail without overwriting the stored choice.
+ */
+function preferredSidebarRail(): boolean {
+  try { return window.localStorage.getItem("zc-sidebar-rail") === "true"; }
   catch { return false; }
 }

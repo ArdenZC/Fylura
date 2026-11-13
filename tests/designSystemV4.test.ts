@@ -59,40 +59,45 @@ function contrastRatio(foreground: string, background: string) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-describe("W6-09 Solid / Calm V2 design foundation", () => {
+describe("v3.40 design foundation (approved prototype baseline)", () => {
   const styles = read("src/styles.css");
   const tokens = read("src/styles/tokens.css");
-  const shellV26 = read("src/styles/w6-07-shell-v26.css");
+  const shellV340 = read("src/styles/v340-shell.css");
+  const filesV340 = read("src/views/fileLibrary/fileLibraryV340.css");
   const filesV26 = read("src/views/fileLibrary/fileLibraryV26.css");
   const tw = read("src/utils/tw.ts");
   const brandMark = read("src/components/ui/BrandMark.tsx");
   const shellChrome = read("src/components/ShellChrome.tsx");
 
-  it("binds production semantic roles to the current Solid / Calm light target", () => {
-    expect(tokens).toContain("--zc-canvas: #f3f4f6");
+  it("binds production semantic roles to the approved v3.40 light target", () => {
+    expect(tokens).toContain("--zc-canvas: #eff3f9");
     expect(tokens).toContain("--zc-surface: #ffffff");
     expect(tokens).toContain("--zc-surface-base: #ffffff");
-    expect(tokens).toContain("--zc-surface-raised: #fbfbfc");
+    expect(tokens).toContain("--zc-surface-raised: #fafcff");
     expect(tokens).toContain("--zc-surface-overlay: #ffffff");
-    expect(tokens).toContain("--zc-surface-subtle: #f2f3f5");
-    expect(tokens).toContain("--zc-surface-hover: #eef0f3");
-    expect(tokens).toContain("--zc-surface-selected: #e8edf2");
-    expect(tokens).toContain("--zc-primary: #536f88");
-    expect(tokens).toContain("--zc-primary-hover: #435f78");
-    expect(tokens).toContain("--zc-primary-pressed: #384f65");
-    expect(tokens).toContain("--zc-border-subtle: #e3e6ea");
-    expect(tokens).toContain("--zc-control-border: #8995a3");
-    expect(tokens).toContain("--zc-focus: #738da4");
-    expect(tokens).toContain("--zc-focus-soft: #edf2f6");
-    expect(tokens).toContain("--zc-selected-focus: #dde6ee");
-    expect(tokens).toContain("--zc-selection-mark: #536f88");
+    expect(tokens).toContain("--zc-surface-subtle: #edf3fb");
+    expect(tokens).toContain("--zc-surface-hover: #e8f0fa");
+    expect(tokens).toContain("--zc-surface-selected: #e2edfb");
+    expect(tokens).toContain("--zc-primary: #1071dc");
+    expect(tokens).toContain("--zc-primary-hover: #0a63c6");
+    expect(tokens).toContain("--zc-primary-pressed: #0854a8");
+    expect(tokens).toContain("--zc-primary-soft: #e6f0fd");
+    expect(tokens).toContain("--zc-border-subtle: #e2e8f1");
+    expect(tokens).toContain("--zc-border: #c3cedd");
+    expect(tokens).toContain("--zc-border-strong: #a7b6c9");
+    expect(tokens).toContain("--zc-focus-soft: #e6f0fd");
+    expect(tokens).toContain("--zc-selected-focus: #d4e4f8");
+    expect(tokens).toContain("--zc-selection-mark: #1071dc");
     expect(tokens).toContain("--zc-shadow-float:");
     expect(tokens).toContain("--zc-shadow-menu:");
+    expect(tokens).toContain("--zc-focus-halo:");
+    expect(tokens).toContain("--zc-glass-titlebar:");
+    expect(tokens).toContain("--zc-glass-sidebar:");
+    expect(tokens).toContain("--zc-glass-main:");
     expect(tokens).not.toContain("--zc-surface-floating:");
     expect(tokens).not.toContain("--zc-shadow-floating:");
-    expect(tokens).not.toContain("--zc-glass-");
     expect(styles).toContain('@import "./styles/tokens.css"');
-    expect(styles).toContain('@import "./styles/w6-07-shell-v26.css"');
+    expect(styles).toContain('@import "./styles/v340-shell.css"');
     expect(styles).toContain('@import "./views/fileLibrary/fileLibraryV26.css"');
   });
 
@@ -120,20 +125,20 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(contrastRatio(controlBorder, surface)).toBeGreaterThanOrEqual(3);
   });
 
-  it("binds dark mode to the current Solid / Calm semantic roles", () => {
+  it("binds dark mode to the approved v3.40 semantic roles", () => {
     const darkTheme = tokens.match(/:root\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
-    expect(darkTheme).toContain("--zc-canvas: #17191d");
-    expect(darkTheme).toContain("--zc-surface: #202327");
-    expect(darkTheme).toContain("--zc-surface-raised: #24282d");
-    expect(darkTheme).toContain("--zc-surface-overlay: #24272c");
-    expect(darkTheme).toContain("--zc-surface-subtle: #292d32");
-    expect(darkTheme).toContain("--zc-surface-selected: #303740");
-    expect(darkTheme).toContain("--zc-primary: #a7b9c8");
-    expect(darkTheme).toContain("--zc-control-border: #7f8b98");
-    expect(darkTheme).toContain("--zc-focus: #8da2b5");
-    expect(darkTheme).toContain("--zc-focus-soft: #2d3740");
-    expect(darkTheme).toContain("--zc-selected-focus: #394653");
+    expect(darkTheme).toContain("--zc-canvas: #14181e");
+    expect(darkTheme).toContain("--zc-surface: #1d232b");
+    expect(darkTheme).toContain("--zc-surface-raised: #222932");
+    expect(darkTheme).toContain("--zc-surface-overlay: #222932");
+    expect(darkTheme).toContain("--zc-surface-subtle: #262e38");
+    expect(darkTheme).toContain("--zc-surface-selected: #2f3f52");
+    expect(darkTheme).toContain("--zc-primary: #66b0ff");
+    expect(darkTheme).toContain("--zc-control-border: #66788c");
+    expect(darkTheme).toContain("--zc-focus: #66b0ff");
+    expect(darkTheme).toContain("--zc-focus-soft: #1e3247");
+    expect(darkTheme).toContain("--zc-selected-focus: #37495f");
     expect(tokenValue(tokens, "zc-warning")).not.toBe(tokenValue(tokens, "zc-danger"));
     expect(tokenValue(darkTheme, "zc-warning")).not.toBe(tokenValue(darkTheme, "zc-danger"));
   });
@@ -160,13 +165,19 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(tokens).toContain("--zc-space-8: 32px");
     expect(tokens).toContain("--zc-radius-micro: 4px");
     expect(tokens).toContain("--zc-radius-control: 8px");
-    expect(tokens).toContain("--zc-radius-panel: 12px");
-    expect(tokens).toContain("--zc-control-height-compact: 32px");
-    expect(tokens).toContain("--zc-control-height-default: 36px");
-    expect(tokens).toContain("--zc-row-height-default: 44px");
+    expect(tokens).toContain("--zc-radius-row: 10px");
+    expect(tokens).toContain("--zc-radius-panel: 14px");
+    expect(tokens).toContain("--zc-control-height-compact: 28px");
+    expect(tokens).toContain("--zc-control-height-default: 32px");
+    expect(tokens).toContain("--zc-control-height-large: 36px");
+    expect(tokens).toContain("--zc-row-height-default: 46px");
+    expect(tokens).toContain("--zc-row-height-compact: 36px");
     expect(tokens).toContain("--zc-duration-fast: 120ms");
     expect(tokens).toContain("--zc-duration-standard: 180ms");
     expect(tokens).toContain("--zc-ease-standard: cubic-bezier(0.2, 0, 0, 1)");
+    expect(tokens).toContain("--zc-dur-press: 90ms");
+    expect(tokens).toContain("--zc-dur-panel: 200ms");
+    expect(tokens).toContain("--zc-spring-smooth: cubic-bezier(0.32, 0.72, 0, 1)");
     expect(tokens).toContain("--zc-primary-focus");
   });
 
@@ -180,22 +191,27 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
   });
 
   it("migrates shell search and navigation to quiet structural chrome without a selection rail", () => {
-    expect(shellV26).toContain("#app-shell-content > header > div:nth-child(2) > button");
-    expect(shellV26).toContain("minmax(236px, 326px)");
-    expect(shellV26).toContain("border-radius: var(--zc-radius-control)");
-    expect(shellV26).toContain("button kbd");
-    expect(shellV26).toContain("background: transparent");
-    expect(shellV26).toContain("nav button::before");
-    expect(shellV26).toContain("display: none");
-    expect(shellV26).toContain('button[aria-current="page"]');
-    expect(shellV26).toContain("background: var(--zc-surface-selected)");
-    expect(shellV26).toContain("background: var(--zc-focus-soft)");
-    expect(shellV26).toContain("background: var(--zc-selected-focus)");
-    expect(shellV26).not.toContain("rounded-full");
+    // One global search entry in the titlebar; shortcut hints are plain text.
+    expect(shellV340).toContain(".zc-titlebar-search");
+    expect(shellV340).toContain(".zc-titlebar-search > kbd");
+    expect(shellV340).toContain("border: 0;");
+    expect(shellV340).toContain("background: transparent;");
+    // Navigation marks the current route with a soft fill, never a side rail.
+    expect(shellV340).toContain('.zc-nav-item[aria-current="page"]');
+    expect(shellV340).toContain("background: var(--zc-primary-soft);");
+    expect(shellV340).toContain("outline: 2px solid var(--zc-focus);");
+    expect(shellV340).not.toContain("rounded-full");
+    expect(shellV340.includes("border-left: 2px")).toBe(false);
   });
 
   it("migrates the Files command and object surfaces to the retained state grammar", () => {
-    expect(filesV26).toContain(".file-library-workspace[data-layout]");
+    expect(filesV340).toContain('.file-library-workspace[data-layout="large"]');
+    expect(filesV340).toContain('.file-library-workspace[data-layout="large"][data-tree-inline="true"] .file-library-workspace-body');
+    expect(filesV340).toContain("var(--zc-tree-width)");
+    expect(filesV340).toContain("var(--zc-inspector-width)");
+    expect(filesV340).toContain(".file-library-command-button[aria-pressed=\"true\"]");
+    expect(filesV340).toContain("background: var(--zc-primary-soft)");
+    const filesV26 = read("src/views/fileLibrary/fileLibraryV26.css");
     expect(filesV26).toContain(".file-library-workspace .file-library-command-group");
     expect(filesV26).toContain(".file-library-workspace .file-library-view-switch");
     expect(filesV26).toContain("border: 0");
@@ -239,6 +255,7 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(materials).not.toContain("slate-");
     expect(materials).not.toContain("blue-");
 
+    // Glass material is a CSS shell concern, not a Tailwind utility export.
     expect(tw).not.toContain("glass");
     expect(tw).not.toContain("backdrop-blur");
     for (const exportName of ["appPanel", "contentPanel", "elevatedPanel", "softPanel", "toolbarSurface", "scopeBarSurface"]) {
@@ -268,8 +285,8 @@ describe("W6-09 Solid / Calm V2 design foundation", () => {
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(brandMark).not.toMatch(/(?:hover|active):scale-/);
     expect(tw).not.toMatch(/(?:hover|active):scale-/);
-    expect(shellV26).not.toMatch(/transform:\s*scale/);
-    expect(filesV26).not.toMatch(/transform:\s*scale/);
+    expect(shellV340).not.toMatch(/transform:\s*scale/);
+    expect(read("src/views/fileLibrary/fileLibraryV26.css")).not.toMatch(/transform: scale/);
   });
 
   it("keeps status exports free of fixed Tailwind palette colors", () => {

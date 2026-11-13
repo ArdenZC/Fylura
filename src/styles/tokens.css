@@ -1,50 +1,72 @@
+/*
+ * Fylura design tokens — v3.40 baseline (approved prototype, PR #575).
+ *
+ * Roles keep their established `--zc-*` names so unmigrated surfaces inherit
+ * the new palette without a second token vocabulary. Values below are the
+ * prototype's light / dark ladder; see docs/design for the authority record.
+ *
+ * Two deliberate deviations from the prototype, both accessibility-driven:
+ *  - `--zc-focus` uses the primary blue so the solid ring clears 3:1 against
+ *    both `--zc-canvas` and `--zc-surface` (the prototype's #2a95fe is 2.76:1
+ *    on canvas). The soft halo keeps the prototype's tint.
+ *  - `--zc-control-border` keeps a 3:1 boundary for real form controls while
+ *    `--zc-border` carries the prototype's decorative hairline.
+ */
+
 :root {
-  --zc-canvas: #f3f4f6;
-  --zc-canvas-elevated: #f6f7f9;
-  --zc-sidebar: #f6f7f9;
+  /* ---- Neutral surfaces -------------------------------------------------- */
+  --zc-canvas: #eff3f9;
+  --zc-canvas-elevated: #f7faff;
+  --zc-sidebar: #f5f8fc;
   --zc-titlebar: #ffffff;
+  --zc-ground-elevated: #f7faff;
 
   --zc-surface: #ffffff;
   --zc-surface-base: #ffffff;
-  --zc-surface-raised: #fbfbfc;
+  --zc-surface-raised: #fafcff;
   --zc-surface-overlay: #ffffff;
-  --zc-surface-subtle: #f2f3f5;
-  --zc-surface-hover: #eef0f3;
-  --zc-preview-canvas: #eef0f2;
-  --zc-surface-pressed: #dde6ee;
-  --zc-surface-selected: #e8edf2;
-  --zc-surface-selected-hover: #dde6ee;
-  --zc-surface-selected-pressed: #d3dde6;
+  --zc-surface-subtle: #edf3fb;
+  --zc-surface-hover: #e8f0fa;
+  --zc-preview-canvas: #eaf1f9;
+  --zc-surface-pressed: #d4e4f8;
+  --zc-surface-selected: #e2edfb;
+  --zc-surface-selected-hover: #d4e4f8;
+  --zc-surface-selected-pressed: #c9ddf5;
 
-  --zc-text-primary: #1e232b;
-  --zc-text-secondary: #626b78;
-  --zc-text-tertiary: #8b94a0;
-  --zc-text-disabled: #8b94a0;
+  /* ---- Text -------------------------------------------------------------- */
+  --zc-text-primary: #16202c;
+  --zc-text-secondary: #58697c;
+  --zc-text-tertiary: #64758a;
+  --zc-text-disabled: #8a97a8;
 
-  --zc-divider: #e3e6ea;
-  --zc-border-subtle: #e3e6ea;
-  --zc-border: #c8ced6;
-  --zc-border-strong: #aeb7c2;
-  --zc-control-border: #8995a3;
-  --zc-control-border-hover: #73808f;
+  /* ---- Lines ------------------------------------------------------------- */
+  --zc-divider: #e2e8f1;
+  --zc-border-subtle: #e2e8f1;
+  --zc-border: #c3cedd;
+  --zc-border-strong: #a7b6c9;
+  --zc-control-border: #7f8fa3;
+  --zc-control-border-hover: #66788c;
 
-  --zc-primary: #536f88;
-  --zc-primary-hover: #435f78;
-  --zc-primary-pressed: #384f65;
-  --zc-primary-soft: #e9eef2;
+  /* ---- Primary ----------------------------------------------------------- */
+  --zc-primary: #1071dc;
+  --zc-primary-hover: #0a63c6;
+  --zc-primary-pressed: #0854a8;
+  --zc-primary-soft: #e6f0fd;
   --zc-primary-contrast: #ffffff;
-  --zc-primary-text: #536f88;
+  --zc-primary-text: #0a63c6;
+  --zc-primary-border: rgba(16, 113, 220, 0.32);
 
-  --zc-focus: #738da4;
-  --zc-focus-soft: #edf2f6;
-  --zc-selected-focus: #dde6ee;
-  --zc-primary-focus: #435f78;
-  --zc-selection-mark: #536f88;
-
-  /* Stable focus hook retained for surfaces using the unsuperseded V26 interaction contract. */
+  /* ---- Focus ------------------------------------------------------------- */
+  --zc-focus: #1071dc;
+  --zc-focus-soft: #e6f0fd;
+  --zc-selected-focus: #d4e4f8;
+  --zc-primary-focus: #0854a8;
+  --zc-selection-mark: #1071dc;
+  --zc-focus-halo: rgba(42, 149, 254, 0.16);
   --zc-focus-ring: var(--zc-focus);
   --zc-focus-ring-soft: var(--zc-focus-soft);
 
+  /* ---- Brand ------------------------------------------------------------- */
   --zc-brand-blue: #007aff;
   --zc-brand-blue-soft: rgba(0, 122, 255, 0.16);
   --zc-brand-cyan: #4facfe;
@@ -54,18 +76,19 @@
   --zc-brand-canvas-border: rgba(0, 122, 255, 0.24);
   --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.78);
 
-  --zc-info: #295fc7;
-  --zc-info-text: #295fc7;
-  --zc-info-soft: #edf3fb;
-  --zc-info-border: rgba(41, 95, 199, 0.28);
-  --zc-neutral: #68707c;
-  --zc-neutral-text: #596474;
-  --zc-neutral-soft: rgba(104, 112, 124, 0.1);
-  --zc-neutral-border: rgba(104, 112, 124, 0.28);
-  --zc-purple: #7c3aed;
-  --zc-purple-text: #6d28d9;
-  --zc-purple-soft: rgba(124, 58, 237, 0.1);
-  --zc-purple-border: rgba(124, 58, 237, 0.28);
+  /* ---- Semantic ---------------------------------------------------------- */
+  --zc-info: #1a6ed4;
+  --zc-info-text: #1a6ed4;
+  --zc-info-soft: #e6f0fd;
+  --zc-info-border: rgba(26, 110, 212, 0.28);
+  --zc-neutral: #64758a;
+  --zc-neutral-text: #58697c;
+  --zc-neutral-soft: rgba(100, 117, 138, 0.1);
+  --zc-neutral-border: rgba(100, 117, 138, 0.28);
+  --zc-purple: #7048d6;
+  --zc-purple-text: #5f3bc0;
+  --zc-purple-soft: rgba(112, 72, 214, 0.1);
+  --zc-purple-border: rgba(112, 72, 214, 0.28);
   --zc-success: #286443;
   --zc-success-text: #286443;
   --zc-success-soft: #eaf5ee;
@@ -79,24 +102,52 @@
   --zc-danger-soft: #fff0f1;
   --zc-danger-border: rgba(163, 44, 59, 0.28);
 
+  /* ---- File type colours (icon strokes only, never body text) ------------ */
+  --zc-file-pdf: #b03a2e;
+  --zc-file-doc: #2f6fb5;
+  --zc-file-sheet: #1f7a46;
+  --zc-file-slide: #a85508;
+  --zc-file-image: #7048d6;
+  --zc-file-video: #b01852;
+  --zc-file-audio: #0d7490;
+  --zc-file-code: #0f766e;
+  --zc-file-archive: #6b7280;
+  --zc-file-folder: #7a8794;
+
+  /* ---- Shape ladder: 4 badge / 8 control / 10 row / 14 panel ------------- */
   --zc-radius-micro: 4px;
   --zc-radius-control: 8px;
-  --zc-radius-row: 8px;
-  --zc-radius-field: 8px;
-  --zc-radius-panel: 12px;
-  --zc-radius-floating: 12px;
-  --zc-radius-window: 12px;
+  --zc-radius-field: 10px;
+  --zc-radius-row: 10px;
+  --zc-radius-card: var(--zc-radius-row);
+  --zc-radius-panel: 14px;
+  --zc-radius-floating: 14px;
+  --zc-radius-window: 14px;
 
-  --zc-control-height-compact: 32px;
-  --zc-control-height-default: 36px;
-  --zc-row-height-compact: 44px;
-  --zc-row-height-default: 44px;
-  --zc-touch-target-min: 44px;
-  --zc-inspector-width: 300px;
+  /* ---- Size ladder ------------------------------------------------------- */
+  --zc-control-height-compact: 28px;
+  --zc-control-height-default: 32px;
+  --zc-control-height-large: 36px;
+  --zc-row-height-compact: 36px;
+  --zc-row-height-default: 46px;
+  --zc-row-height-timeline: 68px;
+  --zc-touch-target-min: 32px;
+  --zc-titlebar-height: 44px;
+  --zc-tabstrip-height: 40px;
+  --zc-panehead-height: 38px;
+  --zc-statusbar-height: 31px;
+  --zc-shell-gap: 10px;
+  --zc-shell-padding: 10px;
+  --zc-sidebar-width: 216px;
+  --zc-sidebar-rail-width: 64px;
+  --zc-tree-width: 196px;
+  --zc-inspector-width: 288px;
   --zc-sheet-width: 480px;
   --zc-content-max-width: 1440px;
-  --zc-pane-gap: 16px;
+  --zc-pane-gap: 10px;
+  --zc-pane-min-width: 230px;
 
+  /* ---- Spacing ----------------------------------------------------------- */
   --zc-space-micro: 2px;
   --zc-space-1: 4px;
   --zc-space-2: 8px;
@@ -108,84 +159,134 @@
   --zc-space-10: 40px;
   --zc-space-12: 48px;
 
-  --zc-shadow-raised: 0 4px 12px rgba(20, 32, 50, 0.06);
-  --zc-shadow-spotlight: 0 16px 40px rgba(8, 18, 32, 0.2);
-  --zc-shadow-subtle: 0 5px 18px rgba(23, 30, 40, 0.05);
+  /* ---- Elevation: one faint ring plus a downward soft shadow ------------ */
+  --zc-ring: 0 0 0 1px rgba(24, 48, 80, 0.05);
+  --zc-lift: 0 1px 2px rgba(24, 48, 80, 0.04), 0 10px 24px -14px rgba(24, 48, 80, 0.22);
+  --zc-card-ring: 0 0 0 1px rgba(24, 48, 80, 0.06), 0 1px 2px rgba(24, 48, 80, 0.03);
+  --zc-shadow-raised: 0 1px 2px rgba(24, 48, 80, 0.04), 0 4px 12px -8px rgba(24, 48, 80, 0.16);
+  --zc-shadow-subtle: 0 1px 2px rgba(24, 48, 80, 0.04), 0 10px 24px -14px rgba(24, 48, 80, 0.22);
+  --zc-shadow-spotlight: 0 22px 64px rgba(23, 30, 40, 0.18), 0 3px 12px rgba(23, 30, 40, 0.08);
   --zc-shadow-float: 0 22px 64px rgba(23, 30, 40, 0.18), 0 3px 12px rgba(23, 30, 40, 0.08);
   --zc-shadow-menu: 0 16px 42px rgba(23, 30, 40, 0.16);
+  --zc-hairline: 1px;
+  --zc-scrim: rgba(18, 26, 38, 0.26);
+  --zc-scrim-preview: rgba(14, 20, 30, 0.38);
+  --zc-overlay: rgba(20, 24, 30, 0.22);
 
+  /* ---- Motion: colour tokens (--zc-dur-*) vs deformation tokens --------- */
+  --zc-duration-micro: 60ms;
   --zc-duration-fast: 120ms;
   --zc-duration-standard: 180ms;
+  --zc-duration-overlay: 140ms;
+  --zc-duration-sheet: 300ms;
   --zc-duration-slow: 180ms;
   --zc-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --zc-ease-swift: cubic-bezier(0.16, 1, 0.3, 1);
+  --zc-dur-press: 90ms;
+  --zc-dur-release: 260ms;
+  --zc-dur-pop: 240ms;
+  --zc-dur-pop-out: 130ms;
+  --zc-dur-panel: 200ms;
+  --zc-dur-page: 220ms;
+  --zc-spring-smooth: cubic-bezier(0.32, 0.72, 0, 1);
+  --zc-spring-pop: cubic-bezier(0.34, 1.38, 0.64, 1);
+  --zc-spring-bounce: cubic-bezier(0.2, 1.62, 0.36, 1);
+  --zc-spring-out: cubic-bezier(0.4, 0, 1, 1);
+  --zc-press-scale: 0.965;
 
-  --zc-window-close-hover: #c42b1c;
+  /* ---- Window controls --------------------------------------------------- */
+  --zc-window-close-hover: #d9433a;
   --zc-window-close-text: #ffffff;
   --zc-window-mac-close: #ff5f57;
   --zc-window-mac-minimize: #febc2e;
   --zc-window-mac-maximize: #28c840;
 
-  --zc-ambient-primary: rgba(66, 104, 153, 0.025);
-  --zc-ambient-secondary: rgba(89, 100, 116, 0.018);
-  --zc-ambient-vignette: rgba(32, 39, 51, 0.018);
-  --zc-overlay: rgba(20, 24, 30, 0.22);
+  /* ---- Ambient ground (glass needs something to blur) -------------------- */
+  --zc-ambient-primary: rgba(42, 149, 254, 0.34);
+  --zc-ambient-secondary: rgba(122, 92, 255, 0.2);
+  --zc-ambient-tertiary: rgba(32, 196, 222, 0.18);
+  --zc-ambient-highlight: rgba(166, 220, 255, 0.4);
+  --zc-ambient-vignette: rgba(32, 39, 51, 0.02);
+  --zc-ambient-texture: rgba(24, 48, 80, 0.055);
+  --zc-ambient-texture-opacity: 0.55;
 
+  /* ---- Glass materials --------------------------------------------------- */
+  --zc-glass-titlebar: rgba(255, 255, 255, 0.34);
+  --zc-glass-sidebar: rgba(255, 255, 255, 0.38);
+  --zc-glass-main: rgba(255, 255, 255, 0.93);
+  --zc-glass-float: rgba(255, 255, 255, 0.86);
+  --zc-glass-titlebar-blur: blur(24px) saturate(1.8);
+  --zc-glass-sidebar-blur: blur(34px) saturate(2);
+  --zc-glass-main-blur: blur(20px) saturate(1.25);
+  --zc-glass-float-blur: blur(30px) saturate(1.8);
+  --zc-panel-ring: #ffffff;
+  --zc-panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 :root.dark {
-  --zc-canvas: #17191d;
-  --zc-canvas-elevated: #1b1e22;
-  --zc-sidebar: #1b1e22;
-  --zc-titlebar: #202327;
+  /* ---- Neutral surfaces -------------------------------------------------- */
+  --zc-canvas: #14181e;
+  --zc-canvas-elevated: #191f27;
+  --zc-sidebar: #181d24;
+  --zc-titlebar: #1d232b;
+  --zc-ground-elevated: #191f27;
 
-  --zc-surface: #202327;
-  --zc-surface-base: #202327;
-  --zc-surface-raised: #24282d;
-  --zc-surface-overlay: #24272c;
-  --zc-surface-subtle: #292d32;
-  --zc-surface-hover: #2b3036;
-  --zc-preview-canvas: #181b1f;
-  --zc-surface-pressed: #394653;
-  --zc-surface-selected: #303740;
-  --zc-surface-selected-hover: #394653;
-  --zc-surface-selected-pressed: #43515f;
+  --zc-surface: #1d232b;
+  --zc-surface-base: #1d232b;
+  --zc-surface-raised: #222932;
+  --zc-surface-overlay: #222932;
+  --zc-surface-subtle: #262e38;
+  --zc-surface-hover: #2a333e;
+  --zc-preview-canvas: #151a20;
+  --zc-surface-pressed: #37495f;
+  --zc-surface-selected: #2f3f52;
+  --zc-surface-selected-hover: #37495f;
+  --zc-surface-selected-pressed: #41546c;
 
-  --zc-text-primary: #eef1f4;
-  --zc-text-secondary: #b7c0ca;
-  --zc-text-tertiary: #87919d;
-  --zc-text-disabled: #87919d;
+  /* ---- Text -------------------------------------------------------------- */
+  --zc-text-primary: #eef3f9;
+  --zc-text-secondary: #b3c0ce;
+  --zc-text-tertiary: #8394a6;
+  --zc-text-disabled: #6f7f92;
 
-  --zc-divider: #343a42;
-  --zc-border-subtle: #30353c;
-  --zc-border: #59636f;
-  --zc-border-strong: #73808c;
-  --zc-control-border: #7f8b98;
-  --zc-control-border-hover: #8da0b0;
+  /* ---- Lines ------------------------------------------------------------- */
+  --zc-divider: #2e3742;
+  --zc-border-subtle: #2e3742;
+  --zc-border: #4d5c6d;
+  --zc-border-strong: #66788c;
+  --zc-control-border: #66788c;
+  --zc-control-border-hover: #7f93a8;
 
-  --zc-primary: #a7b9c8;
-  --zc-primary-hover: #bac8d3;
-  --zc-primary-pressed: #8da2b5;
-  --zc-primary-soft: #2f3b46;
-  --zc-primary-contrast: #17191d;
-  --zc-primary-text: #a7b9c8;
+  /* ---- Primary ----------------------------------------------------------- */
+  --zc-primary: #66b0ff;
+  --zc-primary-hover: #8cc3ff;
+  --zc-primary-pressed: #4a9bf5;
+  --zc-primary-soft: #1e3247;
+  --zc-primary-contrast: #0a1a2b;
+  --zc-primary-text: #8cc3ff;
+  --zc-primary-border: rgba(102, 176, 255, 0.34);
 
-  --zc-focus: #8da2b5;
-  --zc-focus-soft: #2d3740;
-  --zc-selected-focus: #394653;
-  --zc-primary-focus: #bac8d3;
-  --zc-selection-mark: #a7b9c8;
+  /* ---- Focus ------------------------------------------------------------- */
+  --zc-focus: #66b0ff;
+  --zc-focus-soft: #1e3247;
+  --zc-selected-focus: #37495f;
+  --zc-primary-focus: #8cc3ff;
+  --zc-selection-mark: #66b0ff;
+  --zc-focus-halo: rgba(102, 176, 255, 0.22);
   --zc-focus-ring: var(--zc-focus);
   --zc-focus-ring-soft: var(--zc-focus-soft);
 
+  /* ---- Brand ------------------------------------------------------------- */
   --zc-brand-canvas: rgba(17, 31, 50, 0.94);
   --zc-brand-canvas-border: rgba(114, 190, 255, 0.42);
   --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.2);
   --zc-brand-blue-soft: rgba(0, 122, 255, 0.22);
 
-  --zc-info: #91b7ff;
-  --zc-info-text: #a3c3ff;
-  --zc-info-soft: #273548;
-  --zc-info-border: rgba(145, 183, 255, 0.3);
+  /* ---- Semantic ---------------------------------------------------------- */
+  --zc-info: #8ec3ff;
+  --zc-info-text: #8ec3ff;
+  --zc-info-soft: #1e3247;
+  --zc-info-border: rgba(142, 195, 255, 0.3);
   --zc-neutral: #a1aab8;
   --zc-neutral-text: #bac3d0;
   --zc-neutral-soft: rgba(161, 170, 184, 0.12);
@@ -207,15 +308,49 @@
   --zc-danger-soft: #412830;
   --zc-danger-border: rgba(255, 172, 182, 0.3);
 
-  --zc-shadow-raised: 0 4px 14px rgba(0, 0, 0, 0.2);
-  --zc-shadow-spotlight: 0 18px 44px rgba(0, 0, 0, 0.5);
-  --zc-shadow-subtle: 0 6px 22px rgba(0, 0, 0, 0.18);
-  --zc-shadow-float: 0 24px 72px rgba(0, 0, 0, 0.44), 0 3px 14px rgba(0, 0, 0, 0.28);
-  --zc-shadow-menu: 0 18px 48px rgba(0, 0, 0, 0.4);
+  /* ---- File type colours ------------------------------------------------- */
+  --zc-file-pdf: #e08a80;
+  --zc-file-doc: #7fb4ee;
+  --zc-file-sheet: #7cc79a;
+  --zc-file-slide: #e3a25c;
+  --zc-file-image: #b8a2f5;
+  --zc-file-video: #ef8fb2;
+  --zc-file-audio: #6fc4dd;
+  --zc-file-code: #6fc0b6;
+  --zc-file-archive: #98a3b3;
+  --zc-file-folder: #9aa8b8;
 
-  --zc-ambient-primary: rgba(168, 203, 255, 0.018);
-  --zc-ambient-secondary: rgba(186, 195, 208, 0.012);
-  --zc-ambient-vignette: rgba(0, 0, 0, 0.12);
+  /* ---- Elevation --------------------------------------------------------- */
+  --zc-ring: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  --zc-lift: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 24px -14px rgba(0, 0, 0, 0.6);
+  --zc-card-ring: 0 0 0 1px rgba(255, 255, 255, 0.055), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --zc-shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.28), 0 4px 14px -8px rgba(0, 0, 0, 0.5);
+  --zc-shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 24px -14px rgba(0, 0, 0, 0.6);
+  --zc-shadow-spotlight: 0 24px 72px rgba(0, 0, 0, 0.44), 0 3px 12px rgba(0, 0, 0, 0.28);
+  --zc-shadow-float: 0 24px 72px rgba(0, 0, 0, 0.44), 0 3px 12px rgba(0, 0, 0, 0.28);
+  --zc-shadow-menu: 0 18px 48px rgba(0, 0, 0, 0.4);
+  --zc-scrim: rgba(6, 10, 16, 0.5);
+  --zc-scrim-preview: rgba(4, 8, 14, 0.58);
   --zc-overlay: rgba(0, 0, 0, 0.46);
 
+  /* ---- Ambient ground ---------------------------------------------------- */
+  --zc-ambient-primary: rgba(42, 149, 254, 0.18);
+  --zc-ambient-secondary: rgba(122, 92, 255, 0.14);
+  --zc-ambient-tertiary: rgba(32, 196, 222, 0.1);
+  --zc-ambient-highlight: rgba(102, 176, 255, 0.1);
+  --zc-ambient-vignette: rgba(0, 0, 0, 0.12);
+  --zc-ambient-texture: rgba(255, 255, 255, 0.05);
+  --zc-ambient-texture-opacity: 0.35;
+
+  /* ---- Glass materials --------------------------------------------------- */
+  --zc-glass-titlebar: rgba(30, 38, 48, 0.55);
+  --zc-glass-sidebar: rgba(28, 36, 46, 0.62);
+  --zc-glass-main: rgba(26, 32, 40, 0.92);
+  --zc-glass-float: rgba(34, 42, 52, 0.9);
+  --zc-glass-titlebar-blur: blur(24px) saturate(1.6);
+  --zc-glass-sidebar-blur: blur(30px) saturate(1.6) brightness(0.92);
+  --zc-glass-main-blur: blur(20px) saturate(1.2);
+  --zc-glass-float-blur: blur(30px) saturate(1.6);
+  --zc-panel-ring: rgba(255, 255, 255, 0.07);
+  --zc-panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }

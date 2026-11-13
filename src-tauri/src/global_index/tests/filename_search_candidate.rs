@@ -152,6 +152,35 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
         .expect("authorized transient entry remains openable");
     assert_eq!(transient_entry.path, included.path);
     assert!(!transient_entry.is_stale);
+
+    let mut refreshed = fixture_entry(
+        "gv_test",
+        r"C:\Global\transient-refreshed-budget.txt",
+        "transient-refreshed-budget.txt",
+        "txt",
+        Some(51),
+        false,
+    );
+    refreshed.platform_file_id = included.platform_file_id.clone();
+    db.filename_search
+        .append_transient_catalog(
+            "gv_test",
+            "transient-operation",
+            1,
+            &[refreshed.clone()],
+            &[true],
+        )
+        .expect("refresh the same native identity");
+    let stale_name = db
+        .search_global_entries_snapshot("report-budget", 20, 0)
+        .expect("stale gram postings must recheck current entry text");
+    assert!(stale_name.results.is_empty());
+    let refreshed_name = db
+        .search_global_entries_snapshot("refreshed-budget", 20, 0)
+        .expect("updated transient filename remains searchable");
+    assert_eq!(refreshed_name.results.len(), 1);
+    assert_eq!(refreshed_name.results[0].path, refreshed.path);
+
     assert_eq!(
         db.conn()
             .unwrap()

@@ -72,7 +72,7 @@ export function BrowseMode() {
   }), [source, visibleEntries, visibleCollection]);
   const interaction = useMemo(() => createBrowseInteractionProjection(interactionSource), [interactionSource]);
 
-  function changeHiddenVisibility(next: boolean) {
+  const changeHiddenVisibility = useCallback((next: boolean) => {
     try { window.localStorage.setItem("fylura.files.showHidden", String(next)); } catch { /* Display preference remains usable for this session. */ }
     if (!next) {
       const visibleSelection = source.entries
@@ -82,7 +82,7 @@ export function BrowseMode() {
       if (source.entries.some((entry) => entry.isHidden && entry.entryRef.entryId === source.focusedId)) source.setFocusedId(null);
     }
     setShowHidden(next);
-  }
+  }, [source.entries, source.focusedId, source.selectIds, source.selectedIds, source.setFocusedId]);
   const focusedPreviewSource = useMemo(() => {
     const entry = source.entries.find((item) => item.entryRef.entryId === source.focusedId);
     if (!showHidden && entry?.isHidden) return null;

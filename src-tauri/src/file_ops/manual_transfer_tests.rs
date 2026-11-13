@@ -194,7 +194,7 @@ fn native_drag_out_paths_require_live_identity_bound_tickets() {
         runtime
             .native_drag_out_paths(std::slice::from_ref(&ticket.id))
             .unwrap(),
-        vec![f.source.clone()]
+        vec![f.source.canonicalize().unwrap()]
     );
     let moved = f.source.with_file_name("moved-outside.txt");
     fs::rename(&f.source, &moved).unwrap();

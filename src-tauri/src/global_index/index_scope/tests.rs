@@ -1000,26 +1000,33 @@ fn global_index_writer_trigger_contribution_25k() {
         .map(|index| f.file(&format!("trigger-sample/entry{index}.txt")))
         .collect::<Vec<_>>();
     let mut records = Vec::new();
+    let mut runs = vec![
+        (512, "full_triggers"),
+        (512, "without_fts"),
+        (512, "without_source_stats"),
+        (512, "bulk_fts"),
+        (4096, "full_triggers"),
+        (8192, "full_triggers"),
+        (8192, "without_fts"),
+        (8192, "without_source_stats"),
+        (8192, "bulk_fts"),
+    ];
     for repetition in 0..3 {
-        let mut modes = [
-            "full_triggers",
-            "without_fts",
-            "without_source_stats",
-            "bulk_fts",
-        ];
-        modes.rotate_left(repetition);
-        for mode in modes {
-            let db_path = f.root.join(format!("trigger-{repetition}-{mode}.sqlite"));
+        runs.rotate_left(repetition);
+        for (batch_size, mode) in &runs {
+            let db_path = f
+                .root
+                .join(format!("trigger-{repetition}-{batch_size}-{mode}.sqlite"));
             let db = Database::open(&db_path).unwrap();
             db.upsert_global_volume(&f.source).unwrap();
-            if mode == "without_fts" || mode == "bulk_fts" {
+            if *mode == "without_fts" || *mode == "bulk_fts" {
                 db.conn()
                     .unwrap()
                     .execute_batch(
                         "DROP TRIGGER global_entries_ai; DROP TRIGGER global_entries_ad; DROP TRIGGER global_entries_au;",
                     )
                     .unwrap();
-            } else if mode == "without_source_stats" {
+            } else if *mode == "without_source_stats" {
                 db.conn()
                     .unwrap()
                     .execute_batch(
@@ -1030,12 +1037,12 @@ fn global_index_writer_trigger_contribution_25k() {
 
             let begin = Instant::now();
             let mut timing = crate::global_index::repository::GlobalIndexBatchTiming::default();
-            for batch in entries.chunks(512) {
+            for batch in entries.chunks(*batch_size) {
                 let (_, batch_timing) = db.upsert_global_entries_batch_timed(batch).unwrap();
                 timing.add(batch_timing);
             }
             let conn = db.conn().unwrap();
-            let bulk_fts_build_seconds = if mode == "bulk_fts" {
+            let bulk_fts_build_seconds = if *mode == "bulk_fts" {
                 let fts_started = Instant::now();
                 conn.execute(
                     "INSERT INTO global_entries_fts(rowid,name,path,extension) SELECT rowid,name,path,extension FROM global_entries",
@@ -1077,7 +1084,7 @@ fn global_index_writer_trigger_contribution_25k() {
             let database_file_bytes = fs::metadata(&db_path).map_or(0, |metadata| metadata.len());
             let wal_path = std::path::PathBuf::from(format!("{}-wal", db_path.display()));
             let wal_bytes = fs::metadata(&wal_path).map_or(0, |metadata| metadata.len());
-            if mode == "full_triggers" || mode == "bulk_fts" {
+            if *mode == "full_triggers" || *mode == "bulk_fts" {
                 assert_eq!(source_fact_rows, N as i64);
                 assert_eq!(volume_entry_count, N as i64);
                 conn.execute(
@@ -1085,7 +1092,7 @@ fn global_index_writer_trigger_contribution_25k() {
                     [],
                 )
                 .unwrap();
-            } else if mode == "without_source_stats" {
+            } else if *mode == "without_source_stats" {
                 assert_eq!(source_fact_rows, 0);
                 assert_eq!(volume_entry_count, 0);
             }
@@ -1094,9 +1101,11 @@ fn global_index_writer_trigger_contribution_25k() {
                 "arch": std::env::consts::ARCH,
                 "profile": if cfg!(debug_assertions) { "debug" } else { "release" },
                 "group": mode,
+                "batchSize": batch_size,
                 "repetition": repetition,
                 "candidates": N,
                 "seconds": seconds,
+                "sqliteTransactions": entries.len().div_ceil(*batch_size),
                 "bulkFtsBuildSeconds": bulk_fts_build_seconds,
                 "candidatesPerSecond": N as f64 / seconds,
                 "sqliteTransactionSeconds": timing.sqlite_transaction.as_secs_f64(),

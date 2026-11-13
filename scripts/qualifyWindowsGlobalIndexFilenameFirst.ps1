@@ -88,7 +88,6 @@ function New-TaskVolume {
     $script:driveLetter = Get-FreeDriveLetter
     $drive = "$($script:driveLetter):"
     $driveRoot = "$drive\"
-    $script:fixtureRoot = Join-Path $driveRoot 'fixtures\filename-first'
     if (Test-Path -LiteralPath $vhdPath) { throw "refusing to replace a pre-existing VHD: $vhdPath" }
     # Record ownership before DiskPart mutates anything so a partial create can
     # still be detached and removed safely by the finally block.
@@ -105,11 +104,14 @@ function New-TaskVolume {
     $script:vhdCreated = Test-Path -LiteralPath $vhdPath -PathType Leaf
     $script:vhdAttached = Test-VhdAttached
     if (-not $script:vhdCreated -or -not $script:vhdAttached) { throw 'task VHD was not created and attached' }
+    $mounted = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$drive'" -ErrorAction SilentlyContinue
+    if (-not $mounted -or $mounted.FileSystem -ne 'NTFS') { throw "task volume is not visible as fixed NTFS at $drive" }
+    # Join-Path resolves the root through PowerShell's FileSystem PSDrive
+    # provider, so the task volume must be attached and assigned first.
+    $script:fixtureRoot = Join-Path $driveRoot 'fixtures\filename-first'
     Set-Content -LiteralPath $driveMarker -Value $drive -NoNewline
     Set-Content -LiteralPath (Join-Path $taskRoot 'fixture-created-by-qualification.txt') -Value $script:fixtureRoot -NoNewline
     New-Item -ItemType Directory -Path $script:fixtureRoot -Force | Out-Null
-    $mounted = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$drive'" -ErrorAction SilentlyContinue
-    if (-not $mounted -or $mounted.FileSystem -ne 'NTFS') { throw "task volume is not visible as fixed NTFS at $drive" }
     $script:evidence.fixtureRoot = $script:fixtureRoot
 }
 

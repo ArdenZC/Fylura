@@ -195,6 +195,8 @@ pub struct BrowseEntryDto {
     pub modified_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<i64>,
+    #[serde(default)]
+    pub is_hidden: bool,
     pub materialization: MaterializationState,
 }
 
@@ -555,6 +557,7 @@ impl BrowseEntryDto {
             size: entry.size,
             modified_at: entry.modified_at,
             created_at: entry.created_at,
+            is_hidden: entry.is_hidden,
             materialization: entry.materialization,
         }
     }
@@ -573,6 +576,7 @@ impl BrowseEntryDto {
             size: self.size,
             modified_at: self.modified_at,
             created_at: self.created_at,
+            is_hidden: self.is_hidden,
             materialization: self.materialization,
         }
     }

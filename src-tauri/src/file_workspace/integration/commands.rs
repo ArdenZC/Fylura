@@ -547,6 +547,52 @@ pub async fn file_workspace_transfer_capture<R: Runtime>(
     )
     .await
 }
+
+#[tauri::command]
+#[cfg_attr(
+    not(any(target_os = "windows", target_os = "macos")),
+    allow(unused_variables)
+)]
+pub async fn file_workspace_native_drag_out<R: Runtime + 'static>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::NativeDragOutRequest,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = request;
+        Err("native_drag_out_unsupported".into())
+    }
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        let runtime = runtime.acquire_for_window(&window)?;
+        let paths = spawn_runtime(runtime, "workspace_native_drag_out", move |runtime| {
+            runtime.native_drag_out_paths(&request.ticket_ids)
+        })
+        .await?;
+        let drag_window = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let result = drag::start_drag(
+                    &drag_window,
+                    drag::DragItem::Files(paths),
+                    drag::Image::Raw(include_bytes!("../../../../build/icon.png").to_vec()),
+                    |result, _| log::debug!("Native file drag completed: {result:?}"),
+                    drag::Options {
+                        skip_animatation_on_cancel_or_failure: true,
+                        mode: drag::DragMode::Copy,
+                    },
+                );
+                if let Err(error) = result {
+                    log::warn!("Native file drag could not start: {error}");
+                }
+            })
+            .map_err(|error| format!("native_drag_out_dispatch_failed:{error}"))?;
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub async fn file_workspace_transfer_preview<R: Runtime>(
     window: WebviewWindow<R>,

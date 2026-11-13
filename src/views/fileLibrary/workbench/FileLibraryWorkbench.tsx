@@ -1,4 +1,5 @@
 import { WorkbenchLayout } from "./WorkbenchLayout";
+import { isTauri } from "@tauri-apps/api/core";
 import { FolderComparison } from "../compare/FolderComparison";
 import { Copy, FolderInput, Plus, X } from "lucide-react";
 import {
@@ -464,6 +465,7 @@ export function FileLibraryWorkbench({
     wide,
     active: workspaceActive,
     locked: transferLocked,
+    nativeDragOut: isTauri() && (platform === "win32" || platform === "darwin"),
     focus,
     t,
   });

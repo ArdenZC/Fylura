@@ -270,6 +270,8 @@ pub(crate) struct EphemeralBrowseEntry {
     pub(crate) modified_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) created_at: Option<i64>,
+    #[serde(default)]
+    pub(crate) is_hidden: bool,
     pub(crate) materialization: MaterializationState,
 }
 
@@ -1156,6 +1158,7 @@ impl BrowseService {
                 size: pending.size,
                 modified_at: pending.modified_at,
                 created_at: pending.created_at,
+                is_hidden: pending.is_hidden,
                 materialization: pending.materialization,
             });
         }
@@ -1469,6 +1472,7 @@ struct PendingEntry {
     size: Option<u64>,
     modified_at: Option<i64>,
     created_at: Option<i64>,
+    is_hidden: bool,
     materialization: MaterializationState,
 }
 
@@ -1615,9 +1619,11 @@ fn read_entry(entry: DirEntry) -> Result<PendingEntry, BrowseError> {
         return Err(BrowseError::UnsupportedEntry);
     };
 
+    let name = entry.file_name().to_string_lossy().into_owned();
     Ok(PendingEntry {
         materialization: super::source_availability::from_metadata(&path, &metadata),
-        name: entry.file_name().to_string_lossy().into_owned(),
+        is_hidden: is_hidden_entry(&name, &metadata),
+        name,
         display_path: path.to_string_lossy().into_owned(),
         extension: path
             .extension()
@@ -1629,6 +1635,30 @@ fn read_entry(entry: DirEntry) -> Result<PendingEntry, BrowseError> {
         path,
         kind,
     })
+}
+
+fn is_hidden_entry(name: &str, metadata: &std::fs::Metadata) -> bool {
+    if name.starts_with('.') {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM,
+        };
+        metadata.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::darwin::fs::MetadataExt;
+        metadata.st_flags() & 0x8000 != 0
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = metadata;
+        false
+    }
 }
 
 fn is_skippable_child_error(error: BrowseError) -> bool {
@@ -2209,6 +2239,49 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static FIXTURE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn hidden_entries_include_dot_names_and_leave_ordinary_names_visible() {
+        let fixture = Fixture::new();
+        let path = fixture.root.join("visible.txt");
+        fs::write(&path, b"").unwrap();
+        let metadata = fs::symlink_metadata(&path).unwrap();
+        assert!(is_hidden_entry(".hidden.txt", &metadata));
+        assert!(!is_hidden_entry("visible.txt", &metadata));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_hidden_visibility_uses_hidden_and_system_attributes() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            SetFileAttributesW, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN,
+            FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_SYSTEM,
+        };
+
+        let fixture = Fixture::new();
+        let path = fixture.root.join("ordinary.txt");
+        fs::write(&path, b"").unwrap();
+        let wide = path
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
+        for attributes in [
+            FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_HIDDEN,
+            FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_SYSTEM,
+        ] {
+            assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), attributes) }, 0);
+            assert!(is_hidden_entry(
+                "ordinary.txt",
+                &fs::metadata(&path).unwrap()
+            ));
+        }
+        assert_ne!(
+            unsafe { SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_NORMAL) },
+            0
+        );
+    }
 
     #[test]
     fn windows_network_errors_keep_offline_permission_and_unknown_distinct() {

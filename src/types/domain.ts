@@ -84,7 +84,8 @@ export type OperationType =
   | "replace"
   | "permanent_delete"
   | "move_to_trash"
-  | "create_directory";
+  | "create_directory"
+  | "create_file";
 export type ClassificationStatus = "unclassified" | "classified";
 export type FolderNamingLanguage = "en" | "zh";
 export type CloseBehavior = "ask" | "minimize" | "quit";

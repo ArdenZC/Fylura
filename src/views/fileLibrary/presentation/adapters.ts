@@ -57,6 +57,7 @@ export function adaptBrowseEntry(entry: BrowseEntry): BrowsePresentationEntry {
     source: "browse",
     renderKey: renderKey(["browse", entry.ref.browseSessionId, entry.ref.entryId]),
     entryRef: entry.ref,
+    displayPath: entry.displayPath,
     ...(entry.pathRef === undefined ? {} : { pathRef: entry.pathRef }),
     displayName: entry.name,
     entryKind: entry.kind,
@@ -64,6 +65,7 @@ export function adaptBrowseEntry(entry: BrowseEntry): BrowsePresentationEntry {
     ...(entry.size === undefined ? {} : { size: entry.size }),
     ...(entry.modifiedAt === undefined ? {} : { modifiedAt: entry.modifiedAt }),
     ...(entry.createdAt === undefined ? {} : { createdAt: entry.createdAt }),
+    ...(entry.isHidden === undefined ? {} : { isHidden: entry.isHidden }),
     materialization: entry.materialization
   };
 }

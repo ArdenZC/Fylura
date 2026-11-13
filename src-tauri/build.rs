@@ -173,6 +173,7 @@ const COMMANDS: &[&str] = &[
     "cancel_macos_thumbnail",
     "file_workspace_system_clipboard",
     "file_workspace_eject_volume",
+    "file_workspace_native_drag_out",
     "file_workspace_transfer_capture",
     "file_workspace_transfer_preview",
     "file_workspace_transfer_execute",

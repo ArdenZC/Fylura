@@ -650,6 +650,10 @@ export function DirectoryTree({
         key={node.key}
         ref={(element) => { if (element) treeItemRefs.current.set(node.key, element); else treeItemRefs.current.delete(node.key); }}
         role="treeitem"
+        data-file-drop-target-kind="browse-path"
+        data-file-drop-target-session-id={sessionRef.current?.sessionId}
+        data-file-drop-target-path-ref={node.pathRef.id}
+        data-file-drop-target-path={node.displayPath}
         tabIndex={node.key === tabStopKey ? 0 : -1}
         aria-expanded={canExpand ? node.expanded : undefined}
         aria-current={active ? "location" : undefined}

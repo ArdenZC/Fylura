@@ -207,6 +207,76 @@ pub(crate) fn create_directory_with_safety(
     })
 }
 
+pub(crate) fn create_empty_file_with_safety(
+    parent_path: String,
+    name: String,
+    expected_parent: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<FileOperationResult, FileMutationError> {
+    validate_safe_file_name(&name)?;
+    let parent = VerifiedDirectory::open_existing(Path::new(&parent_path))
+        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+    ensure_general_file_operation_allowed(parent.path())?;
+    ensure_not_safe_trash_operation(parent.path())?;
+    ensure_not_safe_trash_operation(&parent.path().join(&name))?;
+    if let Some(expected) = expected_parent {
+        let actual = crate::fs_safety::capture_namespace_identity_only(parent.path(), None)
+            .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+        if !crate::fs_safety::identity_matches(expected, &actual) {
+            return Err(FileMutationError::Validation(
+                "operation_preview_stale".into(),
+            ));
+        }
+    }
+    let file = parent
+        .create_child_file(std::ffi::OsStr::new(&name))
+        .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+    let target = parent.path().join(&name);
+    file.sync_all().map_err(|_| {
+        FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        )
+    })?;
+    parent.sync().map_err(|_| {
+        FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        )
+    })?;
+    if let Some(observer) = actual_path_observer {
+        observer(parent.path(), &target, None).map_err(FileMutationError::Atomic)?;
+    }
+    if let Some(observer) = phase_observer {
+        observer(crate::fs_safety::FileOperationEvent::Phase(
+            "target_committed".to_string(),
+        ))
+        .map_err(FileMutationError::Atomic)?;
+    }
+    parent.ensure_unchanged().map_err(|_| {
+        FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        )
+    })?;
+    let file_is_empty = file
+        .metadata()
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == 0);
+    let handle_identity =
+        crate::fs_safety::identity::capture_namespace_identity_from_handle(&file, &target, None);
+    let path_identity = crate::fs_safety::capture_namespace_identity_only(&target, None);
+    if !file_is_empty
+        || !matches!((handle_identity, path_identity), (Ok(handle), Ok(path)) if crate::fs_safety::identity_matches(&handle, &path))
+    {
+        return Err(FileMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        ));
+    }
+    Ok(FileOperationResult {
+        operation: "create_file".into(),
+        source_path: normalize_path(parent.path()),
+        target_path: normalize_path(&target),
+    })
+}
+
 pub(crate) fn validate_source_path(path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err(FileOpError::RelativePath.to_string());

@@ -120,6 +120,8 @@ export function operationTypeLabel(log: OperationLog, t: Translator) {
   if (log.operation_type === "replace") return t("operationReplace");
   if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
   if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
+  if (log.operation_type === "create_directory") return t("operationCreateDirectory");
+  if (log.operation_type === "create_file") return t("operationCreateFile");
   return t("historyOperationSourceUnknown");
 }
 

@@ -1,6 +1,6 @@
 import { usePane } from "../workbench/PaneContext";
 import { AlertTriangle, FileText, Folder, FolderOpen } from "lucide-react";
-import { memo, useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { BrowseSortSpec } from "../../../types/fileWorkspace";
 import type { Language } from "../../../i18n";
@@ -15,11 +15,23 @@ import type {
 import type { PresentationInteractionProjection, PresentationSelectionIntent } from "./interactionContracts";
 import { selectionIntentFromModifiers } from "./interactionAdapters";
 import { resolvePresentationContextMenuTarget } from "./contextMenuTarget";
+import { useBrowseMarqueeSelection } from "./useBrowseMarqueeSelection";
 import "./sharedFileList.css";
 
 const ROW_HEIGHT = 44;
 const OVERSCAN = 8;
 const LOAD_MORE_THRESHOLD = 4;
+const LIST_COLUMN_MIN_WIDTHS = [180, 80, 100, 100, 80] as const;
+
+function readListColumnWidths() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem("fylura.files.listColumnWidths") ?? "null");
+    if (Array.isArray(parsed) && parsed.length === LIST_COLUMN_MIN_WIDTHS.length && parsed.every((value, index) => Number.isFinite(value) && value >= LIST_COLUMN_MIN_WIDTHS[index]! && value <= 1200)) {
+      return parsed as number[];
+    }
+  } catch { /* Use the default list geometry when storage is unavailable. */ }
+  return [290, 110, 110, 120, 85];
+}
 
 export type ListLoadMoreDecision =
   | { kind: "none" }
@@ -72,6 +84,10 @@ export function SharedFileList({
   onContextMenu,
   onOpenContextMenu,
   onEscape,
+  onBackgroundContextMenu,
+  onNavigateUp,
+  onRefresh,
+  onTypeToSelect,
   sort,
   onSort
 }: {
@@ -93,12 +109,22 @@ export function SharedFileList({
   ) => void;
   onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
   onEscape?: () => boolean;
+  onBackgroundContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
+  onNavigateUp?: () => void;
+  onRefresh?: () => void;
+  onTypeToSelect?: (text: string) => void;
   sort?: BrowseSortSpec;
   onSort?: (field: BrowseSortSpec["field"]) => void;
 }) {
   const pane = usePane();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{ index: number; startX: number; initialWidth: number } | null>(null);
+  const [columnWidths, setColumnWidths] = useState(readListColumnWidths);
+  const columnWidthsRef = useRef(columnWidths);
+  columnWidthsRef.current = columnWidths;
+  const marquee = useBrowseMarqueeSelection(scrollRef, interaction);
   const loadMoreInFlightRef = useRef(false);
+  const typeAheadRef = useRef({ text: "", time: 0 });
   const rowVirtualizer = useVirtualizer({
     count: interaction.rowCount,
     getScrollElement: () => scrollRef.current,
@@ -150,9 +176,38 @@ export function SharedFileList({
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
 
+    if ((event.altKey && event.key === "ArrowUp") || event.key === "Backspace") {
+      if (onNavigateUp) {
+        event.preventDefault();
+        onNavigateUp();
+      }
+      return;
+    }
+    if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r")) {
+      if (onRefresh) {
+        event.preventDefault();
+        onRefresh();
+      }
+      return;
+    }
+    if (interaction.source === "browse" && !event.nativeEvent.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.length === 1 && !/\s/u.test(event.key)) {
+      const now = Date.now();
+      const prefix = now - typeAheadRef.current.time < 700 ? typeAheadRef.current.text + event.key : event.key;
+      typeAheadRef.current = { text: prefix, time: now };
+      onTypeToSelect?.(prefix);
+      return;
+    }
+
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
       interaction.actions.selectAll();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") {
+      if (interaction.actions.invertSelection) {
+        event.preventDefault();
+        interaction.actions.invertSelection();
+      }
       return;
     }
     if (event.key === "Escape") {
@@ -208,18 +263,53 @@ export function SharedFileList({
     { field: "modified", label: t("fileModified") },
     { field: "size", label: t("fileSize") }
   ];
+  const widthIndexes = showCreated ? [0, 1, 2, 3, 4] : [0, 1, 3, 4];
+  const columnsStyle = widthIndexes.map((index) => `${columnWidths[index]}px`).join(" ");
+  function resizePointerDown(event: ReactPointerEvent<HTMLSpanElement>, widthIndex: number) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resizeRef.current = { index: widthIndex, startX: event.clientX, initialWidth: columnWidths[widthIndex]! };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function resizePointerMove(event: ReactPointerEvent<HTMLSpanElement>) {
+    const resize = resizeRef.current;
+    if (!resize) return;
+    const width = Math.min(1200, Math.max(LIST_COLUMN_MIN_WIDTHS[resize.index]!, resize.initialWidth + event.clientX - resize.startX));
+    setColumnWidths((current) => current.map((value, index) => index === resize.index ? width : value));
+  }
+  function resizePointerUp() {
+    if (!resizeRef.current) return;
+    resizeRef.current = null;
+    try { window.localStorage.setItem("fylura.files.listColumnWidths", JSON.stringify(columnWidthsRef.current)); } catch { /* Width changes remain active for this session. */ }
+  }
+  function resizeByKeyboard(event: KeyboardEvent<HTMLSpanElement>, widthIndex: number) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const width = Math.min(1200, Math.max(LIST_COLUMN_MIN_WIDTHS[widthIndex]!, columnWidths[widthIndex]! + (event.key === "ArrowRight" ? 16 : -16)));
+    setColumnWidths((current) => current.map((value, index) => index === widthIndex ? width : value));
+    const next = columnWidths.map((value, index) => index === widthIndex ? width : value);
+    try { window.localStorage.setItem("fylura.files.listColumnWidths", JSON.stringify(next)); } catch { /* Width changes remain active for this session. */ }
+  }
   return (
-    <div className={cn("shared-file-list-shell", showCreated && "has-created-column")}>
+    <div className={cn("shared-file-list-shell", showCreated && "has-created-column")} style={{ "--shared-file-list-columns": columnsStyle } as CSSProperties}>
       <div className="shared-file-list-header" role="group" aria-label={t("u3Sort")}>
-        {columns.map(({ field, label }) => onSort ? (
-          <button key={field} type="button" data-browse-sort-column={field}
-            className={field === "size" ? "shared-file-list-size-heading" : undefined}
-            aria-pressed={sort?.field === field}
-            aria-label={sort?.field === field ? `${label}, ${sort.direction === "asc" ? t("u3Asc") : t("u3Desc")}` : label}
-            onClick={() => onSort(field)}>
-            {label}{sort?.field === field ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
-          </button>
-        ) : <span key={field} className={field === "size" ? "shared-file-list-size-heading" : undefined}>{label}</span>)}
+        {columns.map(({ field, label }, index) => {
+          const widthIndex = widthIndexes[index]!;
+          return <div key={field} className="shared-file-list-header-cell">
+            {onSort ? <button type="button" data-browse-sort-column={field}
+              className={field === "size" ? "shared-file-list-size-heading" : undefined}
+              aria-pressed={sort?.field === field}
+              aria-label={sort?.field === field ? `${label}, ${sort.direction === "asc" ? t("u3Asc") : t("u3Desc")}` : label}
+              onClick={() => onSort(field)}>
+              {label}{sort?.field === field ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
+            </button> : <span className={field === "size" ? "shared-file-list-size-heading" : undefined}>{label}</span>}
+            {index < columns.length - 1 ? <span role="separator" aria-orientation="vertical" aria-label={`${label} column width`} aria-valuemin={LIST_COLUMN_MIN_WIDTHS[widthIndex]} aria-valuemax={1200} aria-valuenow={columnWidths[widthIndex]} tabIndex={0} className="shared-file-list-column-resize"
+              onPointerDown={(event) => resizePointerDown(event, widthIndex)} onPointerMove={resizePointerMove} onPointerUp={resizePointerUp}
+              onPointerCancel={resizePointerUp} onKeyDown={(event) => resizeByKeyboard(event, widthIndex)} /> : null}
+          </div>;
+        })}
       </div>
       <div
         ref={scrollRef}
@@ -238,7 +328,20 @@ export function SharedFileList({
         data-browse-list={interaction.source === "browse" ? "true" : undefined}
         data-browse-logical-count={interaction.source === "browse" ? interaction.rowCount : undefined}
         onKeyDown={handleKeyDown}
+        onPointerDown={marquee.onPointerDown}
+        onPointerMove={marquee.onPointerMove}
+        onPointerUp={marquee.onPointerUp}
+        onPointerCancel={marquee.onPointerCancel}
+        onContextMenu={(event) => {
+          if (!(event.target instanceof Element) || !event.target.closest("[data-file-entry-kind]")) onBackgroundContextMenu?.(event);
+        }}
       >
+        {marquee.rectangle ? <div className="file-selection-marquee" aria-hidden="true" style={{
+          left: marquee.rectangle.left,
+          top: marquee.rectangle.top,
+          width: marquee.rectangle.right - marquee.rectangle.left,
+          height: marquee.rectangle.bottom - marquee.rectangle.top
+        }} /> : null}
         {interaction.rowCount === 0 ? (
           <div className="shared-file-list-empty">{emptyLabel ?? t("browseUnknownValue")}</div>
         ) : (

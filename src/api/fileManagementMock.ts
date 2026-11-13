@@ -74,15 +74,16 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
       if (!directory.isDirectory) throw Error("transfer_destination_not_directory");
       request = { ...request, destinationDirectory: directory.path };
     }
-    if (request.action === "create_directory") {
-      const ticketId = "create-directory";
+    if (request.action === "create_directory" || request.action === "create_file") {
+      const isDirectory = request.action === "create_directory";
+      const ticketId = isDirectory ? "create-directory" : "create-file";
       const name = String(request.newName ?? "");
       const target = `${request.destinationDirectory}/${name}`;
       const conflict = files.has(target);
       const preview = conflict ? null : {
-        id: `op-transfer-mock-${++serial}`, fileId: "recovery", operation_type: "create_directory",
+        id: `op-transfer-mock-${++serial}`, fileId: "recovery", operation_type: isDirectory ? "create_directory" : "create_file",
         source_path: request.destinationDirectory, target_path: target, old_name: name, new_name: name,
-        reason: "Browser fixture create directory", status: "pending", risk_level: "Normal", confidence: 1,
+        reason: isDirectory ? "Browser fixture create directory" : "Browser fixture create file", status: "pending", risk_level: "Normal", confidence: 1,
         requires_confirmation: true, suggested_action: "Copy", is_executable: true,
         operationFingerprint: `mock-${serial}`
       } as OperationPreview;
@@ -143,6 +144,7 @@ export function executeManagementMockOperations(operations: OperationPreview[]) 
     const batchId = `batch-${++serial}`;
     const result = { batch_id: batchId, logs: operations.map((op) => { const source = files.get(op.source_path) ?? { id: `created-${++serial}`, version: 1 };
       if (op.operation_type === "create_directory") files.set(op.target_path, { ...source, id: `published-${++serial}`, directory: true });
+      else if (op.operation_type === "create_file") files.set(op.target_path, { id: `created-${++serial}`, version: 1, size: 0, modified: Date.now() });
       else {
         if (source.directory && (op.operation_type === "move" || op.operation_type === "duplicate")) {
           const moved = [...files.entries()].filter(([path]) => path === op.source_path || path.startsWith(`${op.source_path}/`));

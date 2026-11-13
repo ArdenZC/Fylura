@@ -40,6 +40,10 @@ on:
         description: Existing SQLite/MFT implementation ref for the real NTFS pair
         type: string
         default: perf/global-index-native-ingestion-20261112
+      run_trigger_matrix:
+        description: Re-run the synthetic 25k FTS/source-stat attribution matrix
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -403,6 +407,7 @@ jobs:
         shell: pwsh
         run: New-Item -ItemType Directory -Path '.performance-artifacts/filename-first' -Force | Out-Null
       - name: Attribute synthetic FTS and source-stat trigger cost
+        if: inputs.run_trigger_matrix
         env:
           ZEN_GLOBAL_WRITER_TRIGGER_REPORT: ${{ github.workspace }}/.performance-artifacts/filename-first/trigger-attribution.json
         run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index_writer_trigger_contribution_25k -- --ignored --nocapture --test-threads=1

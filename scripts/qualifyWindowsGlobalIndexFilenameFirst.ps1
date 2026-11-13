@@ -167,7 +167,6 @@ function Invoke-Probe(
     $result = $jsonLine[0] | ConvertFrom-Json
     $mftTiming = Get-TraceEvent $TracePath 'mft_initial_index'
     $writerTiming = Get-TraceEvent $TracePath 'source_operation_write'
-    if (-not $mftTiming -or -not $writerTiming) { throw "$Label omitted MFT or repository stage timings" }
     return [pscustomobject]@{
         label = $Label
         result = $result
@@ -298,6 +297,9 @@ try {
                 '--qualify-filename-first', $profile, $prepared.targetSourceId,
                 'filename-first-item-000000.txt', $firstTargetPath, 'finalmarker', $targetPath
             ) $mode $trace 90
+            if (-not $run.stages.mft -or -not $run.stages.writer) {
+                throw "$side initial run $repetition omitted MFT or repository stage timings"
+            }
             if (-not $run.result.restartedSearchVisible -or -not $run.result.restartedCompleteCoverageSearchVisible -or -not $run.result.indexComplete) {
                 throw "$side initial run $repetition did not persist a complete searchable index"
             }

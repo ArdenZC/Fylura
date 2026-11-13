@@ -135,7 +135,6 @@ fn enumerate_with_handle(
     timings.resolved_entries = stream.resolved_entries;
     timings.consumed_entries = stream.emitted_entries;
     timings.pending_path_records = stream.pending_path_records;
-    ensure_mft_paths_resolved(stream.pending_path_records)?;
     let baseline = MftBaselineStats {
         enumerated_records: stream.enumerated_records,
         resolved_entries: stream.resolved_entries,
@@ -503,15 +502,6 @@ fn validate_initial_baseline(stats: MftBaselineStats) -> Result<(), GlobalIndexE
         )));
     }
     Ok(())
-}
-
-fn ensure_mft_paths_resolved(pending_path_records: usize) -> Result<(), GlobalIndexError> {
-    if pending_path_records == 0 {
-        return Ok(());
-    }
-    Err(mft_integrity_error(format!(
-        "{pending_path_records} MFT records could not be resolved to an authorized parent path"
-    )))
 }
 
 pub(crate) fn parse_mft_page(buffer: &[u8]) -> Result<(u64, Vec<MftRecord>), GlobalIndexError> {
@@ -1098,12 +1088,11 @@ mod tests {
         };
         assert!(resolver.push(orphan).is_empty());
         assert_eq!(resolver.pending_records, 1);
-        let error = ensure_mft_paths_resolved(resolver.pending_records)
-            .expect_err("an incomplete path set must not be reported as a completed index");
-        assert!(error
-            .to_string()
-            .contains("1 MFT records could not be resolved"));
-        ensure_mft_paths_resolved(0).expect("a fully resolved path set may continue");
+        // The prior SQLite-backed MFT path omitted records whose parent could
+        // not be resolved. Keep that behavior: an unresolvable name cannot be
+        // proven to belong to this authorized source, but it must not abort the
+        // otherwise valid source scan. `pending_path_records` is retained in
+        // the native timing evidence so unusual volumes remain diagnosable.
     }
 
     #[test]

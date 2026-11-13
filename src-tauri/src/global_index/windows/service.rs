@@ -282,6 +282,8 @@ where
                         "invalid response error_code/ok structure".into(),
                     ));
                 }
+                #[cfg(feature = "native-qa")]
+                entry_batcher.record_qualification();
                 return Ok(response);
             }
             IndexServiceFrame::LookupResponse { .. } => {
@@ -301,6 +303,21 @@ const MAX_COALESCED_ENTRY_BYTES: usize = 512 * 1024;
 pub(crate) struct IndexServiceEntryBatcher {
     entries: Vec<GlobalEntryInput>,
     estimated_bytes: usize,
+    #[cfg(feature = "native-qa")]
+    qualification: IndexServiceBatchQualification,
+}
+
+#[cfg(feature = "native-qa")]
+#[derive(Default)]
+struct IndexServiceBatchQualification {
+    input_entry_frames: usize,
+    input_entries: usize,
+    repository_batches: usize,
+    repository_entries: usize,
+    max_repository_batch_entries: usize,
+    checkpoints: usize,
+    checkpoint_flushes: usize,
+    checkpoint_flushed_entries: usize,
 }
 
 impl IndexServiceEntryBatcher {
@@ -310,6 +327,11 @@ impl IndexServiceEntryBatcher {
     {
         match event {
             IndexServiceEvent::Entries { entries } => {
+                #[cfg(feature = "native-qa")]
+                {
+                    self.qualification.input_entry_frames += 1;
+                    self.qualification.input_entries += entries.len();
+                }
                 for entry in entries {
                     let entry_bytes = entry_buffer_size(&entry);
                     if !self.entries.is_empty()
@@ -330,8 +352,21 @@ impl IndexServiceEntryBatcher {
                 Ok(())
             }
             other => {
+                let is_checkpoint = matches!(&other, IndexServiceEvent::Checkpoint { .. });
+                let pending_entries = self.entries.len();
                 self.flush(callback)?;
-                callback(other)
+                callback(other)?;
+                #[cfg(feature = "native-qa")]
+                if is_checkpoint {
+                    self.qualification.checkpoints += 1;
+                    if pending_entries > 0 {
+                        self.qualification.checkpoint_flushes += 1;
+                        self.qualification.checkpoint_flushed_entries += pending_entries;
+                    }
+                }
+                #[cfg(not(feature = "native-qa"))]
+                let _ = (is_checkpoint, pending_entries);
+                Ok(())
             }
         }
     }
@@ -344,9 +379,40 @@ impl IndexServiceEntryBatcher {
             return Ok(());
         }
         self.estimated_bytes = 0;
-        callback(IndexServiceEvent::Entries {
-            entries: std::mem::take(&mut self.entries),
-        })
+        let entries = std::mem::take(&mut self.entries);
+        let entry_count = entries.len();
+        callback(IndexServiceEvent::Entries { entries })?;
+        #[cfg(feature = "native-qa")]
+        {
+            self.qualification.repository_batches += 1;
+            self.qualification.repository_entries += entry_count;
+            self.qualification.max_repository_batch_entries = self
+                .qualification
+                .max_repository_batch_entries
+                .max(entry_count);
+        }
+        #[cfg(not(feature = "native-qa"))]
+        let _ = entry_count;
+        Ok(())
+    }
+
+    #[cfg(feature = "native-qa")]
+    fn record_qualification(&self) {
+        if self.qualification.input_entries == 0 {
+            return;
+        }
+        let stats = &self.qualification;
+        crate::global_index::qa_trace::record(&format!(
+            "index_service_batching entry_frames={} input_entries={} repository_batches={} repository_entries={} max_repository_batch_entries={} checkpoints={} checkpoint_flushes={} checkpoint_flushed_entries={}",
+            stats.input_entry_frames,
+            stats.input_entries,
+            stats.repository_batches,
+            stats.repository_entries,
+            stats.max_repository_batch_entries,
+            stats.checkpoints,
+            stats.checkpoint_flushes,
+            stats.checkpoint_flushed_entries,
+        ));
     }
 }
 

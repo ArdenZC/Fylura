@@ -149,11 +149,39 @@ fn main() -> Result<(), Box<dyn Error>> {
             .get("query")
             .and_then(Value::as_str)
             .unwrap_or_default();
+        let limit = request
+            .get("limit")
+            .and_then(Value::as_u64)
+            .unwrap_or(25)
+            .clamp(1, 100) as u32;
+        let offset = request
+            .get("offset")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            .min(2048) as u32;
+        let include_index_facts = request
+            .get("includeIndexFacts")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let index_connection = if include_index_facts {
+            Some(database.conn()?)
+        } else {
+            None
+        };
         let volumes = database
             .list_global_volumes()?
             .into_iter()
-            .map(|volume| {
-                json!({
+            .map(|volume| -> Result<Value, Box<dyn Error>> {
+                let database_facts = if let Some(connection) = index_connection.as_ref() {
+                    Some(connection.query_row(
+                        "SELECT COUNT(*),COALESCE(SUM(CASE WHEN is_stale=0 THEN 1 ELSE 0 END),0) FROM global_entries WHERE volume_id=?1",
+                        [&volume.id],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )?)
+                } else {
+                    None
+                };
+                Ok(json!({
                     "id": volume.id,
                     "mountPath": volume.mount_path,
                     "filesystemType": volume.filesystem_type,
@@ -163,15 +191,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                     "status": volume.index_status,
                     "lastError": volume.last_error,
                     "entryCount": volume.entry_count,
+                    "databaseTotalEntries": database_facts.map(|facts| facts.0),
+                    "databaseActiveEntries": database_facts.map(|facts| facts.1),
                     "lastFullIndexAt": volume.last_full_index_at,
-                })
+                }))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         let results = if query.is_empty() {
             Vec::new()
         } else {
             database
-                .search_global_entries(query, 25, 0)?
+                .search_global_entries(query, limit, offset)?
                 .into_iter()
                 .map(|result| json!({"name": result.name, "path": result.path}))
                 .collect::<Vec<_>>()

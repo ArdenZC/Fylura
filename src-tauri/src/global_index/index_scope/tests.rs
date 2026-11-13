@@ -458,6 +458,132 @@ fn merged_scope_write_preserves_rebuild_incremental_fts_and_managed_links() {
     )
     .unwrap();
 }
+
+#[test]
+fn identical_replay_and_last_seen_refresh_rescan_keep_scope_fts_and_facts_consistent() {
+    let f = Fixture::new();
+    let included = f.file("include/replayvisible-token.txt");
+    let excluded = f.file("exclude/replayhidden-token.txt");
+    let mut entries = [included, excluded];
+    entries[0].last_seen_at = 1_700_000_000;
+    entries[1].last_seen_at = 1_700_000_001;
+
+    let include_root = f.root.join("include");
+    let exclude_root = f.root.join("exclude");
+    f.db.save_global_index_coverage(
+        1,
+        CoverageMode::Custom,
+        vec![
+            bind_rule(&f.source, &include_root.to_string_lossy(), true).unwrap(),
+            bind_rule(&f.source, &exclude_root.to_string_lossy(), false).unwrap(),
+        ],
+    )
+    .unwrap();
+
+    let initial_owner = f.owner();
+    f.db
+        .mark_global_entries_stale_for_volume_owned(&initial_owner)
+        .unwrap();
+    f.db.upsert_global_entries_batch_owned(&entries, &initial_owner)
+        .unwrap();
+    f.db.finish_global_index_operation(&initial_owner, "ready", None, Some(1), Some(1), true)
+        .unwrap();
+
+    let included_id = entries[0].entry_id();
+    let included_path = entries[0].path.clone();
+    let assert_index_facts = |expected_last_seen: i64| {
+        let conn = f.db.conn().unwrap();
+        let row: (i64, String, i64) = conn
+            .query_row(
+                "SELECT is_stale,scope_decision,last_seen_at FROM global_entries WHERE id=?1",
+                [&included_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row, (0, "include".into(), expected_last_seen));
+        let facts: (i64, i64, Option<i64>) = conn
+            .query_row(
+                "SELECT active_rows,active_ids,max_last_seen_at FROM global_entry_source_facts WHERE volume_id=?1",
+                [&f.source.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(facts, (1, 1, Some(expected_last_seen)));
+        assert!(f.db.get_global_entry(&entries[1].entry_id()).unwrap().is_none());
+        let visible = f.db.search_global_entries("replayvisible-token", 25, 0).unwrap();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, included_id);
+        assert_eq!(visible[0].path, included_path);
+        assert!(f
+            .db
+            .search_global_entries("replayhidden-token", 25, 0)
+            .unwrap()
+            .is_empty());
+        conn.execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .unwrap();
+    };
+    assert_index_facts(entries[0].last_seen_at);
+
+    let identical_owner = f
+        .db
+        .claim_global_index_operation(
+            &f.source,
+            &uuid::Uuid::new_v4().to_string(),
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Coordinator,
+        )
+        .unwrap()
+        .unwrap();
+    let identical_started = std::time::Instant::now();
+    f.db.upsert_global_entries_batch_owned(&entries, &identical_owner)
+        .unwrap();
+    let identical_replay_us = identical_started.elapsed().as_micros();
+    f.db.finish_global_index_operation(&identical_owner, "ready", None, None, Some(2), false)
+        .unwrap();
+    assert_index_facts(entries[0].last_seen_at);
+
+    let refreshed_last_seen = 1_800_000_000;
+    let mut rescanned = entries.clone();
+    for (index, entry) in rescanned.iter_mut().enumerate() {
+        entry.last_seen_at = refreshed_last_seen + index as i64;
+    }
+    let rescan_owner = f
+        .db
+        .claim_global_index_operation(
+            &f.source,
+            &uuid::Uuid::new_v4().to_string(),
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Coordinator,
+        )
+        .unwrap()
+        .unwrap();
+    let rescan_started = std::time::Instant::now();
+    f.db.upsert_global_entries_batch_owned(&rescanned, &rescan_owner)
+        .unwrap();
+    let refreshed_rescan_us = rescan_started.elapsed().as_micros();
+    f.db.finish_global_index_operation(&rescan_owner, "ready", None, None, Some(3), false)
+        .unwrap();
+    assert_index_facts(refreshed_last_seen);
+
+    println!(
+        "GLOBAL_INDEX_REPLAY_CONTROL {}",
+        serde_json::json!({
+            "candidates": entries.len(),
+            "identicalInputReplayUs": identical_replay_us,
+            "lastSeenRefreshRescanUs": refreshed_rescan_us,
+            "lastSeenBefore": entries[0].last_seen_at,
+            "lastSeenAfter": refreshed_last_seen,
+            "scope": "custom include/exclude",
+            "activeRows": 1,
+            "visibleFtsResults": 1,
+            "excludedRowsPersisted": 0,
+        })
+    );
+}
+
 #[test]
 fn policy_switch_fences_old_writes_hides_old_results_and_survives_restart() {
     let f = Fixture::new();
@@ -713,7 +839,7 @@ fn global_index_writer_ingestion_100k_pair() {
             let _ = super::native::take_metadata_attempts();
             let mut passes = Vec::new();
 
-            for pass in ["initial", "replay"] {
+            for pass in ["initial", "identical_input_replay"] {
                 let begin = Instant::now();
                 let mut sampling = std::time::Duration::ZERO;
                 let mut writer_timing =
@@ -744,6 +870,11 @@ fn global_index_writer_ingestion_100k_pair() {
                 let elapsed = instrumented.saturating_sub(sampling).as_secs_f64();
                 let pass_record = serde_json::json!({
                     "pass": pass,
+                    "inputSemantics": if pass == "identical_input_replay" {
+                        "same GlobalEntryInput values including last_seen_at; not a real rescan"
+                    } else {
+                        "initial input batch"
+                    },
                     "seconds": elapsed,
                     "candidatesPerSecond": n as f64 / elapsed,
                     "rssSamplingSeconds": sampling.as_secs_f64(),

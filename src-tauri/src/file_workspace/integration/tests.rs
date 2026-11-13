@@ -28,7 +28,7 @@ use crate::{
 };
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
     thread,
     time::{Duration, Instant},
@@ -356,8 +356,8 @@ fn persisted_file_basket_survives_runtime_restart_and_revalidates_replaced_paths
 #[test]
 fn transfer_execution_advances_directory_selection_using_journaled_successes() {
     use crate::file_ops::manual_transfer::{
-        complete_browse_selection_batch, CaptureSelectionPageRequest, TransferAction,
-        TransferExecuteRequest, TransferPreviewRequest,
+        complete_browse_selection_batch, CaptureRequest, CaptureSelectionPageRequest,
+        TransferAction, TransferExecuteRequest, TransferPreviewRequest,
     };
     use crate::file_workspace::integration::types::BrowseSelectionSnapshotRequest;
 
@@ -419,6 +419,14 @@ fn transfer_execution_advances_directory_selection_using_journaled_successes() {
     assert_eq!(result.logs.len(), 1000);
     assert!(result.logs.iter().all(|log| log.status == "success"));
     complete_browse_selection_batch(&runtime, &selection_sources, &result.logs);
+    runtime
+        .capture_transfer(CaptureRequest {
+            refs: Vec::new(),
+            selection: None,
+            release_ids: tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+            external_paths: Vec::new(),
+        })
+        .expect("release completed batch tickets before capturing the next page");
 
     let next_batch = runtime
         .capture_selection_snapshot_page(CaptureSelectionPageRequest {
@@ -510,24 +518,29 @@ fn file_basket_location_moves_only_from_a_matching_successful_journal_log() {
             limit: 40,
         })
         .expect("basket row");
-    let source = file_namespace_fingerprint(&fixture.root.join("entry.txt")).expect("identity");
+    let source_path = tickets[0].path.clone();
+    let source = file_namespace_fingerprint(Path::new(&source_path)).expect("identity");
     let target = fixture.root.join("nested/entry.txt");
     fs::rename(fixture.root.join("entry.txt"), &target).expect("move source");
-    let moved = file_namespace_fingerprint(&target).expect("target identity");
+    let target_path = fs::canonicalize(&target)
+        .expect("canonical target")
+        .to_string_lossy()
+        .into_owned();
+    let moved = file_namespace_fingerprint(Path::new(&target_path)).expect("target identity");
     let log: OperationLogDto = serde_json::from_value(serde_json::json!({
         "id": "basket-move-log",
         "batch_id": "basket-move-batch",
         "operation_type": "move",
-        "source_path": fixture.root.join("entry.txt").to_string_lossy(),
-        "target_path": target.to_string_lossy(),
+        "source_path": source_path,
+        "target_path": target_path,
         "old_name": "entry.txt",
         "new_name": "entry.txt",
         "status": "success",
         "error_message": null,
         "created_at": "2026-11-13T00:00:00Z",
         "can_undo": true,
-        "path_before": fixture.root.join("entry.txt").to_string_lossy(),
-        "path_after": target.to_string_lossy(),
+        "path_before": source_path,
+        "path_after": target_path,
         "name_before": "entry.txt",
         "name_after": "entry.txt",
         "can_restore": true,
@@ -562,7 +575,7 @@ fn file_basket_location_moves_only_from_a_matching_successful_journal_log() {
             limit: 40,
         })
         .expect("updated basket");
-    assert_eq!(updated.entries[0].path, target.to_string_lossy());
+    assert_eq!(updated.entries[0].path, target_path);
     assert_eq!(updated.entries[0].status, "available");
     assert_eq!(
         runtime

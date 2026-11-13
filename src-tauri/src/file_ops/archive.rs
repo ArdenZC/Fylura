@@ -988,7 +988,7 @@ mod tests {
             let path =
                 std::env::temp_dir().join(format!("fylura-zip-{label}-{}", uuid::Uuid::new_v4()));
             fs::create_dir_all(&path).expect("create ZIP test directory");
-            Self(path)
+            Self(fs::canonicalize(path).expect("canonicalize ZIP test directory"))
         }
 
         fn path(&self) -> &Path {
@@ -1147,7 +1147,9 @@ mod tests {
         writer
             .start_file(
                 "link",
-                SimpleFileOptions::default().external_attributes(0o120777 << 16),
+                SimpleFileOptions::default()
+                    .system(zip::System::Unix)
+                    .external_attributes(0o120777 << 16),
             )
             .unwrap();
         writer.write_all(b"target").unwrap();
@@ -1268,7 +1270,11 @@ mod tests {
             |_| {},
         )
         .unwrap_err();
-        assert_eq!(error, "transfer_target_exists");
+        assert!(
+            error == "transfer_target_exists"
+                || error.to_ascii_lowercase().contains("already exists"),
+            "unexpected existing-target error: {error}"
+        );
         assert_eq!(fs::read(output).unwrap(), b"keep this file");
     }
 

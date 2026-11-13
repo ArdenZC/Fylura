@@ -561,7 +561,7 @@ fn one_off_schema_46_upgrade_preserves_legacy_plans_and_ddl_failure_rolls_back()
                 .is_err());
         } else {
             result.unwrap();
-            assert_eq!(version, 47);
+            assert_eq!(version, i64::from(crate::db::SUPPORTED_SCHEMA_VERSION));
             assert!(conn
                 .prepare("SELECT one_off_folder_path FROM organization_plans")
                 .is_ok());

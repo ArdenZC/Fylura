@@ -211,7 +211,6 @@ struct TransientFilenameEntry {
     input: GlobalEntryInput,
     normalized_name: String,
     normalized_extension: String,
-    filename_grams: Vec<u64>,
     visible: bool,
 }
 
@@ -316,9 +315,6 @@ impl FilenameSearchManager {
                     &catalog_entries[index].normalized_extension,
                     index,
                 );
-                for gram in &catalog_entries[index].filename_grams {
-                    remove_transient_gram(by_filename_gram, *gram, index);
-                }
                 catalog_entries[index] = value;
                 if previous_visible && !*visible {
                     *visible_unpersisted_entries = visible_unpersisted_entries.saturating_sub(1);
@@ -336,8 +332,11 @@ impl FilenameSearchManager {
                         catalog_entries[index].normalized_extension.clone(),
                         index,
                     );
-                    for gram in &catalog_entries[index].filename_grams {
-                        by_filename_gram.entry(*gram).or_default().push(index);
+                    for gram in transient_filename_grams(
+                        &catalog_entries[index].normalized_name,
+                        &catalog_entries[index].normalized_extension,
+                    ) {
+                        by_filename_gram.entry(gram).or_default().push(index);
                     }
                 }
             } else {
@@ -356,8 +355,11 @@ impl FilenameSearchManager {
                         catalog_entries[index].normalized_extension.clone(),
                         index,
                     );
-                    for gram in &catalog_entries[index].filename_grams {
-                        by_filename_gram.entry(*gram).or_default().push(index);
+                    for gram in transient_filename_grams(
+                        &catalog_entries[index].normalized_name,
+                        &catalog_entries[index].normalized_extension,
+                    ) {
+                        by_filename_gram.entry(gram).or_default().push(index);
                     }
                 }
             }
@@ -1317,18 +1319,21 @@ fn transient_filename_entry(
 ) -> TransientFilenameEntry {
     let normalized_name = input.name.to_lowercase();
     let normalized_extension = input.extension.to_lowercase();
-    let mut grams = filename_grams(&normalized_name);
-    grams.extend(filename_grams(&normalized_extension));
-    grams.sort_unstable();
-    grams.dedup();
     TransientFilenameEntry {
         id,
         input: input.clone(),
         normalized_name,
         normalized_extension,
-        filename_grams: grams,
         visible,
     }
+}
+
+fn transient_filename_grams(name: &str, extension: &str) -> Vec<u64> {
+    let mut grams = filename_grams(name);
+    grams.extend(filename_grams(extension));
+    grams.sort_unstable();
+    grams.dedup();
+    grams
 }
 
 fn most_selective_transient_gram<'a>(
@@ -2621,15 +2626,6 @@ fn remove_transient_key(index: &mut BTreeMap<String, Vec<usize>>, key: &str, val
         values.retain(|index| *index != value);
         if values.is_empty() {
             index.remove(key);
-        }
-    }
-}
-
-fn remove_transient_gram(index: &mut HashMap<u64, Vec<usize>>, gram: u64, value: usize) {
-    if let Some(values) = index.get_mut(&gram) {
-        values.retain(|index| *index != value);
-        if values.is_empty() {
-            index.remove(&gram);
         }
     }
 }

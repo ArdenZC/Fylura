@@ -372,7 +372,7 @@ pub(crate) fn revalidated_global_entry(
         return Err("global_search_entry_id_invalid".to_string());
     }
     let entry = db
-        .get_global_entry(entry_id)
+        .get_global_entry_or_transient(entry_id)
         .map_err(global_index_database_error)?
         .ok_or_else(|| "global_search_result_not_found".to_string())?;
     let volume = db

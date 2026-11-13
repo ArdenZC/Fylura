@@ -252,9 +252,15 @@ impl ServiceRuntime {
                     )
                 })?;
             self.set_state("indexing", None);
+            let filename_first_enabled = std::env::var("ZC_GLOBAL_INDEX_FILENAME_FIRST")
+                .map(|value| value != "0")
+                .unwrap_or(true);
+            let defer_initial_mft_metadata =
+                should_defer_initial_mft_metadata(&command, filename_first_enabled);
             let mut sink = PipeSink {
                 connection,
                 cancel: self.cancel.clone(),
+                defer_initial_mft_metadata,
             };
             let result = match command {
                 IndexServiceCommand::StartInitialIndex { .. } => {
@@ -393,6 +399,18 @@ fn source_id(command: &IndexServiceCommand) -> &str {
 struct PipeSink<'a> {
     connection: &'a mut dyn IndexServiceConnection,
     cancel: Arc<AtomicBool>,
+    defer_initial_mft_metadata: bool,
+}
+
+fn should_defer_initial_mft_metadata(
+    command: &IndexServiceCommand,
+    filename_first_enabled: bool,
+) -> bool {
+    filename_first_enabled
+        && matches!(
+            command,
+            IndexServiceCommand::StartInitialIndex { .. } | IndexServiceCommand::Rebuild { .. }
+        )
 }
 
 impl PipeSink<'_> {
@@ -410,6 +428,10 @@ impl PipeSink<'_> {
 }
 
 impl GlobalIndexSink for PipeSink<'_> {
+    fn defer_initial_mft_metadata(&self, _volume_id: &str) -> bool {
+        self.defer_initial_mft_metadata
+    }
+
     fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
         self.ensure_running()?;
         let mut written = 0;
@@ -941,6 +963,23 @@ mod p1_tests;
 mod tests {
     use super::*;
     use crate::global_index::models::INDEX_STATUS_DISCOVERED;
+
+    #[test]
+    fn pipe_sink_defers_metadata_only_for_enabled_initial_mft_work() {
+        let initial = IndexServiceCommand::StartInitialIndex {
+            source_id: "volume".into(),
+        };
+        let rebuild = IndexServiceCommand::Rebuild {
+            source_id: "volume".into(),
+        };
+        let incremental = IndexServiceCommand::ResumeIncrementalSync {
+            source_id: "volume".into(),
+        };
+        assert!(should_defer_initial_mft_metadata(&initial, true));
+        assert!(should_defer_initial_mft_metadata(&rebuild, true));
+        assert!(!should_defer_initial_mft_metadata(&incremental, true));
+        assert!(!should_defer_initial_mft_metadata(&initial, false));
+    }
 
     fn index_request(request_id: &str, command: IndexServiceCommand) -> IndexServiceRequest {
         IndexServiceRequest {

@@ -86,7 +86,7 @@ fn object_identity(path: &Path, directory_only: bool) -> Option<String> {
     }
 }
 #[cfg(test)]
-pub(super) fn enrich_fixture_identity(entry: &mut GlobalEntryInput) {
+pub(crate) fn enrich_fixture_identity(entry: &mut GlobalEntryInput) {
     let path = Path::new(&entry.path);
     let to_provider_id = |stamp: String| {
         #[cfg(windows)]
@@ -347,10 +347,13 @@ fn candidate_search_admission_ok(
         && source.provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
         && entry.source_provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
     {
-        // Keep reparse, offline and recall-on-access entries conservative.
+        // FSCTL_ENUM_USN_DATA supplies these native flags for the same MFT
+        // record, so re-stat-ing every path here duplicates a filesystem call
+        // already deferred until after filename search is available. Changes
+        // after the enumeration checkpoint are reconciled from USN; file
+        // operations still validate the live path before acting.
         const UNSUPPORTED_ATTRIBUTES: i64 = 0x400 | 0x1000 | 0x40000 | 0x400000;
-        return entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0
-            && metadata(path).is_ok_and(|m| !fenced(&m));
+        return entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0;
     }
     let _ = source;
     metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))

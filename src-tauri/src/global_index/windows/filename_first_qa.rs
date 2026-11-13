@@ -162,9 +162,7 @@ pub fn run_initial(
     let fixture_file_pattern = expected_path
         .rsplit_once('/')
         .and_then(|(bucket_path, _)| bucket_path.rsplit_once('/'))
-        .map(|(fixture_root, _)| {
-            format!("{fixture_root}/bucket-%/filename-first-item-______.txt")
-        })
+        .map(|(fixture_root, _)| format!("{fixture_root}/bucket-%/filename-first-item-______.txt"))
         .ok_or("qualification fixture path is not nested under a bucket directory")?;
     let fixture_file_entries = db.conn()?.query_row(
         "SELECT COUNT(*) FROM global_entries WHERE volume_id=?1 AND is_stale=0 AND path_normalized LIKE ?2",
@@ -203,7 +201,7 @@ pub fn run_initial(
         let mut statement = connection.prepare(
             "SELECT name,path,file_attributes,is_directory FROM global_entries WHERE volume_id=?1 AND is_stale=0 AND scope_decision='undetermined' ORDER BY path",
         )?;
-        statement
+        let entries = statement
             .query_map([source_id], |row| {
                 Ok(json!({
                     "name": row.get::<_, String>(0)?,
@@ -212,7 +210,8 @@ pub fn run_initial(
                     "isDirectory": row.get::<_, i64>(3)? != 0,
                 }))
             })?
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        entries
     };
 
     drop(db);

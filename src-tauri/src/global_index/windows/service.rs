@@ -352,7 +352,9 @@ impl IndexServiceEntryBatcher {
                 Ok(())
             }
             other => {
+                #[cfg(feature = "native-qa")]
                 let is_checkpoint = matches!(&other, IndexServiceEvent::Checkpoint { .. });
+                #[cfg(feature = "native-qa")]
                 let pending_entries = self.entries.len();
                 self.flush(callback)?;
                 callback(other)?;
@@ -364,8 +366,6 @@ impl IndexServiceEntryBatcher {
                         self.qualification.checkpoint_flushed_entries += pending_entries;
                     }
                 }
-                #[cfg(not(feature = "native-qa"))]
-                let _ = (is_checkpoint, pending_entries);
                 Ok(())
             }
         }
@@ -380,6 +380,7 @@ impl IndexServiceEntryBatcher {
         }
         self.estimated_bytes = 0;
         let entries = std::mem::take(&mut self.entries);
+        #[cfg(feature = "native-qa")]
         let entry_count = entries.len();
         callback(IndexServiceEvent::Entries { entries })?;
         #[cfg(feature = "native-qa")]
@@ -391,8 +392,6 @@ impl IndexServiceEntryBatcher {
                 .max_repository_batch_entries
                 .max(entry_count);
         }
-        #[cfg(not(feature = "native-qa"))]
-        let _ = entry_count;
         Ok(())
     }
 

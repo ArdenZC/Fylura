@@ -2,7 +2,8 @@ import type {
   CleanupRestorePreviewItem,
   CleanupTrashBatch,
   CleanupTrashItem,
-  OperationLog
+  OperationLog,
+  OperationLogBatch
 } from "../../types/domain";
 
 /**
@@ -425,13 +426,17 @@ export function historyTime(value: string | number | null | undefined) {
   return timeValue(value);
 }
 
-/** Returns one user operation for Ctrl/Cmd+Z, retaining backend order on ties. */
-export function latestUndoBatch(logs: readonly OperationLog[]) {
-  const latest = [...logs].sort((a, b) => historyTime(b.created_at) - historyTime(a.created_at))[0];
-  if (!latest) return [];
-  return latest.batch_id
-    ? logs.filter((log) => log.batch_id === latest.batch_id)
-    : [latest];
+export function operationBatchUndoEligibility(batch: OperationLogBatch) {
+  if (!batch.is_complete
+    || batch.expected_count !== batch.actual_count
+    || batch.logs.length !== batch.actual_count
+    || batch.expected_count === 0) {
+    return { executable: false, reason: "incomplete" as const, blockedCount: 0 };
+  }
+  const blockedCount = batch.logs.filter((log) => !restoreEligibility(log).executable).length;
+  return blockedCount > 0
+    ? { executable: false, reason: "unrestorable" as const, blockedCount }
+    : { executable: true, reason: null, blockedCount: 0 };
 }
 
 export function resolveHistoryBatchExecutionState(logs: readonly OperationLog[]): HistoryExecutionState {

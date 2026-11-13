@@ -1,6 +1,6 @@
 /** Browser-only deterministic UI filesystem. Never native mutation evidence. */
 import type { BrowseEntry, EntryRef } from "../types/fileWorkspace";
-import type { TransferPreview, TransferTicket, SavedPlace } from "./fileManagementApi";
+import type { PersistentBasketEntry, TransferPreview, TransferTicket, SavedPlace } from "./fileManagementApi";
 import type { OperationLog, OperationPreview } from "../types/domain";
 const files = new Map<string, { id: string; version: number; directory?: boolean; size?: number; modified?: number; created?: number }>([
   ["C:/U1/Source/one.txt", { id: "one", version: 1 }],
@@ -31,6 +31,7 @@ for (const [name, directory] of [["invoice.txt", false], ["notes.txt", false], [
 const tickets = new Map<string, TransferTicket>();
 const previews = new Map<string, TransferPreview>();
 const places: SavedPlace[] = [];
+const basket = new Map<string, PersistentBasketEntry>();
 let serial = 0;
 export const managementHistory: OperationLog[] = [];
 const parent = (path: string) => path.slice(0, path.lastIndexOf("/"));
@@ -44,9 +45,74 @@ export function managementFixturePage(sessionId: string, directory: string, enum
   }));
 }
 let systemClipboard: { tickets: TransferTicket[]; moveFiles: boolean } | null = null;
-export function isManagementCommand(command: string) { return ["file_workspace_eject_volume", "file_workspace_system_clipboard", "file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_places"].includes(command); }
+export function isManagementCommand(command: string) { return ["file_workspace_eject_volume", "file_workspace_system_clipboard", "file_workspace_transfer_capture", "file_workspace_transfer_preview", "file_workspace_transfer_execute", "file_workspace_zip_create", "file_workspace_zip_extract", "file_workspace_places", "file_workspace_basket_add", "file_workspace_basket_page", "file_workspace_basket_capture", "file_workspace_basket_remove", "file_workspace_basket_clear", "file_workspace_basket_reconcile_moves"].includes(command); }
 export function managementMock(command: string, request: any, resolve: (ref: EntryRef) => { name: string; path: string; isDirectory: boolean }, resolveLocation: (sessionId: string, pathRef?: { id: string }) => string) {
   if (command === "file_workspace_eject_volume") throw Error("storage_eject_unsupported");
+  if (command === "file_workspace_zip_create" || command === "file_workspace_zip_extract") {
+    const sourceTickets = command === "file_workspace_zip_create"
+      ? (request.ticketIds ?? []).map((id: string) => tickets.get(id))
+      : [tickets.get(request.ticketId)];
+    if (!sourceTickets.length || sourceTickets.some((ticket: TransferTicket | undefined) => !ticket)) throw Error("transfer_reference_expired");
+    const first = sourceTickets[0] as TransferTicket;
+    const target = command === "file_workspace_zip_create"
+      ? String(request.outputPath)
+      : request.target === "chosen_directory" ? String(request.destinationDirectory)
+        : request.target === "same_name_folder" ? `${parent(first.path)}/${first.name.replace(/\.zip$/i, "")}` : parent(first.path);
+    if (command === "file_workspace_zip_create" && files.has(target)) throw Error("transfer_target_exists");
+    if (command === "file_workspace_zip_create") files.set(target, { id: `zip-${++serial}`, version: 1, size: sourceTickets.length, modified: Date.now() });
+    const batchId = `batch-${++serial}`;
+    const log: OperationLog = {
+      id: `log-${++serial}`, batch_id: batchId, operation_type: command === "file_workspace_zip_create" ? "zip_create" : "zip_extract",
+      source_path: first.path, target_path: target, path_before: first.path, path_after: target,
+      old_name: first.name, new_name: target.slice(target.lastIndexOf("/") + 1), name_before: first.name,
+      name_after: target.slice(target.lastIndexOf("/") + 1), error_message: null, restored_at: null,
+      restore_error: null, status: "success", can_restore: false, can_undo: false,
+      restore_status: "not_restored", operation_phase: "completed", created_at: new Date().toISOString()
+    };
+    managementHistory.unshift(log);
+    return { batch_id: batchId, logs: [log] };
+  }
+  if (command === "file_workspace_basket_page") {
+    const entries = [...basket.values()];
+    const offset = Math.max(0, Number(request.offset) || 0); const limit = Math.max(1, Math.min(100, Number(request.limit) || 40));
+    return { entries: entries.slice(offset, offset + limit).map((entry) => ({ ...entry })), total: entries.length };
+  }
+  if (command === "file_workspace_basket_add") {
+    let added = 0;
+    for (const ticketId of request.ticketIds ?? []) {
+      const ticket = tickets.get(ticketId) as TransferTicket | undefined;
+      if (!ticket || [...basket.values()].some((entry) => entry.path === ticket.path)) continue;
+      const entry: PersistentBasketEntry = { id: `basket-${++serial}`, name: ticket.name, path: ticket.path, isDirectory: ticket.isDirectory, status: "available" };
+      basket.set(entry.id, entry); added++;
+    }
+    return added;
+  }
+  if (command === "file_workspace_basket_capture") {
+    const selected = (request.entryIds ?? []).map((id: string) => basket.get(id));
+    if (selected.some((entry: PersistentBasketEntry | undefined) => !entry || entry.status !== "available")) throw Error("basket_entry_unavailable");
+    return selected.map((entry: PersistentBasketEntry) => {
+      const existing = [...tickets.values()].find((ticket) => ticket.path === entry.path);
+      if (existing) return existing;
+      const ticket = { id: `ticket-${++serial}`, name: entry.name, path: entry.path, isDirectory: entry.isDirectory };
+      tickets.set(ticket.id, ticket); return ticket;
+    });
+  }
+  if (command === "file_workspace_basket_remove") {
+    let removed = 0;
+    for (const id of request.entryIds ?? []) if (basket.delete(id)) removed++;
+    return removed;
+  }
+  if (command === "file_workspace_basket_clear") { const total = basket.size; basket.clear(); return total; }
+  if (command === "file_workspace_basket_reconcile_moves") {
+    let updated = 0;
+    for (const move of request.moves ?? []) {
+      const entry = basket.get(move.entryId); const log = managementHistory.find((item) => item.id === move.operationLogId);
+      if (entry && log?.operation_type === "move" && log.status === "success" && log.path_before === entry.path) {
+        entry.path = log.path_after; entry.name = log.name_after; updated++;
+      }
+    }
+    return updated;
+  }
   if (command === "file_workspace_system_clipboard") {
     if (request.kind === "write") {
       const exported = request.ticketIds.map((id: string) => tickets.get(id));

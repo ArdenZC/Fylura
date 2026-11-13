@@ -1,5 +1,5 @@
 use super::*;
-use crate::file_ops::OperationLogDto;
+use crate::file_ops::{OperationLogBatchDto, OperationLogDto};
 use crate::window_auth::require_main_window;
 use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 
@@ -537,6 +537,29 @@ pub fn get_operation_logs(
     limit: Option<u32>,
 ) -> Result<Vec<OperationLogDto>, String> {
     db.get_operation_logs(limit).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_operation_batch(
+    db: State<'_, Database>,
+    batch_id: String,
+) -> Result<Option<OperationLogBatchDto>, String> {
+    db.get_operation_batch(&batch_id).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_latest_operation_batch(
+    db: State<'_, Database>,
+) -> Result<Option<OperationLogBatchDto>, String> {
+    db.get_latest_operation_batch().map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_operation_logs_by_ids(
+    db: State<'_, Database>,
+    ids: Vec<String>,
+) -> Result<Vec<OperationLogDto>, String> {
+    db.get_operation_logs_by_ids(&ids).map_err(command_error)
 }
 
 #[tauri::command]

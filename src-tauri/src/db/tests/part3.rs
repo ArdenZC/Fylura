@@ -29,6 +29,127 @@
     }
 
     #[test]
+    fn operation_batches_are_complete_beyond_the_history_page_limit() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        for count in [1_usize, 500, 800, 1000] {
+            let batch_id = format!("batch-size-{count}");
+            let logs = (0..count)
+                .map(|index| {
+                    let mut log = operation_log(
+                        &format!("{batch_id}-{index}"),
+                        &batch_id,
+                        "success",
+                    );
+                    log.created_at = "1900000000123".to_string();
+                    log
+                })
+                .collect::<Vec<_>>();
+            db.save_operation_logs(&batch_id, &logs)
+                .expect("save operation batch");
+
+            let batch = db
+                .get_operation_batch(&batch_id)
+                .expect("read complete operation batch")
+                .expect("operation batch exists");
+            assert_eq!(batch.expected_count, count);
+            assert_eq!(batch.actual_count, count);
+            assert!(batch.is_complete);
+            assert_eq!(batch.logs.len(), count);
+        }
+
+        assert_eq!(
+            db.get_operation_logs(Some(500))
+                .expect("bounded history page")
+                .len(),
+            500
+        );
+    }
+
+    #[test]
+    fn latest_operation_batch_uses_insertion_order_when_timestamps_tie() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut first = operation_log("same-time-first", "same-time-first", "success");
+        first.created_at = "1900000000123".to_string();
+        let mut second = operation_log("same-time-second", "same-time-second", "success");
+        second.created_at = first.created_at.clone();
+        db.save_operation_logs("same-time-first", &[first])
+            .expect("save first batch");
+        db.save_operation_logs("same-time-second", &[second])
+            .expect("save second batch");
+
+        let latest = db
+            .get_latest_operation_batch()
+            .expect("read latest batch")
+            .expect("latest batch exists");
+        assert_eq!(latest.batch_id, "same-time-second");
+        assert!(latest.is_complete);
+    }
+
+    #[test]
+    fn operation_batch_reports_missing_journal_rows_as_incomplete() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let logs = [
+            operation_log("incomplete-a", "incomplete", "success"),
+            operation_log("incomplete-b", "incomplete", "success"),
+        ];
+        db.save_operation_logs("incomplete", &logs)
+            .expect("save operation batch");
+        let conn = Connection::open(db.path()).expect("open batch database");
+        conn.execute("DELETE FROM operation_logs WHERE id = ?1", ["incomplete-b"])
+            .expect("remove row for incomplete batch fixture");
+
+        let batch = db
+            .get_operation_batch("incomplete")
+            .expect("read incomplete batch")
+            .expect("batch remains after a missing row");
+        assert_eq!(batch.expected_count, 2);
+        assert_eq!(batch.actual_count, 1);
+        assert!(!batch.is_complete);
+        assert_eq!(batch.logs.len(), 1);
+    }
+
+    #[test]
+    fn operation_batch_completeness_survives_database_restart() {
+        let path = test_db_path();
+        {
+            let db = Database::open(&path).expect("open test database");
+            let mut logs = (0..800)
+                .map(|index| {
+                    operation_log(
+                        &format!("restart-batch-{index}"),
+                        "restart-batch",
+                        "success",
+                    )
+                })
+                .collect::<Vec<_>>();
+            logs[799].restore_status = "restored".to_string();
+            logs[799].can_restore = false;
+            db.save_operation_logs("restart-batch", &logs)
+                .expect("save operation batch");
+            assert_eq!(
+                db.get_operation_batch("restart-batch")
+                    .expect("read batch before close")
+                    .expect("batch exists")
+                    .logs
+                    .len(),
+                800
+            );
+        }
+
+        let reopened = Database::open(&path).expect("reopen test database");
+        let latest = reopened
+            .get_latest_operation_batch()
+            .expect("read latest batch after restart")
+            .expect("batch survives restart");
+        assert_eq!(latest.batch_id, "restart-batch");
+        assert_eq!(latest.expected_count, 800);
+        assert_eq!(latest.actual_count, 800);
+        assert!(latest.is_complete);
+        assert_eq!(latest.logs.len(), 800);
+        assert_eq!(latest.logs[0].restore_status, "restored");
+    }
+
+    #[test]
     fn save_operation_logs_persists_success_log() {
         let db = Database::open(test_db_path()).expect("open test database");
         let log = operation_log("log-success", "batch-success", "success");

@@ -277,7 +277,10 @@ fn map_folder_browse_error(
         | crate::file_workspace::browse::BrowseError::InvalidLimits
         | crate::file_workspace::browse::BrowseError::StateUnavailable
         | crate::file_workspace::browse::BrowseError::SessionCapacityExceeded
-        | crate::file_workspace::browse::BrowseError::TemporaryStateCapacityExceeded => {
+        | crate::file_workspace::browse::BrowseError::TemporaryStateCapacityExceeded
+        | crate::file_workspace::browse::BrowseError::SelectionSnapshotNotFound
+        | crate::file_workspace::browse::BrowseError::SelectionSnapshotStale
+        | crate::file_workspace::browse::BrowseError::SelectionSnapshotIncomplete => {
             PreviewFolderEnumerationError::Failed
         }
     }

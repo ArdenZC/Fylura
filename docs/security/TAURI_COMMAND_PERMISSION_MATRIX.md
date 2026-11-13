@@ -53,8 +53,17 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `file_workspace_system_clipboard` | `main_state_mutation` | main | Explicit OS file clipboard read into existing Transfer tickets, or export live revalidated ticket paths; no renderer paths, background polling or filesystem mutation | default | yes | clipboard request/transfer ownership tests |
 | `file_workspace_native_drag_out` | `main_state_mutation` | main | Revalidate bounded Transfer ticket identities and start the OS file drag with backend-resolved paths; never accepts renderer paths | default | yes | identity-bound drag-out and permission tests |
 | `file_workspace_transfer_capture` | `main_state_mutation` | main | Resolve managed/Browse references into bounded session identity tickets | default | yes | U1 transfer regressions |
+| `file_workspace_transfer_capture_selection_page` | `main_state_mutation` | main | Capture one bounded page from a Rust-owned directory selection snapshot after revalidating the full direct-child identity set | default | yes | directory selection identity tests |
+| `file_workspace_basket_add` | `main_state_mutation` | main | Persist selected sources and physical identity metadata in SQLite; renderer-supplied runtime ticket IDs only | default | yes | basket identity and restart tests |
+| `file_workspace_basket_page` | `main_state_mutation` | main | Paginate persisted basket metadata and revalidate each entry's physical identity and availability | default | yes | basket state and pagination tests |
+| `file_workspace_basket_capture` | `main_state_mutation` | main | Revalidate persisted basket identities and convert selected available rows to fresh bounded transfer tickets | default | yes | basket identity and restart tests |
+| `file_workspace_basket_remove` | `main_state_mutation` | main | Remove explicitly selected persisted basket entry IDs | default | yes | basket lifecycle tests |
+| `file_workspace_basket_clear` | `main_state_mutation` | main | Clear persisted basket entries on explicit user request | default | yes | basket lifecycle tests |
+| `file_workspace_basket_reconcile_moves` | `main_state_mutation` | main | Update persisted basket location only from a successful journaled Move log and matching destination physical identity | default | yes | basket move reconciliation tests |
 | `file_workspace_transfer_preview` | `main_state_mutation` | main | Prepare identity-bound manual Copy/Move previews and non-overwrite conflicts | default | yes | U1 transfer regressions |
 | `file_workspace_transfer_execute` | `filesystem_mutation` | main | Execute confirmed opaque preview through existing cancellation, journal and reconciliation | default | yes | U1 transfer regressions |
+| `file_workspace_zip_create` | `filesystem_mutation` | main | Create a ZIP from bounded identity tickets, stream into a temporary sibling, publish without replacement, record in operation history and report progress/cancellation | default | yes | ZIP safety and operation history tests |
+| `file_workspace_zip_extract` | `filesystem_mutation` | main | Revalidate a ZIP ticket, preflight archive paths/types/size and stream files through temporary siblings with no overwrite; record partial outcomes in operation history | default | yes | ZIP traversal, conflict, cancellation and integrity tests |
 | `file_workspace_places` | `main_state_mutation` | main | Store navigation hints in existing SQLite settings and recheck availability | default | yes | U1 transfer regressions |
 | `file_workspace_browse_reveal` | `main_state_mutation` | main | Resolve a live opaque Browse entry for read-only OS Reveal; no renderer path or execution | default | yes | U4 Browse reveal ownership tests |
 | `file_workspace_browse_launch` | `main_state_mutation` | main | Explicit OS Open/Open with for a current opaque Browse ref; native association/app chooser, live identity revalidation, no renderer paths or app arguments | default | yes | Browse launch ownership/type/staleness and permission tests |
@@ -62,6 +71,8 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `file_workspace_browse_restore` | `main_state_mutation` | main | Re-resolve a non-authoritative Browse restore locator into fresh opaque refs | default | yes | W1-10 integration tests |
 | `file_workspace_location_browse` | `main_state_mutation` | main | Re-admit one backend-owned LocationRef into a fresh Browse session without renderer path authority | default | yes | W2-R3 integration tests |
 | `file_workspace_browse_start_enumeration` | `main_state_mutation` | main | Start one bounded ephemeral Browse enumeration by opaque path ref | default | yes | W1-10 integration tests |
+| `file_workspace_browse_selection_snapshot_create` | `main_state_mutation` | main | Capture a bounded, query and hidden-policy-bound direct-child selection snapshot from one opaque Browse path; no renderer paths or recursive enumeration | default | yes | directory selection snapshot tests |
+| `file_workspace_browse_selection_snapshot_release` | `main_state_mutation` | main | Release one Browse-session-owned direct-child selection snapshot | default | yes | directory selection snapshot tests |
 | `file_workspace_browse_next_page` | `main_state_mutation` | main | Continue one generation-bound Browse enumeration by opaque cursor | default | yes | W1-10 integration tests |
 | `file_workspace_browse_cancel_enumeration` | `main_state_mutation` | main | Cancel one ephemeral Browse enumeration | default | yes | W1-10 integration tests |
 | `file_workspace_browse_release_page` | `main_state_mutation` | main | Release one published Browse page's ephemeral ownership | default | yes | W1-10 integration tests |
@@ -111,6 +122,9 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `get_operation_previews_for_scope` | `read_only` | main | Read preview data | default | no | capability allow-list |
 | `get_stats_summary` | `read_only` | main | Read statistics | default | no | capability allow-list |
 | `get_operation_logs` | `read_only` | main | Read operation history | default | no | command permission contract |
+| `get_operation_batch` | `read_only` | main | Read a complete operation batch by batch ID, including recorded expected count and detected completeness | default | no | undo batch integrity tests |
+| `get_latest_operation_batch` | `read_only` | main | Read the most recent operation batch independently of the paged history view, including completeness | default | no | undo batch integrity tests |
+| `get_operation_logs_by_ids` | `read_only` | main | Read a bounded caller-selected set of operation log rows for explicit Restore revalidation | default | no | operation restore selection tests |
 | `get_rule_catalog_state` | `read_only` | main | Read the monotonic Rule Catalog revision | default | no | Rule Repository V2 CAS tests |
 | `list_user_rules_v2` | `read_only` | main | Read canonical user rules with per-rule revision/provenance | default | no | Rule Repository V2 tests |
 | `create_user_rule_v2` | `main_state_mutation` | main | Canonicalize a renderer draft and create a backend-ID, default-disabled user rule | default | yes | Rule Repository V2 create/CAS tests |

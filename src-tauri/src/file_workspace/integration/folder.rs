@@ -310,7 +310,10 @@ fn map_browse_error(error: BrowseError) -> PreviewFolderEnumerationError {
         | BrowseError::InvalidLimits
         | BrowseError::StateUnavailable
         | BrowseError::SessionCapacityExceeded
-        | BrowseError::TemporaryStateCapacityExceeded => PreviewFolderEnumerationError::Failed,
+        | BrowseError::TemporaryStateCapacityExceeded
+        | BrowseError::SelectionSnapshotNotFound
+        | BrowseError::SelectionSnapshotStale
+        | BrowseError::SelectionSnapshotIncomplete => PreviewFolderEnumerationError::Failed,
     }
 }
 

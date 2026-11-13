@@ -18,10 +18,13 @@ export function useLibraryManagementSurface(source: LibrarySourceOwner) {
 
 export function useBrowseManagementSurface(source: BrowseSourceOwner) {
   useFileManagementSurface({
-    signature: JSON.stringify(["browse", source.sessionId, source.currentPathRef?.id, source.query, source.selectedEntryRefs, source.collection?.provenance.enumerationId, source.entries.length, source.enumerationState, source.pendingChange, source.changeState]),
+    signature: JSON.stringify(["browse", source.sessionId, source.currentPathRef?.id, source.query, source.selectedEntryRefs, source.directorySelection?.snapshotId, source.directorySelection?.revision, source.collection?.provenance.enumerationId, source.entries.length, source.enumerationState, source.pendingChange, source.changeState]),
     browseSource: source,
+    directorySelection: source.directorySelection,
     count: source.selectedCount,
-    hasDirectorySelection: source.entries.some(
+    hasDirectorySelection: Math.max(0, (source.directorySelection?.directoryCount ?? 0) - source.entries.filter(
+      (entry) => entry.entryKind === "directory" && source.directorySelection?.excludedEntryIds.has(entry.entryRef.entryId),
+    ).length) > 0 || source.entries.some(
       (entry) => source.selectedIds.has(entry.entryRef.entryId) && entry.entryKind === "directory",
     ),
     refs: [...source.selectedEntryRefs],
@@ -29,7 +32,7 @@ export function useBrowseManagementSurface(source: BrowseSourceOwner) {
       ? { sessionId: source.sessionId, pathRef: source.currentPathRef } : undefined,
     refresh: source.refreshEnumeration,
     clear: source.clearSelection,
-    selectAll: source.selectAllLoaded,
-    selectionScope: "loaded"
+    selectAll: source.selectAllDirectory,
+    selectionScope: "directory"
   });
 }

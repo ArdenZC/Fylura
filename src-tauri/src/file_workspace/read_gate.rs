@@ -1113,6 +1113,7 @@ fn map_browse_resolution_error(error: BrowseError) -> SourceResolutionError {
         | BrowseError::DirectoryUnavailable
         | BrowseError::StaleEnumeration
         | BrowseError::StalePublication
+        | BrowseError::SelectionSnapshotStale
         | BrowseError::Cancelled => SourceResolutionError::Unavailable,
         BrowseError::StateUnavailable
         | BrowseError::InvalidRequest
@@ -1122,6 +1123,8 @@ fn map_browse_resolution_error(error: BrowseError) -> SourceResolutionError {
         | BrowseError::InvalidLimits
         | BrowseError::SessionCapacityExceeded
         | BrowseError::TemporaryStateCapacityExceeded
+        | BrowseError::SelectionSnapshotNotFound
+        | BrowseError::SelectionSnapshotIncomplete
         | BrowseError::TargetNotDirectory => SourceResolutionError::Unknown,
     }
 }

@@ -4,6 +4,7 @@ import {
   buildBatchRenameName,
   collectExecutableBatchRenamePreviews,
   duplicateBatchRenameFileIds,
+  isBrowseBatchRenameSelectionEligible,
   isBatchRenameSelectionEligible,
   isCurrentExecutableBatchRenamePreview,
   keepBothCandidate,
@@ -53,6 +54,13 @@ describe("FL-19 batch rename model", () => {
       .toBe("客户-008 annual.report.pdf");
   });
 
+  it("treats directory names as whole names instead of splitting on a dot", () => {
+    expect(buildBatchRenameName("archive.2025", 0, template("number", { prefix: "Folder-", start: 1, width: 2 }), true))
+      .toBe("Folder-01 archive.2025");
+    expect(buildBatchRenameName("archive.2025", 0, template("replace", { find: "2025", replacement: "2026" }), true))
+      .toBe("archive.2026");
+  });
+
   it("replaces Unicode text in the stem while preserving the extension", () => {
     expect(buildBatchRenameName("旅行-夏日.jpeg", 0, template("replace", { find: "夏日", replacement: "秋天" })))
       .toBe("旅行-秋天.jpeg");
@@ -94,6 +102,15 @@ describe("FL-19 batch rename model", () => {
     expect(isBatchRenameSelectionEligible("explicit", fiveHundred.map((file) => file.id), fiveHundred, true)).toBe(true);
     const fiveHundredOne = [...fiveHundred, { id: "f500", isDirectory: false, isStale: false }];
     expect(isBatchRenameSelectionEligible("explicit", fiveHundredOne.map((file) => file.id), fiveHundredOne, true)).toBe(false);
+  });
+
+  it("allows mixed Browse file/folder renames while keeping directory snapshots and oversized ranges out", () => {
+    const mixed = [{ id: "file", entryKind: "file" }, { id: "folder", entryKind: "directory" }];
+    expect(isBrowseBatchRenameSelectionEligible(mixed, false)).toBe(true);
+    expect(isBrowseBatchRenameSelectionEligible(mixed, true)).toBe(false);
+    expect(isBrowseBatchRenameSelectionEligible(Array.from({ length: 501 }, (_, index) => ({
+      id: String(index), entryKind: "file"
+    })), false)).toBe(false);
   });
 
   it("does not hand off a mixture of executable and blocked previews", () => {

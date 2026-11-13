@@ -1,9 +1,11 @@
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::types::BrowseRestoreRequest;
 use super::{
     types::{
-        BrowseCancelRequest, BrowseCompletionDto, BrowseOpenRequest, BrowseRestoreRequest,
-        BrowseRetainPathRequest, BrowseStartEnumerationRequest, ChangePendingRequest,
-        ChangeStartRequest, LocationBrowseRequest, PreviewAssetRequestDto, PreviewCreateRequest,
-        PreviewSessionRequest, ThumbnailCancelRequest, ThumbnailRequestDto, ThumbnailVariantDto,
+        BrowseCancelRequest, BrowseCompletionDto, BrowseOpenRequest, BrowseRetainPathRequest,
+        BrowseStartEnumerationRequest, ChangePendingRequest, ChangeStartRequest,
+        LocationBrowseRequest, PreviewAssetRequestDto, PreviewCreateRequest, PreviewSessionRequest,
+        ThumbnailCancelRequest, ThumbnailRequestDto, ThumbnailVariantDto,
     },
     FileWorkspaceRuntime, FileWorkspaceRuntimeOwner,
 };
@@ -26,7 +28,7 @@ use crate::{
 };
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
     thread,
     time::{Duration, Instant},
@@ -251,6 +253,343 @@ fn open_request(fixture: &Fixture) -> BrowseOpenRequest {
     }
 }
 
+#[test]
+fn persisted_file_basket_survives_runtime_restart_and_revalidates_replaced_paths() {
+    use crate::file_ops::manual_transfer::{
+        BasketAddRequest, BasketEntriesRequest, BasketPageRequest, CaptureRequest,
+    };
+
+    let fixture = Fixture::new("basket-restart");
+    let runtime = fixture.runtime();
+    let initial_tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: Vec::new(),
+            selection: None,
+            release_ids: Vec::new(),
+            external_paths: vec![fixture
+                .root
+                .join("entry.txt")
+                .to_string_lossy()
+                .into_owned()],
+        })
+        .expect("capture source");
+    assert_eq!(
+        runtime
+            .basket_add(BasketAddRequest {
+                ticket_ids: initial_tickets
+                    .iter()
+                    .map(|ticket| ticket.id.clone())
+                    .collect(),
+            })
+            .expect("persist basket source"),
+        1
+    );
+    drop(runtime);
+
+    let restarted = fixture.runtime();
+    let basket = restarted
+        .basket_page(BasketPageRequest {
+            offset: 0,
+            limit: 40,
+        })
+        .expect("restore basket after restart");
+    assert_eq!(basket.total, 1);
+    assert_eq!(basket.entries[0].status, "available");
+    let recaptured = restarted.basket_capture(BasketEntriesRequest {
+        entry_ids: vec![basket.entries[0].id.clone()],
+    });
+    if cfg!(target_os = "linux") {
+        // Linux is not a supported mutation target. The persisted row remains
+        // readable and identity-checked, while the operation adapter refuses
+        // to mint a mutation ticket there.
+        assert_eq!(
+            recaptured.err().as_deref(),
+            Some("unsupported_platform_linux")
+        );
+    } else {
+        assert_ne!(
+            recaptured.expect("capture fresh operation ticket")[0].id,
+            initial_tickets[0].id
+        );
+    }
+
+    let moved_original = fixture.root.join("entry-original.txt");
+    fs::rename(fixture.root.join("entry.txt"), &moved_original).expect("retain old object");
+    fs::write(fixture.root.join("entry.txt"), b"replacement object").expect("replacement");
+    let changed = restarted
+        .basket_page(BasketPageRequest {
+            offset: 0,
+            limit: 40,
+        })
+        .expect("read replaced basket row");
+    assert_eq!(changed.entries[0].status, "changed");
+    assert_eq!(
+        restarted
+            .basket_capture(BasketEntriesRequest {
+                entry_ids: vec![changed.entries[0].id.clone()],
+            })
+            .err()
+            .expect("replacement must not be captured"),
+        "basket_entry_unavailable"
+    );
+    assert_eq!(
+        restarted
+            .basket_remove(BasketEntriesRequest {
+                entry_ids: vec![changed.entries[0].id.clone()],
+            })
+            .expect("remove stale basket row"),
+        1
+    );
+    assert_eq!(
+        restarted
+            .basket_page(BasketPageRequest {
+                offset: 0,
+                limit: 40,
+            })
+            .expect("empty basket")
+            .total,
+        0
+    );
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[test]
+fn transfer_execution_advances_directory_selection_using_journaled_successes() {
+    use crate::file_ops::manual_transfer::{
+        complete_browse_selection_batch, CaptureRequest, CaptureSelectionPageRequest,
+        TransferAction, TransferExecuteRequest, TransferPreviewRequest,
+    };
+    use crate::file_workspace::integration::types::BrowseSelectionSnapshotRequest;
+
+    let fixture = Fixture::new("directory-selection-transfer-batch");
+    let source = fixture.root.join("bulk-source");
+    let destination = fixture.root.join("bulk-destination");
+    fs::create_dir_all(&source).expect("source directory");
+    fs::create_dir_all(&destination).expect("destination directory");
+    for index in 0..1001 {
+        fs::write(source.join(format!("file-{index:04}.txt")), b"fixture").expect("selected file");
+    }
+
+    let runtime = fixture.runtime();
+    let mut request = open_request(&fixture);
+    request.routing_hint = source.to_string_lossy().into_owned();
+    let opened = runtime.open_browse(request).expect("open source directory");
+    let snapshot = runtime
+        .create_selection_snapshot(BrowseSelectionSnapshotRequest {
+            session_id: opened.session_id.clone(),
+            path_ref: opened.root_path_ref,
+            query: Default::default(),
+            include_hidden: false,
+        })
+        .expect("snapshot direct children");
+    assert_eq!(snapshot.count, 1001);
+
+    let tickets = runtime
+        .capture_selection_snapshot_page(CaptureSelectionPageRequest {
+            session_id: opened.session_id.clone(),
+            snapshot_id: snapshot.snapshot_id.clone(),
+            offset: 0,
+            excluded_entry_ids: Vec::new(),
+            advance_snapshot: true,
+        })
+        .expect("capture first bounded operation batch");
+    assert_eq!(tickets.len(), 1000);
+    let preview = runtime
+        .preview_transfer(TransferPreviewRequest {
+            ticket_ids: tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+            action: TransferAction::Move,
+            destination_directory: destination.to_string_lossy().into_owned(),
+            destination_entry: None,
+            destination_browse: None,
+            new_name: None,
+            new_names: Default::default(),
+            keep_both: Vec::new(),
+            skip: Vec::new(),
+        })
+        .expect("preview exact first batch");
+    let (execution, selection_sources) = runtime
+        .take_transfer_with_sources(TransferExecuteRequest {
+            preview_id: preview.id,
+            confirmed: true,
+        })
+        .expect("take exact transfer preview");
+    let result =
+        crate::file_ops::execute_moves_with_persistence(&runtime.inner.database, execution)
+            .expect("journal first transfer batch");
+    assert_eq!(result.logs.len(), 1000);
+    assert!(result.logs.iter().all(|log| log.status == "success"));
+    complete_browse_selection_batch(&runtime, &selection_sources, &result.logs);
+    runtime
+        .capture_transfer(CaptureRequest {
+            refs: Vec::new(),
+            selection: None,
+            release_ids: tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+            external_paths: Vec::new(),
+        })
+        .expect("release completed batch tickets before capturing the next page");
+
+    let next_batch = runtime
+        .capture_selection_snapshot_page(CaptureSelectionPageRequest {
+            session_id: opened.session_id.clone(),
+            snapshot_id: snapshot.snapshot_id,
+            offset: 1000,
+            excluded_entry_ids: Vec::new(),
+            advance_snapshot: true,
+        })
+        .expect("capture remaining item after source identity revalidation");
+    assert_eq!(next_batch.len(), 1);
+    assert_eq!(
+        fs::read_dir(&destination)
+            .expect("destination entries")
+            .count(),
+        1000
+    );
+    assert_eq!(fs::read_dir(&source).expect("source entries").count(), 1);
+    runtime.dispose();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn system_trash_preview_fails_closed_and_preserves_source_on_unsupported_platform() {
+    use crate::file_ops::manual_transfer::{
+        CaptureRequest, TransferAction, TransferPreviewRequest,
+    };
+
+    let fixture = Fixture::new("system-trash-unsupported");
+    let runtime = fixture.runtime();
+    let source = fixture.root.join("entry.txt");
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: Vec::new(),
+            selection: None,
+            release_ids: Vec::new(),
+            external_paths: vec![source.to_string_lossy().into_owned()],
+        })
+        .expect("capture source");
+    let preview = runtime.preview_transfer(TransferPreviewRequest {
+        ticket_ids: tickets.iter().map(|ticket| ticket.id.clone()).collect(),
+        action: TransferAction::SystemTrash,
+        destination_directory: fixture.root.to_string_lossy().into_owned(),
+        destination_entry: None,
+        destination_browse: None,
+        new_name: None,
+        new_names: Default::default(),
+        keep_both: Vec::new(),
+        skip: Vec::new(),
+    });
+    match preview {
+        Err(error) => assert_eq!(error, "unsupported_platform_linux"),
+        Ok(_) => panic!("unsupported platform must fail closed"),
+    }
+    assert!(source.exists());
+    runtime.dispose();
+}
+
+#[test]
+fn file_basket_location_moves_only_from_a_matching_successful_journal_log() {
+    use crate::file_ops::manual_transfer::{
+        BasketAddRequest, BasketMoveReconcileItem, BasketMoveReconcileRequest, BasketPageRequest,
+        CaptureRequest,
+    };
+    use crate::file_ops::{file_namespace_fingerprint, OperationLogDto};
+
+    let fixture = Fixture::new("basket-move-reconcile");
+    let runtime = fixture.runtime();
+    let tickets = runtime
+        .capture_transfer(CaptureRequest {
+            refs: Vec::new(),
+            selection: None,
+            release_ids: Vec::new(),
+            external_paths: vec![fixture
+                .root
+                .join("entry.txt")
+                .to_string_lossy()
+                .into_owned()],
+        })
+        .expect("capture source");
+    runtime
+        .basket_add(BasketAddRequest {
+            ticket_ids: vec![tickets[0].id.clone()],
+        })
+        .expect("persist basket row");
+    let before = runtime
+        .basket_page(BasketPageRequest {
+            offset: 0,
+            limit: 40,
+        })
+        .expect("basket row");
+    let source_path = tickets[0].path.clone();
+    let source = file_namespace_fingerprint(Path::new(&source_path)).expect("identity");
+    let target = fixture.root.join("nested/entry.txt");
+    fs::rename(fixture.root.join("entry.txt"), &target).expect("move source");
+    let target_path = fs::canonicalize(&target)
+        .expect("canonical target")
+        .to_string_lossy()
+        .into_owned();
+    let moved = file_namespace_fingerprint(Path::new(&target_path)).expect("target identity");
+    let log: OperationLogDto = serde_json::from_value(serde_json::json!({
+        "id": "basket-move-log",
+        "batch_id": "basket-move-batch",
+        "operation_type": "move",
+        "source_path": source_path,
+        "target_path": target_path,
+        "old_name": "entry.txt",
+        "new_name": "entry.txt",
+        "status": "success",
+        "error_message": null,
+        "created_at": "2026-11-13T00:00:00Z",
+        "can_undo": true,
+        "path_before": source_path,
+        "path_after": target_path,
+        "name_before": "entry.txt",
+        "name_after": "entry.txt",
+        "can_restore": true,
+        "restored_at": null,
+        "restore_status": "not_restored",
+        "restore_error": null,
+        "source_platform_file_id": source.platform_file_id,
+        "source_platform_volume_id": source.platform_volume_id,
+        "target_platform_file_id": moved.platform_file_id,
+        "target_platform_volume_id": moved.platform_volume_id
+    }))
+    .expect("log dto");
+    runtime
+        .inner
+        .database
+        .save_operation_logs("basket-move-batch", &[log])
+        .expect("persist operation log");
+    assert_eq!(
+        runtime
+            .basket_reconcile_moves(BasketMoveReconcileRequest {
+                moves: vec![BasketMoveReconcileItem {
+                    entry_id: before.entries[0].id.clone(),
+                    operation_log_id: "basket-move-log".into(),
+                }],
+            })
+            .expect("reconcile location from journal"),
+        1
+    );
+    let updated = runtime
+        .basket_page(BasketPageRequest {
+            offset: 0,
+            limit: 40,
+        })
+        .expect("updated basket");
+    assert_eq!(updated.entries[0].path, target_path);
+    assert_eq!(updated.entries[0].status, "available");
+    assert_eq!(
+        runtime
+            .basket_reconcile_moves(BasketMoveReconcileRequest {
+                moves: vec![BasketMoveReconcileItem {
+                    entry_id: updated.entries[0].id.clone(),
+                    operation_log_id: "basket-move-log".into(),
+                }],
+            })
+            .expect("duplicate journal reconciliation is ignored"),
+        0
+    );
+}
+
 fn admit_managed_root(runtime: &FileWorkspaceRuntime, fixture: &Fixture) -> String {
     let admission = runtime
         .inner
@@ -339,6 +678,7 @@ fn assert_runtime_resources_are_empty(runtime: &FileWorkspaceRuntime) {
     assert_eq!(counts.browse_service_sessions, 0);
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 #[test]
 fn browse_restore_uses_fresh_refs_and_ephemeral_read_resolution() {
     let fixture = Fixture::new("fresh-refs");

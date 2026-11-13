@@ -133,4 +133,13 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("run_trigger_matrix:");
     expect(workflow).toContain("if: inputs.run_trigger_matrix");
   });
+
+  it("compares the filename-first path against SQLite using the same Release binary", () => {
+    expect(workflow).toContain("Build one Release QA executable for both feature modes");
+    expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
+    expect(filenameFirstQualification).toContain("same_release_binary_filename_first_disabled_sqlite_vs_enabled_catalog");
+    expect(workflow).toContain("same Release binary, filename-first disabled SQLite path versus enabled transient-catalog path");
+    expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
+    expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
+  });
 });

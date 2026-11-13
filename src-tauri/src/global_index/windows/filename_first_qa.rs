@@ -165,7 +165,19 @@ pub fn run_initial(
         .saturating_add(file_size(&sidecar(&database_path, "-shm")));
     let final_status = db.global_index_status()?;
     if !final_status.collection_complete {
-        return Err("native index worker exited without a complete source status".into());
+        let source_status = db
+            .get_global_volume(source_id)?
+            .ok_or("qualification source disappeared before completion check")?;
+        let coverage = db.global_index_coverage()?;
+        let source_coverage = coverage
+            .sources
+            .iter()
+            .find(|source| source.source_id == source_id);
+        return Err(format!(
+            "native index worker exited without a complete source status: global={final_status:?} source_status={} coverage={source_coverage:?}",
+            source_status.index_status,
+        )
+        .into());
     }
 
     drop(db);

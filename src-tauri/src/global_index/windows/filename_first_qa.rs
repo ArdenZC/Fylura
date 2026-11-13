@@ -104,7 +104,10 @@ pub fn run_initial(
     let mut first_search_total_entries = None;
     loop {
         if first_searchable_us.is_none() {
-            let results = db.search_global_entries(query, 50, 0)?;
+            let results = crate::global_index::commands::filter_live_transient_search_results(
+                &db,
+                db.search_global_entries(query, 50, 0)?,
+            );
             if results
                 .iter()
                 .any(|result| normalize_path(&result.path) == expected_path)

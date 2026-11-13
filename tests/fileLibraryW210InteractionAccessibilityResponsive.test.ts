@@ -140,7 +140,11 @@ describe("W2-10 interaction/accessibility/responsive integration contracts", () 
     expect(workspace).toContain('role="separator"');
     expect(workspace).toContain('aria-orientation="vertical"');
     expect(workspace).toContain("setPointerCapture");
-    expect(workspace).toContain("onDoubleClick={() => onResize(TREE_WIDTH_DEFAULT)}");
+    expect(workspace).toContain("onDoubleClick={() => onCommit(TREE_WIDTH_DEFAULT)}");
+    // Dragging only previews; the release commits so a drag does not spam
+    // localStorage on every pointer move.
+    expect(workspace).toContain("onPreview=");
+    expect(workspace).toContain("onCommit=");
     expect(workspace).toContain('event.key === "ArrowLeft"');
     // Collapsed state keeps an edge affordance instead of a permanent 0px row.
     expect(workspace).toContain("file-library-tree-handle");

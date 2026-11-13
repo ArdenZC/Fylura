@@ -241,6 +241,7 @@ export function SettingsView() {
   const {
     settings: {
       folderNamingLanguage,
+      deleteDestination,
       defaultScanFolders,
       restoreRetentionDays,
       launchAtLogin,
@@ -1018,6 +1019,8 @@ export function SettingsView() {
           onOpenAISettings={() => focusSettingsSection("settings-ai")}
           folderNamingLanguage={folderNamingLanguage}
           onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
+          deleteDestination={deleteDestination}
+          onDeleteDestination={(next) => void updateSettings({ deleteDestination: next })}
           closeBehavior={closeBehavior}
           onCloseBehavior={(next) => void updateCloseBehavior(next)}
           backgroundIndexOnStartup={backgroundIndexOnStartup}

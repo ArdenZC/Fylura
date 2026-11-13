@@ -1,6 +1,8 @@
 import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { fileWorkspaceApi } from "../../../api/fileWorkspaceApi";
+import { useAppStore } from "../../../store/useAppStore";
 import type { Translator } from "../../../types/ui";
 import type { VolumeAvailability } from "../../../api/fileManagementApi";
 import type {
@@ -11,6 +13,7 @@ import type {
   BrowsePathRef,
   BrowseQueryEntryKind,
   BrowseQuerySpecV1,
+  BrowseSelectionSnapshotInfo,
   LocationAvailability,
   LocationDescriptor,
   LocationRef,
@@ -68,8 +71,18 @@ export interface BrowseSourceOwner {
   readonly knownCount: number | null;
   readonly hasMore: boolean;
   readonly loadedCount: number;
+  readonly currentPageCount: number;
+  readonly currentPageIds: readonly string[];
   readonly selectedIds: ReadonlySet<string>;
   readonly selectedEntryRefs: readonly BrowseEntryRef[];
+  readonly directorySelection: (BrowseSelectionSnapshotInfo & {
+    sessionId: string;
+    pathRefId: string;
+    queryKey: string;
+    includeHidden: boolean;
+    revision: number;
+    excludedEntryIds: ReadonlySet<string>;
+  }) | null;
   readonly focusedId: string | null;
   readonly selectedCount: number;
   readonly pendingChange: FileLibraryExperienceState["workspace"]["pendingChange"];
@@ -91,6 +104,8 @@ export interface BrowseSourceOwner {
   readonly navigateToBreadcrumb: (breadcrumb: BrowseBreadcrumb) => boolean;
   readonly selectEntry: (entryId: string, intent: BrowseSelectionIntent) => void;
   readonly selectAllLoaded: () => void;
+  readonly selectCurrentPage: () => void;
+  readonly selectAllDirectory: () => void;
   readonly invertSelection: () => void;
   readonly clearSelection: () => void;
   readonly setFocusedId: (entryId: string | null) => void;
@@ -182,12 +197,14 @@ export function useBrowseSourceOwner({
   controller,
   state,
   t,
-  platform = "browser"
+  platform = "browser",
+  showHidden = true
 }: {
   controller: BrowseController;
   state: FileLibraryExperienceState;
   t: Translator;
   platform?: NodeJS.Platform | "browser";
+  showHidden?: boolean;
 }): BrowseSourceOwner {
   const visible = usePane()?.visible ?? true;
   useEffect(() => { void controller.workspace.setObservationActive?.(visible); }, [controller.workspace, visible]);
@@ -217,6 +234,16 @@ export function useBrowseSourceOwner({
   );
   const queryRef = useRef(query);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [directorySelection, setDirectorySelection] = useState<(BrowseSelectionSnapshotInfo & {
+    sessionId: string;
+    pathRefId: string;
+    queryKey: string;
+    includeHidden: boolean;
+    revision: number;
+    excludedEntryIds: ReadonlySet<string>;
+  }) | null>(null);
+  const directorySelectionRef = useRef<typeof directorySelection>(null);
+  directorySelectionRef.current = directorySelection;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [changeState, setChangeState] = useState<BrowseChangeState>("unavailable");
   const [changeError, setChangeError] = useState(false);
@@ -237,6 +264,18 @@ export function useBrowseSourceOwner({
   entriesRef.current = entries;
   focusedIdRef.current = focusedId;
   hasMoreRef.current = activePage?.nextCursor !== undefined;
+
+  const clearDirectorySelection = useCallback(() => {
+    const previous = directorySelectionRef.current;
+    directorySelectionRef.current = null;
+    setDirectorySelection(null);
+    if (previous && fileWorkspaceApi.browseSelectionSnapshotRelease) {
+      void fileWorkspaceApi.browseSelectionSnapshotRelease({
+        sessionId: previous.sessionId,
+        snapshotId: previous.snapshotId
+      }).catch(() => undefined);
+    }
+  }, []);
 
   const isExpectedBrowseTarget = useCallback((expectedTargetKey: string, expectedSessionId: string | null) => {
     if (activeTargetKeyRef.current !== expectedTargetKey) return false;
@@ -408,7 +447,7 @@ export function useBrowseSourceOwner({
     setEnumerationState(browseEnumerationStateForPage(page));
     setEnumerationError(false);
     return true;
-  }, [isExpectedBrowseTarget]);
+  }, [isExpectedBrowseTarget, showHidden]);
 
   const recordNetworkBrowseResult = useCallback((expectedSessionId: string | null, availability: VolumeAvailability) => {
     // Bind the projection update to the currently admitted Browse session.
@@ -433,15 +472,17 @@ export function useBrowseSourceOwner({
     setActivePage(null);
     setEntries([]);
     setSelectedIds(new Set());
+    clearDirectorySelection();
     setFocusedId(null);
     selectionAnchorRef.current = null;
     return generation;
-  }, []);
+  }, [clearDirectorySelection]);
 
   const invalidateEnumerationRequests = useCallback(() => {
     generationRef.current += 1;
     manualRefreshRef.current += 1;
-  }, []);
+    clearDirectorySelection();
+  }, [clearDirectorySelection]);
 
   const beginEnumeration = useCallback(async (
     pathRef: BrowsePathRef,
@@ -482,6 +523,7 @@ export function useBrowseSourceOwner({
     // Never leave rows or selection from a different target visible during admission failure.
     generationRef.current++;
     setEntries([]); setActivePage(null); setSelectedIds(new Set()); setFocusedId(null);
+    clearDirectorySelection();
     setEnumerationState("idle");
     // An admitted target can also arrive from Places, search or navigation.
     // Close the picker only for a new target; opening it on this target stays local.
@@ -497,7 +539,7 @@ export function useBrowseSourceOwner({
     if (!breadcrumbChainsRef.current.has(rootKey)) {
       breadcrumbChainsRef.current.set(rootKey, [rootBreadcrumb]);
     }
-  }, [browse, queryTargetKey, sessionId, state.mode, target, targetKey]);
+  }, [browse, clearDirectorySelection, queryTargetKey, sessionId, state.mode, target, targetKey]);
 
   useEffect(() => {
     if (state.workspace.suspended) {
@@ -841,6 +883,20 @@ export function useBrowseSourceOwner({
   const selectEntry = useCallback((entryId: string, intent: BrowseSelectionIntent) => {
     const index = entries.findIndex((entry) => entry.entryRef.entryId === entryId);
     if (index < 0 || sessionId === null || entries[index].entryRef.browseSessionId !== sessionId) return;
+    if (directorySelection && intent === "toggle") {
+      setDirectorySelection((current) => {
+        if (!current || current.snapshotId !== directorySelection.snapshotId) return current;
+        const excludedEntryIds = new Set(current.excludedEntryIds);
+        if (excludedEntryIds.has(entryId)) excludedEntryIds.delete(entryId);
+        else excludedEntryIds.add(entryId);
+        const next = { ...current, revision: current.revision + 1, excludedEntryIds };
+        directorySelectionRef.current = next;
+        return next;
+      });
+      setFocusedId(entryId);
+      return;
+    }
+    if (directorySelection) clearDirectorySelection();
     setSelectedIds((current) => {
       if (intent === "replace") return new Set([entryId]);
       if (intent === "toggle") {
@@ -856,42 +912,127 @@ export function useBrowseSourceOwner({
     });
     setFocusedId(entryId);
     if (intent !== "range") selectionAnchorRef.current = entryId;
-  }, [entries, sessionId]);
+  }, [clearDirectorySelection, directorySelection, entries, sessionId]);
+
+  const currentPageIds = useMemo(
+    () => (activePage?.entries ?? [])
+      .filter((entry) => showHidden || !entry.isHidden)
+      .map((entry) => entry.ref.entryId),
+    [activePage, showHidden]
+  );
 
   const selectAllLoaded = useCallback(() => {
     if (sessionId === null) return;
+    clearDirectorySelection();
     const loaded = entries
-      .filter((entry) => entry.entryRef.browseSessionId === sessionId)
+      .filter((entry) => entry.entryRef.browseSessionId === sessionId && (showHidden || !entry.isHidden))
       .map((entry) => entry.entryRef.entryId);
     setSelectedIds(new Set(loaded));
     setFocusedId(loaded[0] ?? null);
     selectionAnchorRef.current = loaded[0] ?? null;
-  }, [entries, sessionId]);
+  }, [clearDirectorySelection, entries, sessionId, showHidden]);
+
+  const selectCurrentPage = useCallback(() => {
+    if (sessionId === null) return;
+    clearDirectorySelection();
+    const loaded = new Set(entries
+      .filter((entry) => entry.entryRef.browseSessionId === sessionId && (showHidden || !entry.isHidden))
+      .map((entry) => entry.entryRef.entryId));
+    const page = currentPageIds.filter((entryId) => loaded.has(entryId));
+    setSelectedIds(new Set(page));
+    setFocusedId(page[0] ?? null);
+    selectionAnchorRef.current = page[0] ?? null;
+  }, [clearDirectorySelection, currentPageIds, entries, sessionId, showHidden]);
+
+  const selectAllDirectory = useCallback(() => {
+    if (!sessionId || !currentPathRef) return;
+    if (!fileWorkspaceApi.browseSelectionSnapshotCreate) {
+      useAppStore.getState().showError(t("browseSelectionSnapshotFailed").replace("{error}", "browse_selection_snapshot_unavailable"));
+      return;
+    }
+    const expectedSessionId = sessionId;
+    const expectedPathRefId = currentPathRef.id;
+    const expectedQuery = query;
+    const expectedQueryKey = JSON.stringify(query);
+    const expectedHidden = showHidden;
+    const expectedGeneration = generationRef.current;
+    const expectedTargetKey = targetKey;
+    void (async () => {
+      clearDirectorySelection();
+      try {
+        const snapshot = await fileWorkspaceApi.browseSelectionSnapshotCreate!({
+          sessionId: expectedSessionId,
+          pathRef: { id: expectedPathRefId },
+          query: expectedQuery,
+          includeHidden: expectedHidden
+        });
+        if (generationRef.current !== expectedGeneration
+          || activeTargetKeyRef.current !== expectedTargetKey
+          || queryTargetKey !== expectedTargetKey
+          || sessionId !== expectedSessionId
+          || currentPathRef?.id !== expectedPathRefId
+          || JSON.stringify(queryRef.current) !== expectedQueryKey
+          || showHidden !== expectedHidden) {
+          await fileWorkspaceApi.browseSelectionSnapshotRelease?.({ sessionId: expectedSessionId, snapshotId: snapshot.snapshotId });
+          return;
+        }
+        const next = {
+          ...snapshot,
+          sessionId: expectedSessionId,
+          pathRefId: expectedPathRefId,
+          queryKey: expectedQueryKey,
+          includeHidden: expectedHidden,
+          revision: 0,
+          excludedEntryIds: new Set<string>()
+        };
+        directorySelectionRef.current = next;
+        setDirectorySelection(next);
+        setSelectedIds(new Set());
+        setFocusedId(entries[0]?.entryRef.entryId ?? null);
+        selectionAnchorRef.current = entries[0]?.entryRef.entryId ?? null;
+      } catch (error) {
+        useAppStore.getState().showError(t("browseSelectionSnapshotFailed").replace("{error}", String(error)));
+      }
+    })();
+  }, [clearDirectorySelection, currentPathRef, entries, query, queryTargetKey, sessionId, showHidden, t, targetKey]);
 
   const clearSelection = useCallback(() => {
+    clearDirectorySelection();
     setSelectedIds(new Set());
     setFocusedId(null);
     selectionAnchorRef.current = null;
-  }, []);
+  }, [clearDirectorySelection]);
 
   const invertSelection = useCallback(() => {
     if (sessionId === null) return;
     const loadedIds = entries
-      .filter((entry) => entry.entryRef.browseSessionId === sessionId)
+      .filter((entry) => entry.entryRef.browseSessionId === sessionId && (showHidden || !entry.isHidden))
       .map((entry) => entry.entryRef.entryId);
-    const next = invertLoadedSelection(loadedIds, selectedIds);
+    const visibleSelectedIds = directorySelection
+      ? new Set(entries.filter((entry) => !directorySelection.excludedEntryIds.has(entry.entryRef.entryId)).map((entry) => entry.entryRef.entryId))
+      : selectedIds;
+    const next = invertLoadedSelection(loadedIds, visibleSelectedIds);
+    clearDirectorySelection();
     setSelectedIds(next);
     setFocusedId(next.values().next().value ?? null);
     selectionAnchorRef.current = next.values().next().value ?? null;
-  }, [entries, selectedIds, sessionId]);
+  }, [clearDirectorySelection, directorySelection, entries, selectedIds, sessionId, showHidden]);
 
   const collection = useMemo(
     () => activePage === null ? null : adaptBrowsePageCollection(activePage),
     [activePage]
   );
+  const projectedSelectedIds = useMemo(() => {
+    if (!directorySelection) return selectedIds;
+    return new Set(entries
+      .filter((entry) => entry.entryRef.browseSessionId === directorySelection.sessionId
+        && (directorySelection.includeHidden || !entry.isHidden)
+        && !directorySelection.excludedEntryIds.has(entry.entryRef.entryId))
+      .map((entry) => entry.entryRef.entryId));
+  }, [directorySelection, entries, selectedIds]);
   const selectedEntryRefs = useMemo(
-    () => entries.filter((entry) => selectedIds.has(entry.entryRef.entryId)).map((entry) => entry.entryRef),
-    [entries, selectedIds]
+    () => entries.filter((entry) => projectedSelectedIds.has(entry.entryRef.entryId)).map((entry) => entry.entryRef),
+    [entries, projectedSelectedIds]
   );
 
   const setQueryText = useCallback((text: string) => {
@@ -920,11 +1061,24 @@ export function useBrowseSourceOwner({
   const selectIds = useCallback((ids: readonly string[], intent: "replace" | "add" = "replace") => {
     const live = new Set(entries.map((e) => e.entryRef.entryId));
     const matching = ids.filter((id) => live.has(id));
+    if (directorySelection && intent === "add") {
+      if (!matching.length) return;
+      setDirectorySelection((current) => {
+        if (!current || current.snapshotId !== directorySelection.snapshotId) return current;
+        const excludedEntryIds = new Set(current.excludedEntryIds);
+        matching.forEach((id) => excludedEntryIds.delete(id));
+        const next = { ...current, revision: current.revision + 1, excludedEntryIds };
+        directorySelectionRef.current = next;
+        return next;
+      });
+      return;
+    }
+    if (directorySelection) clearDirectorySelection();
     setSelectedIds((current) => mergeMarqueeSelection(current, matching, intent === "add"));
     const focusId = matching.at(-1) ?? null;
     if (focusId !== null) setFocusedId(focusId);
     if (matching.length) selectionAnchorRef.current = matching[0];
-  }, [entries]);
+  }, [clearDirectorySelection, directorySelection, entries]);
 
   return {
     locations,
@@ -954,10 +1108,15 @@ export function useBrowseSourceOwner({
     knownCount: activePage?.completion === "complete" && typeof activePage.knownCount === "number" ? activePage.knownCount : null,
     hasMore: activePage?.nextCursor !== undefined,
     loadedCount: entries.length,
-    selectedIds,
+    currentPageCount: currentPageIds.length,
+    currentPageIds,
+    selectedIds: projectedSelectedIds,
     selectedEntryRefs,
+    directorySelection,
     focusedId,
-    selectedCount: selectedIds.size,
+    selectedCount: directorySelection
+      ? Math.max(0, directorySelection.count - directorySelection.excludedEntryIds.size)
+      : selectedIds.size,
     pendingChange: state.workspace.pendingChange,
     canWatch,
     changeState,
@@ -973,6 +1132,8 @@ export function useBrowseSourceOwner({
     navigateToBreadcrumb,
     selectEntry,
     selectAllLoaded,
+    selectCurrentPage,
+    selectAllDirectory,
     invertSelection,
     clearSelection,
     setFocusedId,

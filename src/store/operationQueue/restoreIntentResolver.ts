@@ -86,14 +86,17 @@ export function localizedRestoreError(error: unknown, t: ReturnType<typeof curre
 }
 
 export function summarizeOperationRestore(logs: readonly OperationLog[], excluded: number): RestoreResultSummary {
+  const missing = logs.filter((log) => log.restore_status === "unavailable" && /missing|缺失/i.test(log.restore_error ?? "")).length;
   return {
     requested: logs.length + excluded,
     restored: logs.filter((log) => log.restore_status === "restored").length,
-    failed: logs.filter((log) => log.restore_status === "failed").length,
+    failed: logs.filter((log) => log.restore_status === "failed"
+      || log.restore_status === "manual_review"
+      || (log.restore_status === "unavailable" && !/missing|缺失/i.test(log.restore_error ?? ""))).length,
     skipped: logs.filter((log) => log.status === "skipped").length,
     canceled: logs.filter((log) => log.restore_status === "canceled").length,
     conflicts: 0,
-    missing: logs.filter((log) => log.restore_status === "unavailable" && /missing|缺失/i.test(log.restore_error ?? "")).length,
+    missing,
     excluded
   };
 }

@@ -7,6 +7,7 @@ import type {
   LibraryScope,
   LibrarySelectionV1,
   OperationLog,
+  OperationLogBatch,
   OperationPreview,
   OperationPreviewResult,
   RecoveryAction,
@@ -91,6 +92,15 @@ export const operationApi = {
   },
   getOperationLogs(limit = 500): Promise<OperationLog[]> {
     return invokeCommand<OperationLog[]>("get_operation_logs", { limit });
+  },
+  getOperationBatch(batchId: string): Promise<OperationLogBatch | null> {
+    return invokeCommand<OperationLogBatch | null>("get_operation_batch", { batchId });
+  },
+  getLatestOperationBatch(): Promise<OperationLogBatch | null> {
+    return invokeCommand<OperationLogBatch | null>("get_latest_operation_batch");
+  },
+  getOperationLogsByIds(ids: string[]): Promise<OperationLog[]> {
+    return invokeCommand<OperationLog[]>("get_operation_logs_by_ids", { ids });
   },
   getOperationPreviewsForScope(scope: LibraryScope, filters?: FileLibraryFilters, limit?: number, offset?: number): Promise<OperationPreviewResult> {
     return invokeCommand<OperationPreviewResult>("get_operation_previews_for_scope", {

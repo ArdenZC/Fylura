@@ -19,7 +19,7 @@ import {
 } from "./batchRenameModel";
 
 type Props = {
-  files: Pick<FileLibrarySummary, "id" | "name">[];
+  files: (Pick<FileLibrarySummary, "id" | "name"> & { isDirectory?: boolean })[];
   t: Translator;
   onClose: () => void;
   onPreview?: (previews: OperationPreview[]) => void;
@@ -110,7 +110,7 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, onContinue, ge
       if (generatedName === undefined) {
         if (templateError) generatedName = file.name;
         else {
-          try { generatedName = buildBatchRenameName(file.name, index, template); }
+          try { generatedName = buildBatchRenameName(file.name, index, template, file.isDirectory); }
           catch { generationError = "libraryBatchRenamePatternInvalid"; }
         }
       }

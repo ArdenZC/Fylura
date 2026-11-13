@@ -4,7 +4,51 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 47;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 49;
+
+const CREATE_FILE_WORKSPACE_BASKET: &str = r#"
+CREATE TABLE IF NOT EXISTS file_workspace_basket (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  name TEXT NOT NULL,
+  is_directory INTEGER NOT NULL CHECK (is_directory IN (0, 1)),
+  identity_json TEXT NOT NULL,
+  file_id TEXT NOT NULL,
+  volume_id TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  added_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(path, volume_id, object_id)
+);
+CREATE INDEX IF NOT EXISTS idx_file_workspace_basket_added ON file_workspace_basket(added_at, id);
+"#;
+
+fn ensure_file_workspace_basket_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(CREATE_FILE_WORKSPACE_BASKET)?;
+    let columns = conn
+        .prepare("PRAGMA table_info(file_workspace_basket)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if columns
+        != [
+            "id",
+            "path",
+            "name",
+            "is_directory",
+            "identity_json",
+            "file_id",
+            "volume_id",
+            "object_id",
+            "added_at",
+            "updated_at",
+        ]
+    {
+        return Err(DbError::Validation(
+            "file_workspace_basket_schema_conflict".into(),
+        ));
+    }
+    Ok(())
+}
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 const LIBRARY_IDENTITY_SCHEMA_CONFLICT: &str = "library_schema38_identity_foundation_conflict";
@@ -305,6 +349,7 @@ pub(crate) fn migrate_with_cancellation(
             ensure_organization_plan_schema(conn)?;
             ensure_rule_proposal_schema(conn)?;
             ensure_content_schema(conn)?;
+            ensure_file_workspace_basket_schema(conn)?;
             backfill_scan_roots_from_settings(conn)?;
             return Ok(());
         }
@@ -1055,6 +1100,33 @@ pub(crate) fn migrate_with_cancellation(
             guard.check_cancelled()?;
             super::queries::organization::install_one_off_sources(conn)?;
             set_schema_version(conn, 47)?;
+        }
+        if version < 48 {
+            guard.check_cancelled()?;
+            execute_column_migrations(
+                conn,
+                &["ALTER TABLE operation_batches ADD COLUMN item_count INTEGER NOT NULL DEFAULT 0 CHECK (item_count >= 0);"],
+            )?;
+            // All existing operation-log writes were transactional, so the
+            // retained row count is the best complete expected count for
+            // historical batches. Future writes store the count explicitly.
+            conn.execute(
+                r#"
+                UPDATE operation_batches
+                SET item_count = (
+                    SELECT COUNT(*) FROM operation_logs
+                    WHERE operation_logs.batch_id = operation_batches.id
+                )
+                WHERE item_count = 0
+                "#,
+                [],
+            )?;
+            set_schema_version(conn, 48)?;
+        }
+        if version < 49 {
+            guard.check_cancelled()?;
+            ensure_file_workspace_basket_schema(conn)?;
+            set_schema_version(conn, 49)?;
         }
         guard.check_cancelled()?;
         Ok(())

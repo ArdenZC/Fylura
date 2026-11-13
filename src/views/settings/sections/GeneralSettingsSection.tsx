@@ -1,4 +1,4 @@
-import type { AISettings, CloseBehavior, FolderNamingLanguage } from "../../../types/domain";
+import type { AISettings, CloseBehavior, DeleteDestination, FolderNamingLanguage } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Density, ThemeMode } from "../../../types/ui";
 import type { Translator } from "../../../types/ui";
@@ -32,6 +32,8 @@ export interface GeneralSettingsSectionProps {
   onOpenAISettings: () => void;
   folderNamingLanguage: FolderNamingLanguage;
   onFolderNamingLanguage: (value: FolderNamingLanguage) => void;
+  deleteDestination: DeleteDestination;
+  onDeleteDestination: (value: DeleteDestination) => void;
 }
 
 export function GeneralSettingsSection({
@@ -49,7 +51,9 @@ export function GeneralSettingsSection({
   aiSettings,
   onOpenAISettings,
   folderNamingLanguage,
-  onFolderNamingLanguage
+  onFolderNamingLanguage,
+  deleteDestination,
+  onDeleteDestination
 }: GeneralSettingsSectionProps) {
   return (
     <SettingsSection id="settings-general" title={t("settingsGeneral")} description={t("settingsGeneralDesc")}>
@@ -105,6 +109,17 @@ export function GeneralSettingsSection({
           description={t("launchAtLoginDesc")}
           checked={launchAtLogin}
           onChange={onLaunchAtLogin}
+        />
+        <SettingsSelect
+          id="settings-delete-destination"
+          label={t("settingsDeleteDestination")}
+          description={t("settingsDeleteDestinationDesc")}
+          value={deleteDestination}
+          options={[
+            { value: "fylura_trash" as const, label: t("settingsFyluraTrash") },
+            { value: "system_trash" as const, label: t("settingsSystemTrash") }
+          ]}
+          onChange={onDeleteDestination}
         />
       </SettingsControlGroup>
 

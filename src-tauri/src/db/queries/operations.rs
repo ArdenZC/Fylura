@@ -1,9 +1,71 @@
 use super::super::*;
-use crate::file_ops::OperationLogDto;
+use crate::file_ops::{OperationLogBatchDto, OperationLogDto};
 use rusqlite::{params, OptionalExtension, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 impl Database {
+    pub fn get_operation_batch(
+        &self,
+        batch_id: &str,
+    ) -> Result<Option<OperationLogBatchDto>, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let batch = operation_batch_from_connection(&tx, batch_id)?;
+        tx.commit()?;
+        Ok(batch)
+    }
+
+    pub fn get_latest_operation_batch(&self) -> Result<Option<OperationLogBatchDto>, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let batch_id: Option<String> = tx
+            .query_row(
+                "SELECT id FROM operation_batches ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let batch = batch_id
+            .as_deref()
+            .map(|id| operation_batch_from_connection(&tx, id))
+            .transpose()?
+            .flatten();
+        tx.commit()?;
+        Ok(batch)
+    }
+
+    pub fn get_operation_logs_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<OperationLogDto>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        if ids.len() > 1000 {
+            return Err(DbError::Validation(
+                "operation_log_selection_limit_1000".into(),
+            ));
+        }
+        let mut unique = std::collections::HashSet::with_capacity(ids.len());
+        if ids.iter().any(|id| !unique.insert(id)) {
+            return Err(DbError::Validation(
+                "operation_log_selection_invalid".into(),
+            ));
+        }
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(OPERATION_LOG_SELECT_BY_ID)?;
+        let mut logs = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(log) = stmt
+                .query_row(params![id], operation_log_from_row)
+                .optional()?
+            {
+                logs.push(log);
+            }
+        }
+        Ok(logs)
+    }
+
     pub fn get_operation_logs(&self, limit: Option<u32>) -> Result<Vec<OperationLogDto>, DbError> {
         let limit = i64::from(limit.unwrap_or(500).clamp(1, 1000));
         let conn = self.conn()?;
@@ -286,13 +348,14 @@ impl Database {
 
         tx.execute(
             r#"
-            INSERT INTO operation_batches (id, created_at, status)
-            VALUES (?1, ?2, ?3)
+            INSERT INTO operation_batches (id, created_at, status, item_count)
+            VALUES (?1, ?2, ?3, ?4)
             ON CONFLICT(id) DO UPDATE SET
                 created_at = excluded.created_at,
-                status = excluded.status
+                status = excluded.status,
+                item_count = MAX(operation_batches.item_count, excluded.item_count)
             "#,
-            params![batch_id, created_at, batch_status],
+            params![batch_id, created_at, batch_status, logs.len() as i64],
         )?;
 
         {
@@ -782,6 +845,75 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
+}
+
+const OPERATION_LOG_COLUMNS: &str = r#"
+    id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+    status, error_message, created_at, can_undo, path_before, path_after,
+    name_before, name_after, can_restore, restored_at, restore_status, restore_error,
+    source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
+    source_full_hash, target_platform_file_id, target_full_hash,
+    source_claim_path, operation_phase, claim_created_at, claim_platform_file_id,
+    claim_full_hash, restore_claim_path, restore_phase, restore_claim_created_at,
+    restore_claim_platform_file_id, restore_claim_full_hash, source_platform_volume_id,
+    target_platform_volume_id, claim_platform_volume_id, restore_claim_platform_volume_id
+"#;
+
+const OPERATION_LOG_SELECT_BY_ID: &str = concat!(
+    "SELECT ",
+    "id, batch_id, operation_type, source_path, target_path, old_name, new_name, ",
+    "status, error_message, created_at, can_undo, path_before, path_after, ",
+    "name_before, name_after, can_restore, restored_at, restore_status, restore_error, ",
+    "source_size, source_modified_ns, source_platform_file_id, source_quick_hash, ",
+    "source_full_hash, target_platform_file_id, target_full_hash, ",
+    "source_claim_path, operation_phase, claim_created_at, claim_platform_file_id, ",
+    "claim_full_hash, restore_claim_path, restore_phase, restore_claim_created_at, ",
+    "restore_claim_platform_file_id, restore_claim_full_hash, source_platform_volume_id, ",
+    "target_platform_volume_id, claim_platform_volume_id, restore_claim_platform_volume_id ",
+    "FROM operation_logs WHERE id = ?1"
+);
+
+fn operation_batch_from_connection(
+    conn: &rusqlite::Connection,
+    batch_id: &str,
+) -> Result<Option<OperationLogBatchDto>, DbError> {
+    let metadata: Option<(i64, i64)> = conn
+        .query_row(
+            r#"
+            SELECT item_count,
+                   (SELECT COUNT(*) FROM operation_logs WHERE batch_id = operation_batches.id)
+            FROM operation_batches
+            WHERE id = ?1
+            "#,
+            params![batch_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((expected_count, actual_count)) = metadata else {
+        return Ok(None);
+    };
+    let expected_count = usize::try_from(expected_count.max(0)).unwrap_or(usize::MAX);
+    let actual_count = usize::try_from(actual_count.max(0)).unwrap_or(usize::MAX);
+    // Transfer currently caps an operation batch at 1,000 rows. Reading one
+    // extra row makes an unexpected oversized/corrupt batch fail closed while
+    // bounding allocations even if its stored count is damaged.
+    let query = format!(
+        "SELECT {OPERATION_LOG_COLUMNS} FROM operation_logs WHERE batch_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1001"
+    );
+    let mut stmt = conn.prepare(&query)?;
+    let rows = stmt.query_map(params![batch_id], operation_log_from_row)?;
+    let logs = rows.collect::<Result<Vec<_>, _>>()?;
+    let is_complete = expected_count > 0
+        && expected_count <= 1000
+        && expected_count == actual_count
+        && logs.len() == actual_count;
+    Ok(Some(OperationLogBatchDto {
+        batch_id: batch_id.to_string(),
+        expected_count,
+        actual_count,
+        is_complete,
+        logs,
+    }))
 }
 
 fn parse_operation_timestamp(value: &str) -> i64 {

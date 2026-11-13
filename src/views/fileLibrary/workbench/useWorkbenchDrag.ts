@@ -225,7 +225,6 @@ export function useWorkbenchDrag({
       finished.ended = true;
       finished.handedOff = true;
       finished.observer?.disconnect();
-      setFeedback(null);
       try {
         if (finished.sourceElement.hasPointerCapture(finished.pointerId))
           finished.sourceElement.releasePointerCapture(finished.pointerId);
@@ -233,8 +232,10 @@ export function useWorkbenchDrag({
         // Native drag has taken over; browser pointer capture may already be gone.
       }
       await fileManagementApi.nativeDragOut({ ticketIds: tickets.map((ticket) => ticket.id) });
+      setFeedback(null);
     } catch (cause) {
       if (registry.current.current?.token === session.token) cancelSession(session.token);
+      setFeedback(null);
       useAppStore.getState().showError(String(cause));
     } finally {
       if (tickets.length && !session.ticketsReleased) {

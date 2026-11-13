@@ -1,16 +1,17 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { readSystemClipboardForPaste, writeSystemClipboardForCopy } from "./systemClipboardTransfer";
 import { usePane } from "../workbench/PaneContext";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, Brush, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Sparkles, Star, X, FolderOpen, MoreHorizontal, Package, File, FilePlus2, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2, ListOrdered } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { fileManagementApi as api, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { fileManagementApi as api, type PersistentBasketEntry, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
+import { operationApi } from "../../../api/operationApi";
 import type { BrowseEntryRef } from "../../../types/fileWorkspace";
 import type { OperationLog, OperationPreview } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
-import { useChromeContext, useI18nContext, useNavigationContext } from "../../../contexts/AppContexts";
+import { useChromeContext, useI18nContext, useNavigationContext, useSettingsContext } from "../../../contexts/AppContexts";
 import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
-import { groupOperationLogs, latestUndoBatch, restoreEligibility, type OperationHistoryBatch } from "../../history/historyModel";
+import { groupOperationLogs, operationBatchUndoEligibility, type OperationHistoryBatch } from "../../history/historyModel";
 import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/tw";
 import { formatBytes } from "../../../utils/format";
 import { localizedStableError, readableError } from "../../../utils/viewHelpers";
@@ -18,15 +19,43 @@ import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
-import { transferDestinationContextKey, transferSourceContextKey, useFileManagementStore, type ManagementTransferIntent } from "./fileManagementStore";
+import { transferDestinationContextKey, transferSourceContextKey, useFileManagementStore, type ManagementSurface, type ManagementTransferIntent } from "./fileManagementStore";
 import { releaseTransferTickets } from "./transferTicketOwnership";
 import { orchestrateTransfer } from "./transferOrchestrator";
 import { BatchRenameDialog } from "../library/BatchRenameDialog";
-import { BATCH_RENAME_LIMIT } from "../library/batchRenameModel";
+import { isBrowseBatchRenameSelectionEligible } from "../library/batchRenameModel";
 import "./fileManagement.css";
 
 const PAGE_SIZE = 40;
+const TRANSFER_BATCH_SIZE = 1000;
 type TransferOrigin = "selection" | "clipboard" | "basket" | "external";
+type ZipExtractTarget = "here" | "same_name_folder" | "chosen_directory";
+interface DirectoryBulkTransfer {
+  selection: NonNullable<ManagementSurface["directorySelection"]>;
+  action: "copy" | "move" | "trash" | "system_trash";
+  sourceContextKey: string;
+  sourcePaneId?: string;
+  sourceDirectory: string;
+  destinationDirectory: string;
+  selectionCount: number;
+  nextOffset: number;
+  captured: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  logs: OperationLog[];
+}
+interface BasketBulkTransfer {
+  action: "copy" | "move";
+  total: number;
+  nextOffset: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  logs: OperationLog[];
+}
 function parentPath(path: string) {
   const trimmed = path.replace(/[\\/]+$/, "");
   if (/^[a-z]:$/i.test(trimmed)) return `${trimmed}\\`;
@@ -72,6 +101,7 @@ function formatTransferEta(seconds: number) {
 }
 export function FileManagementToolbar() {
   const { t } = useI18nContext(); const { platform } = useChromeContext(); const { setView } = useNavigationContext();
+  const { settings } = useSettingsContext();
   const { controller } = useFileLibraryExperience(); const { controller: previewController } = usePreviewExperience();
   const pane = usePane();
   const state = useFileManagementStore();
@@ -132,6 +162,9 @@ export function FileManagementToolbar() {
   const transferRef = useRef(transfer); transferRef.current = transfer;
   const [nameIntent, setNameIntent] = useState<NameIntent | null>(null);
   const [batchRenameOpen, setBatchRenameOpen] = useState(false);
+  const [zipExtractOpen, setZipExtractOpen] = useState(false);
+  const [zipExtractTarget, setZipExtractTarget] = useState<ZipExtractTarget>("here");
+  const [zipConflictPolicy, setZipConflictPolicy] = useState<"skip" | "keep_both">("skip");
   const [batchRenameTickets, setBatchRenameTickets] = useState<TransferTicket[]>([]);
   const [batchRenameSourceKey, setBatchRenameSourceKey] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -147,11 +180,23 @@ export function FileManagementToolbar() {
   const selectedBrowseEntries = surface?.browseSource?.entries.filter((entry) =>
     surface.browseSource?.selectedIds.has(entry.entryRef.entryId)
   ) ?? [];
-  const canBatchRenameBrowse = selectedBrowseEntries.length >= 2
-    && selectedBrowseEntries.length <= BATCH_RENAME_LIMIT
-    && selectedBrowseEntries.every((entry) => entry.entryKind === "file");
+  const canBatchRenameBrowse = isBrowseBatchRenameSelectionEligible(
+    selectedBrowseEntries.map((entry) => ({ id: entry.entryRef.entryId, entryKind: entry.entryKind })),
+    Boolean(surface?.directorySelection)
+  );
+  const selectedZip = selectedBrowseEntries.length === 1
+    && selectedBrowseEntries[0].entryKind === "file"
+    && /\.zip$/i.test(selectedBrowseEntries[0].displayName);
   const restoreRef = useRef<HTMLElement | null>(null);
   const mounted = useRef(true); const busyRef = useRef(false);
+  const basketTransferEntries = useRef<PersistentBasketEntry[]>([]);
+  const directoryBulkTransfer = useRef<DirectoryBulkTransfer | null>(null);
+  const basketBulkTransfer = useRef<BasketBulkTransfer | null>(null);
+  const refreshBasket = useCallback(async (page = basketPage) => {
+    const loaded = await api.basketPage({ offset: page * PAGE_SIZE, limit: PAGE_SIZE });
+    if (!mounted.current) return;
+    useFileManagementStore.setState({ basket: loaded.entries, basketTotal: loaded.total });
+  }, [basketPage]);
   const cancelRequested = useRef(false); const executionSent = useRef(false);
   useEffect(() => {
     const task = state.activeTransferTask;
@@ -180,7 +225,7 @@ export function FileManagementToolbar() {
       if (!store.transferRunning && store.activeTransferTask?.phase !== "awaiting_conflict" && store.transferTicketIds.some((id) => activeIds.has(id))) {
         useFileManagementStore.setState({ transferOpen: false, transferActive: false, transferRunning: false, activeTransferId: null, activeTransferTask: null, transferTicketIds: [] });
       }
-      if (!executionSent.current && !store.transferRunning && active && (active.origin === "selection" || active.origin === "external")) {
+      if (!executionSent.current && !store.transferRunning && active && (active.origin === "selection" || active.origin === "external" || active.origin === "basket")) {
         void releaseUnused(active.tickets.map((ticket) => ticket.id)).catch(() => {});
       }
     };
@@ -188,7 +233,7 @@ export function FileManagementToolbar() {
   const describeError = useCallback((value: unknown) => {
     const detail = readableError(value);
     if (detail.startsWith("symlink_or_reparse_point") || detail.startsWith("reparse_point") || detail.startsWith("symlink")) return localizedStableError(detail, t);
-    const key = detail.includes("cloud_file_requires_download") ? "fmCloudRequiresDownload" : /storage_volume_read_only|read.only file system|os error 30\b|拒绝写入/i.test(detail) ? "fmReadOnlyVolume" : /storage_insufficient_space|no space left|disk.*full|not enough space|os error (28|39|112)\b/i.test(detail) ? "fmInsufficientSpace" : detail.includes("workspace_clipboard_external_limit") ? "fmSystemClipboardLimit" : detail.includes("workspace_clipboard") ? "fmSystemClipboardUnavailable" : detail.includes("windows_special_metadata_unsupported") ? "fmWindowsSpecialMetadataUnsupported" : detail.includes("directory_tree_limit_exceeded") || detail.includes("transfer_directory_depth_limit") || detail.includes("transfer_directory_entry_limit") ? "fmDirectoryTreeLimit" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
+    const key = detail.includes("directory_selection_batch_required") ? "fmDirectorySelectionBatchRequired" : detail.includes("directory_selection_changed") || detail.includes("browse_selection_snapshot_stale") ? "fmDirectorySelectionChanged" : detail.includes("basket_transfer_limit_1000") ? "fmBasketTransferLimit" : detail.includes("basket_entry_unavailable") || detail.includes("basket_entry_changed") ? "fmBasketEntryUnavailable" : detail.includes("basket_limit_100000") ? "fmBasketLimit" : detail.includes("basket_changed") ? "fmBasketChanged" : detail.includes("cloud_file_requires_download") ? "fmCloudRequiresDownload" : /storage_volume_read_only|read.only file system|os error 30\b|拒绝写入/i.test(detail) ? "fmReadOnlyVolume" : /storage_insufficient_space|no space left|disk.*full|not enough space|os error (28|39|112)\b/i.test(detail) ? "fmInsufficientSpace" : detail.includes("workspace_clipboard_external_limit") ? "fmSystemClipboardLimit" : detail.includes("workspace_clipboard") ? "fmSystemClipboardUnavailable" : detail.includes("windows_special_metadata_unsupported") ? "fmWindowsSpecialMetadataUnsupported" : detail.includes("directory_tree_limit_exceeded") || detail.includes("transfer_directory_depth_limit") || detail.includes("transfer_directory_entry_limit") ? "fmDirectoryTreeLimit" : detail.includes("cross_volume_move") ? "fmCrossVolumeMove" : detail.includes("windows_directory") || detail.includes("empty_directory") ? "fmWindowsDirectories" : detail.includes("target_exists") ? "fmConflict" : detail.includes("limit_1000") ? "fmLimit" : detail.includes("source_changed") || detail.includes("source_tree_changed") || detail.includes("expired") || detail.includes("preview_stale") ? "fmStale" : "fmFailed";
     return `${t(key)} ${detail}`;
   }, [t]);
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -196,6 +241,9 @@ export function FileManagementToolbar() {
     try { await work(); } catch (value) { if (mounted.current) setError(describeError(value)); }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }, [describeError]);
+  useEffect(() => {
+    void refreshBasket().catch((value) => { if (mounted.current) setError(describeError(value)); });
+  }, [refreshBasket, describeError]);
 
   useEffect(() => {
     let cancelled = false; const browse = surface?.browse;
@@ -211,6 +259,28 @@ export function FileManagementToolbar() {
     const current = currentSurface();
     if (!current || (current.count === 0 && current.selection?.kind !== "all_matching")) return [];
     const sourceContextKey = transferSourceContextKey(current);
+    if (current.directorySelection) {
+      const expectedCount = current.count ?? 0;
+      if (expectedCount > 1000) throw Error("directory_selection_batch_required");
+      const captured: TransferTicket[] = [];
+      try {
+        for (let offset = 0; offset < current.directorySelection.count; offset += 1000) {
+          const page = await api.captureTransferSelectionPage({
+            sessionId: current.directorySelection.sessionId,
+            snapshotId: current.directorySelection.snapshotId,
+            offset,
+            excludedEntryIds: [...current.directorySelection.excludedEntryIds]
+          });
+          captured.push(...page);
+          if (transferSourceContextKey(currentSurface()) !== sourceContextKey) throw Error("directory_selection_changed");
+        }
+        if (captured.length !== expectedCount) throw Error("directory_selection_changed");
+        return captured;
+      } catch (error) {
+        await releaseUnused(captured.map((ticket) => ticket.id));
+        throw error;
+      }
+    }
     const captured = await api.captureTransfer(current.selection ? { selection: current.selection } : { refs: current.refs ?? [] });
     if (transferSourceContextKey(currentSurface()) !== sourceContextKey) { await releaseUnused(captured.map((ticket) => ticket.id)); throw Error("transfer_selection_changed"); }
     return captured;
@@ -219,6 +289,25 @@ export function FileManagementToolbar() {
     await releaseTransferTickets(ids);
   }
   function collect(action: "copy" | "cut" | "basket") {
+    const current = currentSurface();
+    if (action !== "basket" && current?.directorySelection && (current.count ?? 0) > TRANSFER_BATCH_SIZE) {
+      void run(async () => {
+        if (useFileManagementStore.getState().transferActive) throw Error("transfer_busy");
+        const sourceContextKey = transferSourceContextKey(current);
+        if (!sourceContextKey) throw Error("transfer_selection_changed");
+        const result = await open({ directory: true, multiple: false, title: t("fmDestination") });
+        const destinationDirectory = Array.isArray(result) ? result[0] : result;
+        if (!destinationDirectory) return;
+        if (transferSourceContextKey(currentSurface()) !== sourceContextKey) throw Error("transfer_selection_changed");
+        await startDirectoryBulkTransfer(
+          current,
+          action === "cut" ? "move" : "copy",
+          destinationDirectory,
+          sourceContextKey
+        );
+      });
+      return;
+    }
     if (isTauri() && action !== "basket") {
       void run(async () => {
         if (useFileManagementStore.getState().transferActive) throw Error("transfer_busy");
@@ -229,20 +318,159 @@ export function FileManagementToolbar() {
     }
     void run(async () => {
       if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+      const current = currentSurface();
+      if (action === "basket" && current?.directorySelection && (current.count ?? 0) > 1000) {
+        await addDirectorySelectionToBasket(current);
+        return;
+      }
       const tickets = await capturedSelection(); if (!tickets.length) return;
       if (useFileManagementStore.getState().transferActive) {
         await releaseUnused(tickets.map((ticket) => ticket.id)); setError(t("fmTransferBusy")); return;
       }
       const old = useFileManagementStore.getState();
       if (action === "basket") {
-        const merged = new Map(old.basket.map((ticket) => [ticket.id, ticket])); tickets.forEach((ticket) => merged.set(ticket.id, ticket));
-        useFileManagementStore.setState({ basket: [...merged.values()], basketOpen: false });
+        try {
+          await api.basketAdd({ ticketIds: tickets.map((ticket) => ticket.id) });
+        } finally {
+          await releaseUnused(tickets.map((ticket) => ticket.id));
+        }
+        await refreshBasket(basketPage);
+        useFileManagementStore.setState({ basketOpen: false });
         closePanel();
       } else {
         useFileManagementStore.setState({ clipboard: { action: action === "cut" ? "move" : "copy", tickets } });
         await releaseUnused(old.clipboard?.tickets.map((ticket) => ticket.id) ?? []);
       }
       setNotice(t(action === "basket" ? "fmAdded" : "fmClipboardReady"));
+    });
+  }
+  async function addDirectorySelectionToBasket(current: NonNullable<ReturnType<typeof currentSurface>>) {
+    const selection = current.directorySelection;
+    if (!selection) return;
+    const contextKey = transferSourceContextKey(current);
+    const expectedCount = current.count ?? 0;
+    let capturedCount = 0;
+    let addedCount = 0;
+    try {
+      for (let offset = 0; offset < selection.count; offset += 1000) {
+        if (!contextKey || transferSourceContextKey(currentSurface()) !== contextKey) throw Error("directory_selection_changed");
+        const page = await api.captureTransferSelectionPage({
+          sessionId: selection.sessionId,
+          snapshotId: selection.snapshotId,
+          offset,
+          excludedEntryIds: [...selection.excludedEntryIds]
+        });
+        try {
+          if (transferSourceContextKey(currentSurface()) !== contextKey) throw Error("directory_selection_changed");
+          capturedCount += page.length;
+          if (page.length) addedCount += await api.basketAdd({ ticketIds: page.map((ticket) => ticket.id) });
+        } finally {
+          await releaseUnused(page.map((ticket) => ticket.id));
+        }
+        setNotice(t("fmBasketAddProgress").replace("{done}", String(Math.min(capturedCount, expectedCount))).replace("{total}", String(expectedCount)));
+      }
+      if (capturedCount !== expectedCount) throw Error("directory_selection_changed");
+      await refreshBasket(basketPage);
+      setNotice(t("fmBasketAddSuccess").replace("{selected}", String(expectedCount)).replace("{added}", String(addedCount)));
+      useFileManagementStore.setState({ basketOpen: false });
+      closePanel();
+    } catch (value) {
+      try { await refreshBasket(basketPage); } catch { /* The committed basket rows remain authoritative. */ }
+      if (capturedCount > 0) {
+        setError(t("fmBasketAddPartial")
+          .replace("{done}", String(Math.min(capturedCount, expectedCount)))
+          .replace("{total}", String(expectedCount))
+          .replace("{error}", describeError(value)));
+      } else {
+        throw value;
+      }
+    }
+  }
+  function zipCreateSelection() {
+    void run(async () => {
+      if (useOperationQueueStore.getState().activeOperationKind) throw Error("operation_already_running");
+      const tickets = await capturedSelection();
+      if (!tickets.length) return;
+      try {
+        const directory = currentSurface()?.routingHint ?? currentPath;
+        const first = tickets[0];
+        const base = first.isDirectory ? first.name : first.name.replace(/\.[^.]+$/, "");
+        const separator = directory.includes("\\") && !directory.includes("/") ? "\\" : "/";
+        const defaultPath = `${directory.replace(/[\\/]+$/, "")}${separator}${base || first.name}-archive.zip`;
+        const outputPath = isTauri()
+          ? await save({ title: t("fmChooseZipOutput"), defaultPath, filters: [{ name: "ZIP", extensions: ["zip"] }] })
+          : defaultPath;
+        if (!outputPath) return;
+        useOperationQueueStore.setState({ activeOperationKind: "execute", isOperationCanceling: false, operationProgress: null });
+        const result = await api.createZip({ ticketIds: tickets.map((ticket) => ticket.id), outputPath, compressionLevel: 6 });
+        useFileManagementStore.setState({ results: result.logs });
+        await useOperationQueueStore.getState().refreshOperationLogs();
+        setNotice(t("fmZipCreated"));
+      } finally {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        if (useOperationQueueStore.getState().activeOperationKind === "execute") {
+          useOperationQueueStore.setState({ activeOperationKind: null, isOperationCanceling: false, operationProgress: null });
+        }
+      }
+    });
+  }
+  function showZipExtractDialog() {
+    setZipExtractTarget("here");
+    setZipConflictPolicy("skip");
+    setZipExtractOpen(true);
+  }
+  function zipExtractSelection(target: ZipExtractTarget, conflictPolicy: "skip" | "keep_both", destinationDirectory?: string) {
+    void run(async () => {
+      if (useOperationQueueStore.getState().activeOperationKind) throw Error("operation_already_running");
+      const tickets = await capturedSelection();
+      if (tickets.length !== 1 || tickets[0].isDirectory || !/\.zip$/i.test(tickets[0].name)) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw Error("zip_archive_required");
+      }
+      try {
+        useOperationQueueStore.setState({ activeOperationKind: "execute", isOperationCanceling: false, operationProgress: null });
+        const result = await api.extractZip({ ticketId: tickets[0].id, target, destinationDirectory, conflictPolicy });
+        useFileManagementStore.setState({ results: result.logs });
+        await useOperationQueueStore.getState().refreshOperationLogs();
+        setNotice(t("fmZipExtracted"));
+      } finally {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        if (useOperationQueueStore.getState().activeOperationKind === "execute") {
+          useOperationQueueStore.setState({ activeOperationKind: null, isOperationCanceling: false, operationProgress: null });
+        }
+      }
+    });
+  }
+  async function submitZipExtract(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    let destination: string | undefined;
+    if (zipExtractTarget === "chosen_directory") {
+      const selectedPath = isTauri()
+        ? await open({ directory: true, multiple: false, title: t("fmChooseExtractDestination") })
+        : currentSurface()?.routingHint ?? currentPath;
+      if (typeof selectedPath !== "string") return;
+      destination = selectedPath;
+    }
+    setZipExtractOpen(false);
+    zipExtractSelection(zipExtractTarget, zipConflictPolicy, destination);
+  }
+  function beginBasketTransfer(action: "copy" | "move") {
+    void run(async () => {
+      if (useFileManagementStore.getState().transferActive) throw Error("transfer_busy");
+      const total = useFileManagementStore.getState().basketTotal;
+      if (!total) return;
+      await validateBasketForBulk(total);
+      basketBulkTransfer.current = {
+        action,
+        total,
+        nextOffset: 0,
+        processed: 0,
+        succeeded: 0,
+        failed: 0,
+        skipped: 0,
+        logs: []
+      };
+      await startNextBasketBulkBatch();
     });
   }
   function clearTransferState(intent?: TransferIntent) {
@@ -255,10 +483,176 @@ export function FileManagementToolbar() {
     return cancelRequested.current || Boolean(useFileManagementStore.getState().activeTransferTask?.cancelRequested);
   }
   function releaseTransient(intent: TransferIntent) {
-    if (intent.origin === "selection" || intent.origin === "external") {
+    if (intent.origin === "selection" || intent.origin === "external" || intent.origin === "basket") {
       void releaseUnused(intent.tickets.map((ticket) => ticket.id)).catch((value) => {
         if (mounted.current) setError(describeError(value));
       });
+    }
+  }
+  function recordDirectoryBulkBatch(logs: OperationLog[], attempted: number, skipped = 0, failedWithoutLogs = 0) {
+    const bulk = directoryBulkTransfer.current;
+    if (!bulk) return;
+    bulk.processed += attempted;
+    bulk.skipped += skipped;
+    bulk.failed += failedWithoutLogs;
+    bulk.succeeded += logs.filter((log) => log.status === "success").length;
+    bulk.skipped += logs.filter((log) => log.status === "skipped").length;
+    bulk.failed += logs.filter((log) => log.status !== "success" && log.status !== "skipped").length;
+    bulk.logs = [...bulk.logs, ...logs].slice(-1000);
+    useFileManagementStore.setState({ results: bulk.logs });
+  }
+  async function finishDirectoryBulk(errorValue?: unknown) {
+    const bulk = directoryBulkTransfer.current;
+    if (!bulk) return;
+    directoryBulkTransfer.current = null;
+    useFileManagementStore.setState({ results: bulk.logs });
+    try {
+      const affectedSurface = bulk.sourcePaneId
+        ? useFileManagementStore.getState().surfaces[bulk.sourcePaneId]?.read()
+        : currentSurface();
+      const directories = [bulk.sourceDirectory, bulk.destinationDirectory].filter(Boolean);
+      affectedSurface?.clear();
+      if (pane) await pane.afterMutation(directories);
+      else await affectedSurface?.refresh();
+      await useOperationQueueStore.getState().refreshOperationLogs();
+    } catch (value) {
+      errorValue ??= value;
+    }
+    const unprocessed = Math.max(0, bulk.selectionCount - bulk.processed);
+    const failed = bulk.failed + unprocessed;
+    setNotice(t(errorValue || failed ? "fmBulkTransferPartial" : "fmBulkTransferFinished")
+      .replace("{processed}", String(bulk.processed))
+      .replace("{total}", String(bulk.selectionCount))
+      .replace("{succeeded}", String(bulk.succeeded))
+      .replace("{failed}", String(failed))
+      .replace("{skipped}", String(bulk.skipped)));
+    if (errorValue) setError(`${t("fmBulkTransferStopped")} ${describeError(errorValue)}`);
+    else if (bulk.failed > 0) setPanel("results");
+  }
+  async function startNextDirectoryBulkBatch() {
+    const bulk = directoryBulkTransfer.current;
+    if (!bulk) return;
+    try {
+      if (transferCancelRequested()) {
+        await finishDirectoryBulk(new Error("transfer_cancelled"));
+        return;
+      }
+      while (bulk.nextOffset < bulk.selection.count) {
+        if (transferSourceContextKey(currentSurface()) !== bulk.sourceContextKey) {
+          throw Error("directory_selection_changed");
+        }
+        const offset = bulk.nextOffset;
+        bulk.nextOffset = Math.min(offset + TRANSFER_BATCH_SIZE, bulk.selection.count);
+        const tickets = await api.captureTransferSelectionPage({
+          sessionId: bulk.selection.sessionId,
+          snapshotId: bulk.selection.snapshotId,
+          offset,
+          excludedEntryIds: [...bulk.selection.excludedEntryIds],
+          advanceSnapshot: true
+        });
+        if (transferSourceContextKey(currentSurface()) !== bulk.sourceContextKey) {
+          await releaseUnused(tickets.map((ticket) => ticket.id));
+          throw Error("directory_selection_changed");
+        }
+        bulk.captured += tickets.length;
+        if (!tickets.length) continue;
+        begin(tickets, bulk.action, "selection", {
+          destinationDirectory: bulk.destinationDirectory,
+          sourcePaneId: bulk.sourcePaneId,
+          sourceContextKey: bulk.sourceContextKey,
+          batchProgress: { offset: bulk.processed, total: bulk.selectionCount }
+        });
+        return;
+      }
+      if (bulk.captured !== bulk.selectionCount) throw Error("directory_selection_changed");
+      await finishDirectoryBulk();
+    } catch (value) {
+      await finishDirectoryBulk(value);
+    }
+  }
+  function recordBasketBulkBatch(logs: OperationLog[], attempted: number, skipped = 0, failedWithoutLogs = 0) {
+    const bulk = basketBulkTransfer.current;
+    if (!bulk) return;
+    bulk.processed += attempted;
+    bulk.skipped += skipped;
+    bulk.failed += failedWithoutLogs;
+    bulk.succeeded += logs.filter((log) => log.status === "success").length;
+    bulk.skipped += logs.filter((log) => log.status === "skipped").length;
+    bulk.failed += logs.filter((log) => log.status !== "success" && log.status !== "skipped").length;
+    bulk.logs = [...bulk.logs, ...logs].slice(-1000);
+    useFileManagementStore.setState({ results: bulk.logs });
+  }
+  async function validateBasketForBulk(total: number) {
+    let seen = 0;
+    for (let offset = 0; offset < total; offset += 100) {
+      const page = await api.basketPage({ offset, limit: Math.min(100, total - offset) });
+      if (page.total !== total) throw Error("basket_changed");
+      if (page.entries.some((entry) => entry.status !== "available")) throw Error("basket_entry_unavailable");
+      seen += page.entries.length;
+    }
+    if (seen !== total) throw Error("basket_changed");
+  }
+  async function finishBasketBulk(errorValue?: unknown) {
+    const bulk = basketBulkTransfer.current;
+    if (!bulk) return;
+    basketBulkTransfer.current = null;
+    basketTransferEntries.current = [];
+    useFileManagementStore.setState({ results: bulk.logs });
+    try {
+      const affectedSurface = currentSurface();
+      affectedSurface?.clear();
+      if (pane) await pane.afterMutation([affectedSurface?.routingHint ?? currentPath].filter(Boolean));
+      else await affectedSurface?.refresh();
+      await refreshBasket(basketPage);
+      await useOperationQueueStore.getState().refreshOperationLogs();
+    } catch (value) {
+      errorValue ??= value;
+    }
+    const unprocessed = Math.max(0, bulk.total - bulk.processed);
+    const failed = bulk.failed + unprocessed;
+    setNotice(t(errorValue || failed ? "fmBulkTransferPartial" : "fmBulkTransferFinished")
+      .replace("{processed}", String(bulk.processed))
+      .replace("{total}", String(bulk.total))
+      .replace("{succeeded}", String(bulk.succeeded))
+      .replace("{failed}", String(failed))
+      .replace("{skipped}", String(bulk.skipped)));
+    if (errorValue) setError(`${t("fmBulkTransferStopped")} ${describeError(errorValue)}`);
+    else if (bulk.failed > 0) setPanel("results");
+  }
+  async function startNextBasketBulkBatch() {
+    const bulk = basketBulkTransfer.current;
+    if (!bulk) return;
+    try {
+      if (transferCancelRequested()) {
+        await finishBasketBulk(new Error("transfer_cancelled"));
+        return;
+      }
+      if (bulk.nextOffset >= bulk.total) {
+        await finishBasketBulk();
+        return;
+      }
+      const offset = bulk.nextOffset;
+      const count = Math.min(TRANSFER_BATCH_SIZE, bulk.total - offset);
+      const entries: PersistentBasketEntry[] = [];
+      for (let pageOffset = offset; pageOffset < offset + count; pageOffset += 100) {
+        const page = await api.basketPage({ offset: pageOffset, limit: Math.min(100, offset + count - pageOffset) });
+        if (page.total !== bulk.total) throw Error("basket_changed");
+        entries.push(...page.entries);
+      }
+      if (entries.length !== count) throw Error("basket_changed");
+      if (entries.some((entry) => entry.status !== "available")) throw Error("basket_entry_unavailable");
+      const tickets = await api.basketCapture({ entryIds: entries.map((entry) => entry.id) });
+      if (tickets.length !== count) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw Error("basket_changed");
+      }
+      basketTransferEntries.current = entries;
+      bulk.nextOffset += count;
+      begin(tickets, bulk.action, "basket", {
+        batchProgress: { offset: bulk.processed, total: bulk.total }
+      });
+    } catch (value) {
+      await finishBasketBulk(value);
     }
   }
   function transferContextIsCurrent(intent: TransferIntent) {
@@ -283,6 +677,26 @@ export function FileManagementToolbar() {
     useFileManagementStore.setState({ transferRunning: true, transferOpen: false });
     useFileManagementStore.setState((current) => ({ activeTransferTask: current.activeTransferTask?.id === intent.id ? { ...current.activeTransferTask, intent, phase: "preview", cancelRequested: false, preview: null, conflictTicketIds: [], skip: nextSkip, keepBoth: nextKeepBoth } : current.activeTransferTask }));
     let preserveConflict = false;
+    let continueDirectoryBulk = false;
+    let continueBasketBulk = false;
+    let finishBulkError: unknown;
+    const isDirectoryBulk = () => {
+      const bulk = directoryBulkTransfer.current;
+      return Boolean(bulk && bulk.sourceContextKey === intent.sourceContextKey && bulk.action === intent.action);
+    };
+    const isBasketBulk = () => Boolean(
+      intent.origin === "basket" && basketBulkTransfer.current?.action === intent.action
+    );
+    const releaseBulkTickets = async () => {
+      if (!isDirectoryBulk() && !isBasketBulk()) return false;
+      try {
+        await releaseUnused(intent.tickets.map((ticket) => ticket.id));
+      } catch (value) {
+        finishBulkError = value;
+        continueDirectoryBulk = false;
+      }
+      return true;
+    };
     const executionPreview = { current: null as TransferPreview | null };
     try {
       const outcome = await orchestrateTransfer({
@@ -325,20 +739,41 @@ export function FileManagementToolbar() {
         outcome.preview.rows.forEach((row) => { if (row.error && !row.skipped) statuses[row.ticketId] = describeError(row.error); });
         useFileManagementStore.setState({ statuses });
         setError([...new Set(outcome.errors)].map((item) => describeError(item)).join("\n"));
+        if (isDirectoryBulk()) {
+          const skipped = outcome.preview.rows.filter((row) => row.skipped).length;
+          recordDirectoryBulkBatch([], intent.tickets.length, skipped, intent.tickets.length - skipped);
+          continueDirectoryBulk = true;
+        } else if (isBasketBulk()) {
+          const skipped = outcome.preview.rows.filter((row) => row.skipped).length;
+          recordBasketBulkBatch([], intent.tickets.length, skipped, intent.tickets.length - skipped);
+          continueBasketBulk = true;
+        }
         clearTransferState(intent);
-        releaseTransient(intent);
+        if (!await releaseBulkTickets()) releaseTransient(intent);
         return;
       }
       if (outcome.kind === "stale") {
         if (transferCancelRequested()) setNotice(t("fmCancelled"));
         else setError(describeError("transfer_preview_stale"));
-        clearTransferState(intent); releaseTransient(intent); return;
+        if (isDirectoryBulk() || isBasketBulk()) finishBulkError = new Error(transferCancelRequested() ? "transfer_cancelled" : isDirectoryBulk() ? "directory_selection_changed" : "basket_changed");
+        clearTransferState(intent);
+        if (!await releaseBulkTickets()) releaseTransient(intent);
+        return;
       }
       if (outcome.kind === "all-skipped") {
         const statuses = { ...useFileManagementStore.getState().statuses };
         outcome.preview.rows.forEach((row) => { if (row.skipped) statuses[row.ticketId] = t("fmSkipped"); });
         useFileManagementStore.setState({ statuses });
-        setNotice(t("fmAllSkipped")); clearTransferState(intent); releaseTransient(intent); return;
+        if (isDirectoryBulk()) {
+          recordDirectoryBulkBatch([], intent.tickets.length, intent.tickets.length);
+          continueDirectoryBulk = true;
+        } else if (isBasketBulk()) {
+          recordBasketBulkBatch([], intent.tickets.length, intent.tickets.length);
+          continueBasketBulk = true;
+        } else setNotice(t("fmAllSkipped"));
+        clearTransferState(intent);
+        if (!await releaseBulkTickets()) releaseTransient(intent);
+        return;
       }
 
       const acceptedPlan = outcome.preview; const result = outcome.result;
@@ -353,11 +788,49 @@ export function FileManagementToolbar() {
         if (log?.status === "success") succeeded.add(row.ticketId);
       });
       const current = useFileManagementStore.getState();
-      useFileManagementStore.setState({ results: result.logs, statuses, basketOpen: false,
+      const directoryBulk = isDirectoryBulk() ? directoryBulkTransfer.current : null;
+      const basketBulk = isBasketBulk() ? basketBulkTransfer.current : null;
+      if (directoryBulk) {
+        recordDirectoryBulkBatch(
+          result.logs,
+          intent.tickets.length,
+          acceptedPlan.rows.filter((row) => row.skipped).length
+        );
+        continueDirectoryBulk = !transferCancelRequested();
+        if (!continueDirectoryBulk) finishBulkError = new Error("transfer_cancelled");
+        setNotice(t("fmBulkTransferProgress")
+          .replace("{processed}", String(directoryBulk.processed))
+          .replace("{total}", String(directoryBulk.selectionCount)));
+      } else if (basketBulk) {
+        recordBasketBulkBatch(
+          result.logs,
+          intent.tickets.length,
+          acceptedPlan.rows.filter((row) => row.skipped).length
+        );
+        continueBasketBulk = !transferCancelRequested();
+        if (!continueBasketBulk) finishBulkError = new Error("transfer_cancelled");
+        setNotice(t("fmBulkTransferProgress")
+          .replace("{processed}", String(basketBulk.processed))
+          .replace("{total}", String(basketBulk.total)));
+      }
+      useFileManagementStore.setState({ results: directoryBulk?.logs ?? basketBulk?.logs ?? result.logs, statuses, basketOpen: false,
         ...(intent.action === "move" || intent.action === "trash" ? {
-          basket: current.basket.filter((ticket) => !succeeded.has(ticket.id)),
           clipboard: current.clipboard ? { ...current.clipboard, tickets: current.clipboard.tickets.filter((ticket) => !succeeded.has(ticket.id)) } : null,
         } : {}) });
+      if (intent.origin === "basket" && intent.action === "move") {
+        const moves = result.logs.flatMap((log) => {
+          if (log.operation_type !== "move" || log.status !== "success") return [];
+          const entry = basketTransferEntries.current.find((candidate) => candidate.path === log.path_before);
+          return entry ? [{ entryId: entry.id, operationLogId: log.id }] : [];
+        });
+        if (moves.length) {
+          try { await api.basketReconcileMoves({ moves }); }
+          catch (value) { setError(describeError(value)); }
+        }
+        basketTransferEntries.current = [];
+        try { await refreshBasket(basketPage); }
+        catch (value) { setError(describeError(value)); }
+      }
       if (result.logs.some((log) => log.status !== "success")) setPanel("results");
       const batch = groupOperationLogs(result.logs)[0];
       const needsReview = result.logs.some((log) => log.status === "manual_review" || log.status === "pending");
@@ -366,23 +839,47 @@ export function FileManagementToolbar() {
           : batch && batch.failed > 0 ? taskBatchStatus(batch, false, t) : t("fmFinished"));
       previewController.close("escape");
       const affectedSurface = intent.sourcePaneId ? useFileManagementStore.getState().surfaces[intent.sourcePaneId]?.read() : currentSurface();
-      if (intent.tickets.length > 0 && (!intent.sourceContextKey || transferSourceContextKey(affectedSurface) === intent.sourceContextKey)) affectedSurface?.clear();
+      if (!directoryBulk && !basketBulk && intent.tickets.length > 0 && (!intent.sourceContextKey || transferSourceContextKey(affectedSurface) === intent.sourceContextKey)) affectedSurface?.clear();
       clearTransferState(intent);
       try {
-        const directories = [acceptedPlan.destinationDirectory, ...intent.tickets.map((ticket) => parentPath(ticket.path))].filter(Boolean);
-        if (pane) await pane.afterMutation(directories); else await affectedSurface?.refresh();
+        if (!directoryBulk && !basketBulk) {
+          const directories = [acceptedPlan.destinationDirectory, ...intent.tickets.map((ticket) => parentPath(ticket.path))].filter(Boolean);
+          if (pane) await pane.afterMutation(directories); else await affectedSurface?.refresh();
+        }
         await useOperationQueueStore.getState().refreshOperationLogs();
       } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
-      if (intent.origin === "selection" || intent.origin === "external") releaseTransient(intent);
+      if (directoryBulk || basketBulk) await releaseBulkTickets();
+      else if (intent.origin === "selection" || intent.origin === "external" || intent.origin === "basket") releaseTransient(intent);
       else if (intent.action === "move" || intent.action === "trash") {
         try { await releaseUnused([...succeeded]); } catch (value) { setError(`${t("fmRefreshFailed")} ${readableError(value)}`); }
       }
     } catch (value) {
       const detail = readableError(value);
+      const directoryBulk = isDirectoryBulk();
+      const basketBulk = isBasketBulk();
       setError(executionSent.current
         ? transferCancelRequested() ? t("fmCancelled") : `${t("fmExecutionUncertain")} ${detail}`
         : transferCancelRequested() || detail.includes("transfer_cancelled") ? t("fmCancelled") : describeError(value));
-      clearTransferState(intent); releaseTransient(intent);
+      clearTransferState(intent);
+      if (!await releaseBulkTickets()) releaseTransient(intent);
+      if (directoryBulk || basketBulk) {
+        if (!executionSent.current && !transferCancelRequested()
+          && !detail.includes("directory_selection_changed")
+          && !detail.includes("browse_selection_snapshot_stale")
+          && !detail.includes("transfer_selection_changed")
+          && !detail.includes("basket_changed")
+          && !detail.includes("basket_entry_unavailable")) {
+          if (directoryBulk) {
+            recordDirectoryBulkBatch([], intent.tickets.length, 0, intent.tickets.length);
+            continueDirectoryBulk = true;
+          } else {
+            recordBasketBulkBatch([], intent.tickets.length, 0, intent.tickets.length);
+            continueBasketBulk = true;
+          }
+        } else {
+          finishBulkError = value;
+        }
+      }
       if (executionSent.current) {
         try { await useOperationQueueStore.getState().refreshOperationLogs(); } catch { /* Keep the operation error visible. */ }
         try {
@@ -391,8 +888,10 @@ export function FileManagementToolbar() {
           const affectedSurface = intent.sourcePaneId
             ? useFileManagementStore.getState().surfaces[intent.sourcePaneId]?.read()
             : currentSurface();
-          if (pane) await pane.afterMutation(directories);
-          else await affectedSurface?.refresh();
+          if (!directoryBulk && !basketBulk) {
+            if (pane) await pane.afterMutation(directories);
+            else await affectedSurface?.refresh();
+          }
         } catch { /* The uncertain execution result remains visible above. */ }
       }
     } finally {
@@ -404,13 +903,18 @@ export function FileManagementToolbar() {
       if (!preserveConflict && current.transferActive && current.activeTransferId === intent.id) {
         clearTransferState(intent);
       }
+      if (finishBulkError !== undefined) {
+        if (directoryBulkTransfer.current) await finishDirectoryBulk(finishBulkError);
+        else if (basketBulkTransfer.current) await finishBasketBulk(finishBulkError);
+      } else if (continueDirectoryBulk) await startNextDirectoryBulkBatch();
+      else if (continueBasketBulk) await startNextBasketBulkBatch();
     }
   }
   function begin(
     tickets: TransferTicket[],
     action: TransferAction,
     origin: TransferOrigin,
-    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationContextKey" | "sourcePaneId" | "sourceContextKey" | "newName" | "newNames">> & { destinationBrowse?: TransferIntent["destinationBrowse"] | null } = {},
+    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationContextKey" | "sourcePaneId" | "sourceContextKey" | "newName" | "newNames">> & { destinationBrowse?: TransferIntent["destinationBrowse"] | null; batchProgress?: { offset: number; total: number } } = {},
     initialKeepBoth: string[] = [],
   ) {
     const store = useFileManagementStore.getState();
@@ -419,17 +923,17 @@ export function FileManagementToolbar() {
     if ((action === "rename" && ((tickets.length === 1 && !options.newName?.trim()) || (tickets.length > 1 && (!options.newNames || Object.keys(options.newNames).length !== tickets.length))))
       || (createAction && !options.newName?.trim())) {
       setError(describeError(action === "rename" ? "transfer_rename_selection_invalid" : action === "create_file" ? "transfer_create_file_request_invalid" : "transfer_create_directory_request_invalid"));
-      if (origin === "selection" || origin === "external") void releaseUnused(tickets.map((ticket) => ticket.id));
+      if (origin === "selection" || origin === "external" || origin === "basket") void releaseUnused(tickets.map((ticket) => ticket.id));
       return;
     }
     if (store.transferActive || store.transferOpen) {
       setError(t("fmTransferBusy"));
-      if (origin === "selection" || origin === "external") void releaseUnused(tickets.map((ticket) => ticket.id));
+      if (origin === "selection" || origin === "external" || origin === "basket") void releaseUnused(tickets.map((ticket) => ticket.id));
       return;
     }
     if (useOperationQueueStore.getState().activeOperationKind) {
       setError(t("fmTransferBusy"));
-      if (origin === "selection" || origin === "external") void releaseUnused(tickets.map((ticket) => ticket.id));
+      if (origin === "selection" || origin === "external" || origin === "basket") void releaseUnused(tickets.map((ticket) => ticket.id));
       return;
     }
     const destinationPaneId = options.destinationPaneId ?? (options.destinationDirectory === undefined ? pane?.id : undefined);
@@ -438,7 +942,7 @@ export function FileManagementToolbar() {
     const destinationDirectory = destinationEntry ? "" : options.destinationDirectory ?? destinationSurface?.routingHint ?? currentPath;
     if (!destinationEntry && !destinationDirectory.trim()) {
       setError(t("fmDestinationRequired"));
-      if (origin === "selection" || origin === "external") void releaseUnused(tickets.map((ticket) => ticket.id));
+      if (origin === "selection" || origin === "external" || origin === "basket") void releaseUnused(tickets.map((ticket) => ticket.id));
       return;
     }
     const intent: TransferIntent = {
@@ -457,7 +961,9 @@ export function FileManagementToolbar() {
     const sourceSummary = tickets.length <= 2 ? tickets.map((ticket) => ticket.path).join(" · ") : `${tickets[0]!.path} · +${tickets.length - 1}`;
     useFileManagementStore.setState({ results: [], transferOpen: false, transferActive: true, transferRunning: true, activeTransferId: intent.id, transferTicketIds: tickets.map((ticket) => ticket.id), activeTransferTask: {
       id: intent.id, origin, intent, action, sourceSummary, destinationSummary: intent.destinationEntry ? t("fmDestination") : destinationDirectory,
-      totalItems: createAction ? null : tickets.length, phase: "preview", cancelRequested: false,
+      totalItems: createAction ? null : options.batchProgress?.total ?? tickets.length,
+      progressOffset: options.batchProgress?.offset ?? 0,
+      phase: "preview", cancelRequested: false,
       preview: null, conflictTicketIds: [], skip: [], keepBoth: []
     } });
     setTransfer(intent); setPlan(null); setConflictTicketIds([]); setSkip([]); setKeepBoth(initialKeepBoth); setPreviewPage(0); setResultPage(0);
@@ -472,7 +978,7 @@ export function FileManagementToolbar() {
     if (store.transferRunning) return;
     cancelRequested.current = true; clearTransferState(active ?? undefined); setSkip([]); setKeepBoth([]);
     if (active) releaseTransient(active);
-    else if (store.activeTransferTask && (store.activeTransferTask.origin === "selection" || store.activeTransferTask.origin === "external")) void releaseUnused(store.transferTicketIds).catch(() => {});
+    else if (store.activeTransferTask && (store.activeTransferTask.origin === "selection" || store.activeTransferTask.origin === "external" || store.activeTransferTask.origin === "basket")) void releaseUnused(store.transferTicketIds).catch(() => {});
   }
   function cancelRunningTransfer() {
     const activeTask = useFileManagementStore.getState().activeTransferTask;
@@ -496,11 +1002,53 @@ export function FileManagementToolbar() {
       begin(tickets, log.operation_type as "copy" | "move" | "duplicate", "external", { destinationDirectory: parentPath(log.path_after) });
     });
   }
+  async function startDirectoryBulkTransfer(
+    source: NonNullable<ReturnType<typeof currentSurface>>,
+    action: DirectoryBulkTransfer["action"],
+    destinationDirectory: string,
+    sourceContextKey: string
+  ) {
+    const selection = source.directorySelection;
+    const selectionCount = source.count;
+    if (!selection || selectionCount === null || selectionCount <= TRANSFER_BATCH_SIZE) {
+      throw Error("directory_selection_batch_required");
+    }
+    directoryBulkTransfer.current = {
+      selection,
+      action,
+      sourceContextKey,
+      sourcePaneId: pane?.id,
+      sourceDirectory: source.routingHint ?? currentPath,
+      destinationDirectory,
+      selectionCount,
+      nextOffset: 0,
+      captured: 0,
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: 0,
+      logs: []
+    };
+    await startNextDirectoryBulkBatch();
+  }
   async function moveSelection() {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
     await run(async () => {
       const source = currentSurface();
       const sourceContextKey = transferSourceContextKey(source ?? undefined);
+      if (source?.directorySelection && (source.count ?? 0) > TRANSFER_BATCH_SIZE) {
+        if (!sourceContextKey) throw Error("transfer_selection_changed");
+        const result = await open({ directory: true, multiple: false, title: t("fmDestination") });
+        const destinationDirectory = Array.isArray(result) ? result[0] : result;
+        if (!destinationDirectory) return;
+        if (transferSourceContextKey(currentSurface()) !== sourceContextKey) throw Error("transfer_selection_changed");
+        const sameDirectory = platform === "win32"
+          ? destinationDirectory.toLowerCase() === (source.routingHint ?? currentPath).toLowerCase()
+          : destinationDirectory === (source.routingHint ?? currentPath);
+        if (sameDirectory) { setError(t("fmDirectorySelectionSameDestination")); return; }
+        await startDirectoryBulkTransfer(source, "move", destinationDirectory, sourceContextKey);
+        return;
+      }
       const tickets = await capturedSelection(); if (!tickets.length) return;
       const result = await open({ directory: true, multiple: false, title: t("fmDestination") });
       const destinationDirectory = Array.isArray(result) ? result[0] : result;
@@ -541,17 +1089,28 @@ export function FileManagementToolbar() {
       }, tickets.map((ticket) => ticket.id));
     });
   }
-  function trashSelection() {
+  function trashSelection(action: "trash" | "system_trash" = settings.deleteDestination === "system_trash" ? "system_trash" : "trash") {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
     void run(async () => {
-      const sourceContextKey = transferSourceContextKey(currentSurface());
+      const source = currentSurface();
+      const sourceContextKey = transferSourceContextKey(source);
+      if (source?.directorySelection && (source.count ?? 0) > TRANSFER_BATCH_SIZE) {
+        if (!sourceContextKey) throw Error("transfer_selection_changed");
+        await startDirectoryBulkTransfer(
+          source,
+          action,
+          source.routingHint ?? currentPath,
+          sourceContextKey
+        );
+        return;
+      }
       const tickets = await capturedSelection();
       if (!tickets.length || !sourceContextKey || transferSourceContextKey(currentSurface()) !== sourceContextKey) {
         await releaseUnused(tickets.map((ticket) => ticket.id));
         if (tickets.length) throw Error("transfer_selection_changed");
         return;
       }
-      begin(tickets, "trash", "selection", {
+      begin(tickets, action, "selection", {
         destinationDirectory: parentPath(tickets[0]!.path),
         sourcePaneId: pane?.id,
         sourceContextKey,
@@ -585,8 +1144,11 @@ export function FileManagementToolbar() {
       const current = currentSurface();
       const browseSource = current?.browseSource;
       const contextKey = transferSourceContextKey(current);
-      if (!current || !browseSource || browseSource.selectedCount < 2 || browseSource.selectedCount > BATCH_RENAME_LIMIT
-        || browseSource.entries.filter((entry) => browseSource.selectedIds.has(entry.entryRef.entryId)).some((entry) => entry.entryKind !== "file")
+      if (!current || !browseSource || !isBrowseBatchRenameSelectionEligible(
+        browseSource.entries.filter((entry) => browseSource.selectedIds.has(entry.entryRef.entryId))
+          .map((entry) => ({ id: entry.entryRef.entryId, entryKind: entry.entryKind })),
+        Boolean(current.directorySelection)
+      )
         || !contextKey) throw Error("transfer_rename_selection_invalid");
       const tickets = await capturedSelection();
       if (tickets.length !== browseSource.selectedCount || transferSourceContextKey(currentSurface()) !== contextKey) {
@@ -697,17 +1259,23 @@ export function FileManagementToolbar() {
     if (useOperationQueueStore.getState().activeOperationKind || useFileManagementStore.getState().transferActive) return;
     await run(async () => {
       const queue = useOperationQueueStore.getState();
-      const logs = await queue.refreshOperationLogs();
-      const latestBatch = latestUndoBatch(logs);
-      if (!latestBatch.length) {
+      const latestBatch = await operationApi.getLatestOperationBatch();
+      if (!latestBatch) {
         setNotice(t("fmUndoUnavailable"));
         return;
       }
-      if (!latestBatch.some((log) => restoreEligibility(log).executable)) {
-        setNotice(t("fmUndoUnavailable"));
+      const eligibility = operationBatchUndoEligibility(latestBatch);
+      if (eligibility.reason === "incomplete") {
+        setNotice(t("fmUndoIncompleteBatch")
+          .replace("{actual}", latestBatch.actual_count.toLocaleString())
+          .replace("{expected}", latestBatch.expected_count.toLocaleString()));
         return;
       }
-      const intent = await queue.prepareOperationRestoreIntent(latestBatch.map((log) => log.id));
+      if (!eligibility.executable) {
+        setNotice(t("fmUndoBatchBlocked").replace("{count}", eligibility.blockedCount.toLocaleString()));
+        return;
+      }
+      const intent = await queue.prepareOperationRestoreIntent(latestBatch.logs.map((log) => log.id));
       if (!intent) throw Error("restore_no_executable_selected");
       const outcome = await queue.confirmOperationRestore(intent.sessionId);
       if (outcome.status !== "executed") {
@@ -715,8 +1283,8 @@ export function FileManagementToolbar() {
       }
     });
   }
-  const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation });
-  actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation };
+  const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation, zipCreateSelection, showZipExtractDialog });
+  actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation, zipCreateSelection, showZipExtractDialog };
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if (!focused || pane && useFileManagementStore.getState().activePaneId !== pane.id || event.defaultPrevented || event.isComposing || (event.altKey && !(event.metaKey && event.key.toLowerCase() === "v")) || isFileLibraryShortcutExcludedTarget(event.target) || busyRef.current || useFileManagementStore.getState().transferActive) return;
@@ -737,7 +1305,7 @@ export function FileManagementToolbar() {
   useEffect(() => {
     const action = state.pendingAction; if (!action || !focused) return;
     useFileManagementStore.setState({ pendingAction: null });
-    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash") trashSelection(); else if (action === "create_directory") createDirectory(); else if (action === "create_file") createEmptyFile(); else if (action === "copy_other" || action === "move_other") transferToTarget(action === "move_other" ? "move" : "copy"); else collect(action);
+    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash" || action === "system_trash") trashSelection(action); else if (action === "create_directory") createDirectory(); else if (action === "create_file") createEmptyFile(); else if (action === "copy_other" || action === "move_other") transferToTarget(action === "move_other" ? "move" : "copy"); else if (action === "zip_create") zipCreateSelection(); else if (action === "zip_extract") showZipExtractDialog(); else collect(action);
   }, [state.pendingAction, focused]);
   function transferToTarget(action: TransferAction) {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
@@ -785,10 +1353,13 @@ export function FileManagementToolbar() {
       if (!admitted) throw Error("browse_admission_superseded"); closePanel();
     });
   }
-  const effectiveBasketPage = Math.min(basketPage, Math.max(0, Math.ceil(state.basket.length / PAGE_SIZE) - 1));
   const pageControls = (count: number, page: number, change: (page: number) => void) => <PageControls count={count} page={page} change={change} previous={t("fmPrevious")} next={t("fmNext")}/>;
   const selected = surface?.count === null ? t("fmAllResults") : String(surface?.count ?? 0);
   const disabled = busy || state.transferActive || !surface || surface.count === 0;
+  const directorySelectionLimit = Boolean(surface?.directorySelection && (surface.count ?? 0) > TRANSFER_BATCH_SIZE);
+  const selectionActionDisabled = disabled;
+  const boundedSelectionActionDisabled = disabled || directorySelectionLimit;
+  const zipSelectionEligible = Boolean(surface?.count && surface.count > 0 && !directorySelectionLimit);
   const pasteDisabled = busy || state.transferActive || !surface || (!isTauri() && !state.clipboard?.tickets.length);
   const conflictRows = plan?.rows.filter((row) => conflictTicketIds.includes(row.ticketId)) ?? [];
   const nameConflict = (transfer?.action === "rename" && !transfer.newNames) || transfer?.action === "create_directory" || transfer?.action === "create_file";
@@ -798,7 +1369,18 @@ export function FileManagementToolbar() {
   const resultsSummary = `${t("fmResults")} · ${state.results.filter((log) => log.status === "success").length}/${state.results.length}`;
   const taskAttentionCount = operationTaskBatches.reduce((count, batch) => count + batch.pending + batch.failed, 0)
     + operationTaskBatches.filter((batch) => batch.logs.some((log) => log.status === "manual_review")).length;
-  const liveTaskProgress = state.activeTransferTask?.phase === "execute" && activeOperationKind === "execute" ? operationProgress : null;
+  const rawLiveTaskProgress = state.activeTransferTask?.phase === "execute" && activeOperationKind === "execute" ? operationProgress : null;
+  const liveTaskProgress = rawLiveTaskProgress && rawLiveTaskProgress.processedItems !== undefined
+    ? {
+      ...rawLiveTaskProgress,
+      processedItems: (state.activeTransferTask?.progressOffset ?? 0) + rawLiveTaskProgress.processedItems,
+      totalItems: state.activeTransferTask?.totalItems ?? rawLiveTaskProgress.totalItems
+    }
+    : rawLiveTaskProgress;
+  const liveArchiveProgress = activeOperationKind === "execute"
+    && (operationProgress?.phase === "preparing" || operationProgress?.phase === "compressing" || operationProgress?.phase === "extracting")
+    ? operationProgress
+    : null;
   const [transferRate, setTransferRate] = useState<number | null>(null);
   const rateSample = useRef<{ batchId: string; at: number; bytes: number; rate: number | null } | null>(null);
   useEffect(() => {
@@ -827,6 +1409,7 @@ export function FileManagementToolbar() {
   const taskPhaseLabel = (phase?: string) => {
     const keys: Record<string, string> = {
       prepared: "fmTaskPhasePrepared", source_claimed: "fmTaskPhaseSourceClaimed", copying: "fmTaskPhaseCopying",
+      compressing: "fmTaskPhaseCompressing", extracting: "fmTaskPhaseExtracting",
       target_committed: "fmTaskPhaseTargetCommitted", source_cleanup_pending: "fmTaskPhaseCleanupPending",
       preparing: "fmTaskPhasePreparing", verify_source: "fmTaskPhaseVerifying",
       verify_staging: "fmTaskPhaseVerifying", verify_target: "fmTaskPhaseVerifying",
@@ -904,13 +1487,14 @@ export function FileManagementToolbar() {
   return <section className="fm-workflow" aria-label={t("fmActions")} data-file-management>
     <div className="fm-toolbar fm-primary-toolbar">
       <span className="fm-selection" data-has-selection={!disabled} aria-live="polite">{t("fmSelection")} <strong>{selected}</strong></span>
+      {directorySelectionLimit ? <span className="fm-muted" role="status">{t("fmDirectorySelectionBatchInfo")}</span> : null}
       <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} aria-label={t("fmNewFolder")} data-fm-primary-action onClick={createDirectory}><FolderPlus size={14}/><span className="fm-action-label">{t("fmNewFolder")}</span></button>
       <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} aria-label={t("fmNewFile")} data-fm-primary-action onClick={createEmptyFile}><FilePlus2 size={14}/><span className="fm-action-label">{t("fmNewFile")}</span></button>
-      <button className={buttonGhost} disabled={disabled} aria-label={t("fmCopy")} title={t("fmCopy")} data-fm-primary-action onClick={() => collect("copy")}><Copy size={14}/><span className="fm-action-label">{t("fmCopy")}</span></button>
-      <button className={buttonGhost} disabled={disabled} aria-label={t("fmCut")} title={t("fmCut")} data-fm-primary-action onClick={() => collect("cut")}><Scissors size={14}/><span className="fm-action-label">{t("fmCut")}</span></button>
+      <button className={buttonGhost} disabled={disabled} aria-label={t("fmCopy")} title={directorySelectionLimit ? t("fmDirectorySelectionBatchInfo") : t("fmCopy")} data-fm-primary-action onClick={() => collect("copy")}><Copy size={14}/><span className="fm-action-label">{t("fmCopy")}</span></button>
+      <button className={buttonGhost} disabled={disabled} aria-label={t("fmCut")} title={directorySelectionLimit ? t("fmDirectorySelectionBatchInfo") : t("fmCut")} data-fm-primary-action onClick={() => collect("cut")}><Scissors size={14}/><span className="fm-action-label">{t("fmCut")}</span></button>
       <button className={buttonGhost} disabled={pasteDisabled} aria-label={`${t("fmPaste")}${state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}`} title={t("fmPaste")} data-fm-primary-action onClick={() => paste()}><ClipboardPaste size={14}/><span className="fm-action-label">{t("fmPaste")}</span>{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
       <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "tasks"} onClick={(event) => panel === "tasks" ? closePanel() : openPanel("tasks", event.currentTarget)}><Activity size={14}/><span>{t("fmTasks")}{taskAttentionCount ? ` · ${taskAttentionCount}` : ""}</span></button>
-      <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <span className="fm-count">{state.basket.length}</span>}</button>
+      <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basketTotal > 0 && <span className="fm-count">{state.basketTotal}</span>}</button>
       {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}
     </div>
     {focused && (error || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={dismissNotice}><X size={14}/></button></div>}
@@ -921,19 +1505,28 @@ export function FileManagementToolbar() {
       <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
       <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
     </aside>}
+    {focused && liveArchiveProgress && <aside className="fm-task-progress" role="status" aria-live="polite">
+      <div className="fm-task-heading"><strong>{taskPhaseLabel(liveArchiveProgress.phase)}</strong><button className={buttonGhost} disabled={operationCanceling} onClick={() => void useOperationQueueStore.getState().cancelOperations()}>{operationCanceling ? t("fmCancelPending") : t("fmCancelRunning")}</button></div>
+      {taskProgressBar(liveArchiveProgress)}
+      <span className="fm-path" title={liveArchiveProgress.currentPath}>{liveArchiveProgress.currentPath}</span>
+      <p className="fm-muted">{taskProgressDetails(liveArchiveProgress)}</p>
+      <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
+    </aside>}
     {panelOpen && <div ref={panelRef} id={panelId} className="fm-panel" role="region" aria-label={panelTitle}>
-      <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basket.length})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => closePanel()}><X size={16}/></button></div>
+      <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basketTotal})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => closePanel()}><X size={16}/></button></div>
       <div className="fm-panel-body">
       {panel === "more" && <div className="fm-more-actions">
-      <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
-      <button className={buttonGhost} disabled={disabled} onClick={duplicateSelection}><Copy size={14}/>{t("fmDuplicate")}</button>
-      <button className={buttonGhost} disabled={disabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
+      <button className={buttonGhost} disabled={selectionActionDisabled} title={directorySelectionLimit ? t("fmDirectorySelectionBatchRequired") : undefined} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
+      <button className={buttonGhost} disabled={boundedSelectionActionDisabled} title={directorySelectionLimit ? t("fmDirectorySelectionBatchInfo") : undefined} onClick={duplicateSelection}><Copy size={14}/>{t("fmDuplicate")}</button>
+      <button className={buttonGhost} disabled={boundedSelectionActionDisabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
       {selectedBrowseEntries.length > 1 ? <button className={buttonGhost} disabled={busy || state.transferActive || !canBatchRenameBrowse} title={!canBatchRenameBrowse ? t("libraryBatchRenameSelectionUnavailable") : undefined} onClick={batchRenameSelection}><ListOrdered size={14}/>{t("libraryBatchRename")} · {selectedBrowseEntries.length}</button> : null}
-      <button className={buttonGhost} disabled={disabled} title={t("fmShortcutTrash")} onClick={trashSelection}><Trash2 size={14}/>{t("fmSafeDelete")}</button>
+      <button className={buttonGhost} disabled={!zipSelectionEligible || busy || state.transferActive} title={directorySelectionLimit ? t("fmDirectorySelectionBatchInfo") : undefined} onClick={zipCreateSelection}><Package size={14}/>{t("fmCompressSelection")}</button>
+      {selectedZip ? <button className={buttonGhost} disabled={busy || state.transferActive} onClick={showZipExtractDialog}><FolderOpen size={14}/>{t("fmExtractZip")}</button> : null}
+      <button className={buttonGhost} disabled={selectionActionDisabled} title={directorySelectionLimit ? t("fmDirectorySelectionBatchRequired") : t("fmShortcutTrash")} onClick={() => trashSelection()}><Trash2 size={14}/>{t(settings.deleteDestination === "system_trash" ? "fmSystemDelete" : "fmSafeDelete")}</button>
       <label className="fm-drop-mode"><span>{t("fmExternalDropAction")}</span><select aria-label={t("fmExternalDropAction")} value={state.externalDropAction} disabled={state.transferActive} onChange={(event) => useFileManagementStore.setState({ externalDropAction: event.target.value as TransferAction })}><option value="copy">{t("fmCopy")}</option><option value="move">{t("fmMove")}</option></select></label>
         <hr/>
-        <button className={buttonGhost} disabled={disabled} onClick={() => collect("basket")}><PackagePlus size={16}/>{t("fmAddBasket")}</button>
-        <button className={buttonGhost} onClick={() => openPanel("basket")}><Package size={16}/>{t("fmBasket")} ({state.basket.length})<ChevronRight size={14}/></button>
+        <button className={buttonGhost} disabled={selectionActionDisabled} onClick={() => collect("basket")}><PackagePlus size={16}/>{t("fmAddBasket")}</button>
+        <button className={buttonGhost} onClick={() => openPanel("basket")}><Package size={16}/>{t("fmBasket")} ({state.basketTotal})<ChevronRight size={14}/></button>
         <button className={buttonGhost} onClick={() => openPanel("places")}><Star size={16}/>{t("fmPlaces")}<ChevronRight size={14}/></button>
         <hr/>
         {/* ADR-0016: the two AI jobs are discoverable from the current folder. */}
@@ -941,7 +1534,8 @@ export function FileManagementToolbar() {
         <button className={buttonGhost} data-fm-open-organize onClick={() => { closePanel(); setView("organize"); }}><Sparkles size={16}/>{t("fmOrganizeHere")}</button>
         <button className={buttonGhost} data-fm-open-cleanup onClick={() => { closePanel(); setView("cleanup"); }}><Brush size={16}/>{t("fmCleanupHere")}</button>
         <hr/>
-        <button className={buttonGhost} disabled={busy || !surface?.selectAll} onClick={() => { surface?.selectAll?.(); closePanel(); }}>{t(surface?.selectionScope === "loaded" ? "fmSelectLoaded" : "fmSelectAll")}</button>
+        {surface?.browseSource ? <button className={buttonGhost} disabled={busy || surface.browseSource.currentPageCount === 0} onClick={() => { surface.browseSource?.selectCurrentPage(); closePanel(); }}>{t("fmSelectPageCount").replace("{count}", surface.browseSource.currentPageCount.toLocaleString())}</button> : null}
+        <button className={buttonGhost} disabled={busy || !surface?.selectAll} onClick={() => { surface?.selectAll?.(); closePanel(); }}>{t(surface?.selectionScope === "directory" ? "fmSelectDirectory" : surface?.selectionScope === "loaded" ? "fmSelectLoaded" : "fmSelectAll")}</button>
         {surface?.browseSource ? <button className={buttonGhost} disabled={busy || surface.browseSource.loadedCount === 0} onClick={() => { surface.browseSource?.invertSelection(); closePanel(); }}>{t("fmInvertSelection")}</button> : null}
         <button className={buttonGhost} disabled={disabled} onClick={() => { surface?.clear(); closePanel(); }}>{t("fmClearSelection")}</button>
       </div>}
@@ -986,11 +1580,11 @@ export function FileManagementToolbar() {
         <div className="fm-toolbar"><button className={buttonSecondary} onClick={() => setView("restore")}>{t("fmHistory")}</button><button className={buttonGhost} onClick={() => void useOperationQueueStore.getState().refreshOperationLogs().catch((value) => setError(describeError(value)))}>{t("browseRefresh")}</button></div>
       </>}
       {state.basketOpen && <>
-        <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basket.length} onClick={() => begin(state.basket, "copy", "basket")}>{t("fmCopyBasket")}</button><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basket.length} onClick={() => begin(state.basket, "move", "basket")}>{t("fmMoveBasket")}</button><button className={buttonGhost} disabled={busy || state.transferActive || !state.basket.length} onClick={() => void run(async () => { const ids = state.basket.map((ticket) => ticket.id); useFileManagementStore.setState({ basket: [] }); await releaseUnused(ids); })}>{t("fmClearBasket")}</button></div>
-        <p className="fm-muted">{t("fmSessionOnly")}</p>
-        {!state.basket.length && <p className="fm-empty">{t("fmEmptyBasket")}</p>}
-        <ul className="fm-basket">{state.basket.slice(effectiveBasketPage * PAGE_SIZE, (effectiveBasketPage + 1) * PAGE_SIZE).map((ticket) => <li key={ticket.id}><File size={16}/><div className="min-w-0"><strong>{ticket.name}</strong><p className="fm-path" title={ticket.path}>{ticket.path}</p>{state.statuses[ticket.id] && <p className="fm-item-status">{state.statuses[ticket.id]}</p>}</div><button className={buttonGhost} disabled={busy || state.transferActive} aria-label={`${t("fmRemove")} ${ticket.name}`} onClick={() => void run(async () => { useFileManagementStore.setState((current) => ({ basket: current.basket.filter((item) => item.id !== ticket.id) })); await releaseUnused([ticket.id]); })}><X size={14}/></button></li>)}</ul>
-        {pageControls(state.basket.length, effectiveBasketPage, setBasketPage)}
+        <div className="fm-toolbar"><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basketTotal} onClick={() => beginBasketTransfer("copy")}>{t("fmCopyBasket")}</button><button className={buttonSecondary} disabled={busy || state.transferActive || !state.basketTotal} onClick={() => beginBasketTransfer("move")}>{t("fmMoveBasket")}</button><button className={buttonGhost} disabled={busy || state.transferActive || !state.basketTotal} onClick={() => void run(async () => { await api.basketClear(); setBasketPage(0); await refreshBasket(0); })}>{t("fmClearBasket")}</button><button className={buttonGhost} disabled={busy || state.transferActive || !state.basket.some((entry) => entry.status !== "available")} onClick={() => void run(async () => { const invalid = state.basket.filter((entry) => entry.status !== "available"); await api.basketRemove({ entryIds: invalid.map((entry) => entry.id) }); await refreshBasket(basketPage); })}>{t("fmRemoveUnavailable")}</button></div>
+        <p className="fm-muted">{t("fmBasketPersistent")}</p>
+        {!state.basketTotal && <p className="fm-empty">{t("fmEmptyBasket")}</p>}
+        <ul className="fm-basket">{state.basket.map((entry) => <li key={entry.id}><File size={16}/><div className="min-w-0"><strong>{entry.name}</strong><p className="fm-path" title={entry.path}>{entry.path}</p><p className="fm-item-status">{entry.status === "available" ? t("fmBasketStatusAvailable") : entry.status === "changed" ? t("fmBasketStatusChanged") : entry.status === "offline" ? t("fmBasketStatusOffline") : t("fmBasketStatusUnavailable")}</p></div><button className={buttonGhost} disabled={busy || state.transferActive} aria-label={`${t("fmRemove")} ${entry.name}`} onClick={() => void run(async () => { await api.basketRemove({ entryIds: [entry.id] }); await refreshBasket(basketPage); })}><X size={14}/></button></li>)}</ul>
+        {pageControls(state.basketTotal, basketPage, setBasketPage)}
       </>}
       {panel === "results" && <>
         {state.activeTransferTask && state.transferRunning && <div className="fm-progress fm-task-details" role="status"><strong>{liveTaskProgress?.phase ? taskPhaseLabel(liveTaskProgress.phase) : state.activeTransferTask.phase === "preview" ? t("fmPreparing") : t("fmExecuting")}</strong>{taskProgressBar(liveTaskProgress)}<span>{liveTaskProgress ? `${liveTaskProgress.phase ? taskPhaseLabel(liveTaskProgress.phase) : `${liveTaskProgress.processed}/${liveTaskProgress.total}`} · ${liveTaskProgress.currentPath}` : state.activeTransferTask.sourceSummary}</span><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>}
@@ -1002,6 +1596,14 @@ export function FileManagementToolbar() {
       </>}
       </div>
     </div>}
+    {zipExtractOpen && <ModalPortal restoreFocus={() => panelTriggerRef.current} onEscape={() => setZipExtractOpen(false)}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-zip-extract-title-${pane.id}` : "fm-zip-extract-title"}>
+      <header className="fm-dialog-header"><h2 id={pane ? `fm-zip-extract-title-${pane.id}` : "fm-zip-extract-title"}>{t("fmExtractZip")}</h2></header>
+      <form className="grid gap-3" onSubmit={(event) => void submitZipExtract(event)}>
+        <label className="grid gap-1 text-sm">{t("fmExtractDestination")}<select value={zipExtractTarget} onChange={(event) => setZipExtractTarget(event.target.value as ZipExtractTarget)}><option value="here">{t("fmExtractHere")}</option><option value="same_name_folder">{t("fmExtractSameNameFolder")}</option><option value="chosen_directory">{t("fmExtractChooseFolder")}</option></select></label>
+        <label className="grid gap-1 text-sm">{t("fmZipConflicts")}<select value={zipConflictPolicy} onChange={(event) => setZipConflictPolicy(event.target.value as "skip" | "keep_both")}><option value="skip">{t("fmZipSkipConflicts")}</option><option value="keep_both">{t("fmZipKeepBoth")}</option></select></label>
+        <div className="fm-dialog-actions"><button type="button" className={buttonGhost} onClick={() => setZipExtractOpen(false)}>{t("fmCancel")}</button><button type="submit" className={buttonPrimary}>{t("fmExtractZip")}</button></div>
+      </form>
+    </section></div></ModalPortal>}
     {nameIntent && <ModalPortal initialFocusRef={nameInputRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={cancelNameEntry}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>
       <header className="fm-dialog-header"><h2 id={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>{t(nameIntent.action === "rename" ? "fmRename" : nameIntent.action === "create_file" ? "fmNewFile" : "fmNewFolder")}</h2></header>
       <form onSubmit={(event) => { event.preventDefault(); submitNameEntry(); }}>
@@ -1047,7 +1649,7 @@ export function FileManagementToolbar() {
     </section></div></ModalPortal>}
     {focused && batchRenameOpen && batchRenameTickets.length > 1 && batchRenameSourceKey ? <BatchRenameDialog
       key={`browse-batch-rename-${batchRenameTickets.map((ticket) => ticket.id).join("|")}`}
-      files={batchRenameTickets.map(({ id, name }) => ({ id, name }))}
+      files={batchRenameTickets.map(({ id, name, isDirectory }) => ({ id, name, isDirectory }))}
       t={t}
       onClose={closeBatchRename}
       restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current}

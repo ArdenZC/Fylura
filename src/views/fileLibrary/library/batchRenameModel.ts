@@ -14,6 +14,16 @@ export type BatchRenameTemplate = {
 
 export const BATCH_RENAME_LIMIT = 500;
 
+export function isBrowseBatchRenameSelectionEligible(
+  entries: readonly { id: string; entryKind: string }[],
+  hasDirectorySelection: boolean
+) {
+  if (hasDirectorySelection || entries.length < 2 || entries.length > BATCH_RENAME_LIMIT) return false;
+  const ids = new Set(entries.map((entry) => entry.id));
+  return ids.size === entries.length
+    && entries.every((entry) => entry.entryKind === "file" || entry.entryKind === "directory");
+}
+
 export type BatchRenameSelectionFile = {
   id: string;
   isDirectory: boolean;
@@ -92,7 +102,12 @@ function splitExtension(name: string) {
   return dot > 0 ? [name.slice(0, dot), name.slice(dot)] as const : [name, ""] as const;
 }
 
-export function buildBatchRenameName(name: string, index: number, template: BatchRenameTemplate): string {
+export function buildBatchRenameName(name: string, index: number, template: BatchRenameTemplate, isDirectory = false): string {
+  if (isDirectory) {
+    if (template.mode === "number") return `${template.prefix}${String(template.start + index).padStart(template.width, "0")} ${name}`;
+    if (template.mode === "replace") return name.split(template.find).join(template.replacement);
+    return name.replace(new RegExp(template.pattern, "g"), template.replacement);
+  }
   const [stem, extension] = splitExtension(name);
   if (template.mode === "number") {
     return `${template.prefix}${String(template.start + index).padStart(template.width, "0")} ${stem}${extension}`;

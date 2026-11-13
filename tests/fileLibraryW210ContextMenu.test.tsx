@@ -97,6 +97,7 @@ function browseSource(entries: ReturnType<typeof adaptBrowseEntry>[], overrides:
     loadNextPage: vi.fn(async () => undefined),
     selectEntry: vi.fn(),
     selectAllLoaded: vi.fn(),
+    selectAllDirectory: vi.fn(),
     clearSelection: vi.fn(),
     setFocusedId: vi.fn(),
     ...overrides

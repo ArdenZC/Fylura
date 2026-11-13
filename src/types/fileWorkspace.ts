@@ -221,6 +221,25 @@ export interface BrowseStartEnumerationRequest {
   query: BrowseQuerySpecV1;
 }
 
+export interface BrowseSelectionSnapshotRequest {
+  sessionId: string;
+  pathRef: BrowsePathRef;
+  query: BrowseQuerySpecV1;
+  includeHidden: boolean;
+}
+
+export interface BrowseSelectionSnapshotReleaseRequest {
+  sessionId: string;
+  snapshotId: string;
+}
+
+export interface BrowseSelectionSnapshotInfo {
+  snapshotId: string;
+  count: number;
+  fileCount: number;
+  directoryCount: number;
+}
+
 export interface BrowseNextPageRequest {
   sessionId: string;
   cursor: string;

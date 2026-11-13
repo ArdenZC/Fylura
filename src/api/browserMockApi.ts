@@ -1207,6 +1207,14 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "get_operation_logs":
       if (mockCleanupPresentationScenario() === "workflow") return [] as T;
       return [...managementHistory, ...mockOperationLogs()].slice(0, Number(args?.limit ?? 500)) as T;
+    case "get_operation_logs_by_ids": {
+      const requested = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+      return [...managementHistory, ...mockOperationLogs()].filter((log) => requested.has(log.id)) as T;
+    }
+    case "get_operation_batch":
+      return mockOperationBatch(String(args?.batchId ?? "")) as T;
+    case "get_latest_operation_batch":
+      return mockLatestOperationBatch() as T;
     case "get_operation_previews_for_scope":
       return mockOperationPreviews(args) as T;
     case "get_operation_previews_by_file_ids": {
@@ -3895,6 +3903,22 @@ function mockRestoreMoves(args?: Record<string, unknown>): RestoreMovesResult {
   };
 }
 
+function mockOperationBatch(batchId: string) {
+  const logs = [...managementHistory, ...mockOperationLogs()].filter((log) => log.batch_id === batchId);
+  if (!logs.length) return null;
+  return { batch_id: batchId, expected_count: logs.length, actual_count: logs.length, is_complete: logs.length <= 1000, logs };
+}
+
+function mockLatestOperationBatch() {
+  if (mockCleanupPresentationScenario() === "workflow") return null;
+  const logs = [...managementHistory, ...mockOperationLogs()];
+  let latest: OperationLog | null = null;
+  for (const log of logs) {
+    if (!latest || Number(log.created_at) >= Number(latest.created_at)) latest = log;
+  }
+  return latest ? mockOperationBatch(latest.batch_id) : null;
+}
+
 function mockResolveOperationRecovery(args?: Record<string, unknown>): RecoveryActionResult {
   const request = args?.request as { logId?: string; action?: string; targetPath?: string | null } | undefined;
   const id = String(request?.logId ?? "");
@@ -4329,6 +4353,7 @@ function mockSettings(settings?: AppSettings): AppSettings {
   return {
     closeBehavior: "ask",
     folderNamingLanguage: "en",
+    deleteDestination: "fylura_trash",
     defaultScanFolders: hasPresentationFolder ? [{
       id: "browser-presentation-only-onboarding-root",
       path: "C:/Presentation/Zen Documents",

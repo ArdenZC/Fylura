@@ -1,4 +1,4 @@
-import { managementFixturePage } from "./fileManagementMock";
+import { managementFixturePage, managementMock } from "./fileManagementMock";
 import type {
   BrowseEntry,
   BrowseOpenRequest,
@@ -35,7 +35,10 @@ const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_restore",
   "file_workspace_location_browse",
   "file_workspace_browse_start_enumeration",
+  "file_workspace_browse_selection_snapshot_create",
+  "file_workspace_browse_selection_snapshot_release",
   "file_workspace_browse_next_page",
+  "file_workspace_transfer_capture_selection_page",
   "file_workspace_browse_cancel_enumeration",
   "file_workspace_browse_release_page",
   "file_workspace_browse_release_path",
@@ -111,6 +114,14 @@ interface PendingPreviewAsset {
 }
 
 const sessions = new Map<string, MockBrowseSession>();
+const directorySelectionSnapshots = new Map<string, {
+  sessionId: string;
+  count: number;
+  entries?: BrowseEntry[];
+  query: BrowseQuerySpecV1;
+  enumerationId: string;
+  virtualW211: boolean;
+}>();
 const previews = new Map<string, MockPreviewRecord>();
 const pendingPreviewStarts: PendingPreviewStart[] = [];
 const pendingPreviewAssets: PendingPreviewAsset[] = [];
@@ -458,6 +469,38 @@ export async function mockFileWorkspaceInvoke<T>(
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
       return startEnumeration(request as unknown as BrowseStartEnumerationRequest) as T;
+    case "file_workspace_browse_selection_snapshot_create":
+      return createDirectorySelectionSnapshot(request as unknown as {
+        sessionId: string;
+        pathRef: { id: string };
+        query: BrowseQuerySpecV1;
+        includeHidden: boolean;
+      }) as T;
+    case "file_workspace_browse_selection_snapshot_release":
+      directorySelectionSnapshots.delete(String(request?.snapshotId ?? ""));
+      return undefined as T;
+    case "file_workspace_transfer_capture_selection_page": {
+      const snapshot = directorySelectionSnapshots.get(String(request?.snapshotId ?? ""));
+      const sessionId = String(request?.sessionId ?? "");
+      const offset = Number(request?.offset ?? -1);
+      const excludedEntryIds = new Set(Array.isArray(request?.excludedEntryIds)
+        ? request.excludedEntryIds.filter((id): id is string => typeof id === "string")
+        : []);
+      if (!snapshot || snapshot.sessionId !== sessionId || !Number.isSafeInteger(offset) || offset < 0 || offset > snapshot.count) {
+        throw new Error("browse_selection_snapshot_not_found");
+      }
+      const entries = (snapshot.entries
+        ? snapshot.entries.slice(offset, offset + 1000)
+        : w211SelectionPage(snapshot, offset))
+        .filter((entry) => !excludedEntryIds.has(entry.ref.entryId));
+      for (const entry of entries) {
+        managementEntries.set(entry.ref.entryId, entry);
+        const session = getSession(sessionId);
+        session.entries.set(entry.ref.entryId, { enumerationId: snapshot.enumerationId, pathRefId: entry.pathRef?.id });
+        if (entry.pathRef) session.pathRefs.add(entry.pathRef.id);
+      }
+      return managementMock("file_workspace_transfer_capture", { refs: entries.map((entry) => entry.ref) }, resolveManagementMockEntry, resolveManagementMockLocation) as T;
+    }
     case "file_workspace_browse_next_page":
       return nextPage(request) as T;
     case "file_workspace_browse_cancel_enumeration":
@@ -647,6 +690,9 @@ function restoreBrowse(request: BrowseRestoreRequest): BrowseOpenResponse {
 function startEnumeration(request: BrowseStartEnumerationRequest): BrowsePage {
   const session = getSession(request.sessionId);
   if (!session.pathRefs.has(request.pathRef.id)) throw new Error("browse_path_ref_invalid");
+  for (const [id, snapshot] of directorySelectionSnapshots) {
+    if (snapshot.sessionId === request.sessionId) directorySelectionSnapshots.delete(id);
+  }
   const fixtureDirectory = session.fixturePaths.get(request.pathRef.id) ?? session.routingHint;
   if (session.enumeration !== undefined) {
     invalidateEntriesForEnumeration(session, session.enumeration.enumerationId);
@@ -665,6 +711,65 @@ function startEnumeration(request: BrowseStartEnumerationRequest): BrowsePage {
     nextIndex: 0
   };
   return makePage(session, request.requestId, enumerationId, request.pageSize, session.enumeration.query);
+}
+
+function createDirectorySelectionSnapshot(request: {
+  sessionId: string;
+  pathRef: { id: string };
+  query: BrowseQuerySpecV1;
+  includeHidden: boolean;
+}) {
+  const session = getSession(request.sessionId);
+  if (!session.pathRefs.has(request.pathRef.id)) throw new Error("browse_path_ref_invalid");
+  const query = request.query ?? { text: null, entryKind: "all" as const };
+  const directory = session.fixturePaths.get(request.pathRef.id) ?? session.routingHint ?? "";
+  const enumerationId = `${session.sessionId}-selection-${++nextId}`;
+  const fixture = managementFixturePage(session.sessionId, directory, enumerationId);
+  const virtualW211 = fixture === null
+    && isW211IntegratedFixtureEnabled()
+    && request.pathRef.id === session.rootPathRef.id;
+  const rawEntries = fixture ?? (virtualW211 ? [] : [...session.entries.keys()]
+    .map((id) => managementEntries.get(id))
+    .filter((entry): entry is BrowseEntry => Boolean(entry)));
+  const entries = rawEntries.filter((entry) =>
+    (query.entryKind === "all" || entry.kind === query.entryKind)
+    && (!query.text?.trim() || entry.name.toLocaleLowerCase().includes(query.text.trim().toLocaleLowerCase()))
+    && (request.includeHidden || !entry.isHidden)
+  );
+  const count = virtualW211 ? w211BrowseMatchCount(query) : entries.length;
+  const directoryCount = virtualW211
+    ? (count > 0 && query.entryKind !== "file" && !query.text?.trim() ? 1 : 0)
+    : entries.filter((entry) => entry.kind === "directory").length;
+  const snapshotId = `mock-selection-${++nextId}`;
+  for (const entry of entries) {
+    managementEntries.set(entry.ref.entryId, entry);
+    if (entry.pathRef) {
+      session.pathRefs.add(entry.pathRef.id);
+      session.fixturePaths.set(entry.pathRef.id, entry.displayPath);
+    }
+  }
+  directorySelectionSnapshots.set(snapshotId, {
+    sessionId: session.sessionId,
+    count,
+    entries: virtualW211 ? undefined : entries,
+    query,
+    enumerationId,
+    virtualW211
+  });
+  return { snapshotId, count, fileCount: count - directoryCount, directoryCount };
+}
+
+function w211SelectionPage(snapshot: NonNullable<ReturnType<typeof directorySelectionSnapshots.get>>, offset: number) {
+  const entries: BrowseEntry[] = [];
+  let matched = 0;
+  const end = Math.min(snapshot.count, offset + 1000);
+  for (let rawIndex = 0; rawIndex < W211_BROWSE_TOTAL && matched < end; rawIndex += 1) {
+    const entry = w211BrowseEntry(snapshot.sessionId, snapshot.enumerationId, rawIndex, snapshot.query);
+    if (!entry) continue;
+    if (matched >= offset) entries.push(entry);
+    matched += 1;
+  }
+  return entries;
 }
 
 function nextPage(request: MockArgs): BrowsePage {

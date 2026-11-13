@@ -14,6 +14,8 @@ import { useFileLibraryStore } from "../useFileLibraryStore";
 import { resolveLegacyLibraryScope } from "../useFileLibraryV2Store";
 import { useRulesStore } from "../useRulesStore";
 import {
+  MAX_OPERATION_LOGS,
+  mergeOperationLogs,
   requiresExplicitMaterialization,
   resolveExecutableSelectedPreviews,
   type PreviewExecutionIntent
@@ -262,7 +264,7 @@ export async function executeSelected(
     }
     const result = await tauriApi.executeMoves(operations as OperationPreview[]);
     set((state) => ({
-      operationLogs: [...result.logs, ...state.operationLogs].slice(0, 500),
+      operationLogs: mergeOperationLogs(state.operationLogs, result.logs).slice(0, MAX_OPERATION_LOGS),
       lastExecutionLogs: result.logs,
       selectedOperationIds: new Set()
     }));

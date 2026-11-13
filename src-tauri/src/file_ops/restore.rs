@@ -293,7 +293,9 @@ pub(crate) fn restore_operation_log_with_observer(
     cancel_flag: Option<&AtomicBool>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> OperationLogDto {
-    if log.operation_type == "move_to_trash" && log.path_after == "Recycle Bin" {
+    if log.operation_type == "move_to_system_trash"
+        || log.operation_type == "move_to_trash" && log.path_after == "Recycle Bin"
+    {
         return mark_restore_unavailable(log, "Restore from system trash.");
     }
     if log.status != "success" {

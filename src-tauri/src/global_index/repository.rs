@@ -1631,6 +1631,14 @@ impl Database {
             .map_err(DbError::from)
     }
 
+    pub(crate) fn global_entry_is_transient(&self, entry_id: &str) -> bool {
+        self.filename_search.contains_transient_entry(entry_id)
+    }
+
+    pub(crate) fn global_index_has_transient_catalog(&self) -> bool {
+        self.filename_search.has_transient_catalog()
+    }
+
     pub fn global_index_status(&self) -> Result<GlobalIndexStatus, DbError> {
         let conn = self.conn()?;
         with_transient_catalog_progress(

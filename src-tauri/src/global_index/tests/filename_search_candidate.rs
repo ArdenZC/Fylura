@@ -128,6 +128,14 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
     assert!(!snapshot.index_status.collection_complete);
     assert_eq!(snapshot.index_status.processed_entries, 1);
     assert_eq!(snapshot.index_status.total_entries, 1);
+    assert!(
+        crate::global_index::commands::filter_live_transient_search_results(
+            &db,
+            snapshot.results.clone(),
+        )
+        .is_empty(),
+        "a transient path deleted after its MFT observation must not reach the UI"
+    );
     let interior_match = db
         .search_global_entries_snapshot("report-budget", 20, 0)
         .expect("query filename grams before SQLite rowids exist");

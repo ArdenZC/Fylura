@@ -254,6 +254,20 @@ impl FilenameSearchManager {
             .is_empty()
     }
 
+    pub(crate) fn contains_transient_entry(&self, entry_id: &str) -> bool {
+        self.transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .any(|catalog| {
+                catalog
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .by_id
+                    .contains_key(entry_id)
+            })
+    }
+
     pub(crate) fn append_transient_catalog(
         &self,
         volume_id: &str,

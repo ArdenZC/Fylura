@@ -14,9 +14,10 @@ pub fn search_global_entries(
     request: GlobalSearchRequest,
 ) -> Result<GlobalSearchResponse, String> {
     let (request_id, normalized_query, offset) = validate_global_search_request(&request)?;
-    let snapshot = db
+    let mut snapshot = db
         .search_global_entries_snapshot(&normalized_query, request.limit, offset)
         .map_err(global_index_database_error)?;
+    snapshot.results = filter_live_transient_search_results(db.inner(), snapshot.results);
     let coordinator_status_result = coordinator.status();
     let coordinator_database_busy = coordinator_status_result
         .as_ref()
@@ -63,6 +64,26 @@ pub fn search_global_entries(
         source_revision: snapshot.source_revision,
         source_health: snapshot.source_health,
     })
+}
+
+/// The disposable MFT projection is a snapshot at the captured USN cursor.
+/// Validate only the small result page against live path identity so a file
+/// deleted or replaced during enumeration is never displayed; the MFT walk
+/// itself still avoids a per-file metadata/handle lookup.
+pub(crate) fn filter_live_transient_search_results(
+    db: &Database,
+    results: Vec<GlobalSearchResult>,
+) -> Vec<GlobalSearchResult> {
+    if !db.global_index_has_transient_catalog() {
+        return results;
+    }
+    results
+        .into_iter()
+        .filter(|result| {
+            !db.global_entry_is_transient(&result.id)
+                || revalidated_global_entry(db, &result.id).is_ok()
+        })
+        .collect()
 }
 
 fn validate_global_search_request(

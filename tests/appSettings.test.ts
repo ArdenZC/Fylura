@@ -105,6 +105,7 @@ describe("app settings helpers", () => {
     expect(DEFAULT_APP_SETTINGS).toEqual({
       closeBehavior: "ask",
       folderNamingLanguage: "en",
+      deleteDestination: "fylura_trash",
       defaultScanFolders: [],
       restoreRetentionDays: 30,
       launchAtLogin: false,
@@ -132,6 +133,7 @@ describe("app settings helpers", () => {
     expect(next).toEqual({
       closeBehavior: "ask",
       folderNamingLanguage: "en",
+      deleteDestination: "fylura_trash",
       defaultScanFolders: [
         {
           id: "scan-root-f-downloads-2691f373",

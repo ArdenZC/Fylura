@@ -3,7 +3,7 @@ import { readSystemClipboardForPaste, writeSystemClipboardForCopy } from "./syst
 import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, Brush, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Sparkles, Star, X, FolderOpen, MoreHorizontal, Package, File, FilePlus2, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2, ListOrdered } from "lucide-react";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { fileManagementApi as api, type PersistentBasketEntry, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
 import { operationApi } from "../../../api/operationApi";
 import type { BrowseEntryRef } from "../../../types/fileWorkspace";
@@ -162,6 +162,10 @@ export function FileManagementToolbar() {
   const transferRef = useRef(transfer); transferRef.current = transfer;
   const [nameIntent, setNameIntent] = useState<NameIntent | null>(null);
   const [batchRenameOpen, setBatchRenameOpen] = useState(false);
+  const [zipCreateOpen, setZipCreateOpen] = useState(false);
+  const [zipOutputDirectory, setZipOutputDirectory] = useState("");
+  const [zipOutputName, setZipOutputName] = useState("Archive.zip");
+  const [zipOutputError, setZipOutputError] = useState("");
   const [zipExtractOpen, setZipExtractOpen] = useState(false);
   const [zipExtractTarget, setZipExtractTarget] = useState<ZipExtractTarget>("here");
   const [zipConflictPolicy, setZipConflictPolicy] = useState<"skip" | "keep_both">("skip");
@@ -386,21 +390,42 @@ export function FileManagementToolbar() {
       }
     }
   }
-  function zipCreateSelection() {
+  function showZipCreateDialog() {
+    const first = selectedBrowseEntries.length === 1 ? selectedBrowseEntries[0] : null;
+    const firstName = first?.displayName ?? "Archive";
+    const base = first?.entryKind === "directory" ? firstName : firstName.replace(/\.[^.]+$/, "");
+    setZipOutputDirectory(currentSurface()?.routingHint ?? currentPath);
+    setZipOutputName(`${base || "Archive"}.zip`);
+    setZipOutputError("");
+    setZipCreateOpen(true);
+  }
+  async function chooseZipOutputDirectory() {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: t("fmChooseZipOutputFolder") });
+      if (typeof selected === "string") setZipOutputDirectory(selected);
+      setZipOutputError("");
+    } catch (value) {
+      setZipOutputError(describeError(value));
+    }
+  }
+  async function submitZipCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const directory = zipOutputDirectory.trim();
+    const name = zipOutputName.trim();
+    if (!directory || !name || /[\\/<>:\"|?*]/.test(name) || name === "." || name === "..") {
+      setZipOutputError(t("fmZipOutputInvalid"));
+      return;
+    }
+    setZipOutputError("");
+    const filename = /\.zip$/i.test(name) ? name : `${name}.zip`;
+    const separator = directory.includes("\\") && !directory.includes("/") ? "\\" : "/";
+    const outputPath = `${directory.replace(/[\\/]+$/, "")}${separator}${filename}`;
+    setZipCreateOpen(false);
     void run(async () => {
       if (useOperationQueueStore.getState().activeOperationKind) throw Error("operation_already_running");
       const tickets = await capturedSelection();
       if (!tickets.length) return;
       try {
-        const directory = currentSurface()?.routingHint ?? currentPath;
-        const first = tickets[0];
-        const base = first.isDirectory ? first.name : first.name.replace(/\.[^.]+$/, "");
-        const separator = directory.includes("\\") && !directory.includes("/") ? "\\" : "/";
-        const defaultPath = `${directory.replace(/[\\/]+$/, "")}${separator}${base || first.name}-archive.zip`;
-        const outputPath = isTauri()
-          ? await save({ title: t("fmChooseZipOutput"), defaultPath, filters: [{ name: "ZIP", extensions: ["zip"] }] })
-          : defaultPath;
-        if (!outputPath) return;
         useOperationQueueStore.setState({ activeOperationKind: "execute", isOperationCanceling: false, operationProgress: null });
         const result = await api.createZip({ ticketIds: tickets.map((ticket) => ticket.id), outputPath, compressionLevel: 6 });
         useFileManagementStore.setState({ results: result.logs });
@@ -1283,8 +1308,8 @@ export function FileManagementToolbar() {
       }
     });
   }
-  const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation, zipCreateSelection, showZipExtractDialog });
-  actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation, zipCreateSelection, showZipExtractDialog };
+  const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation, showZipCreateDialog, showZipExtractDialog });
+  actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation, showZipCreateDialog, showZipExtractDialog };
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if (!focused || pane && useFileManagementStore.getState().activePaneId !== pane.id || event.defaultPrevented || event.isComposing || (event.altKey && !(event.metaKey && event.key.toLowerCase() === "v")) || isFileLibraryShortcutExcludedTarget(event.target) || busyRef.current || useFileManagementStore.getState().transferActive) return;
@@ -1305,7 +1330,7 @@ export function FileManagementToolbar() {
   useEffect(() => {
     const action = state.pendingAction; if (!action || !focused) return;
     useFileManagementStore.setState({ pendingAction: null });
-    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash" || action === "system_trash") trashSelection(action); else if (action === "create_directory") createDirectory(); else if (action === "create_file") createEmptyFile(); else if (action === "copy_other" || action === "move_other") transferToTarget(action === "move_other" ? "move" : "copy"); else if (action === "zip_create") zipCreateSelection(); else if (action === "zip_extract") showZipExtractDialog(); else collect(action);
+    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash" || action === "system_trash") trashSelection(action); else if (action === "create_directory") createDirectory(); else if (action === "create_file") createEmptyFile(); else if (action === "copy_other" || action === "move_other") transferToTarget(action === "move_other" ? "move" : "copy"); else if (action === "zip_create") showZipCreateDialog(); else if (action === "zip_extract") showZipExtractDialog(); else collect(action);
   }, [state.pendingAction, focused]);
   function transferToTarget(action: TransferAction) {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
@@ -1520,7 +1545,7 @@ export function FileManagementToolbar() {
       <button className={buttonGhost} disabled={boundedSelectionActionDisabled} title={directorySelectionLimit ? t("fmDirectorySelectionBatchInfo") : undefined} onClick={duplicateSelection}><Copy size={14}/>{t("fmDuplicate")}</button>
       <button className={buttonGhost} disabled={boundedSelectionActionDisabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
       {selectedBrowseEntries.length > 1 ? <button className={buttonGhost} disabled={busy || state.transferActive || !canBatchRenameBrowse} title={!canBatchRenameBrowse ? t("libraryBatchRenameSelectionUnavailable") : undefined} onClick={batchRenameSelection}><ListOrdered size={14}/>{t("libraryBatchRename")} · {selectedBrowseEntries.length}</button> : null}
-      <button className={buttonGhost} disabled={!zipSelectionEligible || busy || state.transferActive} title={directorySelectionLimit ? t("fmDirectorySelectionBatchInfo") : undefined} onClick={zipCreateSelection}><Package size={14}/>{t("fmCompressSelection")}</button>
+      <button className={buttonGhost} disabled={!zipSelectionEligible || busy || state.transferActive} title={directorySelectionLimit ? t("fmDirectorySelectionBatchInfo") : undefined} onClick={showZipCreateDialog}><Package size={14}/>{t("fmCompressSelection")}</button>
       {selectedZip ? <button className={buttonGhost} disabled={busy || state.transferActive} onClick={showZipExtractDialog}><FolderOpen size={14}/>{t("fmExtractZip")}</button> : null}
       <button className={buttonGhost} disabled={selectionActionDisabled} title={directorySelectionLimit ? t("fmDirectorySelectionBatchRequired") : t("fmShortcutTrash")} onClick={() => trashSelection()}><Trash2 size={14}/>{t(settings.deleteDestination === "system_trash" ? "fmSystemDelete" : "fmSafeDelete")}</button>
       <label className="fm-drop-mode"><span>{t("fmExternalDropAction")}</span><select aria-label={t("fmExternalDropAction")} value={state.externalDropAction} disabled={state.transferActive} onChange={(event) => useFileManagementStore.setState({ externalDropAction: event.target.value as TransferAction })}><option value="copy">{t("fmCopy")}</option><option value="move">{t("fmMove")}</option></select></label>
@@ -1596,6 +1621,15 @@ export function FileManagementToolbar() {
       </>}
       </div>
     </div>}
+    {zipCreateOpen && <ModalPortal restoreFocus={() => panelTriggerRef.current} onEscape={() => setZipCreateOpen(false)}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-zip-create-title-${pane.id}` : "fm-zip-create-title"}>
+      <header className="fm-dialog-header"><h2 id={pane ? `fm-zip-create-title-${pane.id}` : "fm-zip-create-title"}>{t("fmChooseZipOutput")}</h2></header>
+      <form className="grid gap-3" onSubmit={(event) => void submitZipCreate(event)}>
+        <label className="grid gap-1 text-sm">{t("fmZipOutputFolder")}<span className="fm-path" title={zipOutputDirectory}>{zipOutputDirectory || t("fmChooseZipOutputFolder")}</span><button type="button" className={buttonSecondary} onClick={() => void chooseZipOutputDirectory()}>{t("fmChooseZipOutputFolder")}</button></label>
+        <label className="grid gap-1 text-sm">{t("fmZipFilename")}<input value={zipOutputName} onChange={(event) => { setZipOutputName(event.target.value); setZipOutputError(""); }} /></label>
+        {zipOutputError && <p role="alert" className="fm-item-error">{zipOutputError}</p>}
+        <div className="fm-dialog-actions"><button type="button" className={buttonGhost} onClick={() => setZipCreateOpen(false)}>{t("fmCancel")}</button><button type="submit" className={buttonPrimary} disabled={!zipOutputDirectory.trim() || !zipOutputName.trim()}>{t("fmCreateZip")}</button></div>
+      </form>
+    </section></div></ModalPortal>}
     {zipExtractOpen && <ModalPortal restoreFocus={() => panelTriggerRef.current} onEscape={() => setZipExtractOpen(false)}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-zip-extract-title-${pane.id}` : "fm-zip-extract-title"}>
       <header className="fm-dialog-header"><h2 id={pane ? `fm-zip-extract-title-${pane.id}` : "fm-zip-extract-title"}>{t("fmExtractZip")}</h2></header>
       <form className="grid gap-3" onSubmit={(event) => void submitZipExtract(event)}>

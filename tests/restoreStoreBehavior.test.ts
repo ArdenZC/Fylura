@@ -3,6 +3,7 @@ import type { OperationLog } from "../src/types/domain";
 
 const api = vi.hoisted(() => ({
   getOperationLogs: vi.fn(),
+  getOperationLogsByIds: vi.fn(),
   restoreMoves: vi.fn(),
   cancelOperations: vi.fn()
 }));
@@ -26,6 +27,7 @@ function log(id: string, overrides: Partial<OperationLog> = {}): OperationLog {
 describe("restore store authoritative selection", () => {
   beforeEach(() => {
     api.getOperationLogs.mockReset();
+    api.getOperationLogsByIds.mockReset();
     api.restoreMoves.mockReset();
     api.cancelOperations.mockReset().mockResolvedValue(undefined);
     useFileLibraryStore.setState({ refresh: vi.fn(async () => undefined) });
@@ -35,7 +37,7 @@ describe("restore store authoritative selection", () => {
   it("sends only the authoritative executable intersection", async () => {
     const ok = log("ok");
     const blocked = log("blocked", { can_restore: false });
-    api.getOperationLogs.mockResolvedValue([ok, blocked]);
+    api.getOperationLogsByIds.mockResolvedValue([ok, blocked]);
     api.restoreMoves.mockResolvedValue({ logs: [{ ...ok, restore_status: "restored" }], restored: 1, failed: 0 });
     const intent = await useOperationQueueStore.getState().prepareOperationRestoreIntent(["ok", "ok", "blocked", "stale"]);
     expect([...intent!.allowedIds]).toEqual(["ok"]);
@@ -48,7 +50,7 @@ describe("restore store authoritative selection", () => {
 
   it("keeps a failed backend request as a persistent in-page error", async () => {
     const ok = log("ok");
-    api.getOperationLogs.mockResolvedValue([ok]);
+    api.getOperationLogsByIds.mockResolvedValue([ok]);
     api.restoreMoves.mockRejectedValue(new Error("conflict"));
     const intent = await useOperationQueueStore.getState().prepareOperationRestoreIntent(["ok"]);
     expect(await useOperationQueueStore.getState().confirmOperationRestore(intent!.sessionId)).toMatchObject({ status: "rejected" });

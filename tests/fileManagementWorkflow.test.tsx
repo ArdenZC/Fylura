@@ -18,7 +18,7 @@ vi.mock("../src/contexts/AppContexts", async () => {
 });
 vi.mock("../src/views/fileLibrary/FileLibraryExperienceProvider", () => ({ useFileLibraryExperience: () => ({ controller: { openBrowse: mocks.navigate } }) }));
 vi.mock("../src/views/fileLibrary/preview/PreviewExperienceProvider", () => ({ usePreviewExperience: () => ({ controller: { close: mocks.close, closeForFileOperation: mocks.close } }) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.openDirectory, save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.openDirectory }));
 vi.mock("../src/store/useOperationQueueStore", () => {
   const state = { operationLogs: [], operationProgress: null, activeOperationKind: null, isOperationCanceling: false } as Record<string, any>;
   const useOperationQueueStore = Object.assign((selector: (value: typeof state) => unknown) => selector(state), {
@@ -83,7 +83,7 @@ beforeEach(() => {
   vi.spyOn(api,"extractZip").mockResolvedValue({ batch_id: "unzip-batch", logs: [{ ...result(["success"])[0]!, operation_type: "zip_extract", can_undo: false, can_restore: false } as OperationLog] });
   vi.spyOn(tauriApi,"onOperationProgress").mockResolvedValue(() => undefined);
   vi.spyOn(tauriApi,"cancelOperations").mockResolvedValue();
-  useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},refresh,clear}),basket:[],basketTotal:0,clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null,surfaces:{},activePaneId:null,pendingTransfer:null,transferOpen:false,transferActive:false,transferRunning:false,activeTransferId:null,activeTransferTask:null,transferTicketIds:[],externalDropAction:"copy"});
+  useFileManagementStore.setState({owner:"owner",surface:()=>({signature:"selected",count:2,selection:{kind:"explicit",fileIds:["managed-one","managed-two"]},browse:{sessionId:"session",pathRef:{id:"root"}},routingHint:"C:/Target",refresh,clear}),basket:[],basketTotal:0,clipboard:null,results:[],statuses:{},basketOpen:false,pendingAction:null,surfaces:{},activePaneId:null,pendingTransfer:null,transferOpen:false,transferActive:false,transferRunning:false,activeTransferId:null,activeTransferTask:null,transferTicketIds:[],externalDropAction:"copy"});
   useOperationQueueStore.setState({ operationLogs: [], operationProgress: null, activeOperationKind: null, isOperationCanceling: false });
   mocks.platform = "win32"; mocks.navigate.mockReset().mockResolvedValue({}); mocks.setView.mockClear();
   mocks.openDirectory.mockReset().mockResolvedValue("C:/Target");
@@ -279,8 +279,11 @@ describe("File Library manual management workflow", () => {
     await render();
     await click(t("fmMore"));
     await click(t("fmCompressSelection"));
+    expect(api.createZip).not.toHaveBeenCalled();
+    await click(t("fmChooseZipOutputFolder"));
+    await click(t("fmCreateZip"));
     expect(api.captureTransfer).toHaveBeenCalledWith({ selection: { kind: "explicit", fileIds: ["managed-one", "managed-two"] } });
-    expect(api.createZip).toHaveBeenCalledWith({ ticketIds: ["one", "two"], outputPath: "C:/Target/one-archive.zip", compressionLevel: 6 });
+    expect(api.createZip).toHaveBeenCalledWith({ ticketIds: ["one", "two"], outputPath: "C:/Target/Archive.zip", compressionLevel: 6 });
     expect(useFileManagementStore.getState().results[0]?.operation_type).toBe("zip_create");
     expect(useFileManagementStore.getState().results[0]?.can_restore).toBe(false);
     expect(useOperationQueueStore.getState().activeOperationKind).toBe(null);

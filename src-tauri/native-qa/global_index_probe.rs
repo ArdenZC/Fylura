@@ -163,21 +163,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             .get("includeIndexFacts")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let index_connection = if include_index_facts {
-            Some(database.conn()?)
-        } else {
-            None
-        };
         let volumes = database
             .list_global_volumes()?
             .into_iter()
             .map(|volume| -> Result<Value, Box<dyn Error>> {
-                let database_facts = if let Some(connection) = index_connection.as_ref() {
-                    Some(connection.query_row(
-                        "SELECT COUNT(*),COALESCE(SUM(CASE WHEN is_stale=0 THEN 1 ELSE 0 END),0) FROM global_entries WHERE volume_id=?1",
-                        [&volume.id],
-                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-                    )?)
+                let database_facts = if include_index_facts {
+                    Some(database.native_qa_global_entry_counts(&volume.id)?)
                 } else {
                     None
                 };

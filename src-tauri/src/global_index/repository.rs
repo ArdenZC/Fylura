@@ -643,6 +643,18 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
+    /// Read persisted row totals for the isolated native QA probe.
+    #[cfg(feature = "native-qa")]
+    pub fn native_qa_global_entry_counts(&self, volume_id: &str) -> Result<(i64, i64), DbError> {
+        let conn = self.conn()?;
+        conn.query_row(
+            "SELECT COUNT(*),COALESCE(SUM(CASE WHEN is_stale=0 THEN 1 ELSE 0 END),0) FROM global_entries WHERE volume_id=?1",
+            params![volume_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(DbError::from)
+    }
+
     pub fn get_global_volume(&self, id: &str) -> Result<Option<GlobalVolume>, DbError> {
         let conn = self.conn()?;
         conn.query_row(

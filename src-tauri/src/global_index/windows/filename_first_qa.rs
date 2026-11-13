@@ -53,6 +53,21 @@ fn descriptor(db: &Database, source_id: &str) -> Result<GlobalSourceDescriptor, 
     })
 }
 
+fn live_result_visible(
+    db: &Database,
+    query: &str,
+    expected_path: &str,
+) -> Result<bool, Box<dyn Error>> {
+    let Some(result) = db
+        .search_global_entries(query, 50, 0)?
+        .into_iter()
+        .find(|result| normalize_path(&result.path) == expected_path)
+    else {
+        return Ok(false);
+    };
+    Ok(crate::global_index::commands::revalidated_global_entry(db, &result.id).is_ok())
+}
+
 pub fn run_initial(
     profile: &Path,
     source_id: &str,
@@ -104,14 +119,7 @@ pub fn run_initial(
     let mut first_search_total_entries = None;
     loop {
         if first_searchable_us.is_none() {
-            let results = crate::global_index::commands::filter_live_transient_search_results(
-                &db,
-                db.search_global_entries(query, 50, 0)?,
-            );
-            if results
-                .iter()
-                .any(|result| normalize_path(&result.path) == expected_path)
-            {
+            if live_result_visible(&db, query, &expected_path)? {
                 let status = db.global_index_status()?;
                 first_searchable_us = Some(started.elapsed().as_micros());
                 first_search_complete = Some(status.collection_complete);
@@ -130,11 +138,7 @@ pub fn run_initial(
         .map_err(|error| format!("native MFT qualification failed: {error}"))?;
     let full_index_us = started.elapsed().as_micros();
     if first_searchable_us.is_none() {
-        let results = db.search_global_entries(query, 50, 0)?;
-        if results
-            .iter()
-            .any(|result| normalize_path(&result.path) == expected_path)
-        {
+        if live_result_visible(&db, query, &expected_path)? {
             let status = db.global_index_status()?;
             first_searchable_us = Some(full_index_us);
             first_search_complete = Some(status.collection_complete);

@@ -90,7 +90,7 @@ describe("Global Index performance workflow routing", () => {
 
   it("keeps master/candidate release comparisons manual and preserves bounded sizes", () => {
     expect(workflow).toContain("  workflow_dispatch:");
-    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight]");
+    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair]");
     expect(workflow).toContain("default: '100000'");
     expect(workflow).toContain("options: ['1000', '100000', '200000']");
     expect(baselineJob).toContain("if: github.event_name == 'workflow_dispatch' && inputs.mode == 'master_candidate'");

@@ -122,4 +122,15 @@ describe("Global Index performance workflow routing", () => {
     expect(fixturePath).toBeGreaterThan(volumeVisible);
     expect(fixtureCreate).toBeGreaterThan(fixturePath);
   });
+
+  it("requires MFT and writer timings only for initial-index measurements", () => {
+    expect(filenameFirstQualification).toContain("if (-not $run.stages.mft -or -not $run.stages.writer)");
+    expect(filenameFirstQualification).toContain("initial run $repetition omitted MFT or repository stage timings");
+    expect(filenameFirstQualification).not.toContain("$Label omitted MFT or repository stage timings");
+  });
+
+  it("lets a repeated native pair reuse prior trigger attribution", () => {
+    expect(workflow).toContain("run_trigger_matrix:");
+    expect(workflow).toContain("if: inputs.run_trigger_matrix");
+  });
 });

@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 // Performance comparisons are opt-in. Rust CI owns routine correctness; this
 // workflow keeps controlled writer pairs and master/candidate baselines apart.
 const workflow = readFileSync(".github/workflows/smart-lean.yml", "utf8");
+const filenameFirstQualification = readFileSync("scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1", "utf8");
+const mft = readFileSync("src-tauri/src/global_index/windows/mft.rs", "utf8");
 const prBlock = workflow.split("\n  push:")[0];
 const routes = [...prBlock.matchAll(/^      - '([^']+)'$/gmu)].map((match) => match[1]);
 const writerJob = workflow.split("\n  master-candidate-baseline:")[0];
@@ -90,7 +92,7 @@ describe("Global Index performance workflow routing", () => {
 
   it("keeps master/candidate release comparisons manual and preserves bounded sizes", () => {
     expect(workflow).toContain("  workflow_dispatch:");
-    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight]");
+    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair]");
     expect(workflow).toContain("default: '100000'");
     expect(workflow).toContain("options: ['1000', '100000', '200000']");
     expect(baselineJob).toContain("if: github.event_name == 'workflow_dispatch' && inputs.mode == 'master_candidate'");
@@ -109,5 +111,59 @@ describe("Global Index performance workflow routing", () => {
     expect(spotlightJob).toContain("inputs.mode == 'macos_spotlight'");
     expect(spotlightJob).toContain("UNVERIFIED");
     expect(spotlightJob).toContain("Synthetic writer results are reported in the separate writer-pair job");
+  });
+
+  it("mounts the owned NTFS volume before resolving its fixture path as a PowerShell drive", () => {
+    const mount = filenameFirstQualification.indexOf('"assign letter=$driveLetter"');
+    const volumeVisible = filenameFirstQualification.indexOf("Get-CimInstance Win32_LogicalDisk");
+    const fixturePath = filenameFirstQualification.indexOf("$script:fixtureRoot = Join-Path $driveRoot");
+    const fixtureCreate = filenameFirstQualification.indexOf("New-Item -ItemType Directory -Path $script:fixtureRoot");
+    expect(mount).toBeGreaterThanOrEqual(0);
+    expect(volumeVisible).toBeGreaterThan(mount);
+    expect(fixturePath).toBeGreaterThan(volumeVisible);
+    expect(fixtureCreate).toBeGreaterThan(fixturePath);
+  });
+
+  it("requires MFT and writer timings only for initial-index measurements", () => {
+    expect(filenameFirstQualification).toContain("if (-not $run.stages.mft -or -not $run.stages.writer)");
+    expect(filenameFirstQualification).toContain("initial run $repetition omitted MFT or repository stage timings");
+    expect(filenameFirstQualification).not.toContain("$Label omitted MFT or repository stage timings");
+  });
+
+  it("lets a repeated native pair reuse prior trigger attribution", () => {
+    expect(workflow).toContain("run_trigger_matrix:");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch' && inputs.run_trigger_matrix");
+    expect(workflow).toContain("github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')");
+  });
+
+  it("compares the filename-first path against SQLite using the same Release binary", () => {
+    expect(workflow).toContain("Build one Release QA executable for both feature modes");
+    expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
+    expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_8192");
+    expect(workflow).toContain("same Release binary; direct SQLite uses synchronous FTS with 8192-row batches; candidate emits configured 8192-row MFT chunks");
+    expect(workflow).toContain("reuses preflight Scope decisions");
+    expect(workflow).toContain("one-time FTS rebuild");
+    expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
+    expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
+    expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
+    expect(filenameFirstQualification).toContain("durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le 10000000");
+    expect(filenameFirstQualification).toContain("fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet");
+    expect(filenameFirstQualification).toContain("'result.durableFilenameIndexUs'");
+    expect(filenameFirstQualification).toContain("sourceIndexStatus -ne 'ready' -or $run.result.coveragePending");
+    expect(mft).toContain("let batch_size = mft_emit_batch_size();");
+    expect(mft).toContain("fn mft_emit_batch_size_from(value: Option<&str>) -> usize");
+  });
+
+  it("reads native pair timing fields from the QA result and prints durable evidence", () => {
+    expect(filenameFirstQualification).toContain("$baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'");
+    expect(filenameFirstQualification).toContain("$candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'");
+    expect(filenameFirstQualification).toContain("stages.writer.fts_rebuild_us");
+    expect(filenameFirstQualification).toContain("ftsIntegrityVerified");
+    expect(workflow).toContain("FTS rebuild (candidate bulk path)");
+    expect(workflow).toContain("Average peak working set baseline/candidate:");
+    expect(filenameFirstQualification).toContain("stages.writer.transient_staging_us");
+    expect(workflow).toContain("Transient catalog staging baseline/candidate:");
+    expect(workflow).toContain("Average database+WAL bytes baseline/candidate:");
+    expect(workflow).toContain("Write-Output $summary");
   });
 });

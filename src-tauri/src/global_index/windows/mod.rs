@@ -1,4 +1,6 @@
 pub mod fallback;
+#[cfg(feature = "native-qa")]
+pub mod filename_first_qa;
 pub mod mft;
 #[cfg(feature = "native-qa")]
 pub mod recovery_qa;
@@ -2237,7 +2239,7 @@ mod tests {
     fn empty_initial_mft_baseline_marks_direct_provider_rebuild_required() {
         let mut sink = SourceStateSink::default();
         let error = GlobalIndexError::RebuildRequired(
-            "windows_mft_baseline_empty: staged_records=0 resolved_entries=0 emitted_entries=0 checkpoint_usn=0"
+            "windows_mft_baseline_empty: enumerated_records=0 resolved_entries=0 emitted_entries=0 checkpoint_usn=0"
                 .to_string(),
         );
 

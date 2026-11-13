@@ -22,6 +22,9 @@ pub(crate) struct GlobalIndexBatchTiming {
     pub(crate) entry_upsert: Duration,
     pub(crate) ai_task_qualification: Duration,
     pub(crate) record_decisions: Duration,
+    pub(crate) fts_rebuild: Duration,
+    pub(crate) metadata_update: Duration,
+    pub(crate) metadata_commit: Duration,
     pub(crate) commit: Duration,
 }
 
@@ -37,6 +40,9 @@ impl GlobalIndexBatchTiming {
         self.entry_upsert += other.entry_upsert;
         self.ai_task_qualification += other.ai_task_qualification;
         self.record_decisions += other.record_decisions;
+        self.fts_rebuild += other.fts_rebuild;
+        self.metadata_update += other.metadata_update;
+        self.metadata_commit += other.metadata_commit;
         self.commit += other.commit;
     }
 }
@@ -1238,6 +1244,459 @@ impl Database {
         self.upsert_global_entries_batch_inner(entries, Some(owner))
     }
 
+    /// Persist a completed filename-first MFT catalogue atomically. FTS5 is a
+    /// derived search cache: rebuild it once while source, Scope, count, and
+    /// decision triggers remain enabled. Metadata and AI qualification follow.
+    pub(crate) fn upsert_transient_mft_catalog_bulk_owned_timed(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        entry_count: usize,
+        batch_size: usize,
+        staged_policy_revision: u64,
+        owner: &SourceOperationOwner,
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
+        if entry_count == 0 {
+            return Ok((0, timing));
+        }
+        if volume_id != owner.volume_id.as_str()
+            || operation_id != owner.operation_id.as_str()
+            || batch_size == 0
+        {
+            return Err(DbError::Validation(
+                "transient_initial_catalog_owner_mismatch".into(),
+            ));
+        }
+
+        let source = self
+            .get_global_volume(volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        let state = self
+            .global_index_operation_state(volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        if !source.enabled
+            || (source.platform == "windows"
+                && source.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED)
+            || state.revision != owner.revision
+            || state.owner_id.as_deref() != Some(operation_id)
+        {
+            return Err(DbError::Validation(
+                "global_index_operation_owner_lost".into(),
+            ));
+        }
+        if !super::coverage::source_identity_current(&source) {
+            return Err(DbError::Validation(
+                "global_index_source_identity_changed".into(),
+            ));
+        }
+
+        let sqlite_started = Instant::now();
+        let connection_started = Instant::now();
+        let mut conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
+        let transaction_started = Instant::now();
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        timing.transaction_acquisition = transaction_started.elapsed();
+
+        let setup_started = Instant::now();
+        ensure_source_operation_owner_tx(&transaction, owner)?;
+        let policy_started = Instant::now();
+        let policy = super::coverage::load_policy(&transaction)?;
+        timing.coverage_policy_load = policy_started.elapsed();
+        if policy.revision != staged_policy_revision {
+            return Err(DbError::Validation(
+                "global_index_scope_policy_changed".into(),
+            ));
+        }
+        transaction.execute_batch(
+            "DROP TRIGGER IF EXISTS global_entries_ai;
+             DROP TRIGGER IF EXISTS global_entries_ad;
+             DROP TRIGGER IF EXISTS global_entries_au;",
+        )?;
+        let canonical_writer = canonical_scope_decision_writes();
+        #[cfg(test)]
+        let upsert_sql = if canonical_writer {
+            UPSERT_GLOBAL_ENTRY_SQL_CANONICAL
+        } else {
+            UPSERT_GLOBAL_ENTRY_SQL
+        };
+        #[cfg(not(test))]
+        let upsert_sql = UPSERT_GLOBAL_ENTRY_SQL;
+        let mut statement = transaction.prepare(upsert_sql)?;
+        timing.transaction_setup = setup_started.elapsed();
+
+        let mut offset = 0usize;
+        let mut processed_entries = 0usize;
+        while offset < entry_count {
+            let entries = self
+                .filename_search
+                .transient_catalog_batch(volume_id, operation_id, offset, batch_size)
+                .ok_or_else(|| {
+                    DbError::Validation("transient_initial_catalog_lost_before_persist".into())
+                })?;
+            if entries.is_empty()
+                || entries.len() > batch_size
+                || offset.saturating_add(entries.len()) > entry_count
+                || entries.iter().any(|entry| entry.volume_id != volume_id)
+            {
+                return Err(DbError::Validation(
+                    "transient_initial_catalog_batch_invalid".into(),
+                ));
+            }
+
+            let decisions = self
+                .filename_search
+                .transient_catalog_decisions(volume_id, operation_id, offset, batch_size)
+                .ok_or_else(|| {
+                    DbError::Validation("transient_initial_catalog_decisions_lost".into())
+                })?;
+            if decisions.len() != entries.len()
+                || decisions
+                    .iter()
+                    .any(|decision| decision.reason() == "outside_authorized_source")
+            {
+                return Err(DbError::Validation(
+                    "transient_initial_catalog_decisions_invalid".into(),
+                ));
+            }
+
+            for (entry, decision) in entries.iter().zip(&decisions) {
+                let visible = decision.visible();
+                if !visible && !entry.is_directory {
+                    continue;
+                }
+                let scope_decision = if entry.is_directory && !visible {
+                    "minimal_ancestor"
+                } else if matches!(decision, super::coverage::Decision::Undetermined(_)) {
+                    "undetermined"
+                } else if visible {
+                    "include"
+                } else {
+                    decision.reason()
+                };
+                let scope_decision = if canonical_writer {
+                    None
+                } else {
+                    Some(scope_decision)
+                };
+                let upsert_started = Instant::now();
+                let entry_id = entry.entry_id();
+                execute_entry_upsert(
+                    &transaction,
+                    &mut statement,
+                    upsert_sql,
+                    &entry_id,
+                    entry,
+                    scope_decision,
+                    canonical_writer,
+                )?;
+                timing.entry_upsert += upsert_started.elapsed();
+            }
+            let decisions_started = Instant::now();
+            super::coverage::record_decisions(
+                &transaction,
+                &entries,
+                &decisions,
+                canonical_writer,
+            )?;
+            timing.record_decisions += decisions_started.elapsed();
+            offset += entries.len();
+            processed_entries += entries.len();
+        }
+        drop(statement);
+        if processed_entries != entry_count {
+            return Err(DbError::Validation(
+                "transient_initial_catalog_persist_count_mismatch".into(),
+            ));
+        }
+
+        let fts_started = Instant::now();
+        transaction.execute(
+            "INSERT INTO global_entries_fts(global_entries_fts) VALUES('rebuild')",
+            [],
+        )?;
+        transaction.execute_batch(
+            r#"
+            CREATE TRIGGER IF NOT EXISTS global_entries_ai AFTER INSERT ON global_entries BEGIN
+                INSERT INTO global_entries_fts(rowid, name, path, extension)
+                VALUES (new.rowid, new.name, new.path, new.extension);
+            END;
+            CREATE TRIGGER IF NOT EXISTS global_entries_ad AFTER DELETE ON global_entries BEGIN
+                INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+                VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            END;
+            CREATE TRIGGER IF NOT EXISTS global_entries_au
+            AFTER UPDATE OF name, path, extension ON global_entries
+            WHEN old.name IS NOT new.name OR old.path IS NOT new.path OR old.extension IS NOT new.extension
+            BEGIN
+                INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+                VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+                INSERT INTO global_entries_fts(rowid, name, path, extension)
+                VALUES (new.rowid, new.name, new.path, new.extension);
+            END;
+            "#,
+        )?;
+        timing.fts_rebuild = fts_started.elapsed();
+
+        let commit_started = Instant::now();
+        transaction.commit()?;
+        timing.commit = commit_started.elapsed();
+        timing.sqlite_transaction = sqlite_started.elapsed();
+        Ok((entry_count, timing))
+    }
+
+    /// Persist filesystem metadata after the filename rows and FTS cache are
+    /// durable. Native stats happen before this writer transaction.
+    pub(crate) fn update_transient_mft_metadata_bulk_owned_timed(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        entry_count: usize,
+        batch_size: usize,
+        staged_policy_revision: u64,
+        owner: &SourceOperationOwner,
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
+        if entry_count == 0 {
+            return Ok((0, timing));
+        }
+        if volume_id != owner.volume_id.as_str()
+            || operation_id != owner.operation_id.as_str()
+            || batch_size == 0
+        {
+            return Err(DbError::Validation(
+                "transient_initial_catalog_owner_mismatch".into(),
+            ));
+        }
+
+        let source = self
+            .get_global_volume(volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        let state = self
+            .global_index_operation_state(volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        if !source.enabled
+            || (source.platform == "windows"
+                && source.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED)
+            || state.revision != owner.revision
+            || state.owner_id.as_deref() != Some(operation_id)
+        {
+            return Err(DbError::Validation(
+                "global_index_operation_owner_lost".into(),
+            ));
+        }
+        if !super::coverage::source_identity_current(&source) {
+            return Err(DbError::Validation(
+                "global_index_source_identity_changed".into(),
+            ));
+        }
+
+        let sqlite_started = Instant::now();
+        let connection_started = Instant::now();
+        let mut conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
+        let transaction_started = Instant::now();
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        timing.transaction_acquisition = transaction_started.elapsed();
+
+        let setup_started = Instant::now();
+        ensure_source_operation_owner_tx(&transaction, owner)?;
+        let policy_started = Instant::now();
+        let policy = super::coverage::load_policy(&transaction)?;
+        timing.coverage_policy_load = policy_started.elapsed();
+        if policy.revision != staged_policy_revision {
+            return Err(DbError::Validation(
+                "global_index_scope_policy_changed".into(),
+            ));
+        }
+        let scope_policies = load_enabled_scope_policies(&transaction)?;
+        let has_managed_scopes = !scope_policies.is_empty();
+        let mut update_statement = transaction.prepare(
+            "UPDATE global_entries
+             SET size=?7, modified_at_fs=?8
+             WHERE id=?1 AND volume_id=?2 AND platform_file_id=?3
+               AND parent_platform_file_id=?4 AND name=?5 AND path=?6
+               AND is_stale=0 AND (size IS NOT ?7 OR modified_at_fs IS NOT ?8)",
+        )?;
+        let mut identity_statement = if has_managed_scopes {
+            Some(transaction.prepare(
+                "SELECT EXISTS(
+                    SELECT 1 FROM global_entries
+                    WHERE id=?1 AND volume_id=?2 AND platform_file_id=?3
+                      AND parent_platform_file_id=?4 AND name=?5 AND path=?6
+                      AND is_stale=0
+                 )",
+            )?)
+        } else {
+            None
+        };
+        timing.transaction_setup = setup_started.elapsed();
+
+        let mut offset = 0usize;
+        let mut processed_entries = 0usize;
+        let mut has_eligible_pending_work = false;
+        while offset < entry_count {
+            let entries = self
+                .filename_search
+                .transient_catalog_batch(volume_id, operation_id, offset, batch_size)
+                .ok_or_else(|| {
+                    DbError::Validation("transient_initial_catalog_lost_before_metadata".into())
+                })?;
+            let decisions = self
+                .filename_search
+                .transient_catalog_decisions(volume_id, operation_id, offset, batch_size)
+                .ok_or_else(|| {
+                    DbError::Validation("transient_initial_catalog_decisions_lost".into())
+                })?;
+            if entries.is_empty()
+                || entries.len() != decisions.len()
+                || entries.len() > batch_size
+                || offset.saturating_add(entries.len()) > entry_count
+                || entries.iter().any(|entry| entry.volume_id != volume_id)
+                || decisions
+                    .iter()
+                    .any(|decision| decision.reason() == "outside_authorized_source")
+            {
+                return Err(DbError::Validation(
+                    "transient_initial_catalog_batch_invalid".into(),
+                ));
+            }
+
+            for (entry, decision) in entries.iter().zip(&decisions) {
+                if !decision.visible() {
+                    continue;
+                }
+                let entry_id = entry.entry_id();
+                let metadata_started = Instant::now();
+                let updated = update_statement.execute(params![
+                    entry_id,
+                    entry.volume_id,
+                    entry.platform_file_id,
+                    entry.parent_platform_file_id,
+                    entry.name,
+                    entry.path,
+                    entry.size,
+                    entry.modified_at_fs,
+                ])?;
+                timing.metadata_update += metadata_started.elapsed();
+
+                let managed_scope_matches = scope_policies
+                    .iter()
+                    .any(|scope| path_is_within(&normalize_path(&entry.path), &scope.path));
+                let identity_matches = if updated > 0 {
+                    true
+                } else if managed_scope_matches {
+                    let identity_statement = identity_statement
+                        .as_mut()
+                        .expect("managed scopes prepare an identity statement");
+                    identity_statement.query_row(
+                        params![
+                            entry_id,
+                            entry.volume_id,
+                            entry.platform_file_id,
+                            entry.parent_platform_file_id,
+                            entry.name,
+                            entry.path,
+                        ],
+                        |row| row.get::<_, bool>(0),
+                    )?
+                } else {
+                    false
+                };
+                if identity_matches {
+                    let qualification_started = Instant::now();
+                    has_eligible_pending_work |= enqueue_ai_jobs_for_entry_with_scopes(
+                        &transaction,
+                        &entry_id,
+                        entry,
+                        &scope_policies,
+                    )?;
+                    timing.ai_task_qualification += qualification_started.elapsed();
+                }
+            }
+            offset += entries.len();
+            processed_entries += entries.len();
+        }
+        drop(update_statement);
+        drop(identity_statement);
+        if processed_entries != entry_count {
+            return Err(DbError::Validation(
+                "transient_initial_catalog_persist_count_mismatch".into(),
+            ));
+        }
+
+        let commit_started = Instant::now();
+        transaction.commit()?;
+        timing.metadata_commit = commit_started.elapsed();
+        timing.sqlite_transaction = sqlite_started.elapsed();
+        if has_eligible_pending_work {
+            self.notify_managed_ai_work();
+        }
+        Ok((entry_count, timing))
+    }
+
+    /// Performs the authorization and Scope evaluation needed before an MFT
+    /// batch may enter the disposable in-memory filename catalogue. The same
+    /// checks run again when the staged entries are persisted to SQLite.
+    pub(crate) fn preflight_global_entries_batch_owned(
+        &self,
+        entries: &[GlobalEntryInput],
+        owner: &SourceOperationOwner,
+    ) -> Result<(Vec<super::coverage::Decision>, u64, GlobalIndexBatchTiming), DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
+        if entries.is_empty() {
+            return Ok((Vec::new(), 0, timing));
+        }
+        if entries
+            .iter()
+            .any(|entry| entry.volume_id != owner.volume_id)
+        {
+            return Err(DbError::Validation(
+                "global_index_operation_foreign_volume_write".into(),
+            ));
+        }
+        let source = self
+            .get_global_volume(&owner.volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        let state = self
+            .global_index_operation_state(&owner.volume_id)?
+            .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
+        if !source.enabled
+            || (source.platform == "windows"
+                && source.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED)
+            || state.revision != owner.revision
+            || state.owner_id.as_deref() != Some(&owner.operation_id)
+        {
+            return Err(DbError::Validation(
+                "global_index_operation_owner_lost".into(),
+            ));
+        }
+        if !super::coverage::source_identity_current(&source) {
+            return Err(DbError::Validation(
+                "global_index_source_identity_changed".into(),
+            ));
+        }
+        let connection_started = Instant::now();
+        let policy_conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
+        let policy_load_started = Instant::now();
+        let policy = super::coverage::load_policy(&policy_conn)?;
+        timing.coverage_policy_load = policy_load_started.elapsed();
+        let coverage_started = Instant::now();
+        let decisions = super::coverage::observe_batch(&policy, &source, entries);
+        timing.coverage_evaluation = coverage_started.elapsed();
+        if decisions
+            .iter()
+            .any(|decision| decision.reason() == "outside_authorized_source")
+        {
+            return Err(DbError::Validation(
+                "global_index_entry_outside_authorized_source".into(),
+            ));
+        }
+        Ok((decisions, policy.revision, timing))
+    }
+
     #[cfg(test)]
     pub(crate) fn upsert_global_entries_batch_timed(
         &self,
@@ -1544,9 +2003,40 @@ impl Database {
         .map_err(DbError::from)
     }
 
+    pub(crate) fn get_global_entry_or_transient(
+        &self,
+        entry_id: &str,
+    ) -> Result<Option<GlobalEntry>, DbError> {
+        if let Some(entry) = self.get_global_entry(entry_id)? {
+            if !entry.is_stale {
+                return Ok(Some(entry));
+            }
+        }
+        if !self.filename_search.has_transient_catalog() {
+            return Ok(None);
+        }
+        let conn = self.conn()?;
+        let policy_revision = super::coverage::load_policy(&conn)?.revision;
+        self.filename_search
+            .transient_global_entry(&conn, policy_revision, entry_id)
+            .map_err(DbError::from)
+    }
+
+    pub(crate) fn global_entry_is_transient(&self, entry_id: &str) -> bool {
+        self.filename_search.contains_transient_entry(entry_id)
+    }
+
+    pub(crate) fn global_index_has_transient_catalog(&self) -> bool {
+        self.filename_search.has_transient_catalog()
+    }
+
     pub fn global_index_status(&self) -> Result<GlobalIndexStatus, DbError> {
         let conn = self.conn()?;
-        global_index_status_from_connection(&conn)
+        with_transient_catalog_progress(
+            global_index_status_from_connection(&conn)?,
+            &conn,
+            &self.filename_search,
+        )
     }
 
     /// True while an enabled source cannot observe changes.
@@ -1580,6 +2070,34 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> Result<GlobalSearchSnapshot, DbError> {
+        if self.filename_search.has_transient_catalog() {
+            let mut conn = self.conn()?;
+            let transaction = conn.transaction()?;
+            if let Some(results) =
+                super::search::search_global_entries_with_transient_catalog_on_connection(
+                    &transaction,
+                    &self.filename_search,
+                    query,
+                    limit,
+                    offset,
+                )?
+            {
+                let (source_health, source_revision, enabled_rows) =
+                    load_snapshot_source_health(&transaction)?;
+                let index_status = with_transient_catalog_progress(
+                    global_index_status_with_total(&transaction, enabled_rows)?,
+                    &transaction,
+                    &self.filename_search,
+                )?;
+                transaction.commit()?;
+                return Ok(GlobalSearchSnapshot {
+                    results,
+                    source_health,
+                    source_revision,
+                    index_status,
+                });
+            }
+        }
         if self.filename_search.is_enabled()
             && super::search::filename_relevance_query_supported(query.trim())
         {
@@ -1609,8 +2127,11 @@ impl Database {
                         );
                         #[cfg(test)]
                         let index_status_started = std::time::Instant::now();
-                        let index_status =
-                            global_index_status_with_total(transaction, enabled_rows)?;
+                        let index_status = with_transient_catalog_progress(
+                            global_index_status_with_total(transaction, enabled_rows)?,
+                            transaction,
+                            &self.filename_search,
+                        )?;
                         #[cfg(test)]
                         super::filename_search::record_candidate_search_stage(
                             "snapshot_index_status",
@@ -1633,7 +2154,11 @@ impl Database {
             super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
         let (source_health, source_revision, enabled_rows) =
             load_snapshot_source_health(&transaction)?;
-        let index_status = global_index_status_with_total(&transaction, enabled_rows)?;
+        let index_status = with_transient_catalog_progress(
+            global_index_status_with_total(&transaction, enabled_rows)?,
+            &transaction,
+            &self.filename_search,
+        )?;
         transaction.commit()?;
         Ok(GlobalSearchSnapshot {
             results,
@@ -1745,6 +2270,21 @@ fn global_index_status_from_connection(
     conn: &rusqlite::Connection,
 ) -> Result<GlobalIndexStatus, DbError> {
     global_index_status_with_total(conn, None)
+}
+
+fn with_transient_catalog_progress(
+    mut status: GlobalIndexStatus,
+    conn: &Connection,
+    filename_search: &super::filename_search::FilenameSearchManager,
+) -> Result<GlobalIndexStatus, DbError> {
+    if !filename_search.has_transient_catalog() {
+        return Ok(status);
+    }
+    let policy_revision = super::coverage::load_policy(conn)?.revision;
+    let transient_entries = filename_search.transient_visible_count(conn, policy_revision)?;
+    status.processed_entries = status.processed_entries.saturating_add(transient_entries);
+    status.total_entries = status.total_entries.saturating_add(transient_entries);
+    Ok(status)
 }
 
 fn global_index_status_with_total(

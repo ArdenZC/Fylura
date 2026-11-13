@@ -30,12 +30,16 @@ on:
         description: Select one isolated performance workflow
         type: choice
         default: writer_pair
-        options: [writer_pair, master_candidate, macos_spotlight]
+        options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair]
       entries:
         description: Candidate count for the manual master/candidate synthetic baseline
         type: choice
         default: '100000'
         options: ['1000', '100000', '200000']
+      run_trigger_matrix:
+        description: Re-run the synthetic 25k FTS/source-stat attribution matrix
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -327,4 +331,117 @@ jobs:
             smart-lean-native-macos.json
             smart-lean-native-macos-sample.txt
             smart-lean-native-phase/
+          if-no-files-found: warn
+
+  filename-first-native-pair:
+    name: Real NTFS MFT first-search pair (100k)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'filename_first_pair') ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]'))
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - run: npm ci --no-audit --no-fund
+      - name: Build candidate frontend assets
+        run: npm run build:frontend
+      - name: Build one Release QA executable for both feature modes
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features 'desktop-runtime native-qa' --bin zb05-global-index-qa
+      - name: Create performance evidence directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Path '.performance-artifacts/filename-first' -Force | Out-Null
+      - name: Attribute synthetic FTS and source-stat trigger cost
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_trigger_matrix) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')) }}
+        env:
+          ZEN_GLOBAL_WRITER_TRIGGER_REPORT: ${{ github.workspace }}/.performance-artifacts/filename-first/trigger-attribution.json
+        run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index_writer_trigger_contribution_25k -- --ignored --nocapture --test-threads=1
+      - name: Run paired 100k MFT qualification on one task-owned NTFS volume
+        shell: pwsh
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          EVIDENCE_PATH: ${{ github.workspace }}/.performance-artifacts/filename-first/evidence.json
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probe = Join-Path $PWD 'src-tauri/target/release/zb05-global-index-qa.exe'
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 -BaselineProbeExe $probe -CandidateProbeExe $probe -BaselineRoot $PWD -CandidateRoot $PWD -ExpectedBaselineSha $env:CANDIDATE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA -EvidencePath $env:EVIDENCE_PATH -FileCount 100000 -Repetitions 3
+          if ($LASTEXITCODE -ne 0) { throw "real NTFS filename-first pair failed with exit code $LASTEXITCODE" }
+      - name: Summarize native result and performance target status
+        if: always()
+        shell: pwsh
+        env:
+          EVIDENCE_PATH: ${{ github.workspace }}/.performance-artifacts/filename-first/evidence.json
+        run: |
+          if (-not (Test-Path -LiteralPath $env:EVIDENCE_PATH)) {
+            'Real NTFS MFT pair: evidence missing.' | Add-Content $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+          $report = Get-Content -LiteralPath $env:EVIDENCE_PATH -Raw | ConvertFrom-Json
+          $summary = @(
+            "Real NTFS MFT pair status: $($report.status)",
+            "File count: $($report.fileCount); repetitions per path: $($report.repetitions)",
+            'Comparison: same Release binary; direct SQLite uses synchronous FTS with 8192-row batches; candidate emits configured 8192-row MFT chunks, reuses preflight Scope decisions, commits durable filename rows plus a one-time FTS rebuild, then stats and updates noncritical metadata.',
+            "Average first-search baseline/candidate: $($report.averages.baselineFirstSearchableUs) / $($report.averages.candidateFirstSearchableUs) us",
+            "First-search improvement: $($report.averages.firstSearchImprovementPercent)% (10s candidate target met: $($report.firstSearchTargetMet))",
+            "Average durable complete filename index baseline/candidate: $($report.averages.baselineDurableFilenameIndexUs) / $($report.averages.candidateDurableFilenameIndexUs) us",
+            "Durable filename-index improvement: $($report.averages.durableFilenameIndexImprovementPercent)% (10s candidate target met: $($report.durableFilenameIndexTargetMet))",
+            "Average full source operation baseline/candidate: $($report.averages.baselineFullIndexUs) / $($report.averages.candidateFullIndexUs) us; improvement: $($report.averages.fullIndexImprovementPercent)%; 10s plus complete authorized coverage: $($report.fullSourceCompletionTargetMet)",
+            "Task fixture filename-index target met: $($report.fixtureFilenameIndexTargetMet); authorized-source completeness by candidate run: $($report.completeCoveragePerPath.candidate -join ',')",
+            "Fixture files indexed by candidate run: $(@($report.candidate | ForEach-Object { $_.result.fixtureFileEntries }) -join ','); unresolved native coverage rows: $(@($report.candidate | ForEach-Object { $_.result.coverageUndetermined }) -join ',')",
+            "MFT read/parse baseline/candidate: $($report.phaseAverages.baselineMftReadParseUs) / $($report.phaseAverages.candidateMftReadParseUs) us",
+            "Path resolution baseline/candidate: $($report.phaseAverages.baselinePathResolutionUs) / $($report.phaseAverages.candidatePathResolutionUs) us",
+            "Metadata reads baseline MFT/deferred candidate: $($report.phaseAverages.baselineMftMetadataUs) / $($report.phaseAverages.candidateDeferredMetadataUs) us",
+            "Metadata SQLite update baseline/candidate: $($report.phaseAverages.baselineMetadataUpdateUs) / $($report.phaseAverages.candidateMetadataUpdateUs) us",
+            "Transient catalog staging baseline/candidate: $($report.phaseAverages.baselineTransientStagingUs) / $($report.phaseAverages.candidateTransientStagingUs) us",
+            "Coverage policy load baseline/candidate: $($report.phaseAverages.baselineCoveragePolicyLoadUs) / $($report.phaseAverages.candidateCoveragePolicyLoadUs) us",
+            "Coverage evaluation baseline/candidate: $($report.phaseAverages.baselineCoverageEvaluationUs) / $($report.phaseAverages.candidateCoverageEvaluationUs) us",
+            "SQLite connection acquisition baseline/candidate: $($report.phaseAverages.baselineConnectionAcquisitionUs) / $($report.phaseAverages.candidateConnectionAcquisitionUs) us",
+            "SQLite transaction acquisition baseline/candidate: $($report.phaseAverages.baselineTransactionAcquisitionUs) / $($report.phaseAverages.candidateTransactionAcquisitionUs) us",
+            "Repository transaction setup baseline/candidate: $($report.phaseAverages.baselineTransactionSetupUs) / $($report.phaseAverages.candidateTransactionSetupUs) us",
+            "Repository UPSERT baseline/candidate: $($report.phaseAverages.baselineEntryUpsertUs) / $($report.phaseAverages.candidateEntryUpsertUs) us",
+            "AI task qualification baseline/candidate: $($report.phaseAverages.baselineAiTaskQualificationUs) / $($report.phaseAverages.candidateAiTaskQualificationUs) us",
+            "Scope decision persistence baseline/candidate: $($report.phaseAverages.baselineRecordDecisionsUs) / $($report.phaseAverages.candidateRecordDecisionsUs) us",
+            "FTS rebuild (candidate bulk path) baseline/candidate: $($report.phaseAverages.baselineFtsRebuildUs) / $($report.phaseAverages.candidateFtsRebuildUs) us",
+            "Filename/FTS SQLite commit baseline/candidate: $($report.phaseAverages.baselineCommitUs) / $($report.phaseAverages.candidateCommitUs) us",
+            "Metadata transaction update baseline/candidate: $($report.phaseAverages.baselineMetadataUpdateUs) / $($report.phaseAverages.candidateMetadataUpdateUs) us",
+            "Metadata transaction commit baseline/candidate: $($report.phaseAverages.baselineMetadataCommitUs) / $($report.phaseAverages.candidateMetadataCommitUs) us",
+            "SQLite transactions baseline/candidate: $($report.phaseAverages.baselineSqliteTransactionCount) / $($report.phaseAverages.candidateSqliteTransactionCount)",
+            "Average peak working set baseline/candidate: $($report.averages.baselinePeakWorkingSetBytes) / $($report.averages.candidatePeakWorkingSetBytes) bytes",
+            "Average peak private bytes baseline/candidate: $($report.averages.baselinePeakPrivateBytes) / $($report.averages.candidatePeakPrivateBytes) bytes",
+            "Average database+WAL bytes baseline/candidate: $($report.averages.baselineDatabaseBytes) / $($report.averages.candidateDatabaseBytes) bytes",
+            "Incremental add/rename/delete and restart correct baseline/candidate: $($report.incremental.baseline.restartCorrect) / $($report.incremental.candidate.restartCorrect)",
+            'macOS hosted Spotlight: UNVERIFIED by its separate capability job.'
+          ) -join [Environment]::NewLine
+          $summary | Add-Content $env:GITHUB_STEP_SUMMARY
+          Write-Output $summary
+          $triggerPath = Join-Path (Split-Path -Parent $env:EVIDENCE_PATH) 'trigger-attribution.json'
+          if (Test-Path -LiteralPath $triggerPath) {
+            $triggerRows = Get-Content -LiteralPath $triggerPath -Raw | ConvertFrom-Json
+            foreach ($group in @('full_triggers', 'without_fts', 'without_source_stats', 'bulk_fts')) {
+              $samples = @($triggerRows | Where-Object { $_.group -eq $group } | ForEach-Object { [double]$_.seconds })
+              if ($samples.Count -gt 0) {
+                "Synthetic 25k $group average: $((($samples | Measure-Object -Average).Average))s" | Add-Content $env:GITHUB_STEP_SUMMARY
+              }
+            }
+            $bulkBuildSamples = @($triggerRows | Where-Object { $_.group -eq 'bulk_fts' } | ForEach-Object { [double]$_.bulkFtsBuildSeconds })
+            if ($bulkBuildSamples.Count -gt 0) {
+              "Synthetic 25k one-time FTS build average: $((($bulkBuildSamples | Measure-Object -Average).Average))s" | Add-Content $env:GITHUB_STEP_SUMMARY
+            }
+          }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: global-index-filename-first-real-ntfs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .performance-artifacts/filename-first/evidence.json
+            .performance-artifacts/filename-first/trigger-attribution.json
+            .performance-artifacts/filename-first/traces/*.log
           if-no-files-found: warn

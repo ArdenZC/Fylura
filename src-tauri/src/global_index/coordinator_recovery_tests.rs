@@ -1203,6 +1203,8 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
     let mut sink = DatabaseIndexSink {
         db: db.clone(),
         owners: HashMap::new(),
+        operation_context: HashMap::new(),
+        deferred_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     };
     sink.admit_source_operation(
@@ -1246,6 +1248,8 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
     let mut retry_sink = DatabaseIndexSink {
         db: db.clone(),
         owners: HashMap::new(),
+        operation_context: HashMap::new(),
+        deferred_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     };
     retry_sink
@@ -1273,4 +1277,128 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
             .index_status,
         INDEX_STATUS_READY
     );
+}
+
+#[test]
+fn filename_first_initial_mft_is_searchable_before_sqlite_and_finishes_with_fts() {
+    let path = TestDatabasePath::new();
+    let db = Database::open(&path.0).expect("open filename-first qualification database");
+    let source_root = path.0.with_extension("source");
+    std::fs::create_dir_all(&source_root).expect("create task-owned source directory");
+    let fixture_path = source_root.join("filename-first-persistedmarker.txt");
+    std::fs::write(&fixture_path, b"filename first catalog fixture")
+        .expect("create source-owned filename fixture");
+
+    let mut volume = crate::global_index::tests::test_volume();
+    volume.platform = "linux".into();
+    volume.mount_path = source_root.to_string_lossy().into_owned();
+    db.upsert_global_volume(&volume)
+        .expect("seed explicitly authorized test source");
+    let mut sink = DatabaseIndexSink {
+        db: db.clone(),
+        owners: HashMap::new(),
+        operation_context: HashMap::new(),
+        deferred_initial_sources: HashSet::new(),
+        write_timings: HashMap::new(),
+    };
+    sink.admit_source_operation(
+        &volume,
+        "filename-first-initial",
+        SourceOperationKind::Initial,
+        SourceOperationRoute::Direct,
+    )
+    .expect("claim initial source operation");
+    sink.mark_volume_entries_stale(&volume.id)
+        .expect("begin the initial filename catalog");
+
+    let mut entry = GlobalEntryInput {
+        volume_id: volume.id.clone(),
+        platform_file_id: "0000000000000011".into(),
+        parent_platform_file_id: "0000000000000005".into(),
+        name: "filename-first-persistedmarker.txt".into(),
+        path: fixture_path.to_string_lossy().into_owned(),
+        extension: "txt".into(),
+        is_directory: false,
+        size: 0,
+        created_at_fs: Some(10),
+        modified_at_fs: Some(20),
+        file_attributes: 0,
+        is_hidden: false,
+        is_system: false,
+        source_provider: PROVIDER_WINDOWS_MFT_USN.into(),
+        last_seen_at: 30,
+    };
+    crate::global_index::coverage::enrich_fixture_identity(&mut entry);
+    assert_eq!(
+        sink.write_batch(std::slice::from_ref(&entry))
+            .expect("stage native filename entry"),
+        1
+    );
+    assert_eq!(
+        db.conn()
+            .expect("open read connection")
+            .query_row("SELECT COUNT(*) FROM global_entries", [], |row| row
+                .get::<_, i64>(0))
+            .expect("count rows before persistence"),
+        0,
+        "the first-pass name must not wait for a committed SQLite rowid"
+    );
+    let early_search = db
+        .search_global_entries("persistedmarker", 10, 0)
+        .expect("search the transient filename catalog");
+    assert_eq!(early_search.len(), 1);
+    assert_eq!(early_search[0].path, fixture_path.to_string_lossy());
+    assert!(
+        !db.global_index_status()
+            .expect("read incomplete indexing status")
+            .collection_complete
+    );
+
+    sink.checkpoint(&volume.id, Some("qa-journal"), Some("101"))
+        .expect("persist the catalog and checkpoint after MFT enumeration");
+    let persisted_size: i64 = db
+        .conn()
+        .expect("open database after persistence")
+        .query_row(
+            "SELECT size FROM global_entries WHERE id=?1 AND is_stale=0",
+            [entry.entry_id()],
+            |row| row.get(0),
+        )
+        .expect("read metadata-enriched persisted entry");
+    assert_eq!(
+        persisted_size,
+        b"filename first catalog fixture".len() as i64
+    );
+    let fts_rows: i64 = db
+        .conn()
+        .expect("open FTS check connection")
+        .query_row(
+            "SELECT COUNT(*) FROM global_entries_fts WHERE global_entries_fts MATCH 'persistedmarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("check FTS trigger output");
+    assert_eq!(fts_rows, 1, "the regular FTS triggers remain active");
+
+    sink.finish_source_operation(
+        &volume.id,
+        INDEX_STATUS_READY,
+        None,
+        Some(40),
+        Some(40),
+        true,
+    )
+    .expect("complete the initial index operation");
+    let durable_search = db
+        .search_global_entries("persistedmarker", 10, 0)
+        .expect("search the durable FTS index after dropping the overlay");
+    assert_eq!(durable_search.len(), 1);
+    assert_eq!(durable_search[0].path, fixture_path.to_string_lossy());
+    assert!(
+        db.global_index_status()
+            .expect("read complete indexing status")
+            .collection_complete
+    );
+
+    std::fs::remove_dir_all(&source_root).expect("remove task-owned source fixtures");
 }

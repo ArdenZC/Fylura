@@ -203,6 +203,7 @@ struct TransientFilenameCatalog {
     by_id: HashMap<String, usize>,
     by_name: BTreeMap<String, Vec<usize>>,
     by_extension: BTreeMap<String, Vec<usize>>,
+    // Posting lists are append-only; every hit is checked against the current entry text.
     by_filename_gram: HashMap<u64, Vec<usize>>,
 }
 

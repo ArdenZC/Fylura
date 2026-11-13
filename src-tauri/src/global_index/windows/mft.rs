@@ -309,8 +309,16 @@ fn stream_mft_records(
     let mut cursor = 0u64;
     let mut stats = MftEntryStreamStats::default();
     let mut paths = MftPathResolver::new(&source.volume.mount_path);
-    let mut batch = Vec::with_capacity(512);
     let defer_metadata = sink.defer_initial_mft_metadata(&source.volume.id);
+    // Keep filename-first catalog updates responsive. The direct SQLite path
+    // uses the largest qualified writer batch; this in-memory path only needs
+    // small MFT chunks until its first names are searchable.
+    let batch_size = if defer_metadata {
+        512
+    } else {
+        mft_emit_batch_size()
+    };
+    let mut batch = Vec::with_capacity(batch_size);
     loop {
         if cancel.load(Ordering::Acquire) {
             return Err(GlobalIndexError::Paused);
@@ -404,7 +412,7 @@ fn stream_mft_records(
                     source_provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
                     last_seen_at: crate::global_index::models::unix_now(),
                 });
-                if batch.len() >= 512 {
+                if batch.len() >= batch_size {
                     let sink_started = Instant::now();
                     let write_result = sink.write_batch(&batch);
                     timings.sink_call_us += sink_started.elapsed().as_micros();
@@ -424,6 +432,21 @@ fn stream_mft_records(
     }
     stats.pending_path_records = paths.pending_records;
     Ok(stats)
+}
+
+fn mft_emit_batch_size() -> usize {
+    mft_emit_batch_size_from(
+        std::env::var("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn mft_emit_batch_size_from(value: Option<&str>) -> usize {
+    value
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| matches!(value, 512 | 4096 | 8192))
+        .unwrap_or(8192)
 }
 
 struct MftPathResolver {
@@ -815,6 +838,15 @@ fn hex_id(value: &[u8; 16]) -> String {
 mod tests {
     use super::*;
     use windows_sys::Win32::Storage::FileSystem::FILE_ID_128;
+
+    #[test]
+    fn direct_mft_batches_accept_only_qualified_sizes() {
+        assert_eq!(mft_emit_batch_size_from(Some("512")), 512);
+        assert_eq!(mft_emit_batch_size_from(Some("4096")), 4096);
+        assert_eq!(mft_emit_batch_size_from(Some("8192")), 8192);
+        assert_eq!(mft_emit_batch_size_from(Some("16384")), 8192);
+        assert_eq!(mft_emit_batch_size_from(None), 8192);
+    }
 
     #[test]
     fn journal_recovery_requeries_after_successful_create() {

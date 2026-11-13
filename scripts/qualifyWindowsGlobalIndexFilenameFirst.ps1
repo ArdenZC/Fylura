@@ -33,7 +33,7 @@ $evidenceDirectory = Split-Path -Parent $EvidencePath
 $traceDirectory = Join-Path $evidenceDirectory 'traces'
 $script:evidence = [ordered]@{
     status = 'RUNNING'
-    comparison = 'same_release_binary_filename_first_disabled_sqlite_vs_enabled_catalog'
+    comparison = 'same_release_binary_sqlite_8192_vs_filename_first_catalog_8192'
     baselineSha = $ExpectedBaselineSha
     candidateSha = $ExpectedCandidateSha
     fileCount = $FileCount
@@ -49,6 +49,8 @@ $script:evidence = [ordered]@{
     fullIndexTargetSeconds = 10
     firstSearchTargetMet = $null
     fullIndexTargetMet = $null
+    fixtureFilenameIndexTargetMet = $null
+    completeCoveragePerPath = $null
     cleanup = [ordered]@{
         vhdCreatedByTask = $false
         vhdDetached = $false
@@ -135,6 +137,7 @@ function Invoke-Probe(
     $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
     $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = $FilenameFirstMode
     $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = '8192'
+    $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'
     $startInfo.Environment['ZC_GLOBAL_INDEX_QA_TRACE'] = $TracePath
 
     $process = [Diagnostics.Process]::new()
@@ -305,8 +308,20 @@ try {
             if (-not $run.stages.mft -or -not $run.stages.writer) {
                 throw "$side initial run $repetition omitted MFT or repository stage timings"
             }
-            if (-not $run.result.restartedSearchVisible -or -not $run.result.restartedCompleteCoverageSearchVisible -or -not $run.result.indexComplete) {
-                throw "$side initial run $repetition did not persist a complete searchable index"
+            if (-not $run.result.restartedSearchVisible -or -not $run.result.restartedCompleteCoverageSearchVisible) {
+                throw "$side initial run $repetition did not persist the tested filenames across restart"
+            }
+            if ($run.result.sourceIndexStatus -ne 'ready' -or $run.result.coveragePending) {
+                throw "$side initial run $repetition did not finish its source operation: status=$($run.result.sourceIndexStatus) coveragePending=$($run.result.coveragePending)"
+            }
+            if ([long]$run.result.fixtureFileEntries -ne $FileCount) {
+                throw "$side initial run $repetition persisted $($run.result.fixtureFileEntries) task-owned fixture files; expected $FileCount"
+            }
+            $undeterminedFixtureEntries = @($run.result.undeterminedEntries | Where-Object {
+                $_.path.StartsWith($script:fixtureRoot, [StringComparison]::OrdinalIgnoreCase)
+            })
+            if ($undeterminedFixtureEntries.Count -gt 0) {
+                throw "$side initial run $repetition left task-owned fixture entries undetermined: $($undeterminedFixtureEntries | ConvertTo-Json -Compress)"
             }
             if ($side -eq 'candidate' -and (-not $run.result.firstSearchBeforeComplete -or [long]$run.result.firstSearchProcessedEntries -ge $FileCount)) {
                 throw "candidate initial run $repetition did not expose an early filename while progress was incomplete"
@@ -386,13 +401,23 @@ try {
         ftsTiming = 'FTS5 is synchronous inside entry_upsert_us; use the paired 25k trigger attribution report to isolate trigger cost.'
     }
     $script:evidence.firstSearchTargetMet = $candidateFirst -le 10000000
-    $script:evidence.fullIndexTargetMet = $candidateFull -le 10000000
+    $allCandidateCollectionsComplete = @($candidateRows | Where-Object { -not $_.result.indexComplete }).Count -eq 0
+    $script:evidence.completeCoveragePerPath = [ordered]@{
+        baseline = @($baselineRows | ForEach-Object { $_.result.indexComplete })
+        candidate = @($candidateRows | ForEach-Object { $_.result.indexComplete })
+    }
+    $script:evidence.fixtureFilenameIndexTargetMet = $candidateFull -le 10000000
+    $script:evidence.fullIndexTargetMet = $candidateFull -le 10000000 -and $allCandidateCollectionsComplete
     $targetFailures = @()
     if (-not $script:evidence.firstSearchTargetMet) {
         $targetFailures += 'first searchable result exceeded the 10-second target'
     }
     if (-not $script:evidence.fullIndexTargetMet) {
-        $targetFailures += 'complete durable filename index exceeded the 10-second target'
+        if (-not $allCandidateCollectionsComplete) {
+            $targetFailures += 'the authorized source remains incomplete because native coverage has undetermined entries'
+        } else {
+            $targetFailures += 'complete durable filename index exceeded the 10-second target'
+        }
     }
     if ($targetFailures.Count -gt 0) {
         $script:evidence.status = 'PERFORMANCE_TARGET_MISSED'

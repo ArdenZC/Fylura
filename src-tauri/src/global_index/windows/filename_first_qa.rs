@@ -180,7 +180,9 @@ pub fn run_initial(
         |row| row.get::<_, i64>(0),
     )?;
     if fts_trigger_count != 3 {
-        return Err(format!("expected all FTS triggers restored, found {fts_trigger_count}").into());
+        return Err(
+            format!("expected all FTS triggers restored, found {fts_trigger_count}").into(),
+        );
     }
     drop(integrity_conn);
     let database_path = profile.join("fylura.sqlite3");

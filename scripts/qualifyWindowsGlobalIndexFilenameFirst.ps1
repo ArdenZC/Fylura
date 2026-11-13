@@ -362,10 +362,10 @@ try {
         Copy-Item -LiteralPath $trace -Destination (Join-Path $traceDirectory "$side-incremental.log") -Force
     }
 
-    $baselineFirst = Get-Average $baselineRows.ToArray() 'firstSearchableUs'
-    $candidateFirst = Get-Average $candidateRows.ToArray() 'firstSearchableUs'
-    $baselineFull = Get-Average $baselineRows.ToArray() 'fullIndexUs'
-    $candidateFull = Get-Average $candidateRows.ToArray() 'fullIndexUs'
+    $baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'
+    $candidateFirst = Get-Average $candidateRows.ToArray() 'result.firstSearchableUs'
+    $baselineFull = Get-Average $baselineRows.ToArray() 'result.fullIndexUs'
+    $candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'
     $script:evidence.baseline = $baselineRows.ToArray()
     $script:evidence.candidate = $candidateRows.ToArray()
     $script:evidence.incremental = $incremental

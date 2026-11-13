@@ -401,9 +401,14 @@ jobs:
             "Repository UPSERT (includes synchronous FTS triggers) baseline/candidate: $($report.phaseAverages.baselineEntryUpsertUs) / $($report.phaseAverages.candidateEntryUpsertUs) us",
             "SQLite commit baseline/candidate: $($report.phaseAverages.baselineCommitUs) / $($report.phaseAverages.candidateCommitUs) us",
             "SQLite transactions baseline/candidate: $($report.phaseAverages.baselineSqliteTransactionCount) / $($report.phaseAverages.candidateSqliteTransactionCount)",
+            "Average peak working set baseline/candidate: $($report.averages.baselinePeakWorkingSetBytes) / $($report.averages.candidatePeakWorkingSetBytes) bytes",
+            "Average peak private bytes baseline/candidate: $($report.averages.baselinePeakPrivateBytes) / $($report.averages.candidatePeakPrivateBytes) bytes",
+            "Average database+WAL bytes baseline/candidate: $($report.averages.baselineDatabaseBytes) / $($report.averages.candidateDatabaseBytes) bytes",
+            "Incremental add/rename/delete and restart correct baseline/candidate: $($report.incremental.baseline.restartCorrect) / $($report.incremental.candidate.restartCorrect)",
             'macOS hosted Spotlight: UNVERIFIED by its separate capability job.'
           ) -join [Environment]::NewLine
           $summary | Add-Content $env:GITHUB_STEP_SUMMARY
+          Write-Output $summary
           $triggerPath = Join-Path (Split-Path -Parent $env:EVIDENCE_PATH) 'trigger-attribution.json'
           if (Test-Path -LiteralPath $triggerPath) {
             $triggerRows = Get-Content -LiteralPath $triggerPath -Raw | ConvertFrom-Json

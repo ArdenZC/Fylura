@@ -148,4 +148,12 @@ describe("Global Index performance workflow routing", () => {
     expect(mft).toContain("let batch_size = if defer_metadata {");
     expect(mft).toContain("fn mft_emit_batch_size_from(value: Option<&str>) -> usize");
   });
+
+  it("reads native pair timing fields from the QA result and prints durable evidence", () => {
+    expect(filenameFirstQualification).toContain("$baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'");
+    expect(filenameFirstQualification).toContain("$candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'");
+    expect(workflow).toContain("Average peak working set baseline/candidate:");
+    expect(workflow).toContain("Average database+WAL bytes baseline/candidate:");
+    expect(workflow).toContain("Write-Output $summary");
+  });
 });

@@ -132,20 +132,25 @@ describe("Global Index performance workflow routing", () => {
 
   it("lets a repeated native pair reuse prior trigger attribution", () => {
     expect(workflow).toContain("run_trigger_matrix:");
-    expect(workflow).toContain("if: inputs.run_trigger_matrix");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch' && inputs.run_trigger_matrix");
+    expect(workflow).toContain("github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')");
   });
 
   it("compares the filename-first path against SQLite using the same Release binary", () => {
     expect(workflow).toContain("Build one Release QA executable for both feature modes");
     expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
     expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_8192");
-    expect(workflow).toContain("same Release binary, direct SQLite path with 8192-row SQL batches versus transient filename catalog fed in 512-row MFT chunks and persisted in 8192-row batches");
+    expect(workflow).toContain("same Release binary; direct SQLite uses synchronous FTS with 8192-row batches; candidate emits configured 8192-row MFT chunks");
+    expect(workflow).toContain("reuses preflight Scope decisions");
+    expect(workflow).toContain("one-time FTS rebuild");
     expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
     expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
-    expect(filenameFirstQualification).toContain("fixtureFilenameIndexTargetMet = $candidateFull -le 10000000");
+    expect(filenameFirstQualification).toContain("durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le 10000000");
+    expect(filenameFirstQualification).toContain("fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet");
+    expect(filenameFirstQualification).toContain("'result.durableFilenameIndexUs'");
     expect(filenameFirstQualification).toContain("sourceIndexStatus -ne 'ready' -or $run.result.coveragePending");
-    expect(mft).toContain("let batch_size = if defer_metadata {");
+    expect(mft).toContain("let batch_size = mft_emit_batch_size();");
     expect(mft).toContain("fn mft_emit_batch_size_from(value: Option<&str>) -> usize");
   });
 

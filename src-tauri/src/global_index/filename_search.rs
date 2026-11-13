@@ -330,12 +330,8 @@ impl FilenameSearchManager {
             } else {
                 None
             };
-            let value = transient_filename_entry(
-                id.clone(),
-                input,
-                parent_directory_index,
-                *visible,
-            );
+            let value =
+                transient_filename_entry(id.clone(), input, parent_directory_index, *visible);
             if let Some(index) = by_id.get(&id).copied() {
                 let previous_visible = catalog_entries[index].visible;
                 remove_transient_key(by_name, &catalog_entries[index].normalized_name, index);
@@ -344,9 +340,7 @@ impl FilenameSearchManager {
                     &catalog_entries[index].normalized_extension,
                     index,
                 );
-                if let Some(previous_directory) =
-                    catalog_entries[index].parent_directory_index
-                {
+                if let Some(previous_directory) = catalog_entries[index].parent_directory_index {
                     path_directories[previous_directory]
                         .entries
                         .retain(|candidate| *candidate != index);
@@ -368,9 +362,7 @@ impl FilenameSearchManager {
                         catalog_entries[index].normalized_extension.clone(),
                         index,
                     );
-                    if let Some(directory_index) =
-                        catalog_entries[index].parent_directory_index
-                    {
+                    if let Some(directory_index) = catalog_entries[index].parent_directory_index {
                         path_directories[directory_index].entries.push(index);
                     }
                     for gram in transient_filename_grams(
@@ -396,9 +388,7 @@ impl FilenameSearchManager {
                         catalog_entries[index].normalized_extension.clone(),
                         index,
                     );
-                    if let Some(directory_index) =
-                        catalog_entries[index].parent_directory_index
-                    {
+                    if let Some(directory_index) = catalog_entries[index].parent_directory_index {
                         path_directories[directory_index].entries.push(index);
                     }
                     for gram in transient_filename_grams(
@@ -774,10 +764,9 @@ impl FilenameSearchManager {
                     .rsplit_once('/')
                     .map_or(normalized_path_query.as_str(), |(parent, _)| parent);
                 let directory_grams = filename_grams(directory_fragment);
-                if let Some(indices) = most_selective_transient_path_gram(
-                    &directory_grams,
-                    &catalog.by_path_gram,
-                ) {
+                if let Some(indices) =
+                    most_selective_transient_path_gram(&directory_grams, &catalog.by_path_gram)
+                {
                     push_transient_path_matches(
                         &catalog,
                         indices.iter().copied(),
@@ -1380,9 +1369,7 @@ fn transient_parent_directory(path: &str) -> String {
     let Some(separator) = path.rfind(|character| matches!(character, '\\' | '/')) else {
         return String::new();
     };
-    path[..separator]
-        .to_lowercase()
-        .replace('\\', "/")
+    path[..separator].to_lowercase().replace('\\', "/")
 }
 
 fn transient_path_directory_index(

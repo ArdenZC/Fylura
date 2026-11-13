@@ -124,6 +124,31 @@ describe("W2-10 interaction/accessibility/responsive integration contracts", () 
     expect(browseCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
+  it("keeps the locations column independently resizable, collapsible and re-openable", () => {
+    const workspace = read("src/views/fileLibrary/FileLibraryWorkspace.tsx");
+    const filesChrome = read("src/views/fileLibrary/fileLibraryV340.css");
+
+    // Width is a persisted preference clamped to a usable range, so the column
+    // never collapses below a readable name or eats the list.
+    expect(workspace).toContain("export function clampTreeWidth");
+    expect(workspace).toContain("TREE_WIDTH_MIN = 168");
+    expect(workspace).toContain("TREE_WIDTH_MAX = 340");
+    expect(workspace).toContain("LIBRARY_TREE_WIDTH_KEY");
+    expect(workspace).toContain("--file-tree-width");
+    // The resizer is a focusable separator with pointer capture, keyboard steps
+    // and a double-click reset.
+    expect(workspace).toContain('role="separator"');
+    expect(workspace).toContain('aria-orientation="vertical"');
+    expect(workspace).toContain("setPointerCapture");
+    expect(workspace).toContain("onDoubleClick={() => onResize(TREE_WIDTH_DEFAULT)}");
+    expect(workspace).toContain('event.key === "ArrowLeft"');
+    // Collapsed state keeps an edge affordance instead of a permanent 0px row.
+    expect(workspace).toContain("file-library-tree-handle");
+    expect(filesChrome).toContain(".file-library-tree-resizer");
+    expect(filesChrome).toContain("cursor: col-resize");
+    expect(filesChrome).toContain(".file-library-tree-handle");
+  });
+
   it("restores Browse query presentation through WorkspaceSession Back/Forward", () => {
     const browseTarget = {
       kind: "browse" as const,

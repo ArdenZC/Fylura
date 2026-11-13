@@ -326,16 +326,78 @@
 }
 
 .file-library-workspace[data-layout="large"][data-tree-inline="true"] .file-library-workspace-body {
-  grid-template-columns: var(--zc-tree-width) minmax(0, 1fr);
+  grid-template-columns: var(--file-tree-width, var(--zc-tree-width)) minmax(0, 1fr);
 }
 
 .file-library-workspace[data-layout="large"][data-tree-inline="true"][data-context-open="true"] .file-library-workspace-body {
-  grid-template-columns: var(--zc-tree-width) minmax(0, 1fr) var(--zc-inspector-width);
+  grid-template-columns: var(--file-tree-width, var(--zc-tree-width)) minmax(0, 1fr) var(--zc-inspector-width);
+}
+
+/* Column resizer: a 9px hit band with a 1px visual line that turns primary on
+ * hover/drag (DESIGN-SPEC §9.12). */
+.file-library-tree-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.file-library-tree-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  content: "";
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.file-library-tree-resizer:hover::after,
+.file-library-tree-resizer:focus-visible::after,
+.file-library-tree-resizer:active::after {
+  background: var(--zc-primary);
+}
+
+.file-library-tree-resizer:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+/* Edge capsule when the column is collapsed: the tree stays one click away
+ * without occupying permanent width. */
+.file-library-tree-handle {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 0;
+  display: grid;
+  width: 14px;
+  height: 62px;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 1px solid var(--zc-divider);
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  background: var(--zc-surface);
+  color: var(--zc-text-tertiary);
+  box-shadow: var(--zc-shadow-raised);
+}
+
+.file-library-tree-handle:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
 }
 
 /* The tree is a column, not a card: a single divider separates it from the
  * list, matching the prototype's flat panel grammar. */
 .file-library-workspace[data-tree-inline="true"] .file-library-navigation-slot {
+  position: relative;
   border-right: 1px solid var(--zc-divider);
 }
 

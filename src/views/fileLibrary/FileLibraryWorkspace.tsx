@@ -2,7 +2,7 @@ import { FileLibraryWorkbench } from "./workbench/FileLibraryWorkbench";
 import { PathBar } from "./workbench/PathBar";
 import { usePane, usePaneQuerySelector } from "./workbench/PaneContext";
 import { usePreviewExperience } from "./preview/PreviewExperienceProvider";
-import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, SlidersHorizontal } from "lucide-react";
 import { lazy, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
@@ -36,6 +36,24 @@ export const layoutForWidth = (width: number): FileLibraryLayout => {
 };
 
 const LIBRARY_TREE_PREFERENCE_KEY = "fylura:file-tree-open";
+const LIBRARY_TREE_WIDTH_KEY = "fylura:file-tree-width";
+const TREE_WIDTH_DEFAULT = 196;
+const TREE_WIDTH_MIN = 168;
+const TREE_WIDTH_MAX = 340;
+
+export function clampTreeWidth(width: number) {
+  if (!Number.isFinite(width)) return TREE_WIDTH_DEFAULT;
+  return Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_MIN, Math.round(width)));
+}
+
+function readTreeWidthPreference() {
+  try {
+    const stored = Number(window.localStorage.getItem(LIBRARY_TREE_WIDTH_KEY));
+    return stored > 0 ? clampTreeWidth(stored) : TREE_WIDTH_DEFAULT;
+  } catch {
+    return TREE_WIDTH_DEFAULT;
+  }
+}
 
 function readTreeOpenPreference() {
   try {
@@ -58,6 +76,7 @@ function FileLibraryPane() {
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [treeOpen, setTreeOpen] = useState(readTreeOpenPreference);
+  const [treeWidth, setTreeWidth] = useState(readTreeWidthPreference);
   const [commandBarSurface, setCommandBarSurface] = useState<FileLibraryCommandBarSurface | null>(null);
 
   const registerSurface = useCallback((surface: FileLibraryCommandBarSurface) => {
@@ -115,6 +134,11 @@ function FileLibraryPane() {
     if (nextOpen && contextOpen) controller.setContextOpen(false);
     setNavigationOpen(nextOpen);
   }, [contextOpen, controller, layout, navigationOpen]);
+  const applyTreeWidth = useCallback((width: number) => {
+    const next = clampTreeWidth(width);
+    setTreeWidth(next);
+    try { window.localStorage.setItem(LIBRARY_TREE_WIDTH_KEY, String(next)); } catch { /* optional preference */ }
+  }, []);
   const toggleContext = useCallback(() => {
     const nextOpen = !contextOpen;
     if (nextOpen && layout !== "large") setNavigationOpen(false);
@@ -161,6 +185,7 @@ function FileLibraryPane() {
             data-context-open={contextOpen ? "true" : "false"}
             data-file-library-navigation-open={navigationVisible ? "true" : "false"}
             data-tree-inline={treeInline ? "true" : "false"}
+            style={treeInline ? { "--file-tree-width": `${treeWidth}px` } as React.CSSProperties : undefined}
           >
             <div className="file-library-location-row">
             <PathBar />
@@ -209,7 +234,21 @@ function FileLibraryPane() {
                       onClose={closeNavigation}
                     />
                   ) : null}
+                  {treeInline ? (
+                    <TreeResizeHandle width={treeWidth} onResize={applyTreeWidth} label={t("fileLibraryTreeResize")} />
+                  ) : null}
                 </aside>
+                {layout === "large" && !treeOpen ? (
+                  <button
+                    type="button"
+                    className="file-library-tree-handle"
+                    onClick={toggleNavigation}
+                    aria-label={t("fileLibraryNavigationOpen")}
+                    title={t("fileLibraryNavigationOpen")}
+                  >
+                    <ChevronRight size={12} aria-hidden="true" />
+                  </button>
+                ) : null}
 
                 <main className="file-library-content-slot" data-workspace-slot="content">
                   {state.mode === "library"
@@ -231,6 +270,58 @@ function FileLibraryPane() {
         </PreviewExperienceProvider>
       </FileLibraryCommandBarSurfaceProvider>
     </LibraryNavigationSurfaceProvider>
+  );
+}
+
+/**
+ * Pointer-captured column resizer. Dragging updates the width live, releasing
+ * commits it to the stored preference; keyboard and double-click provide the
+ * same reach without a pointer.
+ */
+function TreeResizeHandle({
+  width,
+  onResize,
+  label
+}: {
+  width: number;
+  onResize: (width: number) => void;
+  label: string;
+}) {
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuenow={width}
+      aria-valuemin={TREE_WIDTH_MIN}
+      aria-valuemax={TREE_WIDTH_MAX}
+      tabIndex={0}
+      className="file-library-tree-resizer"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = { x: event.clientX, width };
+      }}
+      onPointerMove={(event) => {
+        if (!drag.current) return;
+        onResize(drag.current.width + (event.clientX - drag.current.x));
+      }}
+      onPointerUp={(event) => {
+        drag.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={() => { drag.current = null; }}
+      onDoubleClick={() => onResize(TREE_WIDTH_DEFAULT)}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 24 : 8;
+        if (event.key === "ArrowLeft") { event.preventDefault(); onResize(width - step); }
+        else if (event.key === "ArrowRight") { event.preventDefault(); onResize(width + step); }
+        else if (event.key === "Home") { event.preventDefault(); onResize(TREE_WIDTH_DEFAULT); }
+      }}
+    />
   );
 }
 

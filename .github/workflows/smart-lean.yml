@@ -36,10 +36,6 @@ on:
         type: choice
         default: '100000'
         options: ['1000', '100000', '200000']
-      baseline_ref:
-        description: Existing SQLite/MFT implementation ref for the real NTFS pair
-        type: string
-        default: perf/global-index-native-ingestion-20261112
       run_trigger_matrix:
         description: Re-run the synthetic 25k FTS/source-stat attribution matrix
         type: boolean
@@ -356,53 +352,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Build candidate frontend assets
         run: npm run build:frontend
-      - name: Prepare exact existing-path baseline worktree
-        id: baseline
-        shell: pwsh
-        env:
-          BASELINE_REF: ${{ inputs.baseline_ref || 'perf/global-index-native-ingestion-20261112' }}
-          BASELINE_ROOT: ${{ runner.temp }}/fylura-global-index-sqlite-baseline
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git fetch --no-tags origin $env:BASELINE_REF
-          if ($LASTEXITCODE -ne 0) { throw "could not fetch baseline ref $env:BASELINE_REF" }
-          $sha = (& git rev-parse FETCH_HEAD).Trim()
-          if ($LASTEXITCODE -ne 0) { throw 'could not resolve fetched baseline SHA' }
-          git worktree add --detach $env:BASELINE_ROOT $sha
-          if ($LASTEXITCODE -ne 0) { throw 'could not create exact baseline worktree' }
-          $baselineDist = Join-Path $env:BASELINE_ROOT 'dist'
-          New-Item -ItemType Directory -Path $baselineDist -Force | Out-Null
-          Copy-Item -Path (Join-Path $PWD 'dist\*') -Destination $baselineDist -Recurse -Force
-          $qaModule = Join-Path $env:BASELINE_ROOT 'src-tauri/src/global_index/windows/filename_first_qa.rs'
-          Copy-Item -LiteralPath 'src-tauri/src/global_index/windows/filename_first_qa.rs' -Destination $qaModule -Force
-          $windowsModule = Join-Path $env:BASELINE_ROOT 'src-tauri/src/global_index/windows/mod.rs'
-          $moduleText = Get-Content -LiteralPath $windowsModule -Raw
-          if ($moduleText -notmatch 'pub mod filename_first_qa;') {
-            $moduleInsert = 'pub mod service_host;' + [Environment]::NewLine + '#[cfg(feature = "native-qa")]' + [Environment]::NewLine + 'pub mod filename_first_qa;'
-            $moduleText = $moduleText.Replace('pub mod service_host;', $moduleInsert)
-            Set-Content -LiteralPath $windowsModule -Value $moduleText -Encoding utf8NoBOM
-          }
-          Copy-Item -LiteralPath 'src-tauri/native-qa/global_index_probe.rs' -Destination (Join-Path $env:BASELINE_ROOT 'src-tauri/native-qa/global_index_probe.rs') -Force
-          "sha=$sha" >> $env:GITHUB_OUTPUT
-      - name: Build baseline and candidate Release QA executables
-        shell: pwsh
-        env:
-          BASELINE_ROOT: ${{ runner.temp }}/fylura-global-index-sqlite-baseline
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $baselineTarget = Join-Path $env:BASELINE_ROOT '.qa-target'
-          $baselineBin = Join-Path $env:BASELINE_ROOT '.qa-bin'
-          New-Item -ItemType Directory -Path $baselineBin -Force | Out-Null
-          $env:CARGO_TARGET_DIR = $baselineTarget
-          Push-Location $env:BASELINE_ROOT
-          try {
-            cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features 'desktop-runtime native-qa' --bin zb05-global-index-qa
-            if ($LASTEXITCODE -ne 0) { throw "baseline Release QA build failed with exit code $LASTEXITCODE" }
-            Copy-Item -LiteralPath (Join-Path $baselineTarget 'release/zb05-global-index-qa.exe') -Destination (Join-Path $baselineBin 'zb05-global-index-qa.exe') -Force
-          } finally { Pop-Location }
-          $env:CARGO_TARGET_DIR = Join-Path $env:GITHUB_WORKSPACE 'src-tauri/target'
-          cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features 'desktop-runtime native-qa' --bin zb05-global-index-qa
-          if ($LASTEXITCODE -ne 0) { throw "candidate Release QA build failed with exit code $LASTEXITCODE" }
+      - name: Build one Release QA executable for both feature modes
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features 'desktop-runtime native-qa' --bin zb05-global-index-qa
       - name: Create performance evidence directory
         shell: pwsh
         run: New-Item -ItemType Directory -Path '.performance-artifacts/filename-first' -Force | Out-Null
@@ -414,13 +365,12 @@ jobs:
       - name: Run paired 100k MFT qualification on one task-owned NTFS volume
         shell: pwsh
         env:
-          BASELINE_ROOT: ${{ runner.temp }}/fylura-global-index-sqlite-baseline
-          BASELINE_SHA: ${{ steps.baseline.outputs.sha }}
           CANDIDATE_SHA: ${{ github.sha }}
           EVIDENCE_PATH: ${{ github.workspace }}/.performance-artifacts/filename-first/evidence.json
         run: |
           $ErrorActionPreference = 'Stop'
-          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 -BaselineProbeExe (Join-Path $env:BASELINE_ROOT '.qa-bin/zb05-global-index-qa.exe') -CandidateProbeExe (Join-Path $PWD 'src-tauri/target/release/zb05-global-index-qa.exe') -BaselineRoot $env:BASELINE_ROOT -CandidateRoot $PWD -ExpectedBaselineSha $env:BASELINE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA -EvidencePath $env:EVIDENCE_PATH -FileCount 100000 -Repetitions 3
+          $probe = Join-Path $PWD 'src-tauri/target/release/zb05-global-index-qa.exe'
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 -BaselineProbeExe $probe -CandidateProbeExe $probe -BaselineRoot $PWD -CandidateRoot $PWD -ExpectedBaselineSha $env:CANDIDATE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA -EvidencePath $env:EVIDENCE_PATH -FileCount 100000 -Repetitions 3
           if ($LASTEXITCODE -ne 0) { throw "real NTFS filename-first pair failed with exit code $LASTEXITCODE" }
       - name: Summarize native result and performance target status
         if: always()
@@ -436,6 +386,7 @@ jobs:
           $summary = @(
             "Real NTFS MFT pair status: $($report.status)",
             "File count: $($report.fileCount); repetitions per path: $($report.repetitions)",
+            'Comparison: same Release binary, filename-first disabled SQLite path versus enabled transient-catalog path.',
             "Average first-search baseline/candidate: $($report.averages.baselineFirstSearchableUs) / $($report.averages.candidateFirstSearchableUs) us",
             "First-search improvement: $($report.averages.firstSearchImprovementPercent)% (10s candidate target met: $($report.firstSearchTargetMet))",
             "Average complete-index baseline/candidate: $($report.averages.baselineFullIndexUs) / $($report.averages.candidateFullIndexUs) us",
@@ -472,13 +423,3 @@ jobs:
             .performance-artifacts/filename-first/trigger-attribution.json
             .performance-artifacts/filename-first/traces/*.log
           if-no-files-found: warn
-      - name: Remove baseline worktree
-        if: always()
-        shell: pwsh
-        env:
-          BASELINE_ROOT: ${{ runner.temp }}/fylura-global-index-sqlite-baseline
-        run: |
-          if (Test-Path -LiteralPath $env:BASELINE_ROOT) {
-            git worktree remove --force $env:BASELINE_ROOT
-            if ($LASTEXITCODE -ne 0) { throw 'could not remove task-owned baseline worktree' }
-          }

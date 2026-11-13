@@ -33,6 +33,7 @@ $evidenceDirectory = Split-Path -Parent $EvidencePath
 $traceDirectory = Join-Path $evidenceDirectory 'traces'
 $script:evidence = [ordered]@{
     status = 'RUNNING'
+    comparison = 'same_release_binary_filename_first_disabled_sqlite_vs_enabled_catalog'
     baselineSha = $ExpectedBaselineSha
     candidateSha = $ExpectedCandidateSha
     fileCount = $FileCount
@@ -297,6 +298,10 @@ try {
                 '--qualify-filename-first', $profile, $prepared.targetSourceId,
                 'filename-first-item-000000.txt', $firstTargetPath, 'finalmarker', $targetPath
             ) $mode $trace 90
+            $expectedFilenameFirstMode = $side -eq 'candidate'
+            if ([bool]$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode) {
+                throw "$side initial run $repetition used the wrong filename-first mode: expected=$expectedFilenameFirstMode actual=$($run.result.filenameFirstEnabled)"
+            }
             if (-not $run.stages.mft -or -not $run.stages.writer) {
                 throw "$side initial run $repetition omitted MFT or repository stage timings"
             }
@@ -402,6 +407,15 @@ try {
     $script:evidence.failure = $failure
 } finally {
     try {
+        if (Test-Path -LiteralPath $taskRoot -PathType Container) {
+            $traceFiles = @(Get-ChildItem -LiteralPath $taskRoot -Filter '*trace.log' -File -ErrorAction SilentlyContinue)
+            if ($traceFiles.Count -gt 0) {
+                New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null
+                foreach ($traceFile in $traceFiles) {
+                    Copy-Item -LiteralPath $traceFile.FullName -Destination (Join-Path $traceDirectory $traceFile.Name) -Force
+                }
+            }
+        }
         if (Test-Path -LiteralPath $vhdPath) {
             $owner = if (Test-Path -LiteralPath $vhdOwnerMarker) { (Get-Content -LiteralPath $vhdOwnerMarker -Raw).Trim() } else { $null }
             if (-not $owner -or -not $owner.Equals($vhdPath, [StringComparison]::OrdinalIgnoreCase)) {

@@ -1581,9 +1581,9 @@ impl Database {
                 ])?;
                 timing.metadata_update += metadata_started.elapsed();
 
-                let managed_scope_matches = scope_policies.iter().any(|scope| {
-                    path_is_within(&normalize_path(&entry.path), &scope.path)
-                });
+                let managed_scope_matches = scope_policies
+                    .iter()
+                    .any(|scope| path_is_within(&normalize_path(&entry.path), &scope.path));
                 let identity_matches = if updated > 0 {
                     true
                 } else if managed_scope_matches {

@@ -68,6 +68,7 @@ pub enum TransferAction {
     Rename,
     Trash,
     CreateDirectory,
+    CreateFile,
 }
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -88,6 +89,8 @@ pub struct TransferPreviewRequest {
     pub destination_browse: Option<TransferBrowseDestination>,
     #[serde(default)]
     pub new_name: Option<String>,
+    #[serde(default)]
+    pub new_names: HashMap<String, String>,
     #[serde(default)]
     pub keep_both: Vec<String>,
     #[serde(default)]
@@ -113,6 +116,12 @@ pub struct TransferRow {
 pub struct TransferExecuteRequest {
     pub preview_id: String,
     pub confirmed: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NativeDragOutRequest {
+    pub ticket_ids: Vec<String>,
 }
 
 impl FileWorkspaceRuntime {
@@ -264,33 +273,94 @@ impl FileWorkspaceRuntime {
         Ok(tickets)
     }
 
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
+    pub(crate) fn native_drag_out_paths(
+        &self,
+        ticket_ids: &[String],
+    ) -> Result<Vec<PathBuf>, String> {
+        self.ensure_live()?;
+        if ticket_ids.is_empty() || ticket_ids.len() > EXTERNAL_PATH_LIMIT {
+            return Err("transfer_selection_limit_256".into());
+        }
+        let unique: HashSet<_> = ticket_ids.iter().collect();
+        if unique.len() != ticket_ids.len() {
+            return Err("transfer_selection_invalid".into());
+        }
+        let sources = {
+            let state = self
+                .inner
+                .transfers
+                .lock()
+                .map_err(|_| "transfer_state_unavailable")?;
+            ticket_ids
+                .iter()
+                .map(|id| {
+                    state
+                        .sources
+                        .get(id)
+                        .cloned()
+                        .ok_or("transfer_reference_expired")
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut paths = Vec::with_capacity(sources.len());
+        for source in sources {
+            let path = validate_transfer_source_path(Path::new(&source.ticket.path))?;
+            if file_namespace_fingerprint(&path)? != source.identity {
+                return Err("transfer_source_changed".into());
+            }
+            #[cfg(windows)]
+            ensure_transfer_source_content_ready(&path)?;
+            VerifiedDirectory::open_existing(path.parent().ok_or("transfer_source_invalid")?)
+                .map_err(|error| error.to_string())?;
+            paths.push(path);
+        }
+        Ok(paths)
+    }
+
     pub(crate) fn preview_transfer(
         &self,
         request: TransferPreviewRequest,
     ) -> Result<TransferPreview, String> {
         self.ensure_live()?;
-        if request.action == TransferAction::CreateDirectory {
+        if matches!(
+            request.action,
+            TransferAction::CreateDirectory | TransferAction::CreateFile
+        ) {
+            let is_directory = request.action == TransferAction::CreateDirectory;
+            let invalid_request = if is_directory {
+                "transfer_create_directory_request_invalid"
+            } else {
+                "transfer_create_file_request_invalid"
+            };
             if !request.ticket_ids.is_empty()
                 || request.new_name.is_none()
+                || !request.new_names.is_empty()
                 || request.destination_entry.is_some()
                 || !request.keep_both.is_empty()
                 || !request.skip.is_empty()
             {
-                return Err("transfer_create_directory_request_invalid".into());
+                return Err(invalid_request.into());
             }
             let directory = self.resolve_transfer_destination(&request)?;
-            let name = request
-                .new_name
-                .as_deref()
-                .ok_or("transfer_create_directory_request_invalid")?;
-            let operation = create_directory_operation(&directory, name)?;
+            let name = request.new_name.as_deref().ok_or(invalid_request)?;
+            let operation = if is_directory {
+                create_directory_operation(&directory, name)?
+            } else {
+                create_file_operation(&directory, name)?
+            };
+            let ticket_id = if is_directory {
+                "create-directory"
+            } else {
+                "create-file"
+            };
             let target = Path::new(&operation.target_path);
             if path_entry_exists(target)? {
                 return Ok(TransferPreview {
                     id: new_job_id("transfer-preview"),
                     destination_directory: normalize_path(&directory),
                     rows: vec![TransferRow {
-                        ticket_id: "create-directory".into(),
+                        ticket_id: ticket_id.into(),
                         preview: None,
                         error: Some("transfer_target_exists".into()),
                         skipped: false,
@@ -318,24 +388,34 @@ impl FileWorkspaceRuntime {
                 id,
                 destination_directory: normalize_path(&directory),
                 rows: vec![TransferRow {
-                    ticket_id: "create-directory".into(),
+                    ticket_id: ticket_id.into(),
                     preview: Some(preview_dto(&operation)),
                     error: None,
                     skipped: false,
                 }],
             });
         }
-        if request.action == TransferAction::Rename
-            && (request.ticket_ids.len() != 1
-                || request.new_name.is_none()
+        if request.action == TransferAction::Rename {
+            let single_name = request.new_names.is_empty()
+                && request.ticket_ids.len() == 1
+                && request.new_name.is_some();
+            let batch_names = request.new_name.is_none()
+                && request.new_names.len() == request.ticket_ids.len()
+                && request
+                    .ticket_ids
+                    .iter()
+                    .all(|id| request.new_names.contains_key(id));
+            if (!single_name && !batch_names)
                 || request.destination_entry.is_some()
                 || !request.keep_both.is_empty()
-                || !request.skip.is_empty())
-        {
-            return Err("transfer_rename_selection_invalid".into());
+                || (!batch_names && !request.skip.is_empty())
+            {
+                return Err("transfer_rename_selection_invalid".into());
+            }
         }
         if request.action == TransferAction::Trash
             && (request.new_name.is_some()
+                || !request.new_names.is_empty()
                 || request.destination_entry.is_some()
                 || !request.keep_both.is_empty()
                 || !request.skip.is_empty())
@@ -345,7 +425,7 @@ impl FileWorkspaceRuntime {
         if !matches!(
             request.action,
             TransferAction::Rename | TransferAction::Trash
-        ) && request.new_name.is_some()
+        ) && (request.new_name.is_some() || !request.new_names.is_empty())
         {
             return Err("transfer_new_name_unexpected".into());
         }
@@ -456,8 +536,10 @@ impl FileWorkspaceRuntime {
             let result = (|| {
                 let mut name = if request.action == TransferAction::Rename {
                     request
-                        .new_name
-                        .clone()
+                        .new_names
+                        .get(&id)
+                        .cloned()
+                        .or_else(|| request.new_name.clone())
                         .ok_or("transfer_rename_selection_invalid")?
                 } else {
                     source.ticket.name.clone()
@@ -753,6 +835,7 @@ fn action_name(action: TransferAction) -> &'static str {
         TransferAction::Rename => "rename",
         TransferAction::Trash => "move_to_trash",
         TransferAction::CreateDirectory => "create_directory",
+        TransferAction::CreateFile => "create_file",
     }
 }
 
@@ -986,9 +1069,15 @@ fn revalidate_with_tree_fingerprint(
     operation: &OperationPreviewRequest,
     validated_tree_fingerprint: Option<&str>,
 ) -> Result<DirectoryIdentity, String> {
-    if operation.operation_type == "create_directory" {
-        let current =
-            create_directory_operation(Path::new(&operation.source_path), &operation.new_name)?;
+    if matches!(
+        operation.operation_type.as_str(),
+        "create_directory" | "create_file"
+    ) {
+        let current = if operation.operation_type == "create_directory" {
+            create_directory_operation(Path::new(&operation.source_path), &operation.new_name)?
+        } else {
+            create_file_operation(Path::new(&operation.source_path), &operation.new_name)?
+        };
         if current.id != operation.id
             || current.target_path != operation.target_path
             || path_entry_exists(Path::new(&current.target_path))?
@@ -1176,6 +1265,15 @@ pub(crate) fn execute(
             context.actual_path_observer,
         );
     }
+    if operation.operation_type == "create_file" {
+        return create_empty_file_with_safety(
+            operation.source_path.clone(),
+            operation.new_name.clone(),
+            context.expected_identity,
+            context.phase_observer,
+            context.actual_path_observer,
+        );
+    }
     if operation.operation_type == "rename" {
         return rename_file_with_identity(
             operation.source_path.clone(),
@@ -1309,6 +1407,33 @@ fn create_directory_operation(
         id: format!("op-transfer-{}", digest.to_hex()),
         file_id: super::RECOVERY_ACTION_FILE_ID.into(),
         operation_type: "create_directory".into(),
+        source_path: normalize_path(parent.path()),
+        target_path: normalize_path(&target),
+        old_name: name.into(),
+        new_name: name.into(),
+        is_executable: Some(true),
+    })
+}
+
+fn create_file_operation(directory: &Path, name: &str) -> Result<OperationPreviewRequest, String> {
+    validate_safe_file_name(name)?;
+    let parent = VerifiedDirectory::open_existing(directory).map_err(|error| error.to_string())?;
+    ensure_general_file_operation_allowed(parent.path())?;
+    ensure_not_safe_trash_operation(parent.path())?;
+    let target = parent.path().join(name);
+    ensure_not_safe_trash_operation(&target)?;
+    let digest = blake3::hash(
+        format!(
+            "create-file:v1:{}:{:?}:{name}",
+            normalize_path(parent.path()),
+            parent.identity()
+        )
+        .as_bytes(),
+    );
+    Ok(OperationPreviewRequest {
+        id: format!("op-transfer-{}", digest.to_hex()),
+        file_id: super::RECOVERY_ACTION_FILE_ID.into(),
+        operation_type: "create_file".into(),
         source_path: normalize_path(parent.path()),
         target_path: normalize_path(&target),
         old_name: name.into(),

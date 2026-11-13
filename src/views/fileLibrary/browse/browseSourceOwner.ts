@@ -24,6 +24,7 @@ import type {
   BrowsePresentationEntry
 } from "../presentation/contracts";
 import { mountedLocations, networkAvailabilityFromBrowseError } from "../navigation/mountedLocations";
+import { invertLoadedSelection, mergeMarqueeSelection } from "./browseSelection";
 
 export const BROWSE_PAGE_SIZE = 32;
 export const QUERY_SCAN_PAGE_BATCH = 8;
@@ -62,7 +63,7 @@ export interface BrowseSourceOwner {
   readonly browseSortAvailable: true;
   readonly skippedEntries: number;
   readonly setSort: (sort: BrowseQuerySpecV1["sort"]) => void;
-  readonly selectIds: (ids: readonly string[]) => void;
+  readonly selectIds: (ids: readonly string[], intent?: "replace" | "add") => void;
   readonly completion: BrowsePage["completion"] | null;
   readonly knownCount: number | null;
   readonly hasMore: boolean;
@@ -90,6 +91,7 @@ export interface BrowseSourceOwner {
   readonly navigateToBreadcrumb: (breadcrumb: BrowseBreadcrumb) => boolean;
   readonly selectEntry: (entryId: string, intent: BrowseSelectionIntent) => void;
   readonly selectAllLoaded: () => void;
+  readonly invertSelection: () => void;
   readonly clearSelection: () => void;
   readonly setFocusedId: (entryId: string | null) => void;
   /** Moves only the current-generation loaded focus, requesting one owner page at the edge. */
@@ -872,6 +874,17 @@ export function useBrowseSourceOwner({
     selectionAnchorRef.current = null;
   }, []);
 
+  const invertSelection = useCallback(() => {
+    if (sessionId === null) return;
+    const loadedIds = entries
+      .filter((entry) => entry.entryRef.browseSessionId === sessionId)
+      .map((entry) => entry.entryRef.entryId);
+    const next = invertLoadedSelection(loadedIds, selectedIds);
+    setSelectedIds(next);
+    setFocusedId(next.values().next().value ?? null);
+    selectionAnchorRef.current = next.values().next().value ?? null;
+  }, [entries, selectedIds, sessionId]);
+
   const collection = useMemo(
     () => activePage === null ? null : adaptBrowsePageCollection(activePage),
     [activePage]
@@ -904,10 +917,13 @@ export function useBrowseSourceOwner({
     invalidateEnumerationRequests();
     queryRef.current = next; setQuery(next); controller.setBrowseQuery(next);
   }, [controller, invalidateEnumerationRequests]);
-  const selectIds = useCallback((ids: readonly string[]) => {
+  const selectIds = useCallback((ids: readonly string[], intent: "replace" | "add" = "replace") => {
     const live = new Set(entries.map((e) => e.entryRef.entryId));
-    setSelectedIds(new Set(ids.filter((id) => live.has(id))));
-    setFocusedId(ids.find((id) => live.has(id)) ?? null);
+    const matching = ids.filter((id) => live.has(id));
+    setSelectedIds((current) => mergeMarqueeSelection(current, matching, intent === "add"));
+    const focusId = matching.at(-1) ?? null;
+    if (focusId !== null) setFocusedId(focusId);
+    if (matching.length) selectionAnchorRef.current = matching[0];
   }, [entries]);
 
   return {
@@ -957,6 +973,7 @@ export function useBrowseSourceOwner({
     navigateToBreadcrumb,
     selectEntry,
     selectAllLoaded,
+    invertSelection,
     clearSelection,
     setFocusedId,
     moveFocus,

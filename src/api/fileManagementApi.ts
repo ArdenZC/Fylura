@@ -1,7 +1,7 @@
 import { invokeCommand } from "./core";
 import type { EntryRef, BrowseEntryRef, BrowsePathRef } from "../types/fileWorkspace";
 import type { LibrarySelectionV1, OperationPreview, ExecuteOperationResult } from "../types/domain";
-export type TransferAction = "copy" | "move" | "duplicate" | "rename" | "trash" | "create_directory";
+export type TransferAction = "copy" | "move" | "duplicate" | "rename" | "trash" | "create_directory" | "create_file";
 export interface TransferTicket { id: string; name: string; path: string; isDirectory: boolean; relativePath?: string }
 export interface TransferPreviewRow { ticketId: string; preview: OperationPreview | null; error: string | null; skipped: boolean }
 export interface TransferPreview { id: string; destinationDirectory: string; rows: TransferPreviewRow[] }
@@ -20,10 +20,13 @@ export const fileManagementApi = {
   systemClipboard(request: SystemClipboardRequest): Promise<SystemClipboardTransfer> {
     return invokeCommand("file_workspace_system_clipboard", { request });
   },
+  nativeDragOut(request: { ticketIds: string[] }): Promise<void> {
+    return invokeCommand("file_workspace_native_drag_out", { request });
+  },
   captureTransfer(request: { refs?: EntryRef[]; selection?: LibrarySelectionV1; releaseIds?: string[]; externalPaths?: string[] }): Promise<TransferTicket[]> {
     return invokeCommand("file_workspace_transfer_capture", { request });
   },
-  previewTransfer(request: { ticketIds: string[]; action: TransferAction; destinationDirectory: string; destinationEntry?: BrowseEntryRef; destinationBrowse?: TransferBrowseDestination; newName?: string; keepBoth?: string[]; skip?: string[] }): Promise<TransferPreview> {
+  previewTransfer(request: { ticketIds: string[]; action: TransferAction; destinationDirectory: string; destinationEntry?: BrowseEntryRef; destinationBrowse?: TransferBrowseDestination; newName?: string; newNames?: Record<string, string>; keepBoth?: string[]; skip?: string[] }): Promise<TransferPreview> {
     return invokeCommand("file_workspace_transfer_preview", { request });
   },
   executeTransfer(request: { previewId: string; confirmed: boolean }): Promise<ExecuteOperationResult> {

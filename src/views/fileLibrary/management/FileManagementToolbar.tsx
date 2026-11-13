@@ -2,15 +2,15 @@ import { isTauri } from "@tauri-apps/api/core";
 import { readSystemClipboardForPaste, writeSystemClipboardForCopy } from "./systemClipboardTransfer";
 import { usePane } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Brush, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Sparkles, Star, X, FolderOpen, MoreHorizontal, Package, File, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { Activity, Brush, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Sparkles, Star, X, FolderOpen, MoreHorizontal, Package, File, FilePlus2, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2, ListOrdered } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fileManagementApi as api, type TransferAction, type TransferPreview, type TransferTicket, type SavedPlace } from "../../../api/fileManagementApi";
 import type { BrowseEntryRef } from "../../../types/fileWorkspace";
-import type { OperationLog } from "../../../types/domain";
+import type { OperationLog, OperationPreview } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { useChromeContext, useI18nContext, useNavigationContext } from "../../../contexts/AppContexts";
 import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
-import { groupOperationLogs, type OperationHistoryBatch } from "../../history/historyModel";
+import { groupOperationLogs, latestUndoBatch, restoreEligibility, type OperationHistoryBatch } from "../../history/historyModel";
 import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/tw";
 import { formatBytes } from "../../../utils/format";
 import { localizedStableError, readableError } from "../../../utils/viewHelpers";
@@ -21,6 +21,8 @@ import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
 import { transferDestinationContextKey, transferSourceContextKey, useFileManagementStore, type ManagementTransferIntent } from "./fileManagementStore";
 import { releaseTransferTickets } from "./transferTicketOwnership";
 import { orchestrateTransfer } from "./transferOrchestrator";
+import { BatchRenameDialog } from "../library/BatchRenameDialog";
+import { BATCH_RENAME_LIMIT } from "../library/batchRenameModel";
 import "./fileManagement.css";
 
 const PAGE_SIZE = 40;
@@ -36,7 +38,7 @@ function parentPath(path: string) {
 }
 type TransferIntent = ManagementTransferIntent;
 interface NameIntent {
-  action: "rename" | "create_directory";
+  action: "rename" | "create_directory" | "create_file";
   tickets: TransferTicket[];
   destinationDirectory: string;
   sourcePaneId?: string;
@@ -61,6 +63,12 @@ function canRetryOperation(log: OperationLog) {
   return log.status === "failed" && log.operation_phase === "rolled_back"
     && (log.operation_type === "copy" || log.operation_type === "move" || log.operation_type === "duplicate")
     && Boolean(log.path_before && log.path_after);
+}
+function formatTransferEta(seconds: number) {
+  const total = Math.max(0, Math.ceil(seconds));
+  if (total < 60) return `${total}s`;
+  if (total < 3600) return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  return `${Math.floor(total / 3600)}:${String(Math.floor(total / 60) % 60).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 export function FileManagementToolbar() {
   const { t } = useI18nContext(); const { platform } = useChromeContext(); const { setView } = useNavigationContext();
@@ -123,6 +131,9 @@ export function FileManagementToolbar() {
   const [transfer, setTransfer] = useState<TransferIntent | null>(null);
   const transferRef = useRef(transfer); transferRef.current = transfer;
   const [nameIntent, setNameIntent] = useState<NameIntent | null>(null);
+  const [batchRenameOpen, setBatchRenameOpen] = useState(false);
+  const [batchRenameTickets, setBatchRenameTickets] = useState<TransferTicket[]>([]);
+  const [batchRenameSourceKey, setBatchRenameSourceKey] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const [plan, setPlan] = useState<TransferPreview | null>(null);
@@ -133,6 +144,12 @@ export function FileManagementToolbar() {
   const activeOperationKind = useOperationQueueStore((store) => store.activeOperationKind);
   const operationCanceling = useOperationQueueStore((store) => store.isOperationCanceling);
   const operationTaskBatches = useMemo(() => groupOperationLogs(operationLogs).slice(0, 12), [operationLogs]);
+  const selectedBrowseEntries = surface?.browseSource?.entries.filter((entry) =>
+    surface.browseSource?.selectedIds.has(entry.entryRef.entryId)
+  ) ?? [];
+  const canBatchRenameBrowse = selectedBrowseEntries.length >= 2
+    && selectedBrowseEntries.length <= BATCH_RENAME_LIMIT
+    && selectedBrowseEntries.every((entry) => entry.entryKind === "file");
   const restoreRef = useRef<HTMLElement | null>(null);
   const mounted = useRef(true); const busyRef = useRef(false);
   const cancelRequested = useRef(false); const executionSent = useRef(false);
@@ -275,6 +292,7 @@ export function FileManagementToolbar() {
         destinationEntry: intent.destinationEntry,
         destinationBrowse: intent.destinationBrowse,
         newName: intent.newName,
+        newNames: intent.newNames,
         skip: nextSkip,
         keepBoth: nextKeepBoth,
       }, {
@@ -392,14 +410,15 @@ export function FileManagementToolbar() {
     tickets: TransferTicket[],
     action: TransferAction,
     origin: TransferOrigin,
-    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationContextKey" | "sourcePaneId" | "sourceContextKey" | "newName">> = {},
+    options: Partial<Pick<TransferIntent, "destinationDirectory" | "destinationEntry" | "destinationPaneId" | "destinationContextKey" | "sourcePaneId" | "sourceContextKey" | "newName" | "newNames">> & { destinationBrowse?: TransferIntent["destinationBrowse"] | null } = {},
     initialKeepBoth: string[] = [],
   ) {
     const store = useFileManagementStore.getState();
-    if (!tickets.length && action !== "create_directory") return;
-    if ((action === "rename" && (tickets.length !== 1 || !options.newName?.trim()))
-      || (action === "create_directory" && !options.newName?.trim())) {
-      setError(describeError(action === "rename" ? "transfer_rename_selection_invalid" : "transfer_create_directory_request_invalid"));
+    const createAction = action === "create_directory" || action === "create_file";
+    if (!tickets.length && !createAction) return;
+    if ((action === "rename" && ((tickets.length === 1 && !options.newName?.trim()) || (tickets.length > 1 && (!options.newNames || Object.keys(options.newNames).length !== tickets.length))))
+      || (createAction && !options.newName?.trim())) {
+      setError(describeError(action === "rename" ? "transfer_rename_selection_invalid" : action === "create_file" ? "transfer_create_file_request_invalid" : "transfer_create_directory_request_invalid"));
       if (origin === "selection" || origin === "external") void releaseUnused(tickets.map((ticket) => ticket.id));
       return;
     }
@@ -424,8 +443,9 @@ export function FileManagementToolbar() {
     }
     const intent: TransferIntent = {
       id: crypto.randomUUID(), tickets, action, origin, destinationDirectory, destinationEntry,
-      destinationBrowse: !destinationEntry && destinationPaneId && destinationSurface?.browse ? { sessionId: destinationSurface.browse.sessionId, pathRef: destinationSurface.browse.pathRef } : undefined,
+      destinationBrowse: options.destinationBrowse === null ? undefined : options.destinationBrowse ?? (!destinationEntry && destinationPaneId && destinationSurface?.browse ? { sessionId: destinationSurface.browse.sessionId, pathRef: destinationSurface.browse.pathRef } : undefined),
       newName: options.newName?.trim(),
+      newNames: options.newNames,
       destinationPaneId,
       destinationContextKey: options.destinationContextKey ?? transferDestinationContextKey(destinationSurface, destinationEntry) ?? undefined,
       sourcePaneId: options.sourcePaneId,
@@ -437,7 +457,7 @@ export function FileManagementToolbar() {
     const sourceSummary = tickets.length <= 2 ? tickets.map((ticket) => ticket.path).join(" · ") : `${tickets[0]!.path} · +${tickets.length - 1}`;
     useFileManagementStore.setState({ results: [], transferOpen: false, transferActive: true, transferRunning: true, activeTransferId: intent.id, transferTicketIds: tickets.map((ticket) => ticket.id), activeTransferTask: {
       id: intent.id, origin, intent, action, sourceSummary, destinationSummary: intent.destinationEntry ? t("fmDestination") : destinationDirectory,
-      totalItems: action === "create_directory" ? null : tickets.length, phase: "preview", cancelRequested: false,
+      totalItems: createAction ? null : tickets.length, phase: "preview", cancelRequested: false,
       preview: null, conflictTicketIds: [], skip: [], keepBoth: []
     } });
     setTransfer(intent); setPlan(null); setConflictTicketIds([]); setSkip([]); setKeepBoth(initialKeepBoth); setPreviewPage(0); setResultPage(0);
@@ -559,6 +579,58 @@ export function FileManagementToolbar() {
       });
     });
   }
+  function batchRenameSelection() {
+    if (!canBatchRenameBrowse || useFileManagementStore.getState().transferActive) return;
+    void run(async () => {
+      const current = currentSurface();
+      const browseSource = current?.browseSource;
+      const contextKey = transferSourceContextKey(current);
+      if (!current || !browseSource || browseSource.selectedCount < 2 || browseSource.selectedCount > BATCH_RENAME_LIMIT
+        || browseSource.entries.filter((entry) => browseSource.selectedIds.has(entry.entryRef.entryId)).some((entry) => entry.entryKind !== "file")
+        || !contextKey) throw Error("transfer_rename_selection_invalid");
+      const tickets = await capturedSelection();
+      if (tickets.length !== browseSource.selectedCount || transferSourceContextKey(currentSurface()) !== contextKey) {
+        await releaseUnused(tickets.map((ticket) => ticket.id));
+        throw Error("transfer_selection_changed");
+      }
+      setBatchRenameTickets(tickets);
+      setBatchRenameSourceKey(contextKey);
+      setBatchRenameOpen(true);
+      closePanel(false);
+      restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    });
+  }
+  function closeBatchRename() {
+    setBatchRenameOpen(false);
+    setBatchRenameSourceKey(null);
+    const ids = batchRenameTickets.map((ticket) => ticket.id);
+    setBatchRenameTickets([]);
+    if (ids.length) void releaseUnused(ids);
+    restoreRef.current?.focus();
+  }
+  async function confirmBatchRename(rows: { fileId: string; name: string }[]) {
+    const sourceKey = batchRenameSourceKey;
+    const current = currentSurface();
+    if (!sourceKey || transferSourceContextKey(current) !== sourceKey) {
+      setError(t("wbSelectionChanged"));
+      closeBatchRename();
+      return;
+    }
+    const names = Object.fromEntries(rows.map((row) => [row.fileId, row.name]));
+    const activeTickets = batchRenameTickets.filter((ticket) => names[ticket.id] !== undefined);
+    const unusedIds = batchRenameTickets.filter((ticket) => names[ticket.id] === undefined).map((ticket) => ticket.id);
+    if (unusedIds.length) await releaseUnused(unusedIds);
+    setBatchRenameOpen(false);
+    setBatchRenameSourceKey(null);
+    setBatchRenameTickets([]);
+    if (!activeTickets.length) return;
+    begin(activeTickets, "rename", "selection", {
+      destinationDirectory: parentPath(activeTickets[0]!.path),
+      sourcePaneId: pane?.id ?? useFileManagementStore.getState().activePaneId ?? undefined,
+      sourceContextKey: sourceKey,
+      newNames: names,
+    });
+  }
   function createDirectory() {
     const current = currentSurface();
     if (!current?.browse || !current.routingHint) return;
@@ -568,6 +640,21 @@ export function FileManagementToolbar() {
     setNewName(t("fmNewFolderDefault"));
     setNameIntent({
       action: "create_directory",
+      tickets: [],
+      destinationDirectory: current.routingHint,
+      destinationPaneId: pane?.id,
+      destinationContextKey: transferDestinationContextKey(current) ?? undefined,
+    });
+  }
+  function createEmptyFile() {
+    const current = currentSurface();
+    if (!current?.browse || !current.routingHint) return;
+    if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
+    closePanel(false);
+    restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setNewName("");
+    setNameIntent({
+      action: "create_file",
       tickets: [],
       destinationDirectory: current.routingHint,
       destinationPaneId: pane?.id,
@@ -606,12 +693,35 @@ export function FileManagementToolbar() {
     const clipboard = useFileManagementStore.getState().clipboard;
     if (clipboard) begin(clipboard.tickets, forceMove ? "move" : clipboard.action, "clipboard");
   }
-  const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection });
-  actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection };
+  async function undoLastOperation() {
+    if (useOperationQueueStore.getState().activeOperationKind || useFileManagementStore.getState().transferActive) return;
+    await run(async () => {
+      const queue = useOperationQueueStore.getState();
+      const logs = await queue.refreshOperationLogs();
+      const latestBatch = latestUndoBatch(logs);
+      if (!latestBatch.length) {
+        setNotice(t("fmUndoUnavailable"));
+        return;
+      }
+      if (!latestBatch.some((log) => restoreEligibility(log).executable)) {
+        setNotice(t("fmUndoUnavailable"));
+        return;
+      }
+      const intent = await queue.prepareOperationRestoreIntent(latestBatch.map((log) => log.id));
+      if (!intent) throw Error("restore_no_executable_selected");
+      const outcome = await queue.confirmOperationRestore(intent.sessionId);
+      if (outcome.status !== "executed") {
+        throw Error(outcome.status === "rejected" ? outcome.message : "history_restore_eligibility_changed");
+      }
+    });
+  }
+  const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation });
+  actionsRef.current = { collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation };
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if (!focused || pane && useFileManagementStore.getState().activePaneId !== pane.id || event.defaultPrevented || event.isComposing || (event.altKey && !(event.metaKey && event.key.toLowerCase() === "v")) || isFileLibraryShortcutExcludedTarget(event.target) || busyRef.current || useFileManagementStore.getState().transferActive) return;
       const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z") { event.preventDefault(); void actionsRef.current.undoLastOperation(); return; }
       if (!event.ctrlKey && !event.metaKey && key === "f2") { event.preventDefault(); actionsRef.current.renameSelection(); return; }
       if ((!event.ctrlKey && !event.metaKey && key === "delete") || (event.metaKey && !event.ctrlKey && key === "backspace")) { event.preventDefault(); actionsRef.current.trashSelection(); return; }
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "n") { event.preventDefault(); actionsRef.current.createDirectory(); return; }
@@ -627,7 +737,7 @@ export function FileManagementToolbar() {
   useEffect(() => {
     const action = state.pendingAction; if (!action || !focused) return;
     useFileManagementStore.setState({ pendingAction: null });
-    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash") trashSelection(); else if (action === "create_directory") createDirectory(); else if (action === "copy_other" || action === "move_other") transferToTarget(action === "move_other" ? "move" : "copy"); else collect(action);
+    if (action === "paste") paste(); else if (action === "move") moveSelection(); else if (action === "rename") renameSelection(); else if (action === "trash") trashSelection(); else if (action === "create_directory") createDirectory(); else if (action === "create_file") createEmptyFile(); else if (action === "copy_other" || action === "move_other") transferToTarget(action === "move_other" ? "move" : "copy"); else collect(action);
   }, [state.pendingAction, focused]);
   function transferToTarget(action: TransferAction) {
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
@@ -651,15 +761,22 @@ export function FileManagementToolbar() {
     if (!pane || !focused || !pending || pending.paneId !== pane.id) return;
     useFileManagementStore.setState({ pendingTransfer: null });
     const target = useFileManagementStore.getState().surfaces[pending.paneId]?.read();
-    if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || transferDestinationContextKey(target, pending.destinationEntry) !== pending.destinationContextKey) {
+    const savedPlaceStillExists = pending.destinationSavedPlace
+      ? places.some((place) => place.id === pending.destinationSavedPlace?.id && place.routingHint === pending.destinationSavedPlace?.routingHint && place.favorite && !place.unavailable)
+      : true;
+    const destinationStillCurrent = pending.destinationSavedPlace
+      ? pending.destinationContextKey === JSON.stringify({ savedPlace: pending.destinationSavedPlace })
+      : transferDestinationContextKey(target, pending.destinationEntry, pending.destinationBrowse) === pending.destinationContextKey;
+    if (useFileManagementStore.getState().transferActive || useFileManagementStore.getState().transferOpen || !savedPlaceStillExists || !destinationStillCurrent) {
       void releaseUnused(pending.tickets.map((ticket) => ticket.id)); setError(t("wbSelectionChanged")); return;
     }
     begin(pending.tickets, pending.action, pending.external ? "external" : "selection", {
       sourcePaneId: pending.sourcePaneId, sourceContextKey: pending.sourceContextKey,
       destinationPaneId: pending.paneId, destinationContextKey: pending.destinationContextKey,
+      destinationBrowse: pending.destinationSavedPlace ? null : pending.destinationBrowse,
       destinationDirectory: pending.destination, destinationEntry: pending.destinationEntry,
     });
-  }, [state.pendingTransfer, focused, pane?.id]);
+  }, [state.pendingTransfer, focused, pane?.id, places]);
   async function go(path: string) {
     await run(async () => {
       if (platform !== "win32" && platform !== "darwin") throw Error("workspace_platform_not_supported");
@@ -674,7 +791,7 @@ export function FileManagementToolbar() {
   const disabled = busy || state.transferActive || !surface || surface.count === 0;
   const pasteDisabled = busy || state.transferActive || !surface || (!isTauri() && !state.clipboard?.tickets.length);
   const conflictRows = plan?.rows.filter((row) => conflictTicketIds.includes(row.ticketId)) ?? [];
-  const nameConflict = transfer?.action === "rename" || transfer?.action === "create_directory";
+  const nameConflict = (transfer?.action === "rename" && !transfer.newNames) || transfer?.action === "create_directory" || transfer?.action === "create_file";
   const conflictsResolved = conflictTicketIds.length > 0 && conflictTicketIds.every((id) => skip.includes(id) || keepBoth.includes(id));
   const panelTitle = t(state.basketOpen ? "fmBasket" : panel === "places" ? "fmPlaces" : panel === "results" ? "fmResultsSummary" : panel === "tasks" ? "fmTasks" : "fmMore");
   const resultDestination = parentPath(state.results.find((log) => log.status === "success" && log.path_after)?.path_after ?? "");
@@ -682,6 +799,27 @@ export function FileManagementToolbar() {
   const taskAttentionCount = operationTaskBatches.reduce((count, batch) => count + batch.pending + batch.failed, 0)
     + operationTaskBatches.filter((batch) => batch.logs.some((log) => log.status === "manual_review")).length;
   const liveTaskProgress = state.activeTransferTask?.phase === "execute" && activeOperationKind === "execute" ? operationProgress : null;
+  const [transferRate, setTransferRate] = useState<number | null>(null);
+  const rateSample = useRef<{ batchId: string; at: number; bytes: number; rate: number | null } | null>(null);
+  useEffect(() => {
+    const progress = liveTaskProgress;
+    if (!progress || progress.processedBytes === undefined || progress.totalBytes === undefined || progress.totalBytes <= progress.processedBytes) {
+      rateSample.current = null;
+      setTransferRate(null);
+      return;
+    }
+    const at = performance.now();
+    const previous = rateSample.current;
+    if (previous?.batchId === progress.batchId && at - previous.at >= 350 && progress.processedBytes >= previous.bytes) {
+      const instantRate = (progress.processedBytes - previous.bytes) / ((at - previous.at) / 1000);
+      const rate = instantRate > 0 ? previous.rate === null ? instantRate : previous.rate * 0.65 + instantRate * 0.35 : previous.rate;
+      rateSample.current = { batchId: progress.batchId, at, bytes: progress.processedBytes, rate };
+      setTransferRate(rate);
+    } else if (previous?.batchId !== progress.batchId) {
+      rateSample.current = { batchId: progress.batchId, at, bytes: progress.processedBytes, rate: null };
+      setTransferRate(null);
+    }
+  }, [liveTaskProgress?.batchId, liveTaskProgress?.processedBytes, liveTaskProgress?.totalBytes]);
   const taskOperationStatus = (log: OperationLog, live: boolean) => log.status === "success" ? t("fmTaskCompleted")
     : log.status === "skipped" ? t("fmTaskSkipped")
       : log.status === "manual_review" || log.status === "pending" && !live ? t("fmTaskNeedsReview")
@@ -710,6 +848,10 @@ export function FileManagementToolbar() {
       parts.push(progress.totalBytes === undefined
         ? formatBytes(progress.processedBytes) + " " + t("fmTaskBytesTransferred")
         : formatBytes(progress.processedBytes) + " / " + formatBytes(progress.totalBytes));
+      if (progress.totalBytes !== undefined && transferRate !== null && transferRate > 0 && progress.processedBytes < progress.totalBytes) {
+        parts.push(`${t("fmTaskSpeed")}: ${formatBytes(transferRate)}/s`);
+        parts.push(`${t("fmTaskEta")}: ${formatTransferEta((progress.totalBytes - progress.processedBytes) / transferRate)}`);
+      }
     }
     return parts.join(" · ");
   };
@@ -740,7 +882,7 @@ export function FileManagementToolbar() {
     }
   }
   function retryNameConflict() {
-    if (!transfer || !["rename", "create_directory"].includes(transfer.action)) return;
+    if (!transfer || !["rename", "create_directory", "create_file"].includes(transfer.action)) return;
     const name = newName.trim();
     if (!name) return;
     const retry = { ...transfer, newName: name };
@@ -752,7 +894,7 @@ export function FileManagementToolbar() {
   const placeGroup = (favorite: boolean) => <section className="fm-place-group">
     <h3>{t(favorite ? "fmFavorites" : "fmRecent")}</h3>
     <ul className="fm-places">{places.filter((place) => place.favorite === favorite).map((place) => <li key={place.id}>
-      <button className={cn(buttonGhost, "fm-place-link")} disabled={busy || place.unavailable} onClick={() => void go(place.routingHint)}>
+      <button className={cn(buttonGhost, "fm-place-link")} disabled={busy || place.unavailable} data-file-drop-target-kind={place.favorite && !place.unavailable ? "saved-place" : undefined} data-file-drop-place-id={place.favorite && !place.unavailable ? place.id : undefined} data-file-drop-path={place.favorite && !place.unavailable ? place.routingHint : undefined} data-file-drop-label={place.favorite && !place.unavailable ? place.name : undefined} onClick={() => void go(place.routingHint)}>
         {favorite ? <Star size={14}/> : <FolderOpen size={14}/>}<span><strong>{place.name}</strong><small title={place.routingHint}>{place.unavailable ? t("fmUnavailable") : place.routingHint}</small></span>
       </button>
       <button className={buttonGhost} disabled={busy} aria-label={`${t(place.favorite ? "fmUnfavorite" : "fmRemove")} ${place.name}`} onClick={() => void run(async () => setPlaces(await api.fileLibraryPlaces({ removeId: place.id })))}><X size={14}/></button>
@@ -763,6 +905,7 @@ export function FileManagementToolbar() {
     <div className="fm-toolbar fm-primary-toolbar">
       <span className="fm-selection" data-has-selection={!disabled} aria-live="polite">{t("fmSelection")} <strong>{selected}</strong></span>
       <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} title={t("fmShortcutNewFolder")} aria-label={t("fmNewFolder")} data-fm-primary-action onClick={createDirectory}><FolderPlus size={14}/><span className="fm-action-label">{t("fmNewFolder")}</span></button>
+      <button className={buttonGhost} disabled={busy || state.transferActive || !surface?.browse || !surface.routingHint} aria-label={t("fmNewFile")} data-fm-primary-action onClick={createEmptyFile}><FilePlus2 size={14}/><span className="fm-action-label">{t("fmNewFile")}</span></button>
       <button className={buttonGhost} disabled={disabled} aria-label={t("fmCopy")} title={t("fmCopy")} data-fm-primary-action onClick={() => collect("copy")}><Copy size={14}/><span className="fm-action-label">{t("fmCopy")}</span></button>
       <button className={buttonGhost} disabled={disabled} aria-label={t("fmCut")} title={t("fmCut")} data-fm-primary-action onClick={() => collect("cut")}><Scissors size={14}/><span className="fm-action-label">{t("fmCut")}</span></button>
       <button className={buttonGhost} disabled={pasteDisabled} aria-label={`${t("fmPaste")}${state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}`} title={t("fmPaste")} data-fm-primary-action onClick={() => paste()}><ClipboardPaste size={14}/><span className="fm-action-label">{t("fmPaste")}</span>{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
@@ -785,6 +928,7 @@ export function FileManagementToolbar() {
       <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
       <button className={buttonGhost} disabled={disabled} onClick={duplicateSelection}><Copy size={14}/>{t("fmDuplicate")}</button>
       <button className={buttonGhost} disabled={disabled || surface?.count !== 1} title={t("fmShortcutRename")} onClick={renameSelection}><Pencil size={14}/>{t("fmRename")}</button>
+      {selectedBrowseEntries.length > 1 ? <button className={buttonGhost} disabled={busy || state.transferActive || !canBatchRenameBrowse} title={!canBatchRenameBrowse ? t("libraryBatchRenameSelectionUnavailable") : undefined} onClick={batchRenameSelection}><ListOrdered size={14}/>{t("libraryBatchRename")} · {selectedBrowseEntries.length}</button> : null}
       <button className={buttonGhost} disabled={disabled} title={t("fmShortcutTrash")} onClick={trashSelection}><Trash2 size={14}/>{t("fmSafeDelete")}</button>
       <label className="fm-drop-mode"><span>{t("fmExternalDropAction")}</span><select aria-label={t("fmExternalDropAction")} value={state.externalDropAction} disabled={state.transferActive} onChange={(event) => useFileManagementStore.setState({ externalDropAction: event.target.value as TransferAction })}><option value="copy">{t("fmCopy")}</option><option value="move">{t("fmMove")}</option></select></label>
         <hr/>
@@ -798,6 +942,7 @@ export function FileManagementToolbar() {
         <button className={buttonGhost} data-fm-open-cleanup onClick={() => { closePanel(); setView("cleanup"); }}><Brush size={16}/>{t("fmCleanupHere")}</button>
         <hr/>
         <button className={buttonGhost} disabled={busy || !surface?.selectAll} onClick={() => { surface?.selectAll?.(); closePanel(); }}>{t(surface?.selectionScope === "loaded" ? "fmSelectLoaded" : "fmSelectAll")}</button>
+        {surface?.browseSource ? <button className={buttonGhost} disabled={busy || surface.browseSource.loadedCount === 0} onClick={() => { surface.browseSource?.invertSelection(); closePanel(); }}>{t("fmInvertSelection")}</button> : null}
         <button className={buttonGhost} disabled={disabled} onClick={() => { surface?.clear(); closePanel(); }}>{t("fmClearSelection")}</button>
       </div>}
       {panel === "places" && <>
@@ -858,10 +1003,10 @@ export function FileManagementToolbar() {
       </div>
     </div>}
     {nameIntent && <ModalPortal initialFocusRef={nameInputRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={cancelNameEntry}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>
-      <header className="fm-dialog-header"><h2 id={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>{t(nameIntent.action === "rename" ? "fmRename" : "fmNewFolder")}</h2></header>
+      <header className="fm-dialog-header"><h2 id={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>{t(nameIntent.action === "rename" ? "fmRename" : nameIntent.action === "create_file" ? "fmNewFile" : "fmNewFolder")}</h2></header>
       <form onSubmit={(event) => { event.preventDefault(); submitNameEntry(); }}>
-        <div className="fm-dialog-body"><label className="fm-destination">{t(nameIntent.action === "rename" ? "fmNewName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label></div>
-        <footer className="fm-dialog-footer"><button type="button" className={buttonSecondary} onClick={cancelNameEntry}>{t("fmCancel")}</button><button type="submit" className={buttonPrimary} disabled={!newName.trim()}>{t(nameIntent.action === "rename" ? "fmRename" : "fmNewFolder")}</button></footer>
+        <div className="fm-dialog-body"><label className="fm-destination">{t(nameIntent.action === "rename" ? "fmNewName" : nameIntent.action === "create_file" ? "fmFileName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label></div>
+        <footer className="fm-dialog-footer"><button type="button" className={buttonSecondary} onClick={cancelNameEntry}>{t("fmCancel")}</button><button type="submit" className={buttonPrimary} disabled={!newName.trim()}>{t(nameIntent.action === "rename" ? "fmRename" : nameIntent.action === "create_file" ? "fmNewFile" : "fmNewFolder")}</button></footer>
       </form>
     </section></div></ModalPortal>}
     {focused && transfer && state.transferOpen && plan && <ModalPortal initialFocusRef={nameConflict ? nameInputRef : undefined} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={closeTransfer}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog fm-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"} aria-busy={state.transferRunning}>
@@ -874,11 +1019,11 @@ export function FileManagementToolbar() {
         {!nameConflict && <div className="fm-toolbar fm-conflict-all">
           <span>{t("fmApplyToAll")}</span>
           <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("skip")}>{t("fmSkip")}</button>
-          <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("both")}>{t("fmKeepBothShort")}</button>
+          {transfer.action !== "rename" ? <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("both")}>{t("fmKeepBothShort")}</button> : null}
         </div>}
       </header>
       <div className="fm-dialog-body">
-        {nameConflict ? <label className="fm-destination">{t(transfer.action === "rename" ? "fmNewName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label> : <ul className="fm-preview fm-conflicts">{conflictRows.map((row) => {
+        {nameConflict ? <label className="fm-destination">{t(transfer.action === "rename" ? "fmNewName" : transfer.action === "create_file" ? "fmFileName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label> : <ul className="fm-preview fm-conflicts">{conflictRows.map((row) => {
           const ticket = transfer.tickets.find((item) => item.id === row.ticketId);
           if (!ticket) return null;
           const value = skip.includes(ticket.id) ? "skip" : keepBoth.includes(ticket.id) ? "both" : "";
@@ -887,7 +1032,7 @@ export function FileManagementToolbar() {
             <select aria-label={`${ticket.name} · ${t("fmResolution")}`} disabled={state.transferRunning} value={value} onChange={(event) => resolution(ticket.id, event.target.value)}>
               <option value="">{t("fmChooseResolution")}</option>
               <option value="skip">{t("fmSkip")}</option>
-              <option value="both">{t("fmKeepBothShort")}</option>
+              {transfer.action !== "rename" ? <option value="both">{t("fmKeepBothShort")}</option> : null}
             </select>
           </li>;
         })}</ul>}
@@ -896,9 +1041,62 @@ export function FileManagementToolbar() {
         <p className="fm-muted">{t(nameConflict ? "fmConflictsRepreview" : "fmConflictsRepreview")}</p>
         <div className="fm-toolbar fm-confirm-bar">
           <button className={buttonSecondary} disabled={state.transferRunning} onClick={closeTransfer}>{t("fmCancel")}</button>
-          <button className={buttonPrimary} disabled={(nameConflict ? !newName.trim() : !conflictsResolved) || state.transferRunning} onClick={() => nameConflict ? retryNameConflict() : void startTransfer(transfer, skip, keepBoth)}>{nameConflict ? t(transfer.action === "rename" ? "fmRename" : "fmNewFolder") : t("fmApplyChoices")}</button>
+          <button className={buttonPrimary} disabled={(nameConflict ? !newName.trim() : !conflictsResolved) || state.transferRunning} onClick={() => nameConflict ? retryNameConflict() : void startTransfer(transfer, skip, keepBoth)}>{nameConflict ? t(transfer.action === "rename" ? "fmRename" : transfer.action === "create_file" ? "fmNewFile" : "fmNewFolder") : t("fmApplyChoices")}</button>
         </div>
       </footer>
     </section></div></ModalPortal>}
+    {focused && batchRenameOpen && batchRenameTickets.length > 1 && batchRenameSourceKey ? <BatchRenameDialog
+      key={`browse-batch-rename-${batchRenameTickets.map((ticket) => ticket.id).join("|")}`}
+      files={batchRenameTickets.map(({ id, name }) => ({ id, name }))}
+      t={t}
+      onClose={closeBatchRename}
+      restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current}
+      previewMatches={(preview, _fileId, newName) => Boolean(preview
+        && preview.operation_type === "rename"
+        && preview.status === "pending"
+        && preview.new_name === newName
+        && preview.is_executable !== false
+        && !preview.blocking_reason)}
+      getPreviews={async (rows) => {
+        const names: Record<string, string> = {};
+        const ticketIds = rows.map((row) => {
+          const ticket = batchRenameTickets.find((item) => item.id === row.fileId);
+          if (!ticket) throw Error("transfer_reference_expired");
+          names[ticket.id] = row.name;
+          return ticket.id;
+        });
+        const first = batchRenameTickets.find((ticket) => ticket.id === ticketIds[0]);
+        if (!first) throw Error("transfer_reference_expired");
+        const result = await api.previewTransfer({
+          ticketIds,
+          action: "rename",
+          destinationDirectory: parentPath(first.path),
+          newNames: names,
+        });
+        const previews: Record<string, OperationPreview> = {};
+        const errors: Record<string, string> = {};
+        for (const ticketId of ticketIds) {
+          const row = result.rows.find((item) => item.ticketId === ticketId);
+          if (row?.preview) previews[ticketId] = row.preview;
+          else errors[ticketId] = row?.error ?? "transfer_preview_incomplete";
+        }
+        return { previews, errors };
+      }}
+      getPreview={async (fileId, newName) => {
+        const ticket = batchRenameTickets.find((item) => item.id === fileId);
+        if (!ticket) throw Error("transfer_reference_expired");
+        const result = await api.previewTransfer({
+          ticketIds: [ticket.id],
+          action: "rename",
+          destinationDirectory: parentPath(ticket.path),
+          newName,
+        });
+        const row = result.rows.find((item) => item.ticketId === ticket.id);
+        if (row?.error) throw Error(row.error);
+        if (!row?.preview) throw Error("transfer_preview_incomplete");
+        return row.preview;
+      }}
+      onContinue={(rows) => void confirmBatchRename(rows.map(({ fileId, name }) => ({ fileId, name })))}
+    /> : null}
   </section>;
 }

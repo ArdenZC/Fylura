@@ -45,6 +45,7 @@ fn preview(
             destination_directory: normalize_path(target),
             destination_entry: None,
             new_name: None,
+            new_names: Default::default(),
             keep_both: both,
             skip,
         })
@@ -181,6 +182,29 @@ fn file_management_duplicate_copies_in_place_and_preserves_source() {
         b"owned fixture"
     );
     assert_eq!(f.db.get_operation_logs(Some(10)).unwrap().len(), 1);
+    runtime.dispose();
+}
+
+#[test]
+fn native_drag_out_paths_require_live_identity_bound_tickets() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let ticket = capture(&runtime, &f).remove(0);
+    assert_eq!(
+        runtime
+            .native_drag_out_paths(std::slice::from_ref(&ticket.id))
+            .unwrap(),
+        vec![f.source.clone()]
+    );
+    let moved = f.source.with_file_name("moved-outside.txt");
+    fs::rename(&f.source, &moved).unwrap();
+    fs::write(&f.source, b"replacement bytes").unwrap();
+    assert_eq!(
+        runtime.native_drag_out_paths(&[ticket.id]),
+        Err("transfer_source_changed".into())
+    );
+    assert_eq!(fs::read(&f.source).unwrap(), b"replacement bytes");
+    assert_eq!(fs::read(&moved).unwrap(), b"owned fixture");
     runtime.dispose();
 }
 
@@ -2157,6 +2181,7 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
             destination_directory: String::new(),
             destination_entry: Some(row.entry_ref.clone()),
             new_name: None,
+            new_names: Default::default(),
             keep_both: vec![],
             skip: vec![],
         })
@@ -2182,6 +2207,7 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
         destination_directory: String::new(),
         destination_entry: Some(row.entry_ref.clone()),
         new_name: None,
+        new_names: Default::default(),
         keep_both: vec![],
         skip: vec![],
     });
@@ -2204,6 +2230,7 @@ fn preview_named(
             destination_directory: normalize_path(target),
             destination_entry: None,
             new_name: new_name.map(str::to_string),
+            new_names: Default::default(),
             keep_both: vec![],
             skip: vec![],
         })
@@ -2280,6 +2307,7 @@ fn fl24_create_folder_uses_preview_confirm_and_non_restorable_journal() {
         destination_directory: normalize_path(&f.root),
         destination_entry: None,
         new_name: Some(name.into()),
+        new_names: Default::default(),
         keep_both: vec![],
         skip: vec![],
     };
@@ -2332,6 +2360,73 @@ fn fl24_create_folder_uses_preview_confirm_and_non_restorable_journal() {
     assert!(late_folder.is_dir());
     assert_eq!(fs::read_dir(&late_folder).unwrap().count(), 0);
     assert_eq!(f.db.get_operation_logs(Some(10)).unwrap().len(), 1);
+    runtime.dispose();
+}
+
+#[test]
+fn fl25_create_empty_file_uses_preview_confirm_and_never_overwrites() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let path = f.root.join("created-empty.txt");
+    let request = |name: &str| TransferPreviewRequest {
+        destination_browse: None,
+        ticket_ids: vec![],
+        action: TransferAction::CreateFile,
+        destination_directory: normalize_path(&f.root),
+        destination_entry: None,
+        new_name: Some(name.into()),
+        new_names: Default::default(),
+        keep_both: vec![],
+        skip: vec![],
+    };
+
+    let plan = runtime
+        .preview_transfer(request("created-empty.txt"))
+        .unwrap();
+    assert_eq!(plan.rows.len(), 1);
+    assert_eq!(
+        plan.rows[0]
+            .preview
+            .as_ref()
+            .map(|preview| preview.operation_type.as_str()),
+        Some("create_file")
+    );
+    assert!(!path.exists(), "Preview must not create the file");
+
+    let execution = runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: plan.id,
+            confirmed: true,
+        })
+        .unwrap();
+    let result = execute_moves_with_persistence(&f.db, execution).unwrap();
+    assert_eq!(result.logs.len(), 1);
+    assert_eq!(result.logs[0].operation_type, "create_file");
+    assert_eq!(result.logs[0].status, "success");
+    assert!(!result.logs[0].can_restore);
+    assert_eq!(fs::read(&path).unwrap(), b"");
+
+    let existing = f.root.join("existing.txt");
+    fs::write(&existing, b"keep these bytes").unwrap();
+    let conflict = runtime.preview_transfer(request("existing.txt")).unwrap();
+    assert_eq!(
+        conflict.rows[0].error.as_deref(),
+        Some("transfer_target_exists")
+    );
+    assert_eq!(fs::read(&existing).unwrap(), b"keep these bytes");
+
+    let late_plan = runtime
+        .preview_transfer(request("late-created.txt"))
+        .unwrap();
+    let late_target = f.root.join("late-created.txt");
+    fs::write(&late_target, b"arrived after preview").unwrap();
+    assert!(runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: late_plan.id,
+            confirmed: true,
+        })
+        .is_err());
+    assert_eq!(fs::read(&late_target).unwrap(), b"arrived after preview");
     runtime.dispose();
 }
 
@@ -2405,6 +2500,77 @@ fn fl24_folder_rename_conflict_and_restore_preserve_fixture_bytes() {
     .unwrap();
     assert_eq!(restored_rename.logs[0].restore_status, "restored");
     assert_eq!(fixture_file_hash(&payload), original_hash);
+    runtime.dispose();
+}
+
+#[test]
+fn fl24_batch_rename_uses_ticket_identity_and_journal_restore() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let second = f.source.parent().unwrap().join("second.txt");
+    fs::write(&second, b"second fixture bytes").unwrap();
+    let parent = f.source.parent().unwrap();
+    let first_ticket = capture_named(&runtime, parent, "original.txt");
+    let second_ticket = capture_named(&runtime, parent, "second.txt");
+    let names = std::collections::HashMap::from([
+        (first_ticket.id.clone(), "renamed-first.txt".to_string()),
+        (second_ticket.id.clone(), "renamed-second.txt".to_string()),
+    ]);
+    let plan = runtime
+        .preview_transfer(TransferPreviewRequest {
+            destination_browse: None,
+            ticket_ids: vec![first_ticket.id.clone(), second_ticket.id.clone()],
+            action: TransferAction::Rename,
+            destination_directory: normalize_path(parent),
+            destination_entry: None,
+            new_name: None,
+            new_names: names,
+            keep_both: vec![],
+            skip: vec![],
+        })
+        .unwrap();
+    assert_eq!(plan.rows.len(), 2);
+    assert!(plan.rows.iter().all(|row| row.error.is_none()));
+    assert!(plan.rows.iter().all(|row| row
+        .preview
+        .as_ref()
+        .is_some_and(|preview| preview.operation_type == "rename")));
+
+    let result = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result.logs.len(), 2);
+    assert!(result
+        .logs
+        .iter()
+        .all(|log| log.status == "success" && log.can_restore));
+    assert!(!f.source.exists());
+    assert!(!second.exists());
+    assert_eq!(
+        fs::read(parent.join("renamed-first.txt")).unwrap(),
+        b"owned fixture"
+    );
+    assert_eq!(
+        fs::read(parent.join("renamed-second.txt")).unwrap(),
+        b"second fixture bytes"
+    );
+
+    let restored =
+        restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: result.logs }).unwrap();
+    assert_eq!(restored.logs.len(), 2);
+    assert!(restored
+        .logs
+        .iter()
+        .all(|log| log.restore_status == "restored"));
+    assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
+    assert_eq!(fs::read(&second).unwrap(), b"second fixture bytes");
     runtime.dispose();
 }
 
@@ -2555,6 +2721,7 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
             destination_directory: normalize_path(&trash_root),
             destination_entry: None,
             new_name: None,
+            new_names: Default::default(),
             keep_both: vec![],
             skip: vec![],
         })
@@ -2572,6 +2739,7 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
             destination_directory: normalize_path(&trash_root),
             destination_entry: None,
             new_name: Some("child".into()),
+            new_names: Default::default(),
             keep_both: vec![],
             skip: vec![],
         })
@@ -2656,6 +2824,7 @@ fn transfer_destination_browse_binding_rejects_another_directory_or_rebound_root
             path_ref: browse.root_path_ref.clone(),
         }),
         new_name: None,
+        new_names: Default::default(),
         keep_both: vec![],
         skip: vec![],
     };

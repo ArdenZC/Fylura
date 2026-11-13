@@ -122,6 +122,32 @@ impl VerifiedDirectory {
         }
     }
 
+    /// Creates a new empty regular file relative to this verified directory.
+    /// Existing entries, symlinks and reparse points are never followed.
+    pub(crate) fn create_child_file(&self, name: &std::ffi::OsStr) -> Result<File, PathGuardError> {
+        if name.is_empty()
+            || Path::new(name).components().count() != 1
+            || Path::new(name)
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(PathGuardError::UnsafePath);
+        }
+        #[cfg(windows)]
+        {
+            create_windows_child_file(self, name)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            create_macos_child_file(self, name)
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            let _ = (self, name);
+            Err(PathGuardError::UnsupportedPlatformLinux)
+        }
+    }
+
     pub fn ensure_unchanged(&self) -> Result<(), PathGuardError> {
         let current = Self::open_existing(&self.path)?;
         if current.identity != self.identity {
@@ -129,6 +155,107 @@ impl VerifiedDirectory {
         }
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn create_windows_child_file(
+    parent: &VerifiedDirectory,
+    name: &std::ffi::OsStr,
+) -> Result<File, PathGuardError> {
+    use std::{
+        mem,
+        os::windows::{
+            ffi::OsStrExt,
+            io::{AsRawHandle, FromRawHandle, OwnedHandle},
+        },
+    };
+    use windows_sys::{
+        Wdk::{
+            Foundation::OBJECT_ATTRIBUTES,
+            Storage::FileSystem::{
+                NtCreateFile, FILE_CREATE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
+                FILE_SYNCHRONOUS_IO_NONALERT,
+            },
+        },
+        Win32::{
+            Foundation::{RtlNtStatusToDosError, OBJ_CASE_INSENSITIVE, UNICODE_STRING},
+            Storage::FileSystem::{
+                FILE_ATTRIBUTE_NORMAL, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+                FILE_SHARE_WRITE, FILE_WRITE_DATA, SYNCHRONIZE,
+            },
+            System::IO::IO_STATUS_BLOCK,
+        },
+    };
+    let mut wide = name.encode_wide().collect::<Vec<_>>();
+    if wide.is_empty() || wide.contains(&0) || wide.len() > (u16::MAX as usize / 2) {
+        return Err(PathGuardError::UnsafePath);
+    }
+    let unicode = UNICODE_STRING {
+        Length: (wide.len() * mem::size_of::<u16>()) as u16,
+        MaximumLength: (wide.len() * mem::size_of::<u16>()) as u16,
+        Buffer: wide.as_mut_ptr(),
+    };
+    let attributes = OBJECT_ATTRIBUTES {
+        Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+        RootDirectory: parent.handle.as_raw_handle(),
+        ObjectName: &unicode,
+        Attributes: OBJ_CASE_INSENSITIVE,
+        SecurityDescriptor: std::ptr::null(),
+        SecurityQualityOfService: std::ptr::null(),
+    };
+    let mut raw = std::ptr::null_mut();
+    let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
+    let status = unsafe {
+        NtCreateFile(
+            &mut raw,
+            FILE_READ_ATTRIBUTES | FILE_WRITE_DATA | SYNCHRONIZE,
+            &attributes,
+            &mut io_status,
+            std::ptr::null(),
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_CREATE,
+            FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+            std::ptr::null(),
+            0,
+        )
+    };
+    if status < 0 {
+        return Err(PathGuardError::Io(io::Error::from_raw_os_error(unsafe {
+            RtlNtStatusToDosError(status)
+        }
+            as i32)));
+    }
+    let file = unsafe { File::from(OwnedHandle::from_raw_handle(raw)) };
+    if !file.metadata()?.is_file() {
+        return Err(PathGuardError::ReparsePoint);
+    }
+    Ok(file)
+}
+
+#[cfg(target_os = "macos")]
+fn create_macos_child_file(
+    parent: &VerifiedDirectory,
+    name: &std::ffi::OsStr,
+) -> Result<File, PathGuardError> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, os::unix::io::FromRawFd};
+    let name = CString::new(name.as_bytes()).map_err(|_| PathGuardError::UnsafePath)?;
+    let fd = unsafe {
+        libc::openat(
+            parent.raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o666,
+        )
+    };
+    if fd < 0 {
+        return Err(PathGuardError::Io(io::Error::last_os_error()));
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+    if !file.metadata()?.is_file() {
+        return Err(PathGuardError::ReparsePoint);
+    }
+    Ok(file)
 }
 
 #[cfg(windows)]

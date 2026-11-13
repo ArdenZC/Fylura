@@ -29,6 +29,7 @@ import { isFileLibraryFocusTarget } from "../fileLibraryInteraction";
 import { useBrowseContextMenu } from "./useBrowseContextMenu";
 import { useFileManagementStore } from "../management/fileManagementStore";
 import { useBrowseManagementSurface } from "../management/useManagementSurfaces";
+import { useAppStore } from "../../../store/useAppStore";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -39,17 +40,54 @@ export function BrowseMode() {
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
   const [revealError, setRevealError] = useState<string | null>(null);
+  const [backgroundMenu, setBackgroundMenu] = useState<{ x: number; y: number } | null>(null);
+  const [showHidden, setShowHidden] = useState(() => {
+    try { return window.localStorage.getItem("fylura.files.showHidden") === "true"; }
+    catch { return false; }
+  });
   const { platform } = useCommandContext();
   const source = useBrowseSourceOwner({ controller, state, t, platform });
   useBrowseManagementSurface(source);
   // Keep row geometry stable between the two clicks of a double-click.
   useEffect(() => setRevealError(null), [source.sessionId, source.currentPathRef?.id]);
   const { controller: previewController, state: previewState } = usePreviewExperience();
-  const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
+  const visibleEntries = useMemo(() => showHidden ? source.entries : source.entries.filter((entry) => !entry.isHidden), [showHidden, source.entries]);
+  const visibleCollection = useMemo(() => source.collection === null ? null : ({
+    ...source.collection,
+    provenance: {
+      ...source.collection.provenance,
+      knownCount: source.collection.provenance.completion === "complete" && source.collection.provenance.knownCount !== undefined
+        ? visibleEntries.length
+        : undefined,
+    },
+  }), [source.collection, visibleEntries.length]);
+  const interactionSource = useMemo(() => ({
+    ...source,
+    entries: visibleEntries,
+    collection: visibleCollection,
+    selectAllLoaded: () => source.selectIds(visibleEntries.map((entry) => entry.entryRef.entryId)),
+    invertSelection: () => source.selectIds(visibleEntries
+      .filter((entry) => !source.selectedIds.has(entry.entryRef.entryId))
+      .map((entry) => entry.entryRef.entryId)),
+  }), [source, visibleEntries, visibleCollection]);
+  const interaction = useMemo(() => createBrowseInteractionProjection(interactionSource), [interactionSource]);
+
+  function changeHiddenVisibility(next: boolean) {
+    try { window.localStorage.setItem("fylura.files.showHidden", String(next)); } catch { /* Display preference remains usable for this session. */ }
+    if (!next) {
+      const visibleSelection = source.entries
+        .filter((entry) => !entry.isHidden && source.selectedIds.has(entry.entryRef.entryId))
+        .map((entry) => entry.entryRef.entryId);
+      source.selectIds(visibleSelection);
+      if (source.entries.some((entry) => entry.isHidden && entry.entryRef.entryId === source.focusedId)) source.setFocusedId(null);
+    }
+    setShowHidden(next);
+  }
   const focusedPreviewSource = useMemo(() => {
     const entry = source.entries.find((item) => item.entryRef.entryId === source.focusedId);
+    if (!showHidden && entry?.isHidden) return null;
     return previewSourceFromEntry(entry, source.collection);
-  }, [source.collection, source.entries, source.focusedId]);
+  }, [showHidden, source.collection, source.entries, source.focusedId]);
 
   const siblingNavigation = useMemo(() => {
     if (focusedPreviewSource === null) return null;
@@ -109,6 +147,7 @@ export function BrowseMode() {
 
   const browseActions = useMemo(() => (
     <div className="flex min-h-0 flex-wrap items-center gap-1.5" data-browse-query-controls="true" data-browse-query-active={source.queryEntryKind !== "all" || !!source.query.sort}>
+      <button type="button" className="file-library-command-button min-h-9 px-2 py-1.5 text-xs" aria-pressed={showHidden} onClick={() => changeHiddenVisibility(!showHidden)}>{t(showHidden ? "fmHideHidden" : "fmShowHidden")}</button>
       <label className="sr-only" htmlFor="browse-query-kind">{t("browseFilterLabel")}</label>
       <select
         id="browse-query-kind"
@@ -141,11 +180,11 @@ export function BrowseMode() {
           ...source.query.sort, foldersFirst: event.target.checked
         })}/>{t("u3FoldersFirst")}</label>
     </div>
-  ), [source.queryEntryKind, source.setQueryEntryKind, source.query.sort, source.setSort, t]);
+  ), [source.queryEntryKind, source.setQueryEntryKind, source.query.sort, source.setSort, showHidden, t, changeHiddenVisibility]);
 
   useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
-  const selectedPreviewEntries = source.entries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId)).slice(0, SELECTED_PREVIEW_LIMIT);
+  const selectedPreviewEntries = visibleEntries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId)).slice(0, SELECTED_PREVIEW_LIMIT);
   const previewSelected = useSelectedPreview(previewController, selectedPreviewEntries.flatMap((entry) => {
     const projected = previewSourceFromEntry(entry, source.collection);
     return projected ? [projected] : [];
@@ -153,7 +192,7 @@ export function BrowseMode() {
 
   const contextOpen = state.workspace.session.presentation.contextOpen === true;
   const contextProjection = createBrowseContextProjection({
-    entries: source.entries,
+    entries: visibleEntries,
     selectedIds: source.selectedIds,
     locationLabel: source.browse?.location.displayName ?? t("fileLibraryModeBrowse"),
     language,
@@ -212,7 +251,7 @@ export function BrowseMode() {
   const completion = source.collection?.provenance.completion ?? "pending";
   const emptyPartialQuery = source.isQueryActive
     && source.enumerationState === "partial"
-    && source.entries.length === 0;
+    && visibleEntries.length === 0;
   const emptyLabel = emptyPartialQuery
     ? t("browseEnumerationSearching")
     : t("browseEnumerationEmptyTitle");
@@ -262,6 +301,15 @@ export function BrowseMode() {
     void launchBrowseEntry(entry.entryRef).catch(() => setRevealError(t("browseLaunchUnavailable")));
   }
 
+  async function copyTextToClipboard(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      useAppStore.getState().showSuccess(t("fmTextCopied"));
+    } catch {
+      useAppStore.getState().showError(t("fmCopyTextUnavailable"));
+    }
+  }
+
   function sortByColumn(field: BrowseSortSpec["field"]) {
     source.setSort({ field,
       direction: source.query.sort?.field === field && source.query.sort.direction === "asc" ? "desc" : "asc",
@@ -283,6 +331,9 @@ export function BrowseMode() {
       setRevealError(null);
       void revealBrowseEntry(contextMenu.entry.entryRef).catch(() => setRevealError(t("u4RevealUnavailable")));
     } },
+    ...(contextMenu.entry.displayPath ? [{ label: t("fmCopyPath"), action: () => { const path = contextMenu.entry.displayPath; closeContextMenu("action"); if (path) void copyTextToClipboard(path); } }] : []),
+    { label: t("fmCopyName"), action: () => { const name = contextMenu.entry.displayName; closeContextMenu("action"); void copyTextToClipboard(name); } },
+    { label: t("fmProperties"), action: () => { closeContextMenu("action"); controller.setContextOpen(true); } },
     ...(["copy", "cut", "paste", "move", "basket"] as const).map((action) => ({
       label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : action === "paste" ? "fmPaste" : "fmMove"),
       action: () => { closeContextMenu(action === "paste" || action === "move" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); }
@@ -317,6 +368,26 @@ export function BrowseMode() {
       }
     }
   ];
+  const backgroundContextItems = backgroundMenu === null ? [] : [
+    { label: t("fmNewFile"), action: () => { setBackgroundMenu(null); useFileManagementStore.getState().requestAction("create_file"); } },
+    { label: t("fmNewFolder"), action: () => {
+      setBackgroundMenu(null);
+      useFileManagementStore.getState().requestAction("create_directory");
+    } },
+    { label: t("fmSelectLoaded"), action: () => { source.selectAllLoaded(); setBackgroundMenu(null); } },
+    { label: t("fmInvertSelection"), action: () => { source.invertSelection(); setBackgroundMenu(null); } },
+    { label: t("fmClearSelection"), action: () => { source.clearSelection(); setBackgroundMenu(null); } },
+    { label: t("browseRefresh"), action: () => { setBackgroundMenu(null); void source.refreshEnumeration(); } }
+  ];
+  const navigateUp = () => {
+    const parent = source.breadcrumbs.at(-2);
+    if (parent) source.navigateToBreadcrumb(parent);
+    else source.openLocationPicker();
+  };
+  const typeToSelect = (text: string) => {
+  const match = visibleEntries.find((entry) => entry.displayName.toLocaleLowerCase(language).startsWith(text.toLocaleLowerCase(language)));
+    if (match) source.selectEntry(match.entryRef.entryId, "replace");
+  };
 
   const breadcrumbNavigation = (<nav className="browse-breadcrumbs" data-browse-breadcrumbs="true" aria-label={t("browseBreadcrumbLabel")}>
           {source.breadcrumbs.length === 0
@@ -406,14 +477,14 @@ export function BrowseMode() {
                 </button>
               )}
             />
-          ) : source.enumerationState === "loading" && source.entries.length === 0 ? (
+          ) : source.enumerationState === "loading" && visibleEntries.length === 0 ? (
             <StateBlock
               tone="info"
               title={t("browseEnumerationLoading")}
               description={t("fileLibraryBrowseTargetDesc")}
               primaryAction={<LoaderCircle className="animate-spin" size={18} aria-label={t("browseEnumerationLoading")} />}
             />
-          ) : source.enumerationState === "complete" && source.entries.length === 0 ? (
+          ) : source.enumerationState === "complete" && visibleEntries.length === 0 ? (
             <StateBlock
               title={t("browseEnumerationEmptyTitle")}
               description={t("browseEnumerationEmptyDesc")}
@@ -456,6 +527,10 @@ export function BrowseMode() {
                 }}
                 onOpenContextMenu={openFocusedContextMenu}
                 onEscape={handleListEscape}
+                onBackgroundContextMenu={(event) => { event.preventDefault(); setBackgroundMenu({ x: event.clientX, y: event.clientY }); }}
+                onNavigateUp={navigateUp}
+                onRefresh={() => void source.refreshEnumeration()}
+                onTypeToSelect={typeToSelect}
               /> : <SharedFileList
                 sort={source.query.sort}
                 onSort={sortByColumn}
@@ -484,6 +559,10 @@ export function BrowseMode() {
                 }}
                 onOpenContextMenu={openFocusedContextMenu}
                 onEscape={handleListEscape}
+                onBackgroundContextMenu={(event) => { event.preventDefault(); setBackgroundMenu({ x: event.clientX, y: event.clientY }); }}
+                onNavigateUp={navigateUp}
+                onRefresh={() => void source.refreshEnumeration()}
+                onTypeToSelect={typeToSelect}
               />}
             </section>
           )}
@@ -503,6 +582,14 @@ export function BrowseMode() {
               onClose={() => closeContextMenu("action")}
             />
           ) : null}
+          {backgroundMenu ? <FileLibraryContextMenu
+            x={backgroundMenu.x}
+            y={backgroundMenu.y}
+            title={source.browse.location.displayName}
+            ariaLabel={t("browseContextMenu")}
+            items={backgroundContextItems}
+            onClose={() => setBackgroundMenu(null)}
+          /> : null}
         </div>
       </div>
     </div>

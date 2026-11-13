@@ -19,6 +19,14 @@
   scrollbar-width: thin;
 }
 
+.file-selection-marquee {
+  position: fixed;
+  z-index: 20;
+  pointer-events: none;
+  border: 1px solid var(--zc-primary);
+  background: color-mix(in srgb, var(--zc-primary) 16%, transparent);
+}
+
 .shared-file-grid:focus-visible {
   outline: 2px solid var(--zc-focus-ring);
   outline-offset: -2px;

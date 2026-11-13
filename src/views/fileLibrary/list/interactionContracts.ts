@@ -22,6 +22,9 @@ export interface InteractionActions<Entry extends PresentationEntry> {
   readonly clearSelection: () => void;
   readonly focus: (entry: Entry, index: number) => void;
   readonly loadMore: () => void | Promise<void>;
+  /** Browse-only rectangular selection over the currently mounted rows/cells. */
+  readonly selectIds?: (ids: readonly string[], additive: boolean) => void;
+  readonly invertSelection?: () => void;
 }
 
 interface InteractionProjectionBase<Entry extends PresentationEntry, Collection> {

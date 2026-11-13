@@ -126,7 +126,7 @@ pub(crate) fn persist_pending_operation_journal(
             })?;
             let needs_source_claim = !matches!(
                 operation.operation_type.as_str(),
-                "copy" | "duplicate" | "create_directory"
+                "copy" | "duplicate" | "create_directory" | "create_file"
             );
             let claim_path = needs_source_claim
                 .then(|| {
@@ -307,7 +307,8 @@ pub(crate) fn make_operation_log(
         && !system_trash
         && !source_preserving_copy
         && !irreversible_operation
-        && operation.operation_type != "create_directory";
+        && operation.operation_type != "create_directory"
+        && operation.operation_type != "create_file";
     let restore_status = if system_trash && success {
         "unavailable"
     } else {

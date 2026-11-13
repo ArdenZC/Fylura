@@ -177,7 +177,7 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
     expect(library).toContain("createLibraryInteractionProjection(source)");
     expect(library).toContain("createLibraryContextProjection(source.selection");
     expect(library).toContain("<ContextPanel");
-    expect(browse).toContain("createBrowseInteractionProjection(source)");
+    expect(browse).toContain("createBrowseInteractionProjection(interactionSource)");
     expect(browse).toContain("createBrowseContextProjection");
     expect(browse).toContain("<ContextPanel");
     expect(projection).toContain('selection.kind === "all_matching"');

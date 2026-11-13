@@ -152,6 +152,9 @@ describe("Global Index performance workflow routing", () => {
   it("reads native pair timing fields from the QA result and prints durable evidence", () => {
     expect(filenameFirstQualification).toContain("$baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'");
     expect(filenameFirstQualification).toContain("$candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'");
+    expect(filenameFirstQualification).toContain("stages.writer.fts_rebuild_us");
+    expect(filenameFirstQualification).toContain("ftsIntegrityVerified");
+    expect(workflow).toContain("FTS rebuild (candidate bulk path)");
     expect(workflow).toContain("Average peak working set baseline/candidate:");
     expect(filenameFirstQualification).toContain("stages.writer.transient_staging_us");
     expect(workflow).toContain("Transient catalog staging baseline/candidate:");

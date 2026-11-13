@@ -240,23 +240,30 @@ where
 {
     validate_request(request).map_err(IndexServiceCallError::Protocol)?;
     io.send_request(request)?;
+    let mut entry_batcher = IndexServiceEntryBatcher::default();
     loop {
-        match io.read_frame()? {
+        let frame = match io.read_frame() {
+            Ok(frame) => frame,
+            Err(error) => {
+                flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
+                return Err(error);
+            }
+        };
+        match frame {
             IndexServiceFrame::Event {
                 request_id,
                 event: item,
             } => {
                 if request_id != request.request_id {
+                    flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
                     return Err(IndexServiceCallError::Protocol(
                         "event request identity mismatch".into(),
                     ));
                 }
-                if let Some(response) = event(item)? {
-                    io.send_lookup(response)
-                        .map_err(IndexServiceCallError::UnknownOutcome)?;
-                }
+                dispatch_exchange_event(&mut entry_batcher, item, &mut event, io)?;
             }
             IndexServiceFrame::Response { response } => {
+                flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
                 if response.protocol_version != IPC_PROTOCOL_VERSION
                     || response.request_id != request.request_id
                 {
@@ -275,15 +282,191 @@ where
                         "invalid response error_code/ok structure".into(),
                     ));
                 }
+                #[cfg(feature = "native-qa")]
+                entry_batcher.record_qualification();
                 return Ok(response);
             }
             IndexServiceFrame::LookupResponse { .. } => {
+                flush_exchange_entries(&mut entry_batcher, &mut event, io)?;
                 return Err(IndexServiceCallError::Protocol(
                     "unsolicited lookup response".into(),
-                ))
+                ));
             }
         }
     }
+}
+
+const MAX_COALESCED_ENTRY_COUNT: usize = 512;
+const MAX_COALESCED_ENTRY_BYTES: usize = 512 * 1024;
+
+#[derive(Default)]
+pub(crate) struct IndexServiceEntryBatcher {
+    entries: Vec<GlobalEntryInput>,
+    estimated_bytes: usize,
+    #[cfg(feature = "native-qa")]
+    qualification: IndexServiceBatchQualification,
+}
+
+#[cfg(feature = "native-qa")]
+#[derive(Default)]
+struct IndexServiceBatchQualification {
+    input_entry_frames: usize,
+    input_entries: usize,
+    repository_batches: usize,
+    repository_entries: usize,
+    max_repository_batch_entries: usize,
+    checkpoints: usize,
+    checkpoint_flushes: usize,
+    checkpoint_flushed_entries: usize,
+}
+
+impl IndexServiceEntryBatcher {
+    fn dispatch<F, E>(&mut self, event: IndexServiceEvent, callback: &mut F) -> Result<(), E>
+    where
+        F: FnMut(IndexServiceEvent) -> Result<(), E>,
+    {
+        match event {
+            IndexServiceEvent::Entries { entries } => {
+                #[cfg(feature = "native-qa")]
+                {
+                    self.qualification.input_entry_frames += 1;
+                    self.qualification.input_entries += entries.len();
+                }
+                for entry in entries {
+                    let entry_bytes = entry_buffer_size(&entry);
+                    if !self.entries.is_empty()
+                        && (self.entries.len() >= MAX_COALESCED_ENTRY_COUNT
+                            || self.estimated_bytes.saturating_add(entry_bytes)
+                                > MAX_COALESCED_ENTRY_BYTES)
+                    {
+                        self.flush(callback)?;
+                    }
+                    self.estimated_bytes = self.estimated_bytes.saturating_add(entry_bytes);
+                    self.entries.push(entry);
+                    if self.entries.len() >= MAX_COALESCED_ENTRY_COUNT
+                        || self.estimated_bytes >= MAX_COALESCED_ENTRY_BYTES
+                    {
+                        self.flush(callback)?;
+                    }
+                }
+                Ok(())
+            }
+            other => {
+                #[cfg(feature = "native-qa")]
+                let is_checkpoint = matches!(&other, IndexServiceEvent::Checkpoint { .. });
+                #[cfg(feature = "native-qa")]
+                let pending_entries = self.entries.len();
+                self.flush(callback)?;
+                callback(other)?;
+                #[cfg(feature = "native-qa")]
+                if is_checkpoint {
+                    self.qualification.checkpoints += 1;
+                    if pending_entries > 0 {
+                        self.qualification.checkpoint_flushes += 1;
+                        self.qualification.checkpoint_flushed_entries += pending_entries;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn flush<F, E>(&mut self, callback: &mut F) -> Result<(), E>
+    where
+        F: FnMut(IndexServiceEvent) -> Result<(), E>,
+    {
+        if self.entries.is_empty() {
+            return Ok(());
+        }
+        self.estimated_bytes = 0;
+        let entries = std::mem::take(&mut self.entries);
+        #[cfg(feature = "native-qa")]
+        let entry_count = entries.len();
+        callback(IndexServiceEvent::Entries { entries })?;
+        #[cfg(feature = "native-qa")]
+        {
+            self.qualification.repository_batches += 1;
+            self.qualification.repository_entries += entry_count;
+            self.qualification.max_repository_batch_entries = self
+                .qualification
+                .max_repository_batch_entries
+                .max(entry_count);
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "native-qa")]
+    fn record_qualification(&self) {
+        if self.qualification.input_entries == 0 {
+            return;
+        }
+        let stats = &self.qualification;
+        crate::global_index::qa_trace::record(&format!(
+            "index_service_batching entry_frames={} input_entries={} repository_batches={} repository_entries={} max_repository_batch_entries={} checkpoints={} checkpoint_flushes={} checkpoint_flushed_entries={}",
+            stats.input_entry_frames,
+            stats.input_entries,
+            stats.repository_batches,
+            stats.repository_entries,
+            stats.max_repository_batch_entries,
+            stats.checkpoints,
+            stats.checkpoint_flushes,
+            stats.checkpoint_flushed_entries,
+        ));
+    }
+}
+
+fn dispatch_exchange_event<F>(
+    batcher: &mut IndexServiceEntryBatcher,
+    item: IndexServiceEvent,
+    event: &mut F,
+    io: &mut impl IndexServiceIo,
+) -> Result<(), IndexServiceCallError>
+where
+    F: FnMut(
+        IndexServiceEvent,
+    ) -> Result<Option<IndexServiceLookupResponse>, IndexServiceCallError>,
+{
+    batcher.dispatch(item, &mut |item| {
+        if let Some(response) = event(item)? {
+            io.send_lookup(response)
+                .map_err(IndexServiceCallError::UnknownOutcome)?;
+        }
+        Ok(())
+    })
+}
+
+fn flush_exchange_entries<F>(
+    batcher: &mut IndexServiceEntryBatcher,
+    event: &mut F,
+    io: &mut impl IndexServiceIo,
+) -> Result<(), IndexServiceCallError>
+where
+    F: FnMut(
+        IndexServiceEvent,
+    ) -> Result<Option<IndexServiceLookupResponse>, IndexServiceCallError>,
+{
+    batcher.flush(&mut |item| {
+        if let Some(response) = event(item)? {
+            io.send_lookup(response)
+                .map_err(IndexServiceCallError::UnknownOutcome)?;
+        }
+        Ok(())
+    })
+}
+
+fn entry_buffer_size(entry: &GlobalEntryInput) -> usize {
+    std::mem::size_of::<GlobalEntryInput>()
+        + [
+            entry.volume_id.capacity(),
+            entry.platform_file_id.capacity(),
+            entry.parent_platform_file_id.capacity(),
+            entry.name.capacity(),
+            entry.path.capacity(),
+            entry.extension.capacity(),
+            entry.source_provider.capacity(),
+        ]
+        .into_iter()
+        .sum::<usize>()
 }
 
 pub(crate) trait IndexServiceConnection: Send {
@@ -712,9 +895,18 @@ mod named_pipe {
         validate_request(request)?;
         let mut client = connect()?;
         client.send_request(request)?;
+        let mut entry_batcher = super::IndexServiceEntryBatcher::default();
         loop {
-            match client.read_frame()? {
+            let frame = match client.read_frame() {
+                Ok(frame) => frame,
+                Err(error) => {
+                    entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
+                    return Err(error);
+                }
+            };
+            match frame {
                 IndexServiceFrame::Response { response } => {
+                    entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
                     if response.protocol_version != super::IPC_PROTOCOL_VERSION
                         || response.request_id != request.request_id
                         || (response.ok && response.error_code.is_some())
@@ -730,11 +922,13 @@ mod named_pipe {
                 }
                 IndexServiceFrame::Event { request_id, event } => {
                     if request_id != request.request_id {
+                        entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
                         return Err("index_service_event_identity_mismatch".into());
                     }
-                    on_event(&mut client, event)?;
+                    entry_batcher.dispatch(event, &mut |event| on_event(&mut client, event))?;
                 }
                 IndexServiceFrame::LookupResponse { .. } => {
+                    entry_batcher.flush(&mut |event| on_event(&mut client, event))?;
                     return Err("index_service_unexpected_lookup_response".to_string());
                 }
             }

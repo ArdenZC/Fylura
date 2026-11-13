@@ -283,8 +283,10 @@ function isWorkflowPath(path) {
 // validation. An independent workflow such as Smart Lean or Release should
 // instead use its own contract checks, not six unrelated 100k suites.
 function isSharedPerformanceRoutingPath(path) {
-  return path === ".github/workflows/ci.yml"
-    || path === ".github/workflows/ci-full.yml"
+  // Interactive workflow edits are exercised by routing/governance contracts
+  // and should not force all six 100k suites. Keep the full orchestrator and
+  // the code that computes validation plans on the all-domain path.
+  return path === ".github/workflows/ci-full.yml"
     || path === "scripts/classifycichanges.mjs"
     || path === "scripts/civalidationplan.mjs"
     || path.startsWith("scripts/performance")

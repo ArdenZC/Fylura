@@ -1482,7 +1482,13 @@ fn mft_fast_path_uses_native_attributes_without_per_file_metadata_checks() {
 
 #[test]
 fn resolved_uncertainty_does_not_make_cumulative_observations_a_permanent_blocker() {
-    let f = Fixture::new();
+    // This assertion covers a provider that must stat each candidate to
+    // establish that the path still exists. The Windows MFT path deliberately
+    // trusts the captured record attributes and validates transient results
+    // against live identity at query time.
+    let mut f = Fixture::new();
+    f.source.provider = crate::global_index::PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+    f.db.upsert_global_volume(&f.source).unwrap();
     let entry = f.file("resolved.txt");
     fs::remove_file(&entry.path).unwrap();
     let owner = f.owner();

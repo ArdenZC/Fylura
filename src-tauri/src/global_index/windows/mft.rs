@@ -310,14 +310,7 @@ fn stream_mft_records(
     let mut stats = MftEntryStreamStats::default();
     let mut paths = MftPathResolver::new(&source.volume.mount_path);
     let defer_metadata = sink.defer_initial_mft_metadata(&source.volume.id);
-    // Keep filename-first catalog updates responsive. The direct SQLite path
-    // uses the largest qualified writer batch; this in-memory path only needs
-    // small MFT chunks until its first names are searchable.
-    let batch_size = if defer_metadata {
-        512
-    } else {
-        mft_emit_batch_size()
-    };
+    let batch_size = mft_emit_batch_size();
     let mut batch = Vec::with_capacity(batch_size);
     loop {
         if cancel.load(Ordering::Acquire) {

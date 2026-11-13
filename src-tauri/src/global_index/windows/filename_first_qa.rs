@@ -75,11 +75,21 @@ pub fn run_initial(
     expected_path: &Path,
     complete_query: &str,
     complete_expected_path: &Path,
+    expected_fixture_file_count: usize,
 ) -> Result<Value, Box<dyn Error>> {
     let db = verify_task_profile(profile, source_id)?;
     let source = descriptor(&db, source_id)?;
     let expected_path = normalize_path(&expected_path.to_string_lossy());
     let complete_expected_path = normalize_path(&complete_expected_path.to_string_lossy());
+    if expected_fixture_file_count == 0 {
+        return Err("filename qualification requires a non-empty task fixture".into());
+    }
+    let fixture_file_pattern = expected_path
+        .rsplit_once('/')
+        .and_then(|(bucket_path, _)| bucket_path.rsplit_once('/'))
+        .map(|(fixture_root, _)| format!("{fixture_root}/bucket-%/filename-first-item-______.txt"))
+        .ok_or("qualification fixture path is not nested under a bucket directory")?;
+    let durable_connection = db.conn()?;
     let filename_first = std::env::var("ZC_GLOBAL_INDEX_FILENAME_FIRST")
         .map(|value| value != "0")
         .unwrap_or(true);
@@ -117,7 +127,35 @@ pub fn run_initial(
     let mut first_search_complete = None;
     let mut first_search_processed_entries = None;
     let mut first_search_total_entries = None;
+    let mut durable_filename_index_us = None;
     loop {
+        if durable_filename_index_us.is_none() {
+            let durable_filename_index_ready = durable_connection.query_row(
+                "SELECT CASE WHEN EXISTS(
+                    SELECT 1
+                    FROM global_entries_fts
+                    JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid
+                    WHERE global_entries_fts MATCH ?1
+                      AND ge.volume_id=?2
+                      AND ge.path_normalized=?3
+                      AND ge.is_stale=0
+                 ) THEN (
+                    SELECT COUNT(*) FROM global_entries
+                    WHERE volume_id=?2 AND is_stale=0 AND path_normalized LIKE ?4
+                 ) = ?5 ELSE 0 END",
+                rusqlite::params![
+                    complete_query,
+                    source_id,
+                    complete_expected_path,
+                    fixture_file_pattern,
+                    expected_fixture_file_count as i64,
+                ],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if durable_filename_index_ready {
+                durable_filename_index_us = Some(started.elapsed().as_micros());
+            }
+        }
         if first_searchable_us.is_none() {
             if live_result_visible(&db, query, &expected_path)? {
                 let status = db.global_index_status()?;
@@ -148,6 +186,8 @@ pub fn run_initial(
     }
     let first_searchable_us =
         first_searchable_us.ok_or("target filename never became searchable")?;
+    let durable_filename_index_us = durable_filename_index_us
+        .ok_or("complete task fixture was not visible through durable FTS")?;
     let complete_coverage_search_visible = db
         .search_global_entries(complete_query, 50, 0)?
         .iter()
@@ -159,11 +199,6 @@ pub fn run_initial(
     }
     let (database_total_entries, database_active_entries) =
         db.native_qa_global_entry_counts(source_id)?;
-    let fixture_file_pattern = expected_path
-        .rsplit_once('/')
-        .and_then(|(bucket_path, _)| bucket_path.rsplit_once('/'))
-        .map(|(fixture_root, _)| format!("{fixture_root}/bucket-%/filename-first-item-______.txt"))
-        .ok_or("qualification fixture path is not nested under a bucket directory")?;
     let fixture_file_entries = db.conn()?.query_row(
         "SELECT COUNT(*) FROM global_entries WHERE volume_id=?1 AND is_stale=0 AND path_normalized LIKE ?2",
         rusqlite::params![source_id, fixture_file_pattern],
@@ -224,6 +259,7 @@ pub fn run_initial(
         entries
     };
 
+    drop(durable_connection);
     drop(db);
     let reopened = Database::open(profile.join("fylura.sqlite3"))?;
     let restarted_search_visible = reopened
@@ -245,6 +281,7 @@ pub fn run_initial(
         "query": query,
         "expectedPath": expected_path,
         "firstSearchableUs": first_searchable_us,
+        "durableFilenameIndexUs": durable_filename_index_us,
         "firstSearchBeforeComplete": first_search_complete == Some(false),
         "firstSearchProcessedEntries": first_search_processed_entries,
         "firstSearchTotalEntries": first_search_total_entries,

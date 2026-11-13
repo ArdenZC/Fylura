@@ -299,7 +299,7 @@ try {
             $trace = Join-Path $taskRoot "$side-$repetition-trace.log"
             $run = Invoke-Probe "$side initial run $repetition" $probe @(
                 '--qualify-filename-first', $profile, $prepared.targetSourceId,
-                'filename-first-item-000000.txt', $firstTargetPath, 'finalmarker', $targetPath
+                'filename-first-item-000000.txt', $firstTargetPath, 'finalmarker', $targetPath, $FileCount.ToString()
             ) $mode $trace 90
             $expectedFilenameFirstMode = $side -eq 'candidate'
             if ([bool]$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode) {
@@ -369,6 +369,8 @@ try {
     $candidateFirst = Get-Average $candidateRows.ToArray() 'result.firstSearchableUs'
     $baselineFull = Get-Average $baselineRows.ToArray() 'result.fullIndexUs'
     $candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'
+    $baselineDurableFilenameIndex = Get-Average $baselineRows.ToArray() 'result.durableFilenameIndexUs'
+    $candidateDurableFilenameIndex = Get-Average $candidateRows.ToArray() 'result.durableFilenameIndexUs'
     $script:evidence.baseline = $baselineRows.ToArray()
     $script:evidence.candidate = $candidateRows.ToArray()
     $script:evidence.incremental = $incremental
@@ -379,6 +381,9 @@ try {
         baselineFullIndexUs = $baselineFull
         candidateFullIndexUs = $candidateFull
         fullIndexImprovementPercent = if ($baselineFull -gt 0) { 100.0 * ($baselineFull - $candidateFull) / $baselineFull } else { 0 }
+        baselineDurableFilenameIndexUs = $baselineDurableFilenameIndex
+        candidateDurableFilenameIndexUs = $candidateDurableFilenameIndex
+        durableFilenameIndexImprovementPercent = if ($baselineDurableFilenameIndex -gt 0) { 100.0 * ($baselineDurableFilenameIndex - $candidateDurableFilenameIndex) / $baselineDurableFilenameIndex } else { 0 }
         baselinePeakWorkingSetBytes = Get-Average $baselineRows.ToArray() 'peakWorkingSetBytes'
         candidatePeakWorkingSetBytes = Get-Average $candidateRows.ToArray() 'peakWorkingSetBytes'
         baselinePeakPrivateBytes = Get-Average $baselineRows.ToArray() 'peakPrivateBytes'
@@ -395,16 +400,28 @@ try {
         candidateMftMetadataUs = Get-Average $candidateRows.ToArray() 'stages.mft.metadata_us'
         baselineDeferredMetadataUs = Get-Average $baselineRows.ToArray() 'stages.writer.deferred_metadata_us'
         candidateDeferredMetadataUs = Get-Average $candidateRows.ToArray() 'stages.writer.deferred_metadata_us'
+        baselineMetadataUpdateUs = Get-Average $baselineRows.ToArray() 'stages.writer.metadata_update_us'
+        candidateMetadataUpdateUs = Get-Average $candidateRows.ToArray() 'stages.writer.metadata_update_us'
+        baselineMetadataCommitUs = Get-Average $baselineRows.ToArray() 'stages.writer.metadata_commit_us'
+        candidateMetadataCommitUs = Get-Average $candidateRows.ToArray() 'stages.writer.metadata_commit_us'
         baselineTransientStagingUs = Get-Average $baselineRows.ToArray() 'stages.writer.transient_staging_us'
         candidateTransientStagingUs = Get-Average $candidateRows.ToArray() 'stages.writer.transient_staging_us'
         baselineCoveragePolicyLoadUs = Get-Average $baselineRows.ToArray() 'stages.writer.coverage_policy_load_us'
         candidateCoveragePolicyLoadUs = Get-Average $candidateRows.ToArray() 'stages.writer.coverage_policy_load_us'
         baselineCoverageEvaluationUs = Get-Average $baselineRows.ToArray() 'stages.writer.coverage_evaluation_us'
         candidateCoverageEvaluationUs = Get-Average $candidateRows.ToArray() 'stages.writer.coverage_evaluation_us'
+        baselineConnectionAcquisitionUs = Get-Average $baselineRows.ToArray() 'stages.writer.connection_acquisition_us'
+        candidateConnectionAcquisitionUs = Get-Average $candidateRows.ToArray() 'stages.writer.connection_acquisition_us'
+        baselineTransactionAcquisitionUs = Get-Average $baselineRows.ToArray() 'stages.writer.transaction_acquisition_us'
+        candidateTransactionAcquisitionUs = Get-Average $candidateRows.ToArray() 'stages.writer.transaction_acquisition_us'
         baselineTransactionSetupUs = Get-Average $baselineRows.ToArray() 'stages.writer.transaction_setup_us'
         candidateTransactionSetupUs = Get-Average $candidateRows.ToArray() 'stages.writer.transaction_setup_us'
         baselineEntryUpsertUs = Get-Average $baselineRows.ToArray() 'stages.writer.entry_upsert_us'
         candidateEntryUpsertUs = Get-Average $candidateRows.ToArray() 'stages.writer.entry_upsert_us'
+        baselineAiTaskQualificationUs = Get-Average $baselineRows.ToArray() 'stages.writer.ai_task_qualification_us'
+        candidateAiTaskQualificationUs = Get-Average $candidateRows.ToArray() 'stages.writer.ai_task_qualification_us'
+        baselineRecordDecisionsUs = Get-Average $baselineRows.ToArray() 'stages.writer.record_decisions_us'
+        candidateRecordDecisionsUs = Get-Average $candidateRows.ToArray() 'stages.writer.record_decisions_us'
         baselineFtsRebuildUs = Get-Average $baselineRows.ToArray() 'stages.writer.fts_rebuild_us'
         candidateFtsRebuildUs = Get-Average $candidateRows.ToArray() 'stages.writer.fts_rebuild_us'
         baselineCommitUs = Get-Average $baselineRows.ToArray() 'stages.writer.commit_us'
@@ -413,24 +430,32 @@ try {
         candidateSqliteTransactionCount = Get-Average $candidateRows.ToArray() 'stages.writer.sqlite_transactions'
         ftsTiming = 'Baseline uses synchronous FTS triggers; candidate initial persistence rebuilds FTS once in the atomic bulk transaction before restoring triggers.'
     }
-    $script:evidence.firstSearchTargetMet = $candidateFirst -le 10000000
+    $allCandidateFirstSearchTargetsMet = @($candidateRows | Where-Object {
+        [double]$_.result.firstSearchableUs -gt 10000000
+    }).Count -eq 0
+    $script:evidence.firstSearchTargetMet = $candidateFirst -le 10000000 -and $allCandidateFirstSearchTargetsMet
     $allCandidateCollectionsComplete = @($candidateRows | Where-Object { -not $_.result.indexComplete }).Count -eq 0
+    $allCandidateDurableFilenameTargetsMet = @($candidateRows | Where-Object {
+        [double]$_.result.durableFilenameIndexUs -gt 10000000 -or
+        [long]$_.result.fixtureFileEntries -ne $FileCount -or
+        -not $_.result.ftsIntegrityVerified -or
+        -not $_.result.restartedSearchVisible -or
+        -not $_.result.restartedCompleteCoverageSearchVisible
+    }).Count -eq 0
     $script:evidence.completeCoveragePerPath = [ordered]@{
         baseline = @($baselineRows | ForEach-Object { $_.result.indexComplete })
         candidate = @($candidateRows | ForEach-Object { $_.result.indexComplete })
     }
-    $script:evidence.fixtureFilenameIndexTargetMet = $candidateFull -le 10000000
+    $script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le 10000000 -and $allCandidateDurableFilenameTargetsMet
+    $script:evidence.fixtureFilenameIndexTargetMet = $script:evidence.durableFilenameIndexTargetMet
     $script:evidence.fullIndexTargetMet = $candidateFull -le 10000000 -and $allCandidateCollectionsComplete
+    $script:evidence.fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet
     $targetFailures = @()
     if (-not $script:evidence.firstSearchTargetMet) {
         $targetFailures += 'first searchable result exceeded the 10-second target'
     }
-    if (-not $script:evidence.fullIndexTargetMet) {
-        if (-not $allCandidateCollectionsComplete) {
-            $targetFailures += 'the authorized source remains incomplete because native coverage has undetermined entries'
-        } else {
-            $targetFailures += 'complete durable filename index exceeded the 10-second target'
-        }
+    if (-not $script:evidence.durableFilenameIndexTargetMet) {
+        $targetFailures += 'durable FTS for the complete task fixture exceeded 10 seconds or failed its row-count/restart/integrity checks'
     }
     if ($targetFailures.Count -gt 0) {
         $script:evidence.status = 'PERFORMANCE_TARGET_MISSED'

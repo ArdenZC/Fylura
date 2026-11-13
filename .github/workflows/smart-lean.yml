@@ -360,7 +360,7 @@ jobs:
         shell: pwsh
         run: New-Item -ItemType Directory -Path '.performance-artifacts/filename-first' -Force | Out-Null
       - name: Attribute synthetic FTS and source-stat trigger cost
-        if: inputs.run_trigger_matrix
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_trigger_matrix) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')) }}
         env:
           ZEN_GLOBAL_WRITER_TRIGGER_REPORT: ${{ github.workspace }}/.performance-artifacts/filename-first/trigger-attribution.json
         run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib global_index_writer_trigger_contribution_25k -- --ignored --nocapture --test-threads=1
@@ -388,23 +388,31 @@ jobs:
           $summary = @(
             "Real NTFS MFT pair status: $($report.status)",
             "File count: $($report.fileCount); repetitions per path: $($report.repetitions)",
-            'Comparison: same Release binary, direct SQLite path with 8192-row SQL batches versus transient filename catalog fed in 512-row MFT chunks and persisted in 8192-row batches.',
+            'Comparison: same Release binary; direct SQLite uses synchronous FTS with 8192-row batches; candidate emits configured 8192-row MFT chunks, reuses preflight Scope decisions, commits durable filename rows plus a one-time FTS rebuild, then stats and updates noncritical metadata.',
             "Average first-search baseline/candidate: $($report.averages.baselineFirstSearchableUs) / $($report.averages.candidateFirstSearchableUs) us",
             "First-search improvement: $($report.averages.firstSearchImprovementPercent)% (10s candidate target met: $($report.firstSearchTargetMet))",
-            "Average complete-index baseline/candidate: $($report.averages.baselineFullIndexUs) / $($report.averages.candidateFullIndexUs) us",
-            "Complete-index improvement: $($report.averages.fullIndexImprovementPercent)% (10s candidate target met: $($report.fullIndexTargetMet))",
+            "Average durable complete filename index baseline/candidate: $($report.averages.baselineDurableFilenameIndexUs) / $($report.averages.candidateDurableFilenameIndexUs) us",
+            "Durable filename-index improvement: $($report.averages.durableFilenameIndexImprovementPercent)% (10s candidate target met: $($report.durableFilenameIndexTargetMet))",
+            "Average full source operation baseline/candidate: $($report.averages.baselineFullIndexUs) / $($report.averages.candidateFullIndexUs) us; improvement: $($report.averages.fullIndexImprovementPercent)%; 10s plus complete authorized coverage: $($report.fullSourceCompletionTargetMet)",
             "Task fixture filename-index target met: $($report.fixtureFilenameIndexTargetMet); authorized-source completeness by candidate run: $($report.completeCoveragePerPath.candidate -join ',')",
             "Fixture files indexed by candidate run: $(@($report.candidate | ForEach-Object { $_.result.fixtureFileEntries }) -join ','); unresolved native coverage rows: $(@($report.candidate | ForEach-Object { $_.result.coverageUndetermined }) -join ',')",
             "MFT read/parse baseline/candidate: $($report.phaseAverages.baselineMftReadParseUs) / $($report.phaseAverages.candidateMftReadParseUs) us",
             "Path resolution baseline/candidate: $($report.phaseAverages.baselinePathResolutionUs) / $($report.phaseAverages.candidatePathResolutionUs) us",
-            "Metadata baseline MFT/deferred candidate: $($report.phaseAverages.baselineMftMetadataUs) / $($report.phaseAverages.candidateDeferredMetadataUs) us",
+            "Metadata reads baseline MFT/deferred candidate: $($report.phaseAverages.baselineMftMetadataUs) / $($report.phaseAverages.candidateDeferredMetadataUs) us",
+            "Metadata SQLite update baseline/candidate: $($report.phaseAverages.baselineMetadataUpdateUs) / $($report.phaseAverages.candidateMetadataUpdateUs) us",
             "Transient catalog staging baseline/candidate: $($report.phaseAverages.baselineTransientStagingUs) / $($report.phaseAverages.candidateTransientStagingUs) us",
             "Coverage policy load baseline/candidate: $($report.phaseAverages.baselineCoveragePolicyLoadUs) / $($report.phaseAverages.candidateCoveragePolicyLoadUs) us",
             "Coverage evaluation baseline/candidate: $($report.phaseAverages.baselineCoverageEvaluationUs) / $($report.phaseAverages.candidateCoverageEvaluationUs) us",
+            "SQLite connection acquisition baseline/candidate: $($report.phaseAverages.baselineConnectionAcquisitionUs) / $($report.phaseAverages.candidateConnectionAcquisitionUs) us",
+            "SQLite transaction acquisition baseline/candidate: $($report.phaseAverages.baselineTransactionAcquisitionUs) / $($report.phaseAverages.candidateTransactionAcquisitionUs) us",
             "Repository transaction setup baseline/candidate: $($report.phaseAverages.baselineTransactionSetupUs) / $($report.phaseAverages.candidateTransactionSetupUs) us",
             "Repository UPSERT baseline/candidate: $($report.phaseAverages.baselineEntryUpsertUs) / $($report.phaseAverages.candidateEntryUpsertUs) us",
+            "AI task qualification baseline/candidate: $($report.phaseAverages.baselineAiTaskQualificationUs) / $($report.phaseAverages.candidateAiTaskQualificationUs) us",
+            "Scope decision persistence baseline/candidate: $($report.phaseAverages.baselineRecordDecisionsUs) / $($report.phaseAverages.candidateRecordDecisionsUs) us",
             "FTS rebuild (candidate bulk path) baseline/candidate: $($report.phaseAverages.baselineFtsRebuildUs) / $($report.phaseAverages.candidateFtsRebuildUs) us",
-            "SQLite commit baseline/candidate: $($report.phaseAverages.baselineCommitUs) / $($report.phaseAverages.candidateCommitUs) us",
+            "Filename/FTS SQLite commit baseline/candidate: $($report.phaseAverages.baselineCommitUs) / $($report.phaseAverages.candidateCommitUs) us",
+            "Metadata transaction update baseline/candidate: $($report.phaseAverages.baselineMetadataUpdateUs) / $($report.phaseAverages.candidateMetadataUpdateUs) us",
+            "Metadata transaction commit baseline/candidate: $($report.phaseAverages.baselineMetadataCommitUs) / $($report.phaseAverages.candidateMetadataCommitUs) us",
             "SQLite transactions baseline/candidate: $($report.phaseAverages.baselineSqliteTransactionCount) / $($report.phaseAverages.candidateSqliteTransactionCount)",
             "Average peak working set baseline/candidate: $($report.averages.baselinePeakWorkingSetBytes) / $($report.averages.candidatePeakWorkingSetBytes) bytes",
             "Average peak private bytes baseline/candidate: $($report.averages.baselinePeakPrivateBytes) / $($report.averages.candidatePeakPrivateBytes) bytes",

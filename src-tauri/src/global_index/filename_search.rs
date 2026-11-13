@@ -10,6 +10,7 @@ use crate::db::DbError;
 use crate::global_index::models::{
     normalize_path, GlobalEntry, GlobalEntryInput, GlobalSearchResult,
 };
+use super::coverage::Decision;
 #[cfg(test)]
 use rusqlite::StatementStatus;
 use rusqlite::{hooks::Action, Connection, OpenFlags, OptionalExtension, Transaction};
@@ -217,6 +218,7 @@ struct TransientFilenameEntry {
     normalized_name: String,
     normalized_extension: String,
     parent_directory_index: Option<usize>,
+    decision: Decision,
     visible: bool,
 }
 
@@ -281,10 +283,10 @@ impl FilenameSearchManager {
         operation_id: &str,
         policy_revision: u64,
         entries: &[GlobalEntryInput],
-        visible: &[bool],
+        decisions: &[Decision],
     ) -> Result<(), &'static str> {
-        if entries.len() != visible.len() {
-            return Err("entry_visibility_count_mismatch");
+        if entries.len() != decisions.len() {
+            return Err("entry_decision_count_mismatch");
         }
         let catalog = self
             .transient_catalogs
@@ -318,9 +320,11 @@ impl FilenameSearchManager {
             visible_unpersisted_entries,
             ..
         } = &mut *catalog;
-        for (input, visible) in entries.iter().zip(visible) {
+        for (input, decision) in entries.iter().zip(decisions) {
+            let decision = *decision;
+            let visible = decision.visible();
             let id = input.entry_id();
-            let parent_directory_index = if *visible {
+            let parent_directory_index = if visible {
                 Some(transient_path_directory_index(
                     &input.path,
                     path_directories,
@@ -331,7 +335,7 @@ impl FilenameSearchManager {
                 None
             };
             let value =
-                transient_filename_entry(id.clone(), input, parent_directory_index, *visible);
+                transient_filename_entry(id.clone(), input, parent_directory_index, decision);
             if let Some(index) = by_id.get(&id).copied() {
                 let previous_visible = catalog_entries[index].visible;
                 remove_transient_key(by_name, &catalog_entries[index].normalized_name, index);
@@ -346,9 +350,9 @@ impl FilenameSearchManager {
                         .retain(|candidate| *candidate != index);
                 }
                 catalog_entries[index] = value;
-                if previous_visible && !*visible {
+                if previous_visible && !visible {
                     *visible_unpersisted_entries = visible_unpersisted_entries.saturating_sub(1);
-                } else if !previous_visible && *visible {
+                } else if !previous_visible && visible {
                     *visible_unpersisted_entries = visible_unpersisted_entries.saturating_add(1);
                 }
                 if catalog_entries[index].visible {
@@ -407,7 +411,7 @@ impl FilenameSearchManager {
         &self,
         volume_id: &str,
         operation_id: &str,
-    ) -> Result<usize, &'static str> {
+    ) -> Result<(usize, Option<u64>), &'static str> {
         let catalog = self
             .transient_catalogs
             .lock()
@@ -422,7 +426,7 @@ impl FilenameSearchManager {
             return Err("transient_catalog_owner_changed");
         }
         catalog.complete = true;
-        Ok(catalog.entries.len())
+        Ok((catalog.entries.len(), catalog.policy_revision))
     }
 
     pub(crate) fn mark_transient_persisted(
@@ -603,6 +607,33 @@ impl FilenameSearchManager {
                 .skip(start)
                 .take(limit)
                 .map(|entry| entry.input.clone())
+                .collect()
+        })
+    }
+
+    pub(crate) fn transient_catalog_decisions(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        start: usize,
+        limit: usize,
+    ) -> Option<Vec<Decision>> {
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()?;
+        let catalog = catalog
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (catalog.operation_id == operation_id).then(|| {
+            catalog
+                .entries
+                .iter()
+                .skip(start)
+                .take(limit)
+                .map(|entry| entry.decision)
                 .collect()
         })
     }
@@ -1366,7 +1397,7 @@ impl FilenameSearchManager {
 }
 
 fn transient_parent_directory(path: &str) -> String {
-    let Some(separator) = path.rfind(|character| matches!(character, '\\' | '/')) else {
+    let Some(separator) = path.rfind(['\\', '/']) else {
         return String::new();
     };
     path[..separator].to_lowercase().replace('\\', "/")
@@ -1439,7 +1470,7 @@ fn transient_filename_entry(
     id: String,
     input: &GlobalEntryInput,
     parent_directory_index: Option<usize>,
-    visible: bool,
+    decision: Decision,
 ) -> TransientFilenameEntry {
     let normalized_name = input.name.to_lowercase();
     let normalized_extension = input.extension.to_lowercase();
@@ -1449,7 +1480,8 @@ fn transient_filename_entry(
         normalized_name,
         normalized_extension,
         parent_directory_index,
-        visible,
+        decision,
+        visible: decision.visible(),
     }
 }
 

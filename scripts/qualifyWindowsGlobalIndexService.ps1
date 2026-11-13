@@ -550,6 +550,39 @@ try {
         if ($recoveryProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $recoveryReport)) { throw "installed service recovery regression failed: $(Get-Content -LiteralPath (Join-Path $taskRoot 'recovery-stderr.log') -Raw)" }
         $script:evidence.recovery = Get-Content -LiteralPath $recoveryReport -Raw | ConvertFrom-Json
         $recoveryTrace = @(Get-Content -LiteralPath $tracePath)
+        # The instrumented Service exchange writes batching counters into the
+        # recovery process trace. The background client's route trace above
+        # only confirms routing and may be observed before the Service has
+        # recorded its completed exchange counters.
+        $batchingMetrics = @()
+        foreach ($line in @($recoveryTrace | Where-Object { $_.StartsWith("index_service_batching ") })) {
+            $metrics = [ordered]@{}
+            foreach ($pair in ($line -split '\s+' | Select-Object -Skip 1)) {
+                $parts = $pair -split '=', 2
+                if ($parts.Count -eq 2) { $metrics[$parts[0]] = [long]$parts[1] }
+            }
+            $batchingMetrics += [pscustomobject]$metrics
+        }
+        $ipcBatchEvidence = @($batchingMetrics | Where-Object {
+            $_.input_entries -ge 600 -and $_.input_entries -le 1000
+        } | Select-Object -Last 1)
+        if ($ipcBatchEvidence.Count -ne 1) {
+            throw "actual Service exchange did not report the 600-1000 entry task VHD baseline: metrics=$($batchingMetrics | ConvertTo-Json -Compress)"
+        }
+        $ipcBatchEvidence = $ipcBatchEvidence[0]
+        if ($ipcBatchEvidence.entry_frames -le $ipcBatchEvidence.repository_batches -or
+            $ipcBatchEvidence.repository_entries -ne $ipcBatchEvidence.input_entries -or
+            $ipcBatchEvidence.max_repository_batch_entries -lt 512 -or
+            $ipcBatchEvidence.checkpoints -lt 1 -or
+            $ipcBatchEvidence.checkpoint_flushes -lt 1 -or
+            $ipcBatchEvidence.checkpoint_flushed_entries -le 0) {
+            throw "task VHD Service->Repository coalescing/checkpoint evidence is incomplete: $($ipcBatchEvidence | ConvertTo-Json -Compress)"
+        }
+        $repositoryBatchPattern = "^source_operation_write status=ready completed=true batches=$($ipcBatchEvidence.repository_batches)(\s|$)"
+        if (@($recoveryTrace | Where-Object { $_ -match $repositoryBatchPattern }).Count -eq 0) {
+            throw "Service exchange batch count was not confirmed by the completed repository write timing: expected_batches=$($ipcBatchEvidence.repository_batches)"
+        }
+        $script:evidence.serviceBatchingQualification = $ipcBatchEvidence
         if ($recoveryTrace -cnotcontains "windows_recovery_rebuild_admitted") { throw "recovery did not pass the existing Background admission gate" }
         Copy-Item -LiteralPath $tracePath -Destination (Join-Path $taskRoot "recovery-trace.log")
         # Keep original background-client route/idle accounting independent.
@@ -676,35 +709,6 @@ try {
     if (-not $script:evidence.serviceRouteObserved) {
         throw "fixed NTFS baseline completed without a successful service-stream request"
     }
-    $batchingMetrics = @()
-    foreach ($line in @($baselineTrace.Lines | Where-Object { $_.StartsWith("index_service_batching ") })) {
-        $metrics = [ordered]@{}
-        foreach ($pair in ($line -split '\s+' | Select-Object -Skip 1)) {
-            $parts = $pair -split '=', 2
-            if ($parts.Count -eq 2) { $metrics[$parts[0]] = [long]$parts[1] }
-        }
-        $batchingMetrics += [pscustomobject]$metrics
-    }
-    $ipcBatchEvidence = @($batchingMetrics | Where-Object {
-        $_.input_entries -ge 600 -and $_.input_entries -le 1000
-    } | Select-Object -Last 1)
-    if ($ipcBatchEvidence.Count -ne 1) {
-        throw "actual Service exchange did not report the 600-1000 entry task VHD baseline: metrics=$($batchingMetrics | ConvertTo-Json -Compress)"
-    }
-    $ipcBatchEvidence = $ipcBatchEvidence[0]
-    if ($ipcBatchEvidence.entry_frames -le $ipcBatchEvidence.repository_batches -or
-        $ipcBatchEvidence.repository_entries -ne $ipcBatchEvidence.input_entries -or
-        $ipcBatchEvidence.max_repository_batch_entries -lt 512 -or
-        $ipcBatchEvidence.checkpoints -lt 1 -or
-        $ipcBatchEvidence.checkpoint_flushes -lt 1 -or
-        $ipcBatchEvidence.checkpoint_flushed_entries -le 0) {
-        throw "task VHD Service->Repository coalescing/checkpoint evidence is incomplete: $($ipcBatchEvidence | ConvertTo-Json -Compress)"
-    }
-    $repositoryBatchPattern = "^source_operation_write status=ready completed=true batches=$($ipcBatchEvidence.repository_batches)(\s|$)"
-    if (@($baselineTrace.Lines | Where-Object { $_ -match $repositoryBatchPattern }).Count -eq 0) {
-        throw "Service exchange batch count was not confirmed by the completed repository write timing: expected_batches=$($ipcBatchEvidence.repository_batches)"
-    }
-    $script:evidence.serviceBatchingQualification = $ipcBatchEvidence
     $script:evidence.baselineFixtureSearchFound = @($baselineSnapshot.results | Where-Object {
         $_.path.Equals($preexistingPath, [StringComparison]::OrdinalIgnoreCase)
     }).Count -gt 0

@@ -148,3 +148,62 @@
     transition: none;
   }
 }
+
+/* Loaded / total live in the column head so a partially enumerated directory
+ * never looks complete. The value is tabular so neighbouring columns align. */
+.browse-column-count {
+  flex: none;
+  padding-left: 6px;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.browse-column-row.is-focused {
+  box-shadow: inset 0 0 0 1px var(--zc-focus);
+}
+
+/* Ancestor file rows are inert: the pane's selection belongs to the current
+ * directory, so acting here would target the wrong folder. */
+.browse-column-row.is-static {
+  cursor: default;
+  color: var(--zc-text-secondary);
+}
+
+.browse-column-row.is-static:hover {
+  background: transparent;
+}
+
+.browse-column-load-more,
+.browse-column-show-more {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 0;
+  border-top: 1px solid var(--zc-divider);
+  background: transparent;
+  padding: 0 8px;
+  color: var(--zc-primary-text);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.browse-column-load-more:hover:not(:disabled),
+.browse-column-show-more:hover {
+  background: var(--zc-surface-hover);
+}
+
+.browse-column-load-more:disabled {
+  color: var(--zc-text-tertiary);
+}
+
+.browse-column-load-more:focus-visible,
+.browse-column-show-more:focus-visible,
+.browse-column-title:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}

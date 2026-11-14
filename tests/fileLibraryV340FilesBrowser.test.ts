@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { listColumnSet, listRowHeight } from "../src/views/fileLibrary/list/SharedFileList";
+import { listColumnSet, listRowHeight, loadedSelectionState } from "../src/views/fileLibrary/list/SharedFileList";
 import { statusCountText, statusSelectionText } from "../src/views/fileLibrary/status/FileLibraryStatusBar";
-import { librarySelectionSize } from "../src/views/fileLibrary/status/libraryStatus";
+import { librarySelectionCount, librarySelectionSize } from "../src/views/fileLibrary/status/libraryStatus";
+import type { PresentationInteractionProjection } from "../src/views/fileLibrary/list/interactionContracts";
+import type { LibrarySourceOwner } from "../src/views/fileLibrary/library/librarySourceOwner";
 import { makeTranslator } from "../src/i18n";
 
 const t = makeTranslator("en");
@@ -34,6 +36,34 @@ describe("v3.40 Files browser surfaces", () => {
     expect(statusSelectionText({ selectionCount: 3, selectionScope: "loaded", selectedSize: null, t })).toBe("3 selected");
     expect(statusSelectionText({ selectionCount: 3, selectionScope: "loaded", selectedSize: 2048, t })).toBe("3 selected · 2.0 KB");
     expect(statusSelectionText({ selectionCount: 900, selectionScope: "all", selectedSize: null, t })).toBe("All 900 selected");
+    // A whole-query selection whose total is still unpublished is counting,
+    // never "nothing selected".
+    expect(statusSelectionText({ selectionCount: null, selectionScope: "all", selectedSize: null, t })).toBe("All matches selected · counting");
+  });
+
+  it("subtracts exclusions from a whole-query selection and keeps an unknown total unknown", () => {
+    const source = (selection: unknown, totalCount: number | null) => ({ selection, totalCount } as unknown as LibrarySourceOwner);
+    const exclusions = { kind: "all_matching", query: {}, queryFingerprint: "f", snapshotRevision: 1, excludedFileIds: ["a", "b"] };
+    expect(librarySelectionCount(source(exclusions, 100))).toBe(98);
+    expect(librarySelectionCount(source(exclusions, null))).toBeNull();
+    expect(librarySelectionCount(source({ kind: "explicit", fileIds: ["x", "y"] }, 100))).toBe(2);
+    expect(librarySelectionCount(source(null, 100))).toBe(0);
+  });
+
+  it("asks the source which loaded rows are selected instead of comparing counts", () => {
+    const entries = ["a", "b", "c"].map((id) => ({ entryRef: { fileId: id } }));
+    const selected = new Set(["a", "c"]);
+    const interaction = {
+      source: "library",
+      loadedRowCount: 3,
+      entryAt: (index: number) => entries[index],
+      isSelected: (entry: { entryRef: { fileId: string } }) => selected.has(entry.entryRef.fileId)
+    } as unknown as PresentationInteractionProjection;
+
+    // A whole-query selection excluded one loaded row: the box must stay mixed.
+    expect(loadedSelectionState(interaction)).toEqual({ selected: 2, all: false, some: true });
+    selected.add("b");
+    expect(loadedSelectionState(interaction)).toEqual({ selected: 3, all: true, some: false });
   });
 
   it("only sums a selection size when every selected file is loaded and sized", () => {
@@ -67,9 +97,16 @@ describe("v3.40 Files browser surfaces", () => {
     expect(view).toContain("source.breadcrumbs.map");
     expect(view).toContain("cachedColumns.get(crumb.pathRef.id)");
     expect(view).toContain('t("browseColumnLoadHint")');
-    // Selection still goes through the pane's interaction projection.
-    expect(view).toContain('interaction.source === "browse"');
+    // Selection and pagination still go through the pane's projection; the
+    // view never enumerates on its own.
     expect(view).toContain("interaction.actions.select");
+    expect(view).toContain("interaction.actions.loadMore");
+    expect(view).toContain("interaction.hasMore");
+    // Hidden files follow the same display rule as list and grid.
+    expect(view).toContain("showHidden ? cached : cached.filter((entry) => !entry.isHidden)");
+    // Ancestor activation carries its own column so the chain cannot be
+    // appended to the current directory.
+    expect(view).toContain("onActivate(entry, isCurrent ? null : crumb)");
     // No second session or enumeration is created here.
     expect(view).not.toContain("browseStartEnumeration");
     expect(view).not.toContain("locationBrowse");

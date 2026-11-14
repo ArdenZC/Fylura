@@ -92,17 +92,29 @@ export function useBrowseContextMenu({
     };
   }, [closeContextMenu, contextMenu]);
 
-  const openFocusedContextMenu = useCallback(() => {
+  const openFocusedContextMenu = useCallback((entryOrEvent?: BrowsePresentationEntry) => {
+    // A column can name the row it wants the menu for; the list/grid path
+    // resolves it from the source's focus instead. A React onClick handler can
+    // also be wired directly, so anything that is not an entry falls back to
+    // the focused row rather than being treated as one.
+    const entry = entryOrEvent !== null
+      && typeof entryOrEvent === "object"
+      && "entryRef" in entryOrEvent
+      ? entryOrEvent
+      : undefined;
+    if (entry !== undefined) {
+      openContextMenu(entry, undefined, undefined, false);
+      return;
+    }
     const target = resolveBrowseContextMenuTarget({
       entries: source.entries,
       focusedId: source.focusedId,
       selectedIds: source.selectedIds
     });
-    const entry = target?.entry;
-    if (entry) openContextMenu(entry, undefined, undefined, false);
+    if (target) openContextMenu(target.entry, undefined, undefined, false);
   }, [openContextMenu, source.entries, source.focusedId, source.selectedIds]);
 
-  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLDivElement>, entry: BrowsePresentationEntry) => {
+  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLElement>, entry: BrowsePresentationEntry) => {
     event.preventDefault();
     openContextMenu(entry, event.clientX, event.clientY);
   }, [openContextMenu]);

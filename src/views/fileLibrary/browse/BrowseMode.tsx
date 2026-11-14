@@ -485,7 +485,7 @@ export function BrowseMode() {
               description={t("fileLibraryBrowseTargetDesc")}
               primaryAction={<LoaderCircle className="animate-spin" size={18} aria-label={t("browseEnumerationLoading")} />}
             />
-          ) : source.enumerationState === "complete" && visibleEntries.length === 0 ? (
+          ) : viewMode !== "columns" && source.enumerationState === "complete" && visibleEntries.length === 0 ? (
             <StateBlock
               title={t("browseEnumerationEmptyTitle")}
               description={t("browseEnumerationEmptyDesc")}
@@ -503,11 +503,26 @@ export function BrowseMode() {
                 interaction={interaction}
                 t={t}
                 cachedColumns={columnCache.current}
-                onActivate={(entry) => activateEntry(entry)}
+                showHidden={showHidden}
+                onActivate={(entry, ancestor) => {
+                  if (entry.entryKind === "directory" && ancestor !== null) {
+                    source.navigateInto(entry, ancestor);
+                    return;
+                  }
+                  activateEntry(entry);
+                }}
                 onNavigateCrumb={(index) => {
                   const crumb = source.breadcrumbs[index];
                   if (crumb) source.navigateToBreadcrumb(crumb);
                 }}
+                onPreview={(entry, trigger, event) => previewController.handleSpace(
+                  previewSourceFromEntry(entry, source.collection),
+                  trigger,
+                  event
+                )}
+                onContextMenu={(event, entry) => handleRowContextMenu(event, entry)}
+                onOpenContextMenu={(entry) => openFocusedContextMenu(entry)}
+                onEscape={handleListEscape}
               /> : viewMode === "grid" ? <SharedFileGrid
                 interaction={interaction}
                 language={language}
@@ -533,7 +548,7 @@ export function BrowseMode() {
                 onContextMenu={(event, entry) => {
                   if (entry.source === "browse") handleRowContextMenu(event, entry);
                 }}
-                onOpenContextMenu={openFocusedContextMenu}
+                onOpenContextMenu={() => openFocusedContextMenu()}
                 onEscape={handleListEscape}
                 onBackgroundContextMenu={(event) => { event.preventDefault(); setBackgroundMenu({ x: event.clientX, y: event.clientY }); }}
                 onNavigateUp={navigateUp}
@@ -565,7 +580,7 @@ export function BrowseMode() {
                 onContextMenu={(event, entry) => {
                   if (entry.source === "browse") handleRowContextMenu(event, entry);
                 }}
-                onOpenContextMenu={openFocusedContextMenu}
+                onOpenContextMenu={() => openFocusedContextMenu()}
                 onEscape={handleListEscape}
                 onBackgroundContextMenu={(event) => { event.preventDefault(); setBackgroundMenu({ x: event.clientX, y: event.clientY }); }}
                 onNavigateUp={navigateUp}

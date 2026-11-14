@@ -43,6 +43,20 @@ export function libraryResultLabels(source: LibrarySourceOwner, t: Translator) {
   return { selectionLabel, resultCountLabel };
 }
 
+/**
+ * Number of files the current selection actually covers.
+ *
+ * A whole-query selection is `total - excluded`, never the bare total, and it
+ * stays `null` while the total is unpublished so the bar can say "counting"
+ * instead of claiming zero items are selected.
+ */
+export function librarySelectionCount(source: LibrarySourceOwner): number | null {
+  if (source.selection === null) return 0;
+  if (source.selection.kind === "explicit") return source.selection.fileIds.length;
+  if (source.totalCount === null) return null;
+  return Math.max(0, source.totalCount - source.selection.excludedFileIds.length);
+}
+
 export function LibraryStatusBar({
   source,
   scopeText,
@@ -58,9 +72,7 @@ export function LibraryStatusBar({
       <FileLibraryStatusBar
         loadedCount={source.files.length}
         totalCount={source.totalCount ?? null}
-        selectionCount={source.selection?.kind === "all_matching"
-          ? source.totalCount ?? 0
-          : source.selection?.fileIds.length ?? 0}
+        selectionCount={librarySelectionCount(source)}
         selectionScope={source.selection === null
           ? "none"
           : source.selection.kind === "all_matching" ? "all" : "loaded"}

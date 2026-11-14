@@ -87,7 +87,8 @@ export interface BrowseSourceOwner {
   readonly activateLocation: (location: LocationDescriptor) => Promise<boolean>;
   readonly refreshEnumeration: () => Promise<void>;
   readonly loadNextPage: () => Promise<void>;
-  readonly navigateInto: (entry: BrowsePresentationEntry) => boolean;
+  /** `from` anchors the new chain at an ancestor column instead of the current folder. */
+  readonly navigateInto: (entry: BrowsePresentationEntry, from?: BrowseBreadcrumb) => boolean;
   readonly navigateToBreadcrumb: (breadcrumb: BrowseBreadcrumb) => boolean;
   readonly selectEntry: (entryId: string, intent: BrowseSelectionIntent) => void;
   readonly selectAllLoaded: () => void;
@@ -781,23 +782,37 @@ export function useBrowseSourceOwner({
     };
   }, [visible, activePage?.nextCursor, entries.length, enumerationState, isQueryActive, loadNextQueryPage, state.mode]);
 
-  const navigateInto = useCallback((entry: BrowsePresentationEntry) => {
+  const navigateInto = useCallback((entry: BrowsePresentationEntry, from?: BrowseBreadcrumb) => {
     if (entry.entryKind !== "directory" || entry.pathRef === undefined || target === null || sessionId === null) return false;
     const currentPath = currentPathRef ?? browse?.rootPathRef;
     if (currentPath === undefined || browse === null) return false;
-    const currentChain = browseBreadcrumbChainForPath(
+    if (from !== undefined && from.sessionId !== sessionId) return false;
+
+    // A column view can activate a folder from an ancestor column. That folder
+    // is a child of *that* ancestor, not of the current directory, so the new
+    // chain is rebuilt from the ancestor's own chain; otherwise the breadcrumb
+    // would show a path that does not exist.
+    const anchorPath = from?.pathRef ?? currentPath;
+    const anchorChain = browseBreadcrumbChainForPath(
       breadcrumbChainsRef.current,
       sessionId,
-      currentPath
-    ) ?? [createBrowseBreadcrumb(
-      sessionId,
-      currentPath,
-      currentPath.id === browse.rootPathRef.id ? browse.location.displayName : t("browseCurrentFolder")
-    )];
+      anchorPath
+    ) ?? (from === undefined
+      ? [createBrowseBreadcrumb(
+        sessionId,
+        anchorPath,
+        anchorPath.id === browse.rootPathRef.id ? browse.location.displayName : t("browseCurrentFolder")
+      )]
+      : [from]);
+    const anchorIndex = from === undefined
+      ? anchorChain.length - 1
+      : anchorChain.findIndex((item) => item.sessionId === from.sessionId && item.pathRef.id === from.pathRef.id);
+    const baseChain = anchorIndex >= 0 ? anchorChain.slice(0, anchorIndex + 1) : anchorChain;
+
     const childBreadcrumb = createBrowseBreadcrumb(sessionId, entry.pathRef, entry.displayName);
     breadcrumbChainsRef.current.set(
       browseBreadcrumbKey(sessionId, entry.pathRef),
-      appendBrowseBreadcrumb(currentChain, childBreadcrumb)
+      appendBrowseBreadcrumb(baseChain, childBreadcrumb)
     );
     return controller.navigate({
       kind: "browse",

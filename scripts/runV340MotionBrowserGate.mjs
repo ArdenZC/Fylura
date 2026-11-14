@@ -125,14 +125,19 @@ try {
 
   // Pane layout uses per-pane 260ms runs, not a grid-track animation.
   step = "pane-layout";
-  await page.locator("[data-pane-menu] > summary").click();
+  await page.locator("[data-pane-menu] .wb-pane-menu-trigger").click();
   await page.waitForTimeout(120);
   await page.locator("[data-pane-menu] .wb-seg button").filter({ hasText: /^2$/ }).first().click();
   await page.waitForTimeout(30);
   const paneAnimations = await page.evaluate(() => [...document.querySelectorAll(".wb-pane")]
     .filter((pane) => pane.getClientRects().length)
-    .flatMap((pane) => pane.getAnimations().filter((animation) => animation.id === "zc-pane-in").map((animation) => animation.effect?.getTiming().duration)));
-  assert.ok(paneAnimations.length >= 2 && paneAnimations.every((duration) => duration === 260), JSON.stringify(paneAnimations));
+    .map((pane) => ({
+      id: pane.getAttribute("data-pane-id"),
+      enters: pane.getAnimations().filter((animation) => animation.id === "zc-pane-in").map((animation) => animation.effect?.getTiming().duration)
+    })));
+  // Only the newly revealed pane lands in; the existing pane must not replay.
+  assert.equal(paneAnimations.filter((pane) => pane.enters.length > 0).length, 1, JSON.stringify(paneAnimations));
+  assert.ok(paneAnimations.some((pane) => pane.enters.includes(260)));
 
   // Page switch is a 220ms WAAPI run and ends on identity.
   step = "page-switch";

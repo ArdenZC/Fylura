@@ -415,6 +415,7 @@ describe("W2-10 context-menu target and dismissal behavior", () => {
       search.dispatchEvent(new Event("pointerdown", { bubbles: true }));
       await Promise.resolve();
     });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 160)); });
     expect(container.querySelector('[role="menu"]')).toBeNull();
     expect(rafCallbacks).toHaveLength(1);
     await act(async () => {

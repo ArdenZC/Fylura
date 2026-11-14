@@ -27,7 +27,8 @@ import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, WorkspaceTopActions } from "./ShellChrome";
 import { BrandMark } from "./ui/BrandMark";
 import { PressMotion } from "./motion/PressMotion";
-import { playPageEnter } from "../utils/motion";
+import { CountBadge } from "./motion/CountBadge";
+import { playOverlayEnter, playOverlayExit, playPageEnter, prefersReducedMotion } from "../utils/motion";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useCommandContext, useI18nContext, useNavigationContext, useWindowContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
@@ -348,8 +349,22 @@ function CommandLauncher({
     []
   );
 
+  const commandClosingRef = useRef(false);
   function closeCommand() {
-    if (!standalone) setIsCommandOpen(false);
+    if (standalone || commandClosingRef.current) return;
+    commandClosingRef.current = true;
+    const dialog = document.querySelector<HTMLElement>("[data-command-modal]");
+    const finish = () => {
+      commandClosingRef.current = false;
+      setIsCommandOpen(false);
+    };
+    if (!dialog || prefersReducedMotion()) {
+      finish();
+      return;
+    }
+    dialog.setAttribute("data-closing", "true");
+    dialog.getAnimations().forEach((animation) => animation.cancel());
+    void playOverlayExit(dialog, "modal").then(finish);
   }
 
   return (
@@ -471,9 +486,11 @@ export const Sidebar = memo(function Sidebar({
                 <item.icon size={16} strokeWidth={1.7} aria-hidden="true" />
                 <span className="zc-nav-text">{item.label}</span>
                 {item.id === "organize" && previewActionCount > 0 && (
-                  <span className="zc-nav-badge" aria-label={t("organizePendingBadge").replace("{count}", previewActionCount.toLocaleString())}>
-                    {previewActionCount}
-                  </span>
+                  <CountBadge
+                    className="zc-nav-badge"
+                    value={previewActionCount}
+                    label={t("organizePendingBadge").replace("{count}", previewActionCount.toLocaleString())}
+                  />
                 )}
               </button>
             ))}
@@ -542,19 +559,53 @@ export const ToastContainer = memo(function ToastContainer() {
     .map(deriveWatcherPresentation)
     .find(watcherPresentationNeedsAttention);
   const visibleToast = toast ?? (watcherWarning ? { message: t(watcherWarning.messageKey), type: "error" as const } : null);
-  if (!visibleToast) return null;
+  const [renderedToast, setRenderedToast] = useState(visibleToast);
+  const [renderedTransient, setRenderedTransient] = useState(Boolean(toast));
+  const [toastClosing, setToastClosing] = useState(false);
+  const toastRef = useRef<HTMLDivElement | null>(null);
+  const toastTokenRef = useRef(0);
 
-  if (visibleToast.type === "success") {
+  useEffect(() => {
+    if (visibleToast) {
+      toastTokenRef.current += 1;
+      setRenderedTransient(Boolean(toast));
+      setRenderedToast(visibleToast);
+      setToastClosing(false);
+      window.requestAnimationFrame(() => playOverlayEnter(toastRef.current, "toast"));
+      return;
+    }
+    if (!renderedToast) return;
+    // Durable watcher/index errors are projections of store state, not timed
+    // toasts: resolve them in the same frame instead of holding a stale alert.
+    if (!renderedTransient) {
+      setRenderedToast(null);
+      return;
+    }
+    const token = ++toastTokenRef.current;
+    setToastClosing(true);
+    void playOverlayExit(toastRef.current, "toast").then(() => {
+      if (token !== toastTokenRef.current) return;
+      setRenderedToast(null);
+      setToastClosing(false);
+    });
+    // The toast lifetime is owned by the store; this effect only animates the
+    // visual presence and never schedules a second clear.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleToast?.message, visibleToast?.type, renderedTransient, toast]);
+
+  if (!renderedToast) return null;
+
+  if (renderedToast.type === "success") {
     return (
-      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)]" role="status">
-        {visibleToast.message}
+      <div ref={toastRef} data-toast="success" data-closing={toastClosing ? "true" : undefined} className="fixed bottom-5 right-5 z-50 max-w-sm rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)]" role="status">
+        {renderedToast.message}
       </div>
     );
   }
 
   return (
-    <div className={cn(statusToast, toastTone(visibleToast.type))} role={visibleToast.type === "error" ? "alert" : "status"}>
-      {visibleToast.message}
+    <div ref={toastRef} data-toast="error" data-closing={toastClosing ? "true" : undefined} className={cn(statusToast, toastTone(renderedToast.type))} role={renderedToast.type === "error" ? "alert" : "status"}>
+      {renderedToast.message}
     </div>
   );
 });

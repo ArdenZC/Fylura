@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { prefersReducedMotion } from "../../../utils/motion";
 import type { FileLibrarySummary } from "../../../types/domain";
 import { resolveLibraryContextMenuTarget } from "../list/contextMenuTarget";
 import type { LibrarySourceOwner } from "./librarySourceOwner";
@@ -19,6 +20,20 @@ export function useLibraryContextMenu({
   restoreFocus: (target: HTMLElement | null) => void;
 }) {
   const [contextMenu, setContextMenu] = useState<LibraryContextMenuState | null>(null);
+  const [contextClosing, setContextClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const cancelPendingClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setContextClosing(false);
+  }, []);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   const openContextMenu = useCallback((
     file: FileLibrarySummary,
@@ -45,35 +60,53 @@ export function useLibraryContextMenu({
           : null;
     const width = 260;
     const height = 220;
+    cancelPendingClose();
     setContextMenu({
       file,
       restoreFocusElement,
       x: Math.max(8, Math.min(anchorX ?? rect?.left ?? 8, window.innerWidth - width - 8)),
       y: Math.max(8, Math.min(anchorY ?? rect?.bottom ?? 8, window.innerHeight - height - 8))
     });
-  }, [source.files, source.selectionContainsFileId, source.setExplicitSelection]);
+  }, [cancelPendingClose, source.files, source.selectionContainsFileId, source.setExplicitSelection]);
 
   const closeContextMenu = useCallback((
     reason: CloseReason = "action",
     pointerTarget: EventTarget | null = null,
     shouldRestoreFocus = reason !== "dialog-handoff"
   ) => {
-    const restoreTarget = contextMenu?.restoreFocusElement ?? null;
-    setContextMenu(null);
-    if (!shouldRestoreFocus) return;
-    requestAnimationFrame(() => {
-      if (reason === "outside-pointer") {
-        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        if (isValidFocusTarget(active)) return;
-        const pointerElement = focusablePointerTarget(pointerTarget);
-        if (pointerElement) {
-          pointerElement.focus();
-          if (document.activeElement === pointerElement) return;
+    if (!contextMenu) return;
+    const restoreTarget = contextMenu.restoreFocusElement;
+    const finish = () => {
+      setContextMenu(null);
+      setContextClosing(false);
+      if (!shouldRestoreFocus) return;
+      requestAnimationFrame(() => {
+        if (reason === "outside-pointer") {
+          const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          if (isValidFocusTarget(active)) return;
+          const pointerElement = focusablePointerTarget(pointerTarget);
+          if (pointerElement) {
+            pointerElement.focus();
+            if (document.activeElement === pointerElement) return;
+          }
         }
-      }
-      restoreFocus(restoreTarget);
-    });
-  }, [contextMenu, restoreFocus]);
+        restoreFocus(restoreTarget);
+      });
+    };
+    // Committed actions close in the same frame; only dismissals play the
+    // 130ms exit so the menu never delays the operation the user chose.
+    if (reason === "action" || reason === "dialog-handoff" || prefersReducedMotion()) {
+      cancelPendingClose();
+      finish();
+      return;
+    }
+    if (contextClosing) return;
+    setContextClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      finish();
+    }, 130);
+  }, [cancelPendingClose, contextClosing, contextMenu, restoreFocus]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -100,7 +133,7 @@ export function useLibraryContextMenu({
     if (file) openContextMenu(file, event.clientX, event.clientY);
   }, [openContextMenu, source.files]);
 
-  return { contextMenu, openContextMenu, closeContextMenu, openFocusedContextMenu, handleRowContextMenu };
+  return { contextMenu, contextClosing, openContextMenu, closeContextMenu, openFocusedContextMenu, handleRowContextMenu };
 }
 
 function isValidFocusTarget(target: HTMLElement | null) {

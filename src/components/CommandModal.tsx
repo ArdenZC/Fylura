@@ -579,6 +579,7 @@ export function CommandModal({
 
   const content = (
     <div
+      data-command-overlay={standalone ? "standalone" : "main"}
       className={cn(
         standalone
           ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
@@ -588,15 +589,18 @@ export function CommandModal({
     >
       <motion.div
         layout
+        data-command-modal="true"
         className={cn(
           commandShellBase,
           isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
           !isStandaloneCollapsed && (standalone ? commandShellStandaloneExpanded : commandShellDialogWidth)
         )}
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 8 }}
-        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+        initial={prefersReducedMotion ? false : { opacity: 0, y: -8, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.985 }}
+        transition={prefersReducedMotion
+          ? { duration: 0 }
+          : { duration: 0.24, ease: [0.34, 1.38, 0.64, 1] }}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-label={t("globalSearch")}

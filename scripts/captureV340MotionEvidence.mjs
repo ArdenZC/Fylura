@@ -80,7 +80,7 @@ await page.screenshot({ path: path.join(outDir, "file-selected.png"), clip: { x:
 await page.locator('[data-file-library-view="grid"]').click();
 await page.waitForTimeout(30);
 metrics.viewSwap = await page.evaluate(() => document.querySelector(".file-library-content-slot")?.getAnimations().map((animation) => ({ id: animation.id, duration: animation.effect?.getTiming().duration })) ?? []);
-await page.locator("[data-pane-menu] > summary").click();
+await page.locator("[data-pane-menu] .wb-pane-menu-trigger").click();
 await page.waitForTimeout(120);
 await page.locator("[data-pane-menu] .wb-seg button").filter({ hasText: /^2$/ }).first().click();
 await page.waitForTimeout(30);

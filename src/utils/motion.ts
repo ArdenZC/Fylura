@@ -52,7 +52,7 @@ type ZcAnimationId = "zc-page-in" | "zc-pane-in" | "zc-view-swap" | "zc-tree-in"
  */
 export function playMotion(
   element: Element | null | undefined,
-  id: ZcAnimationId,
+  id: ZcAnimationId | OverlayAnimationId,
   keyframes: Keyframe[],
   options: KeyframeAnimationOptions
 ) {
@@ -94,5 +94,61 @@ export function playViewSwap(element: Element | null | undefined) {
     "zc-view-swap",
     [{ opacity: 0.45, transform: "translateY(5px)" }, { opacity: 1, transform: "translateY(0)" }],
     { duration: cssDuration("--zc-dur-pop", motionDuration.pop), easing: cssToken("--zc-spring-smooth", motionEasing.smooth) }
+  );
+}
+
+type OverlayAnimationId = "zc-menu-in" | "zc-menu-out" | "zc-modal-in" | "zc-modal-out" | "zc-toast-in" | "zc-toast-out" | "zc-badge-pop" | "zc-bar-in";
+
+export function playOverlayEnter(
+  element: Element | null | undefined,
+  kind: "menu" | "modal" | "toast" | "bar",
+  options: { above?: boolean; origin?: string } = {}
+) {
+  if (!element) return null;
+  const y = kind === "menu" ? (options.above ? 6 : -6) : kind === "modal" ? 10 : kind === "toast" ? 14 : 8;
+  const scale = kind === "menu" ? 0.96 : kind === "modal" ? 0.955 : kind === "toast" ? 0.94 : 1;
+  const id: OverlayAnimationId = kind === "menu" ? "zc-menu-in" : kind === "modal" ? "zc-modal-in" : kind === "toast" ? "zc-toast-in" : "zc-bar-in";
+  if (element instanceof HTMLElement && options.origin) element.style.transformOrigin = options.origin;
+  for (const animation of element.getAnimations()) {
+    if (animation.id === "zc-menu-out" || animation.id === "zc-modal-out" || animation.id === "zc-toast-out") animation.cancel();
+  }
+  return playMotion(
+    element,
+    id,
+    [
+      { opacity: 0, transform: `translateY(${y}px) scale(${scale})` },
+      { opacity: 1, transform: "translateY(0) scale(1)" }
+    ],
+    {
+      duration: kind === "toast" ? cssDuration("--zc-dur-toast", motionDuration.toast) : kind === "bar" ? 140 : cssDuration("--zc-dur-pop", motionDuration.pop),
+      easing: cssToken(kind === "toast" ? "--zc-spring-bounce" : "--zc-spring-pop", kind === "toast" ? motionEasing.bounce : motionEasing.pop)
+    }
+  );
+}
+
+export function playOverlayExit(element: Element | null | undefined, kind: "menu" | "modal" | "toast") {
+  if (!element) return Promise.resolve();
+  const id: OverlayAnimationId = kind === "menu" ? "zc-menu-out" : kind === "modal" ? "zc-modal-out" : "zc-toast-out";
+  for (const running of element.getAnimations()) {
+    if (running.id === "zc-menu-in" || running.id === "zc-modal-in" || running.id === "zc-toast-in") running.cancel();
+  }
+  const animation = playMotion(
+    element,
+    id,
+    kind === "toast"
+      ? [{ opacity: 1, transform: "translateY(0) scale(1)" }, { opacity: 0, transform: "translateY(8px) scale(.98)" }]
+      : [{ opacity: 1, transform: "translateY(0) scale(1)" }, { opacity: 0, transform: "translateY(0) scale(.985)" }],
+    { duration: cssDuration("--zc-dur-pop-out", motionDuration.popOut), easing: cssToken("--zc-spring-out", motionEasing.out) }
+  );
+  if (!animation) return Promise.resolve();
+  return animation.finished.catch(() => undefined).then(() => undefined);
+}
+
+export function playBadgePop(element: Element | null | undefined) {
+  return playMotion(
+    element,
+    "zc-badge-pop",
+    [{ transform: "scale(1)" }, { transform: "scale(1.22)" }, { transform: "scale(1)" }],
+    { duration: 320, easing: cssToken("--zc-spring-bounce", motionEasing.bounce) }
   );
 }

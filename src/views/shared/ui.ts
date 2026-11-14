@@ -480,11 +480,12 @@ export function ConfirmDialog({
       },
       children: createElement(
       "div",
-      { className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4" },
+      { "data-confirm-backdrop": "true", className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4" },
       createElement(
         "div",
         {
           className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
+          "data-confirm-card": "true",
           role: tone === "default" ? "dialog" : "alertdialog",
           "aria-modal": "true",
           "aria-labelledby": titleId,

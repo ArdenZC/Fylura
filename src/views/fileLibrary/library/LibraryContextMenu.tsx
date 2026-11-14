@@ -1,4 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
+import { playOverlayEnter, playOverlayExit } from "../../../utils/motion";
 import type { FileLibrarySummary } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { cn, focusVisibleState } from "../../../utils/tw";
@@ -44,6 +45,7 @@ export function FileLibraryContextMenu({
   title,
   ariaLabel,
   items,
+  closing = false,
   onClose
 }: {
   x: number;
@@ -51,20 +53,31 @@ export function FileLibraryContextMenu({
   title: string;
   ariaLabel: string;
   items: readonly FileLibraryContextMenuItem[];
-  onClose: () => void;
+  closing?: boolean;
+  onClose: (reason?: "escape") => void;
 }) {
   const itemRefs = useRef<HTMLButtonElement[]>([]);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     itemRefs.current.find((item) => item && !item.disabled)?.focus();
-  }, []);
+    const menu = menuRef.current;
+    const above = y > window.innerHeight / 2;
+    const originX = x > window.innerWidth / 2 ? "right" : "left";
+    playOverlayEnter(menu, "menu", { above, origin: `${originX} ${above ? "bottom" : "top"}` });
+  }, [x, y]);
+
+  useEffect(() => {
+    if (!closing) return;
+    void playOverlayExit(menuRef.current, "menu");
+  }, [closing]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const focusable = itemRefs.current.filter((item): item is HTMLButtonElement => Boolean(item && !item.disabled));
     const activeIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      onClose("escape");
       return;
     }
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
@@ -98,6 +111,9 @@ export function FileLibraryContextMenu({
 
   return (
     <div
+      ref={menuRef}
+      data-context-menu
+      data-closing={closing ? "true" : undefined}
       className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-2 shadow-[var(--zc-shadow-menu)]"
       style={{ left: x, top: y, maxHeight: `calc(100vh - ${y + 8}px)` }}
       role="menu"
@@ -137,6 +153,7 @@ export function FileLibraryContextMenu({
 export function LibraryContextMenu({
   context,
   t,
+  closing = false,
   onClose,
   onPreview,
   onReveal,
@@ -150,7 +167,8 @@ export function LibraryContextMenu({
 }: {
   context: LibraryContextMenuState;
   t: Translator;
-  onClose: () => void;
+  closing?: boolean;
+  onClose: (reason?: "escape") => void;
   onPreview: (trigger: HTMLElement | null) => void;
   onReveal: () => void;
   onRename?: () => void;
@@ -180,6 +198,7 @@ export function LibraryContextMenu({
       title={context.file.name}
       ariaLabel={t("libraryContextMenu")}
       items={items}
+      closing={closing}
       onClose={onClose}
     />
   );

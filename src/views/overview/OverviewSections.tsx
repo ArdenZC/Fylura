@@ -4,7 +4,6 @@ import type { Translator } from "../../types/ui";
 import { formatDate } from "../../utils/format";
 import { buttonGhost, cn, focusVisibleState } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
-import { MetricStrip } from "../shared/ui";
 import type { OverviewActivity, OverviewBackgroundTask } from "./overviewModel";
 
 export interface OverviewSystemCoverageModel {
@@ -26,23 +25,30 @@ export function OverviewSystemCoverage({ coverage, t }: { coverage: OverviewSyst
         ? t("overviewSystemSearchAttention")
         : t("overviewSystemUnknown");
   return (
-    <section className="grid gap-2" aria-labelledby="overview-system-coverage-title">
-      <h2 id="overview-system-coverage-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("overviewSystemCoverage")}</h2>
-      <MetricStrip
-        ariaLabel={t("overviewSystemCoverage")}
-        density="compact"
-        items={[
-          { label: t("overviewSystemSearch"), value: searchLabel },
-          { label: t("overviewSystemManaged"), value: `${coverage.managedCount} / ${coverage.managedTotal}`, hint: t("overviewSystemManagedHint").replace("{count}", coverage.managedCount.toLocaleString()) },
-          {
-            label: t("overviewSystemContent"),
-            value: coverage.contentKnown ? `${coverage.contentEnabled} / ${coverage.contentTotal}` : t("overviewSystemUnknown"),
-            hint: coverage.contentKnown
-              ? t("overviewSystemContentHint").replace("{enabled}", coverage.contentEnabled.toLocaleString()).replace("{total}", coverage.contentTotal.toLocaleString())
-              : undefined
-          }
-        ]}
-      />
+    <section className="v340-section" aria-labelledby="overview-system-coverage-title">
+      <div className="v340-section-head">
+        <h2 id="overview-system-coverage-title" className="v340-section-title">{t("overviewSystemCoverage")}</h2>
+      </div>
+      <div className="v340-panel v340-fact-list">
+        <div className="v340-fact-row">
+          <span className="v340-fact-label">{t("overviewSystemSearch")}</span>
+          <span className="v340-fact-value">{searchLabel}</span>
+        </div>
+        <div className="v340-fact-row">
+          <span className="v340-fact-label">{t("overviewSystemManaged")}</span>
+          <span className="v340-fact-value">
+            {coverage.managedCount} / {coverage.managedTotal}
+            <span className="v340-fact-hint">{t("overviewSystemManagedHint").replace("{count}", coverage.managedCount.toLocaleString())}</span>
+          </span>
+        </div>
+        <div className="v340-fact-row">
+          <span className="v340-fact-label">{t("overviewSystemContent")}</span>
+          <span className="v340-fact-value">
+            {coverage.contentKnown ? `${coverage.contentEnabled} / ${coverage.contentTotal}` : t("overviewSystemUnknown")}
+            {coverage.contentKnown ? <span className="v340-fact-hint">{t("overviewSystemContentHint").replace("{enabled}", coverage.contentEnabled.toLocaleString()).replace("{total}", coverage.contentTotal.toLocaleString())}</span> : null}
+          </span>
+        </div>
+      </div>
       {coverage.managedAttention > 0 ? <p className="text-xs leading-5 text-[var(--zc-warning-text)]">{t("overviewTaskManagedRootDesc").replace("{count}", coverage.managedAttention.toLocaleString())}</p> : null}
     </section>
   );
@@ -50,9 +56,11 @@ export function OverviewSystemCoverage({ coverage, t }: { coverage: OverviewSyst
 
 export function OverviewSpaceSummary({ summary, t }: { summary: string; t: Translator }) {
   return (
-    <section className="grid gap-1 border-y border-[var(--zc-divider)] py-4" aria-labelledby="overview-summary-title">
-      <h2 id="overview-summary-title" className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("overviewSpaceSummary")}</h2>
-      <p className="min-w-0 max-w-full break-words text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">{summary}</p>
+    <section className="v340-section" aria-labelledby="overview-summary-title">
+      <div className="v340-section-head">
+        <h2 id="overview-summary-title" className="v340-section-title">{t("overviewSpaceSummary")}</h2>
+      </div>
+      <p className="v340-panel v340-panel-pad min-w-0 max-w-full text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">{summary}</p>
     </section>
   );
 }
@@ -68,30 +76,29 @@ export interface OverviewQuickAction {
 
 export function OverviewQuickActions({ actions, t }: { actions: readonly OverviewQuickAction[]; t: Translator }) {
   return (
-    <section className="grid gap-2" aria-labelledby="overview-next-steps-title" data-overview-next-steps="true">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="overview-next-steps-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("overviewNextSteps")}</h2>
-        <span className="text-xs text-[var(--zc-text-tertiary)]">{t("overviewNextStepsHint")}</span>
+    <section className="v340-section" aria-labelledby="overview-next-steps-title" data-overview-next-steps="true">
+      <div className="v340-section-head">
+        <h2 id="overview-next-steps-title" className="v340-section-title">{t("overviewNextSteps")}</h2>
+        <span className="v340-section-hint">{t("overviewNextStepsHint")}</span>
       </div>
-      <div className="grid gap-2 md:grid-cols-3">
+      <div className="v340-panel v340-task-list">
         {actions.map((action) => {
           const Icon = action.icon;
           return (
             <button
               key={action.id}
               type="button"
-              className={cn("group grid min-w-0 gap-2 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-4 text-left transition-[border-color,background-color] hover:border-[var(--zc-control-border)] hover:bg-[var(--zc-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60", focusVisibleState)}
+              className="v340-task-row"
               onClick={action.onClick}
               disabled={action.disabled}
+              data-overview-quick-action={action.id}
             >
-              <span className="flex items-center justify-between gap-2 text-[var(--zc-primary)]">
-                <Icon size={18} aria-hidden="true" />
-                <ChevronRight size={16} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+              <span className="v340-task-icon" aria-hidden="true"><Icon size={16} /></span>
+              <span className="v340-task-text">
+                <strong>{action.label}</strong>
+                <span title={action.description}>{action.description}</span>
               </span>
-              <span className="min-w-0">
-                <strong className="block truncate text-sm text-[var(--zc-text-primary)]">{action.label}</strong>
-                <span className="mt-1 block break-words text-xs leading-5 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">{action.description}</span>
-              </span>
+              <ChevronRight size={15} className="v340-task-chevron" aria-hidden="true" />
             </button>
           );
         })}
@@ -103,10 +110,13 @@ export function OverviewQuickActions({ actions, t }: { actions: readonly Overvie
 export function OverviewRecentActivityList({ activities, t, language, onOpenHistory }: { activities: OverviewActivity[]; t: Translator; language?: Language; onOpenHistory?: () => void }) {
   if (activities.length === 0 && !onOpenHistory) return null;
   return (
-    <section className="grid gap-2" aria-labelledby="overview-activity-title">
-      <h2 id="overview-activity-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("overviewRecentActivity")}</h2>
+    <section className="v340-section" aria-labelledby="overview-activity-title">
+      <div className="v340-section-head">
+        <h2 id="overview-activity-title" className="v340-section-title">{t("overviewRecentActivity")}</h2>
+        {onOpenHistory ? <button type="button" className={buttonGhost} onClick={onOpenHistory}>{t("overviewReviewHistory")}<ChevronRight size={15} aria-hidden="true" /></button> : null}
+      </div>
       {activities.length > 0 ? (
-        <div className="divide-y divide-[var(--zc-divider)]">
+        <div className="v340-panel divide-y divide-[var(--zc-divider)]">
           {activities.map((activity) => (
             <div key={activity.id} className="flex min-w-0 items-center gap-3 py-3">
               <span className={cn(
@@ -124,7 +134,7 @@ export function OverviewRecentActivityList({ activities, t, language, onOpenHist
           ))}
         </div>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-4">
+        <div className="v340-panel v340-panel-pad flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-[var(--zc-text-secondary)]">{t("overviewActivityEmpty")}</p>
           {onOpenHistory ? <button type="button" className={buttonGhost} onClick={onOpenHistory}>{t("overviewReviewHistory")}<ChevronRight size={15} aria-hidden="true" /></button> : null}
         </div>
@@ -144,9 +154,11 @@ export function OverviewBackgroundTaskList({
 }) {
   if (tasks.length === 0) return null;
   return (
-    <section className="grid gap-2" aria-labelledby="overview-background-title">
-      <h2 id="overview-background-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("overviewBackgroundTasks")}</h2>
-      <div className="divide-y divide-[var(--zc-divider)] border-y border-[var(--zc-divider)]">
+    <section className="v340-section" aria-labelledby="overview-background-title">
+      <div className="v340-section-head">
+        <h2 id="overview-background-title" className="v340-section-title">{t("overviewBackgroundTasks")}</h2>
+      </div>
+      <div className="v340-panel divide-y divide-[var(--zc-divider)]">
         {tasks.map((task, index) => {
           const presentation = backgroundPresentation(task, t);
           const Icon = presentation.icon;

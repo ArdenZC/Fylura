@@ -26,13 +26,13 @@
   position: relative;
   isolation: isolate;
   display: grid;
-  width: min(900px, calc(100vw - 44px));
-  height: min(680px, calc(100vh - 78px));
+  width: min(1180px, calc(100vw - 56px));
+  height: min(780px, calc(100vh - 56px));
   max-height: none;
   grid-template-rows: 44px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--zc-border-subtle);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--zc-surface-overlay);
   box-shadow: var(--zc-shadow-float);
 }
@@ -52,9 +52,9 @@
 
 .zc-quick-preview-header {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) 112px;
+  grid-template-columns: 84px minmax(0, 1fr) 132px;
   min-width: 0;
-  min-height: 44px;
+  min-height: 52px;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--zc-divider);
@@ -86,9 +86,9 @@
   margin: 0;
   overflow: hidden;
   color: var(--zc-text-primary);
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 650;
+  font-size: 13px;
+  line-height: 19px;
+  font-weight: 590;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -99,8 +99,8 @@
   margin: 0;
   overflow: hidden;
   color: var(--zc-text-tertiary);
-  font-size: 10.5px;
-  line-height: 15px;
+  font-size: 11px;
+  line-height: 16px;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;

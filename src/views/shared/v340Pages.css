@@ -495,3 +495,21 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* ------------------------------------------------------------ timeline */
+
+/* Chronological batches read as one list with inset hairlines, not as a stack
+ * of floating cards. The icon column already states the outcome. */
+.v340-timeline > [role="option"] {
+  position: relative;
+  border-radius: 8px;
+  border-color: transparent;
+}
+
+.v340-timeline > [role="option"] + [role="option"] {
+  border-top-color: var(--zc-divider);
+}
+
+.v340-timeline > [role="option"]:hover {
+  background: var(--zc-surface-hover);
+}

@@ -129,7 +129,7 @@ export function HistoryBatchList({
   return (
     <div
       ref={listRef ?? internalListRef}
-      className="grid gap-1 pr-1"
+      className="v340-timeline grid pr-1"
       role="listbox"
       tabIndex={0}
       aria-label={t("historyBatches")}

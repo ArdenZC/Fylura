@@ -166,7 +166,7 @@ export class FileLibraryExperienceController {
    * current target's history entry; changing it must not create navigation.
    */
   setViewMode(viewMode: WorkspaceViewMode) {
-    if (this.disposedValue || (viewMode !== "list" && viewMode !== "grid")) return false;
+    if (this.disposedValue || (viewMode !== "list" && viewMode !== "grid" && viewMode !== "columns")) return false;
     const presentation = this.workspace.getState().session.presentation;
     const changed = this.workspace.session.setPresentation({ ...presentation, viewMode });
     this.syncFromWorkspace();

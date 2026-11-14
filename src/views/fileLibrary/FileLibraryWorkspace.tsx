@@ -2,8 +2,8 @@ import { FileLibraryWorkbench } from "./workbench/FileLibraryWorkbench";
 import { PathBar } from "./workbench/PathBar";
 import { usePane, usePaneQuerySelector } from "./workbench/PaneContext";
 import { usePreviewExperience } from "./preview/PreviewExperienceProvider";
-import { ArrowLeft, ArrowRight, ChevronRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, SlidersHorizontal } from "lucide-react";
-import { lazy, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { ArrowLeft, ArrowRight, ChevronRight, Columns3, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, SlidersHorizontal } from "lucide-react";
+import { lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
@@ -91,7 +91,10 @@ function FileLibraryPane() {
     setCommandBarSurface((current) => current?.owner === owner ? null : current);
   }, []);
 
-  useEffect(() => {
+  // Measured before paint: the first frame must already know whether the tree
+  // is an inline column or a drawer, otherwise the toggle briefly reports the
+  // wrong state and can be clicked into the wrong branch.
+  useLayoutEffect(() => {
     const element = workspaceRef.current;
     if (!element) return;
 
@@ -110,6 +113,18 @@ function FileLibraryPane() {
   const targetLabel = state.mode === "library"
     ? t("fileLibraryModeLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryNoFolderOpen");
+
+  // Finder-style columns are a browsing mode, not a per-folder preference:
+  // after navigating into a folder the new history entry starts empty, so the
+  // pane re-applies the mode the user last chose.
+  const columnModeSticky = useRef(false);
+  const changeViewMode = useCallback((nextViewMode: WorkspaceViewMode) => {
+    columnModeSticky.current = nextViewMode === "columns";
+    controller.setViewMode(nextViewMode);
+  }, [controller]);
+  useEffect(() => {
+    if (columnModeSticky.current && viewMode !== "columns") controller.setViewMode("columns");
+  }, [controller, viewMode]);
 
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
   /**
@@ -212,7 +227,8 @@ function FileLibraryPane() {
               contextOpen={contextOpen}
               onContextToggle={toggleContext}
               viewMode={viewMode}
-              onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
+              onViewModeChange={changeViewMode}
+              platform={platform}
               t={t}
             />
             </div>
@@ -304,6 +320,12 @@ function TreeResizeHandle({
   // the same task as the final pointermove still commits the newest value.
   const latest = useRef(width);
   latest.current = width;
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
   return (
     <div
       role="separator"
@@ -327,13 +349,24 @@ function TreeResizeHandle({
       }}
       onPointerUp={(event) => {
         if (!drag.current) return;
-        drag.current = null;
-        onCommit(latest.current);
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
+        const committed = latest.current;
+        endDrag(event);
+        onCommit(committed);
       }}
-      onPointerCancel={() => { drag.current = null; }}
+      // A cancelled gesture (Escape, OS interruption) must not keep the
+      // previewed width: restore the width the drag started from.
+      onPointerCancel={(event) => {
+        if (!drag.current) return;
+        const original = drag.current.width;
+        endDrag(event);
+        onPreview(original);
+      }}
+      onLostPointerCapture={() => {
+        if (!drag.current) return;
+        const original = drag.current.width;
+        drag.current = null;
+        onPreview(original);
+      }}
       onDoubleClick={() => onCommit(TREE_WIDTH_DEFAULT)}
       onKeyDown={(event) => {
         const step = event.shiftKey ? 24 : 8;
@@ -376,6 +409,9 @@ type WorkspaceCommandBarProps = {
   sourceActions?: ReactNode;
   viewMode?: WorkspaceViewMode;
   onViewModeChange?: (viewMode: WorkspaceViewMode) => void;
+  /** Passed in rather than read from context so the bar stays renderable in
+   * isolation; the column mode is a macOS browsing form. */
+  platform?: string;
   contextOpen?: boolean;
   onContextToggle?: () => void;
   t: ReturnType<typeof useI18nContext>["t"];
@@ -403,6 +439,7 @@ export function WorkspaceCommandBar({
   sourceActions,
   viewMode = "list",
   onViewModeChange,
+  platform,
   contextOpen = false,
   onContextToggle = () => undefined,
   t
@@ -488,6 +525,21 @@ export function WorkspaceCommandBar({
           <Grid2X2 size={15} aria-hidden="true" />
           <span>{t("fileLibraryViewGrid")}</span>
         </button>
+        {/* Finder-style columns are a macOS browsing form, not a replacement
+         * for independent panes: the pane keeps its own navigation stack. */}
+        {platform === "darwin" ? (
+          <button
+            className="file-library-command-button"
+            type="button"
+            aria-label={t("fileLibraryViewColumns")}
+            aria-pressed={viewMode === "columns"}
+            data-file-library-view="columns"
+            onClick={() => onViewModeChange?.("columns")}
+          >
+            <Columns3 size={15} aria-hidden="true" />
+            <span>{t("fileLibraryViewColumns")}</span>
+          </button>
+        ) : null}
       </div>
 
       <button

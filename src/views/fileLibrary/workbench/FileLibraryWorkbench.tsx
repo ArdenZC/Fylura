@@ -1,7 +1,7 @@
 import { WorkbenchLayout } from "./WorkbenchLayout";
 import { isTauri } from "@tauri-apps/api/core";
 import { FolderComparison } from "../compare/FolderComparison";
-import { Copy, FolderInput, Plus, X } from "lucide-react";
+import { ArrowLeft, Copy, FolderInput, Plus, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -48,6 +48,30 @@ import { useWorkbenchDrag } from "./useWorkbenchDrag";
 import { readableError } from "../../../utils/viewHelpers";
 import { useNativeFileDrop } from "./useNativeFileDrop";
 import "./workbench.css";
+/**
+ * A 16px glyph that states the current pane arrangement, so the menu trigger
+ * communicates the layout without a text label.
+ */
+function PaneLayoutIcon({ count, layout }: { count: number; layout: "columns" | "grid" }) {
+  const cells = count === 1
+    ? ["0,0,16,16"]
+    : count === 2
+      ? ["0,0,7,16", "9,0,7,16"]
+      : count === 3
+        ? ["0,0,9,7", "0,9,9,7", "11,0,5,16"]
+        : layout === "grid"
+          ? ["0,0,7,7", "9,0,7,7", "0,9,7,7", "9,9,7,7"]
+          : ["0,0,4,16", "6,0,4,16", "12,0,4,16", "0,0,0,0"];
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className="wb-pane-layout-icon">
+      {cells.filter((cell) => cell !== "0,0,0,0").map((cell, index) => {
+        const [x, y, width, height] = cell.split(",").map(Number);
+        return <rect key={index} x={x} y={y} width={width} height={height} rx="1.5" />;
+      })}
+    </svg>
+  );
+}
+
 function tabLabel(tab: WorkbenchTab, t: Translator) {
   const pane = tab.panes.find((pane) => pane.id === tab.activePaneId)!;
   return (
@@ -555,66 +579,124 @@ export function FileLibraryWorkbench({
         >
           <Plus size={17} />
         </button>
-        <select className="wb-split-button" aria-label={t("wbPaneCount")} disabled={locked}
-          value={active.paneCount} onChange={(event) => model.setPaneCount(active.id, Number(event.target.value))}>
-          {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{t("wbPane")} × {count}</option>)}
-        </select>
-        {active.paneCount === 4 && <select className="wb-split-button" aria-label={t("wbLayout")} disabled={locked}
-          value={active.layout} onChange={(event) => model.setLayout(active.id, event.target.value as "grid" | "columns")}>
-          <option value="grid">2 × 2</option><option value="columns">{t("wbColumns")}</option>
-        </select>}
-      {active.paneCount > 1 && (
-        <div className="wb-pane-actions">
-          {visiblePanes.map((pane, index) => (
-            <button
-              key={pane.id}
-              className="wb-side-button"
-              aria-pressed={active.activePaneId === pane.id}
-              disabled={locked}
-              onClick={() => focus(active.id, pane.id)}
-            >
-              {t("wbPane")} {index + 1}
-            </button>
-          ))}
-          <button className="wb-icon" disabled={transferLocked} aria-label={t("wbClosePane")} onClick={() => {
-            clearExpandedTreePaths(active.activePaneId);
-            void model.closePane(active.id, active.activePaneId);
-          }}><X size={14} /></button>
-          <button className="wb-icon" disabled={locked || visiblePanes[0].id === active.activePaneId}
-            aria-label={t("wbReorderPane")} onClick={() => model.movePane(active.id, active.activePaneId, -1)}>←</button>
-          <select aria-label={t("wbDestinationPane")} value={destinationPane?.id ?? ""} disabled={locked}
-            onChange={(event) => setTargets((current) => ({ ...current, [active.id]: event.target.value }))}>
-            {visiblePanes.filter((pane) => pane.id !== active.activePaneId).map((pane) =>
-              <option key={pane.id} value={pane.id}>{t("wbPane")} {visiblePanes.indexOf(pane) + 1}: {pane.path || t("wbNewFolderTab")}</option>)}
-          </select>
-          <span className="wb-pane-hint">
-            {!wide ? t("wbCompactPane") : t("wbDragHint")}
-          </span>
-          <button
-            className="wb-cross-button"
-            aria-label={t("wbCopyOther")} title={t("wbCopyOther")}
-            disabled={!canTransfer}
-            onClick={() =>
-              useFileManagementStore.getState().requestAction("copy_other")
-            }
+        <details className="wb-pane-menu" data-pane-menu>
+          <summary
+            className="wb-pane-menu-trigger"
+            aria-label={t("wbPaneCount")}
+            title={`${t("wbPaneCount")}: ${active.paneCount}`}
+            data-pane-count={active.paneCount}
           >
-            <Copy size={14} />
-            <span className="wb-cross-label">{t("wbCopyOther")}</span>
-          </button>
-          <button
-            className="wb-cross-button"
-            aria-label={t("wbMoveOther")} title={t("wbMoveOther")}
-            disabled={!canTransfer}
-            onClick={() =>
-              useFileManagementStore.getState().requestAction("move_other")
-            }
+            <PaneLayoutIcon count={active.paneCount} layout={active.layout} />
+            <span className="wb-pane-menu-count">{active.paneCount}</span>
+          </summary>
+          <div
+            className="wb-pane-menu-panel"
+            role="group"
+            aria-label={t("wbPaneLayoutGroup")}
+            onClick={(event) => {
+              // Choosing an action dismisses the menu; a select keeps it open
+              // so the destination picker is not closed mid-selection.
+              if ((event.target as Element).closest("button")) {
+                (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                const details = event.currentTarget.closest("details") as HTMLDetailsElement | null;
+                details?.removeAttribute("open");
+                details?.querySelector("summary")?.focus();
+              }
+            }}
           >
-            <FolderInput size={14} />
-            <span className="wb-cross-label">{t("wbMoveOther")}</span>
-          </button>
-          {active.paneCount === 2 && <FolderComparison key={active.id} compact={!wide} paneIds={visiblePanes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} />}
-        </div>
-      )}
+            <div className="wb-pane-menu-row">
+              <span className="wb-pane-menu-label">{t("wbPaneCount")}</span>
+              <div className="wb-seg" role="group" aria-label={t("wbPaneCount")}>
+                {[1, 2, 3, 4].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    disabled={locked}
+                    aria-pressed={active.paneCount === count}
+                    aria-label={`${t("wbPane")} × ${count}`}
+                    onClick={() => model.setPaneCount(active.id, count)}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {active.paneCount === 4 ? (
+              <div className="wb-pane-menu-row">
+                <span className="wb-pane-menu-label">{t("wbLayout")}</span>
+                <div className="wb-seg" role="group" aria-label={t("wbLayout")}>
+                  <button type="button" disabled={locked} aria-pressed={active.layout === "grid"} onClick={() => model.setLayout(active.id, "grid")}>2 × 2</button>
+                  <button type="button" disabled={locked} aria-pressed={active.layout === "columns"} onClick={() => model.setLayout(active.id, "columns")}>{t("wbColumns")}</button>
+                </div>
+              </div>
+            ) : null}
+            {active.paneCount > 1 ? (
+              <>
+                <div className="wb-pane-menu-row">
+                  <span className="wb-pane-menu-label">{t("wbActivePane")}</span>
+                  <div className="wb-seg" role="group" aria-label={t("wbActivePane")}>
+                    {visiblePanes.map((pane, index) => (
+                      <button
+                        key={pane.id}
+                        type="button"
+                        disabled={locked}
+                        aria-label={`${t("wbPane")} ${index + 1}`}
+                        aria-pressed={active.activePaneId === pane.id}
+                        onClick={() => focus(active.id, pane.id)}
+                      >
+                        {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="wb-pane-menu-row">
+                  <span className="wb-pane-menu-label">{t("wbDestinationPane")}</span>
+                  <select
+                    aria-label={t("wbDestinationPane")}
+                    value={destinationPane?.id ?? ""}
+                    disabled={locked}
+                    onChange={(event) => setTargets((current) => ({ ...current, [active.id]: event.target.value }))}
+                  >
+                    {visiblePanes.filter((pane) => pane.id !== active.activePaneId).map((pane) =>
+                      <option key={pane.id} value={pane.id}>{t("wbPane")} {visiblePanes.indexOf(pane) + 1}: {pane.path || t("wbNewFolderTab")}</option>)}
+                  </select>
+                </div>
+                <div className="wb-pane-menu-actions">
+                  <button type="button" disabled={!canTransfer} onClick={() => useFileManagementStore.getState().requestAction("copy_other")}>
+                    <Copy size={14} aria-hidden="true" />{t("wbCopyOther")}
+                  </button>
+                  <button type="button" disabled={!canTransfer} onClick={() => useFileManagementStore.getState().requestAction("move_other")}>
+                    <FolderInput size={14} aria-hidden="true" />{t("wbMoveOther")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={locked || visiblePanes[0].id === active.activePaneId}
+                    onClick={() => model.movePane(active.id, active.activePaneId, -1)}
+                  >
+                    <ArrowLeft size={14} aria-hidden="true" />{t("wbReorderPane")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={transferLocked}
+                    onClick={() => {
+                      clearExpandedTreePaths(active.activePaneId);
+                      void model.closePane(active.id, active.activePaneId);
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />{t("wbClosePane")}
+                  </button>
+                </div>
+                <p className="wb-pane-menu-hint">{!wide ? t("wbCompactPane") : t("wbDragHint")}</p>
+              </>
+            ) : null}
+          </div>
+        </details>
+        {active.paneCount === 2 ? <FolderComparison key={active.id} compact={!wide} paneIds={visiblePanes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} /> : null}
       </header>
       {state.tabs.map((tab) => (
         <div

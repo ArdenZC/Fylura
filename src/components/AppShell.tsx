@@ -279,8 +279,8 @@ export function Titlebar({
           data-sidebar-mode={mode}
           aria-label={label}
           title={label}
-          aria-expanded={mode === "expanded"}
-          aria-controls="zc-main-sidebar"
+          aria-expanded={mode !== "hidden"}
+          aria-controls={mode === "hidden" ? undefined : "zc-main-sidebar"}
           onClick={onCycleSidebar}
         >
           {mode === "expanded" ? <PanelLeftClose size={16} /> : mode === "rail" ? <PanelLeft size={16} /> : <PanelLeftOpen size={16} />}
@@ -440,7 +440,7 @@ export const Sidebar = memo(function Sidebar({
           </button>
         )}
       </div>
-      <nav className="zc-sidebar-nav" aria-label={t("appName")}>
+      <nav className="zc-sidebar-nav" aria-label={t("mainNavigationLabel")}>
         {groups.map((group) => (
           <section className="zc-nav-group" key={group.id}>
             {group.label ? <span className="zc-nav-group-label">{group.label}</span> : null}
@@ -470,7 +470,9 @@ export const Sidebar = memo(function Sidebar({
           <span className="zc-sidebar-avatar" aria-hidden="true">ZS</span>
           <div className="zc-sidebar-account-text">
             <strong>{t("localWorkspace")}</strong>
-            <span>{t("localOnly")} · {t("modeAIDisabled")}</span>
+            {/* The subtitle states the mode the app actually reports, so it can
+                never contradict the AI status block below it. */}
+            <span>{t("localOnly")} · {sidebarMode({ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }, t).title}</span>
           </div>
         </div>
         <AIProcessingModeStatus

@@ -5,6 +5,32 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+/** v3.40 pane controls live in one menu; these helpers keep the gates readable. */
+async function setPaneCount(page, count) {
+  const menu = page.locator('[data-pane-menu]');
+  if ((await menu.getAttribute('open')) === null) await menu.locator('> summary').click();
+  await menu.getByRole('button', { name: `Pane \u00d7 ${count}`, exact: true }).click();
+}
+async function readPaneCount(page) {
+  return page.locator('[data-pane-menu] > summary').getAttribute('data-pane-count');
+}
+async function openPaneMenu(page) {
+  const menu = page.locator('[data-pane-menu]');
+  if ((await menu.getAttribute('open')) === null) await menu.locator('> summary').click();
+  return menu;
+}
+async function focusPane(page, index) {
+  const menu = await openPaneMenu(page);
+  await menu.getByRole('button', { name: `Pane ${index}`, exact: true }).click();
+}
+async function setDestinationPane(page, paneId) {
+  const menu = await openPaneMenu(page);
+  // The destination picker keeps the menu open so the transfer action in the
+  // same menu applies to it; choosing that action dismisses the menu.
+  await menu.getByRole('combobox', { name: 'Transfer destination pane', exact: true }).selectOption(paneId);
+}
+
 const output = process.env.FILES_MULTIPANE_OUTPUT_DIR ?? path.join(tmpdir(), 'fylura-multipane');
 await mkdir(output, { recursive: true });
 const server = await createServer({ server: { host: '127.0.0.1', port: 0, strictPort: false } });
@@ -21,7 +47,7 @@ try {
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     await page.locator('[data-workbench-ready="true"]').waitFor();
     assert.equal(await page.title(), 'Fylura');
-    await page.getByRole('combobox', { name: 'File pane count', exact: true }).selectOption('4');
+    await setPaneCount(page, 4);
     const panes = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]');
     for (let i = 0; i < 4; i++) {
         const pane = panes.nth(i);
@@ -36,7 +62,7 @@ try {
     await panes.first().locator('[data-file-library-query-menu] > summary').click();
     await panes.nth(2).locator('[data-file-entry-name="notes.md"]').click();
     assert.equal(await panes.nth(2).locator('[aria-selected="true"]').count(), 1);
-    await page.getByRole('combobox', { name: 'Transfer destination pane', exact: true }).selectOption(await panes.nth(3).getAttribute('data-pane-id'));
+    await setDestinationPane(page, await panes.nth(3).getAttribute('data-pane-id'));
     await page.getByRole('button', { name: 'Copy to other pane', exact: true }).click();
     await page.getByText('Operation results · 1/1', { exact: true }).first().waitFor();
     await panes.nth(2).locator('[data-file-entry-name="notes.md"]').click();
@@ -45,13 +71,13 @@ try {
     await page.getByRole('separator', { name: 'Resize panes 1', exact: true }).first().focus();
     await page.keyboard.press('ArrowRight');
     await page.getByRole('button', { name: 'New tab', exact: true }).click();
-    await page.getByRole('combobox', { name: 'File pane count', exact: true }).selectOption('3');
+    await setPaneCount(page, 3);
     await page.getByRole('tab').first().click();
-    assert.equal(await page.getByRole('combobox', { name: 'File pane count', exact: true }).inputValue(), '4');
+    assert.equal(await readPaneCount(page), '4');
     await page.setViewportSize({ width: 800, height: 800 });
     await page.waitForTimeout(200);
     assert.equal(await page.locator('[data-pane-id]:visible').count(), 1);
-    await page.getByRole('button', { name: 'Pane 3', exact: true }).click();
+    await focusPane(page, 3);
     assert.equal(await page.locator('[data-pane-id][data-focused="true"]:visible').count(), 1);
     await page.screenshot({ path: path.join(output, 'compact-pane.png') });
     await page.setViewportSize({ width: 1800, height: 1100 });
@@ -60,7 +86,7 @@ try {
     assert.equal(await panes.nth(2).locator('[aria-selected="true"]').count(), 1);
     await page.reload();
     await page.locator('[data-workbench-ready="true"]').waitFor();
-    assert.equal(await page.getByRole('combobox', { name: 'File pane count', exact: true }).inputValue(), '4');
+    assert.equal(await readPaneCount(page), '4');
     assert.equal(await page.getByRole('tab').count(), 2);
     assert.equal(await panes.first().locator('[data-browse-sort]').inputValue(), 'size');
     await panes.first().getByRole('button', { name: 'C:/U3/Left', exact: true }).waitFor();
@@ -77,8 +103,8 @@ try {
     await page.addInitScript((saved) => localStorage.setItem('zen-canvas:file-library-workbench:v1', JSON.stringify(saved)), legacy);
     await page.reload();
     await page.locator('[data-workbench-ready="true"]').waitFor();
-    assert.equal(await page.getByRole('combobox', { name: 'File pane count', exact: true }).inputValue(), '1');
-    await page.getByRole('combobox', { name: 'File pane count', exact: true }).selectOption('2');
+    assert.equal(await readPaneCount(page), '1');
+    await setPaneCount(page, 2);
     await panes.nth(1).getByRole('button', { name: 'C:/U3/Right', exact: true }).waitFor();
     console.log(JSON.stringify({ ok: true, output, checks: ['four independent navigation paths', 'pane-local sorting', 'explicit pane 3→4 copy', 'separator keyboard resize', 'per-tab count', 'compact selection retention', 'restart paths/sort/splits', 'legacy single with hidden second pane'], errors }));
     assert.deepEqual(errors, []);

@@ -222,9 +222,15 @@ describe("v3.40 design foundation (approved prototype baseline)", () => {
     expect(filesV26).toContain("background: var(--zc-selected-focus)");
     expect(filesV26).toContain("outline: 0");
     expect(filesV26).not.toContain("box-shadow: inset");
-    expect(filesV26).toContain("width: 20px");
-    expect(filesV26).toContain('content: "✓"');
-    expect(filesV26).toContain("var(--zc-selection-mark)");
+    // The row selection affordance is a real 14px checkbox in the shared list
+    // owner, not the former pseudo-element glyph inside the V26 projection.
+    const listCss = read("src/views/fileLibrary/list/sharedFileList.css");
+    expect(listCss).toContain(".shared-file-list-checkbox");
+    expect(listCss).toContain("width: 14px");
+    expect(listCss).toContain("border-radius: 3.5px");
+    expect(listCss).toContain(".shared-file-list-select-all");
+    expect(listCss).toContain("var(--zc-primary-contrast)");
+    expect(filesV26).not.toContain('content: "✓"');
     expect(filesV26).toContain('.file-library-workspace[data-layout="medium"] .file-library-command-bar');
     expect(filesV26).toContain('.file-library-workspace[data-layout="compact"] .file-library-command-bar');
     expect(filesV26).toContain(".file-library-workspace .file-library-context-close:focus-visible");

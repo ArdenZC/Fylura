@@ -1,0 +1,128 @@
+/*
+ * Files status bar — v3.40 §7.1 item 16.
+ *
+ * A single 31px row at the bottom of a pane. It carries counts, the selection
+ * scope, the live enumeration state, the source identity and the pane's
+ * relocation actions. It never restates a loaded page as a directory total.
+ */
+
+.fl-status {
+  container-type: inline-size;
+  display: flex;
+  min-height: var(--zc-statusbar-height);
+  height: var(--zc-statusbar-height);
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  border-top: 1px solid var(--zc-divider);
+  padding: 0 12px;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fl-status-count {
+  color: var(--zc-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.fl-status-selection {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fl-status-selection[data-selection-scope="none"] {
+  opacity: 0.72;
+}
+
+.fl-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--zc-text-tertiary);
+}
+
+/* The live region sits after a separator so a changing value does not reflow
+ * the counts beside it. */
+.fl-status-text::before {
+  margin-right: 10px;
+  color: var(--zc-divider);
+  content: "·";
+}
+
+.fl-status-spacer {
+  flex: 1 1 auto;
+}
+
+.fl-status-source {
+  overflow: hidden;
+  max-width: 40%;
+  text-overflow: ellipsis;
+  color: var(--zc-text-tertiary);
+}
+
+.fl-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.fl-status-actions button {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 6px;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+.fl-status-actions button:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.fl-status-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Narrow panes keep the counts and drop the secondary segments first, so a
+ * four-pane grid never produces a truncated status sentence. */
+@container (max-width: 620px) {
+  .fl-status-source {
+    display: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .fl-status-text {
+    display: none;
+  }
+}
+
+@container (max-width: 400px) {
+  .fl-status-selection {
+    display: none;
+  }
+
+  .fl-status-actions button {
+    padding: 0 4px;
+  }
+}
+
+@media (max-width: 900px) {
+  .fl-status-source {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .fl-status {
+    border-top-color: CanvasText;
+  }
+}

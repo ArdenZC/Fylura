@@ -21,6 +21,7 @@ import { useLibraryContextMenu } from "./useLibraryContextMenu";
 import { useLibraryContentCompatibility } from "./useLibraryContentCompatibility";
 import { createLibraryInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileList } from "../list/SharedFileList";
+import { LibraryStatusBar } from "../status/libraryStatus";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import type { LibraryPresentationEntry, PresentationEntry } from "../presentation/contracts";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
@@ -317,14 +318,6 @@ export function LibraryMode() {
   }
 
   const state = libraryState();
-  const selectionLabel = source.selection?.kind === "all_matching"
-    ? replaceCopy(t("librarySelectionAll"), { count: source.totalCount === null ? t("libraryCountPending") : source.totalCount.toLocaleString(), excluded: source.selection.excludedFileIds.length.toLocaleString() })
-    : source.selectedIds.size ? replaceCopy(t("librarySelectionLoaded"), { count: source.selectedIds.size.toLocaleString() }) : t("librarySelectionNone");
-  const resultCountLabel = source.isLoading
-    ? t("loading")
-    : source.isCountLoading || source.totalCount === null
-      ? replaceCopy(t("libraryResultCountDeferred"), { loaded: source.files.length.toLocaleString() })
-      : replaceCopy(t("libraryResultCountExact"), { loaded: source.files.length.toLocaleString(), total: source.totalCount.toLocaleString() });
   const contextOpen = experienceState.workspace.session.presentation.contextOpen === true;
   const contextProjection = createLibraryContextProjection(source.selection, {
     selectedIds: source.selectedIds,
@@ -384,7 +377,6 @@ export function LibraryMode() {
           </div>
           <div className="flex flex-wrap items-center gap-2"><button ref={personalTrigger} className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setPersonalOpen(true)}>{t("u4MyFiles")}</button>{showLibraryControls ? <><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />{t("libraryManageSavedViews")}</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />{t("libraryManageTags")}{source.tags.length ? ` · ${source.tags.length}` : ""}</button></> : null}</div>
           {showLibraryControls ? <div className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}><span className="text-xs text-[var(--zc-text-tertiary)]">{activeFilterCount ? replaceCopy(t("libraryFiltersAppliedCount"), { count: activeFilterCount }) : t("libraryFilterAllOptions")}</span>{activeFilterCount ? <button className="text-xs text-[var(--zc-primary)] underline" onClick={source.clearFilters}>{t("libraryFilterClear")}</button> : null}</div> : null}
-          {showLibraryControls ? <p className="text-xs text-[var(--zc-text-tertiary)]" data-library-result-status aria-live="polite">{t("libraryResultCountLabel")}: {resultCountLabel} · {t("librarySelectionLabel")}: {selectionLabel}</p> : null}
           {showLibraryControls && source.selection?.kind === "explicit" && source.selectedIds.size === source.files.length && source.totalCount !== null && source.totalCount > source.files.length ? <button className="justify-self-start text-xs text-[var(--zc-primary)] underline" onClick={source.selectAllMatching}>{t("librarySelectAllMatching")}</button> : null}
         </section>
         {source.resultState === "snapshot_expired" || source.error === "library_snapshot_expired" ? <NoticeBanner tone="warning" title={t("librarySnapshotExpiredTitle")} action={<button className={buttonSecondary} onClick={() => void source.refreshResults().catch(() => undefined)}>{t("librarySnapshotRefresh")}</button>}>{t("librarySnapshotExpiredDesc")}</NoticeBanner> : null}
@@ -439,6 +431,7 @@ export function LibraryMode() {
             restoreFocus={restoreContextFocus}
           />
       </div>
+      {showLibraryControls ? <LibraryStatusBar source={source} scopeText={scopeText} t={t} /> : null}
       {renameFile && (pane?.visible ?? true) ? <ManualRenameDialog
         key={`rename-${renameFile.id}`}
         mode="rename"

@@ -15,7 +15,7 @@
   flex: 1;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 12px;
+  padding: 12px 14px;
   scrollbar-width: thin;
 }
 
@@ -67,12 +67,16 @@
 }
 
 .shared-file-grid-cell.is-selected {
-  border-color: var(--zc-control-border);
+  border-color: transparent;
   background: var(--zc-surface-selected);
 }
 
+.shared-file-grid-cell.is-selected:hover {
+  background: var(--zc-surface-selected-hover);
+}
+
 .shared-file-grid-cell.is-focused {
-  box-shadow: inset 0 0 0 2px var(--zc-focus-ring);
+  box-shadow: inset 0 0 0 2px var(--zc-focus);
 }
 
 .shared-file-grid-cell.is-missing {

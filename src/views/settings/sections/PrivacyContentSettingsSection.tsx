@@ -1,7 +1,7 @@
 import type { RestoreRetentionDays } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { quietText } from "../../shared/ui";
-import { SettingsRow, SettingsSection, SettingsSegmentedControl } from "../components/SettingsPrimitives";
+import { SettingsSection, SettingsSelect } from "../components/SettingsPrimitives";
 
 export interface PrivacyContentSettingsSectionProps {
   t: Translator;
@@ -13,14 +13,14 @@ export function PrivacyContentSettingsSection({ t, restoreRetentionDays, onResto
   return (
     <SettingsSection id="settings-privacy" title={t("settingsPrivacy")} description={t("settingsPrivacyDesc")}>
       <p className={quietText}>{t("privacyLine")}</p>
-      <SettingsRow label={t("logRetention")} description={t("logRetentionDesc")}>
-        <SettingsSegmentedControl
-          value={String(restoreRetentionDays)}
-          ariaLabel={t("logRetention")}
-          options={([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => ({ value: String(days), label: `${days} ${t("days")}` }))}
-          onChange={(next) => onRestoreRetentionDays(Number(next) as RestoreRetentionDays)}
-        />
-      </SettingsRow>
+      <SettingsSelect
+        id="settings-log-retention"
+        label={t("logRetention")}
+        description={t("logRetentionDesc")}
+        value={String(restoreRetentionDays)}
+        options={([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => ({ value: String(days), label: `${days} ${t("days")}` }))}
+        onChange={(next: string) => onRestoreRetentionDays(Number(next) as RestoreRetentionDays)}
+      />
       <p className={quietText}>{t("settingsSafetyRestoreDesc")}</p>
     </SettingsSection>
   );

@@ -7,7 +7,7 @@ import { buttonIconDanger, buttonSecondary, cn, focusVisibleState, buttonDefault
 import { compactPath } from "../../../utils/viewHelpers";
 import { formatHotkeyLabel } from "../../../utils/hotkeys";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
-import { SettingsEmptyState, SettingsInlineMessage, SettingsRow, SettingsSection, SettingsSegmentedControl, SettingsSwitchControl } from "../components/SettingsPrimitives";
+import { SettingsEmptyState, SettingsInlineMessage, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitchControl } from "../components/SettingsPrimitives";
 import type { BackgroundRootState, FolderDeleteConfirmState } from "./settingsSectionTypes";
 
 export interface GlobalSearchSettingsSectionProps {
@@ -99,18 +99,18 @@ export function GlobalSearchSettingsSection({
           <button className={buttonSecondary} onClick={() => requestSettingsSection("settings-global-index")}>{t("globalSearchManage")}</button>
         </div>
       </SettingsInlineMessage> : <>
-      <SettingsRow label={t("searchScopeSettings")} description={t("searchScopeSettingsDesc")}>
-        <SettingsSegmentedControl
-          value={searchScopeMode}
-          ariaLabel={t("searchScopeSettings")}
-          options={[
-            { value: "all", label: t("searchScopeAllIndexed") },
-            { value: "current_scan", label: t("searchScopeCurrentScan") },
-            { value: "custom_roots", label: t("searchScopeCustomRoots") }
-          ]}
-          onChange={onSearchScopeMode}
-        />
-      </SettingsRow>
+      <SettingsSelect
+        id="settings-search-scope"
+        label={t("searchScopeSettings")}
+        description={t("searchScopeSettingsDesc")}
+        value={searchScopeMode}
+        options={[
+          { value: "all" as const, label: t("searchScopeAllIndexed") },
+          { value: "current_scan" as const, label: t("searchScopeCurrentScan") },
+          { value: "custom_roots" as const, label: t("searchScopeCustomRoots") }
+        ]}
+        onChange={onSearchScopeMode}
+      />
       <span className={quietText}>{t("searchLocalIndexBoundary")}</span>
       {searchScopeMode === "custom_roots" ? (
         <div className="grid gap-2">
@@ -118,7 +118,7 @@ export function GlobalSearchSettingsSection({
           {customSearchRoots.length ? customSearchRoots.map((root) => {
             const state = backgroundRootState(root);
             return (
-              <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
+              <div key={root.id} data-settings-item className={cn(compactInteractiveRow(), "px-3 py-2")}>
                 <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                   <div className="min-w-0 text-left">
                     <label htmlFor={`search-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>

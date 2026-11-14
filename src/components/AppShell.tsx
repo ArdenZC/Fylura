@@ -212,8 +212,8 @@ export function AppShell() {
                 />
               )}
               <div className="zc-app-workspace">
-                <main data-flush={view === "library" ? "true" : undefined}>
-                  {view !== "library" ? (
+                <main data-flush={view === "library" || view === "settings" ? "true" : undefined}>
+                  {view !== "library" && view !== "settings" ? (
                     <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
                   ) : null}
                   <ToastContainer />

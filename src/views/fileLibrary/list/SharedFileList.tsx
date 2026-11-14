@@ -32,7 +32,7 @@ const TYPE_COLUMN_MIN_CONTAINER = 900;
 const CREATED_COLUMN_MIN_CONTAINER = 720;
 /** Below this width the modified time gives way to the name and size. */
 const MODIFIED_COLUMN_MIN_CONTAINER = 620;
-/** Below this width only the name survives; size follows at 420. */
+/** Below this width only the name survives. */
 const SIZE_COLUMN_MIN_CONTAINER = 360;
 
 function readListColumnWidths() {

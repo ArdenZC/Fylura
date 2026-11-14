@@ -73,6 +73,13 @@ export function thumbnailVariantForCell(width: number, devicePixelRatio: number)
   return "large";
 }
 
+/** Cells actually backed by the logical row count; a partial last row must not
+ * render ghost tiles after the final entry. */
+export function gridCellsInRow(rowIndex: number, columns: number, rowCount: number) {
+  const rowStart = rowIndex * Math.max(1, columns);
+  return Math.min(Math.max(1, columns), Math.max(0, rowCount - rowStart));
+}
+
 function columnsForWidth(width: number) {
   if (width <= 0) return 1;
   const columns = Math.floor((width + GRID_GAP) / (CELL_MIN_WIDTH + GRID_GAP));
@@ -318,7 +325,7 @@ export function SharedFileGrid({
                   gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`
                 }}
               >
-                {Array.from({ length: columns }, (_, columnIndex) => {
+                {Array.from({ length: gridCellsInRow(virtualRow.index, columns, interaction.rowCount) }, (_, columnIndex) => {
                   const index = virtualRow.index * columns + columnIndex;
                   const entry = index < interaction.rowCount ? interaction.entryAt(index) : undefined;
                   return entry === undefined ? (

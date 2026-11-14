@@ -513,3 +513,33 @@
 .v340-timeline > [role="option"]:hover {
   background: var(--zc-surface-hover);
 }
+
+/* --------------------------------------------------- forced colors */
+
+/* Rings are shadows and disappear in forced-colors mode; every surface states
+ * its boundary with a system border instead. */
+@media (forced-colors: active) {
+  .v340-status-band,
+  .v340-panel,
+  .v340-action-bar {
+    border: 1px solid CanvasText;
+  }
+
+  .v340-status-cell,
+  .v340-status-actions,
+  .v340-task-row,
+  .v340-fact-row {
+    border-color: CanvasText;
+  }
+
+  .v340-dot {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+
+  .v340-task-row:focus-visible,
+  .v340-action-bar button:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}

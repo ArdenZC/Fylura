@@ -35,7 +35,15 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(styles).toContain('[data-density="compact"] .zc-quick-preview-card');
     expect(styles).toContain("background: var(--zc-surface-overlay);");
     expect(styles).toContain("box-shadow: var(--zc-shadow-float);");
-    expect(styles).toContain("grid-template-columns: 84px minmax(0, 1fr) 132px;");
+    expect(styles).toContain("grid-template-columns: minmax(0, 1fr) auto auto;");
+    // The card owns its density because the floating host is portaled outside
+    // the app root that carries data-density.
+    expect(surface).toContain("data-density={density}");
+    expect(styles).toContain(".zc-quick-preview-identity-icon");
+    // The card's first track must match the header's real height, otherwise the
+    // 52px header overflows its 44px row and covers the content.
+    expect(styles).toContain("grid-template-rows: 52px minmax(0, 1fr);");
+    expect(styles).toContain('[data-density="compact"] .zc-quick-preview-card {\n  grid-template-rows: 38px minmax(0, 1fr);');
     expect(styles).toContain("grid-template-columns: minmax(0, 1fr) 240px;");
     expect(surface).toContain("data-preview-content-mode={state.phase === \"content\"");
     expect(styles).toContain("height: 100%;");

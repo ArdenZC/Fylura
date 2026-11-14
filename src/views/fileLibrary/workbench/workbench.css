@@ -238,16 +238,12 @@
   container-type: inline-size;
 }
 @container (max-width: 700px) {
+  /* Column dropping is owned by the list itself (it also removes the matching
+   * grid track). A second set of nth-child rules here hid the name label and
+   * desynchronised the header from the rows. */
   .shared-file-list-header,
   .shared-file-list-row {
-    grid-template-columns: minmax(0, 1fr) 70px;
     gap: 8px;
-  }
-  .shared-file-list-header > :nth-child(2),
-  .shared-file-list-header > :nth-child(3),
-  .shared-file-list-kind,
-  .shared-file-list-modified {
-    display: none;
   }
   .wb-crumbs > button {
     font-size: 11px;

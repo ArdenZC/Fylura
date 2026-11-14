@@ -219,6 +219,10 @@ export function SettingsSearch({
     } else if (event.key === "End") {
       event.preventDefault();
       focusResult(results.length - 1);
+    } else if (event.key === "Enter") {
+      // §8.5: Enter opens the first result (or the highlighted one).
+      event.preventDefault();
+      selectResult(results[activeIndex >= 0 ? activeIndex : 0]);
     }
   }
 

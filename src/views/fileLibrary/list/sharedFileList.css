@@ -409,3 +409,24 @@
     transition: none;
   }
 }
+
+/* The row's open-folder affordance is absolutely positioned at the trailing
+ * edge. Reserve that lane in the size column so a selected folder never hides
+ * its own size behind the button. */
+.shared-file-list-row .shared-file-list-size,
+.shared-file-list-header-cell:has(.shared-file-list-size-heading) {
+  padding-right: 26px;
+}
+
+.shared-file-list-header-cell > .shared-file-list-size-heading {
+  margin-left: auto;
+}
+
+.shared-file-list-header-cell > span.shared-file-list-size-heading {
+  display: block;
+  text-align: right;
+}
+
+.shared-file-list-row .shared-file-list-size {
+  text-align: right;
+}

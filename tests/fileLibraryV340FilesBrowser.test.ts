@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { listColumnSet, listRowHeight, loadedSelectionState } from "../src/views/fileLibrary/list/SharedFileList";
+import { listColumnSet, listNameMinWidth, listRowHeight, loadedSelectionState } from "../src/views/fileLibrary/list/SharedFileList";
 import { statusCountText, statusSelectionText } from "../src/views/fileLibrary/status/FileLibraryStatusBar";
 import { librarySelectionCount, librarySelectionSize } from "../src/views/fileLibrary/status/libraryStatus";
 import type { PresentationInteractionProjection } from "../src/views/fileLibrary/list/interactionContracts";
 import type { LibrarySourceOwner } from "../src/views/fileLibrary/library/librarySourceOwner";
+import { gridCellsInRow } from "../src/views/fileLibrary/list/SharedFileGrid";
 import { makeTranslator } from "../src/i18n";
 
 const t = makeTranslator("en");
@@ -16,12 +17,20 @@ describe("v3.40 Files browser surfaces", () => {
     expect(listRowHeight("compact")).toBe(36);
     expect(listRowHeight(undefined)).toBe(46);
 
-    // Wide: type + created. Medium: created only. Narrow: neither.
-    expect(listColumnSet(true, 1200)).toEqual({ showType: true, showCreated: true });
-    expect(listColumnSet(true, 850)).toEqual({ showType: false, showCreated: true });
-    expect(listColumnSet(true, 600)).toEqual({ showType: false, showCreated: false });
+    // Wide: type + created + modified + size. Medium: drops type. Narrow:
+    // drops created, then modified, and only the name survives at the floor.
+    expect(listColumnSet(true, 1200)).toEqual({ showType: true, showCreated: true, showModified: true, showSize: true });
+    expect(listColumnSet(true, 850)).toEqual({ showType: false, showCreated: true, showModified: true, showSize: true });
+    expect(listColumnSet(true, 650)).toEqual({ showType: false, showCreated: false, showModified: true, showSize: true });
+    expect(listColumnSet(true, 500)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: true });
+    expect(listColumnSet(true, 400)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: true });
+    expect(listColumnSet(true, 340)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: false });
     // The library source has no created column at any width.
-    expect(listColumnSet(false, 1200)).toEqual({ showType: true, showCreated: false });
+    expect(listColumnSet(false, 1200)).toEqual({ showType: true, showCreated: false, showModified: true, showSize: true });
+    // The name floor also adapts so a narrow pane never overflows its tracks.
+    expect(listNameMinWidth(1200)).toBe(180);
+    expect(listNameMinWidth(500)).toBe(150);
+    expect(listNameMinWidth(340)).toBe(120);
   });
 
   it("never reports a loaded page as the directory total", () => {
@@ -90,6 +99,16 @@ describe("v3.40 Files browser surfaces", () => {
     expect(list).toContain('t("statusSelectAllLoaded")');
     // Density changes re-measure the virtualiser instead of keeping stale sizes.
     expect(list).toContain("rowVirtualizer.measure()");
+  });
+
+  it("bounds each grid row to the entries it actually has", () => {
+    // A complete directory must not render ghost tiles after its last entry.
+    expect(gridCellsInRow(0, 7, 4)).toBe(4);
+    expect(gridCellsInRow(0, 7, 14)).toBe(7);
+    expect(gridCellsInRow(1, 7, 10)).toBe(3);
+    expect(gridCellsInRow(2, 7, 14)).toBe(0);
+    expect(gridCellsInRow(2, 7, 15)).toBe(1);
+    expect(gridCellsInRow(0, 7, 0)).toBe(0);
   });
 
   it("presents Finder columns from the pane's own navigation stack", () => {

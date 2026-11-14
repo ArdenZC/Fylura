@@ -29,7 +29,7 @@
   width: min(1180px, calc(100vw - 56px));
   height: min(780px, calc(100vh - 56px));
   max-height: none;
-  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--zc-border-subtle);
   border-radius: 18px;
@@ -52,14 +52,33 @@
 
 .zc-quick-preview-header {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) 132px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 52px;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   border-bottom: 1px solid var(--zc-divider);
   background: var(--zc-surface-overlay);
-  padding: 0 8px;
+  padding: 0 12px;
+}
+
+/* Left-aligned identity block: type glyph, file name, type · position. */
+.zc-quick-preview-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.zc-quick-preview-identity-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--zc-surface-subtle);
+  color: var(--zc-text-secondary);
 }
 
 .zc-quick-preview-header-navigation,
@@ -77,7 +96,7 @@
 .zc-quick-preview-header-title {
   display: grid;
   min-width: 0;
-  justify-items: center;
+  justify-items: start;
   gap: 0;
 }
 
@@ -86,10 +105,10 @@
   margin: 0;
   overflow: hidden;
   color: var(--zc-text-primary);
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 19px;
   font-weight: 590;
-  text-align: center;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -101,7 +120,7 @@
   color: var(--zc-text-tertiary);
   font-size: 11px;
   line-height: 16px;
-  text-align: center;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1060,28 +1079,53 @@
 
 /* Compact is a bounded chrome-density variant. The preview content keeps its
  * readable size; only the surrounding controls and insets become quieter. */
+.zc-quick-preview-card[data-density="compact"],
 [data-density="compact"] .zc-quick-preview-card {
   grid-template-rows: 38px minmax(0, 1fr);
 }
 
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-header,
 [data-density="compact"] .zc-quick-preview-header {
   min-height: 38px;
-  grid-template-columns: 60px minmax(0, 1fr) 60px;
-  padding-inline: 6px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  padding-inline: 8px;
 }
 
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-identity,
+[data-density="compact"] .zc-quick-preview-identity {
+  gap: 7px;
+}
+
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-identity-icon,
+[data-density="compact"] .zc-quick-preview-identity-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-title,
+[data-density="compact"] .zc-quick-preview-title {
+  font-size: 12.5px;
+  line-height: 17px;
+}
+
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-content,
 [data-density="compact"] .zc-quick-preview-content {
   padding: 18px;
 }
 
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-inspector,
 [data-density="compact"] .zc-quick-preview-inspector {
   padding: 12px;
 }
 
+.zc-quick-preview-card[data-density="compact"] .zc-preview-pdf,
 [data-density="compact"] .zc-preview-pdf {
   gap: 5px;
 }
 
+.zc-quick-preview-card[data-density="compact"] .zc-preview-pdf-toolbar,
 [data-density="compact"] .zc-preview-pdf-toolbar {
   min-height: 26px;
 }
@@ -1143,4 +1187,54 @@
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }
+}
+
+/* Header chrome: navigation and actions are quiet 28px icon buttons, matching
+ * the prototype's 56px header cluster instead of filled chips. */
+.zc-quick-preview-header .zc-quick-preview-navigation {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.zc-quick-preview-header .zc-quick-preview-navigation button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.zc-quick-preview-header .zc-quick-preview-navigation button:hover:not(:disabled),
+.zc-quick-preview-header .zc-quick-preview-navigation button:focus-visible:not(:disabled) {
+  background: var(--zc-surface-hover);
+}
+
+.zc-quick-preview-header .zc-quick-preview-navigation button:disabled {
+  opacity: 0.38;
+}
+
+.zc-quick-preview-header .zc-quick-preview-action,
+.zc-quick-preview-header .zc-quick-preview-close {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border-radius: 7px;
+}
+
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-header .zc-quick-preview-navigation button,
+[data-density="compact"] .zc-quick-preview-header .zc-quick-preview-navigation button,
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-header .zc-quick-preview-action,
+[data-density="compact"] .zc-quick-preview-header .zc-quick-preview-action,
+.zc-quick-preview-card[data-density="compact"] .zc-quick-preview-header .zc-quick-preview-close,
+[data-density="compact"] .zc-quick-preview-header .zc-quick-preview-close {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
 }

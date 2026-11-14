@@ -61,7 +61,6 @@ import {
   SettingsInlineMessage,
   SettingsLayout,
   SettingsRow,
-  SettingsSegmentedControl,
   SettingsSelect,
   SettingsSwitch,
   SettingsTextField,

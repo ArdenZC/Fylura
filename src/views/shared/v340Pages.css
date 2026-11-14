@@ -1,0 +1,485 @@
+/*
+ * v3.40 page chrome for the non-Files workspaces.
+ *
+ * These are presentation primitives only: page rhythm, status bands, KPI
+ * strips, section heads, task rows and action bars. Every value comes from the
+ * design tokens, so light/dark follow the shell instead of defining a second
+ * palette.
+ */
+
+/* --------------------------------------------------------------- page */
+
+.v340-page {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 18px;
+  padding-bottom: 32px;
+}
+
+.v340-page-head {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+
+.v340-page-title {
+  margin: 0;
+  color: var(--zc-text-primary);
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+
+.v340-page-sub {
+  max-width: 62ch;
+  margin: 5px 0 0;
+  color: var(--zc-text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.v340-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------- section head */
+
+.v340-section {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.v340-section-head {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.v340-section-title {
+  margin: 0;
+  color: var(--zc-text-primary);
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  line-height: 1.35;
+}
+
+.v340-section-hint {
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+/* ---------------------------------------------------------- status band */
+
+.v340-status-band {
+  display: grid;
+  /* No overflow clip here: a clipped page-level grid item loses its automatic
+   * minimum size and can be collapsed to 0 height by the page grid. The action
+   * row carries the bottom radius instead. */
+  border-radius: var(--zc-radius-panel);
+  background: var(--zc-surface);
+  box-shadow: var(--zc-card-ring);
+  grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr));
+}
+
+.v340-status-cell {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 4px;
+  border-left: 1px solid var(--zc-divider);
+  padding: 14px 16px;
+}
+
+.v340-status-cell:first-child {
+  border-left: 0;
+}
+
+.v340-status-label {
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.014em;
+}
+
+.v340-status-strong {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--zc-text-primary);
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  line-height: 1.35;
+}
+
+.v340-status-strong > h2 {
+  overflow: hidden;
+  margin: 0;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v340-status-value {
+  overflow: hidden;
+  color: var(--zc-text-primary);
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v340-status-meta {
+  overflow: hidden;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+}
+
+.v340-status-meta-clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.v340-status-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  border-radius: 0 0 var(--zc-radius-panel) var(--zc-radius-panel);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--zc-divider);
+  padding: 10px 16px;
+  background: var(--zc-surface-raised);
+}
+
+.v340-status-actions-spacer {
+  flex: 1 1 auto;
+}
+
+.v340-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--zc-neutral-text);
+}
+
+.v340-dot[data-tone="success"] { background: var(--zc-success); }
+.v340-dot[data-tone="warning"] { background: var(--zc-warning); }
+.v340-dot[data-tone="danger"] { background: var(--zc-danger); }
+.v340-dot[data-tone="info"] { background: var(--zc-info); }
+
+/* --------------------------------------------------------------- panel */
+
+.v340-panel {
+  overflow: hidden;
+  border-radius: var(--zc-radius-panel);
+  background: var(--zc-surface);
+  box-shadow: var(--zc-card-ring);
+}
+
+.v340-panel-pad {
+  padding: 16px;
+}
+
+.v340-panel-quiet {
+  background: var(--zc-surface-subtle);
+  box-shadow: none;
+}
+
+/* ------------------------------------------------------------ task rows */
+
+.v340-task-list {
+  display: grid;
+}
+
+.v340-task-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-top: 1px solid var(--zc-divider);
+  background: transparent;
+  padding: 12px 14px;
+  color: var(--zc-text-primary);
+  text-align: left;
+}
+
+.v340-task-row:first-child {
+  border-top: 0;
+}
+
+.v340-task-row:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+}
+
+.v340-task-row:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+.v340-task-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.v340-task-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--zc-primary-soft);
+  color: var(--zc-primary-text);
+}
+
+.v340-task-text {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.v340-task-text strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 540;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v340-task-text span {
+  overflow: hidden;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v340-task-chevron {
+  flex: none;
+  color: var(--zc-text-tertiary);
+}
+
+/* --------------------------------------------------------- metric strip */
+
+/* The shared MetricStrip is reused across pages; inside a v3.40 page it takes
+ * the prototype's status-band rhythm instead of a small inner card. */
+.v340-page [data-metric-strip] {
+  border: 0;
+  border-radius: var(--zc-radius-panel);
+  background: var(--zc-surface);
+  padding: 0;
+  box-shadow: var(--zc-card-ring);
+}
+
+.v340-page [data-metric-strip] dl {
+  gap: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.v340-page [data-metric-strip] dl > div {
+  border-color: var(--zc-divider);
+  padding: 13px 16px;
+}
+
+.v340-page [data-metric-strip] dt {
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.014em;
+}
+
+.v340-page [data-metric-strip] dd {
+  margin-top: 4px;
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+@media (min-width: 900px) {
+  .v340-page [data-metric-strip] dl {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ----------------------------------------------------------- fact rows */
+
+.v340-fact-list {
+  display: grid;
+}
+
+.v340-fact-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--zc-divider);
+  padding: 11px 16px;
+}
+
+.v340-fact-row:first-child {
+  border-top: 0;
+}
+
+.v340-fact-label {
+  min-width: 0;
+  color: var(--zc-text-secondary);
+  font-size: 12.5px;
+}
+
+.v340-fact-value {
+  min-width: 0;
+  color: var(--zc-text-primary);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 540;
+  text-align: right;
+}
+
+.v340-fact-hint {
+  display: block;
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* ----------------------------------------------------------- action bar */
+
+.v340-action-bar {
+  position: sticky;
+  z-index: 10;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  border-top: 1px solid var(--zc-divider);
+  border-radius: 0 0 var(--zc-radius-panel) var(--zc-radius-panel);
+  background: var(--zc-surface-overlay);
+  padding: 11px 16px;
+}
+
+.v340-action-bar-note {
+  min-width: 0;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------- narrow */
+
+@media (max-width: 1100px) {
+  .v340-status-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .v340-status-cell:nth-child(3) {
+    border-left: 0;
+  }
+
+  .v340-status-cell:nth-child(n + 3) {
+    border-top: 1px solid var(--zc-divider);
+  }
+}
+
+@media (max-width: 720px) {
+  .v340-status-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .v340-status-cell {
+    border-left: 0;
+  }
+
+  .v340-status-cell + .v340-status-cell {
+    border-top: 1px solid var(--zc-divider);
+  }
+}
+
+/* ------------------------------------------------------------ plan bar */
+
+/* The organize plan bar states what plan is open and carries its KPI band; it
+ * is one surface, not a card inside the page with a second card below it. */
+.v340-plan-bar {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  border-radius: var(--zc-radius-panel);
+  background: var(--zc-surface);
+  padding: 12px 14px;
+  box-shadow: var(--zc-card-ring);
+}
+
+.v340-plan-bar [data-metric-strip] {
+  box-shadow: none;
+  background: var(--zc-surface-raised);
+  border-radius: var(--zc-radius-row);
+}
+
+.v340-kpi [data-metric-strip] {
+  border: 0;
+  border-radius: var(--zc-radius-panel);
+  background: var(--zc-surface);
+  padding: 0;
+  box-shadow: var(--zc-card-ring);
+}
+
+.v340-kpi [data-metric-strip] dl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.v340-kpi [data-metric-strip] dl > div {
+  border-color: var(--zc-divider);
+  padding: 13px 16px;
+}
+
+.v340-kpi [data-metric-strip] dt {
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.014em;
+}
+
+.v340-kpi [data-metric-strip] dd {
+  margin-top: 4px;
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+@media (min-width: 900px) {
+  .v340-kpi [data-metric-strip] dl {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

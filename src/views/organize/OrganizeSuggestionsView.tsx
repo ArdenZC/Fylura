@@ -663,8 +663,8 @@ export function OrganizeSuggestionsView() {
       ) : null}
 
       {showCreatePlanState ? (
-        <section className="grid min-h-0 flex-1 place-items-center">
-          <div className="grid w-full max-w-xl gap-4 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-6 shadow-[var(--zc-shadow-soft)]">
+        <section className="grid min-h-0 flex-1 content-start">
+          <div className="v340-panel grid w-full max-w-2xl gap-4 p-6">
             <div>
               <h2 className="text-lg font-semibold text-[var(--zc-text-primary)]">{hasOnlyHistoricalPlans ? historicalPlanTitle : emptyPlanTitle}</h2>
               <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{hasOnlyHistoricalPlans ? historicalPlanDescription : emptyPlanDescription}</p>
@@ -689,7 +689,7 @@ export function OrganizeSuggestionsView() {
 
       {plan ? (
         <>
-          <section className="grid shrink-0 gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-3 shadow-[var(--zc-shadow-soft)]" data-organize-plan-header>
+          <section className="v340-plan-bar v340-kpi shrink-0" data-organize-plan-header>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <label className="sr-only" htmlFor="organization-plan-selector">{t("organizePlanSelectorLabel")}</label>
@@ -757,7 +757,7 @@ export function OrganizeSuggestionsView() {
                 ]}
               />
 
-              <section className="min-h-0 flex-1 overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] max-[1100px]:min-h-[320px]" data-organize-groups>
+              <section className="v340-panel min-h-0 flex-1 max-[1100px]:min-h-[320px]" data-organize-groups>
                 {isLoading && !groups.length ? <DurableTaskStatus state="running" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} density="compact" /> : null}
                 {!isLoading && !visibleGroups.length && groupHasMore && groupNextCursor ? <StateBlock tone="info" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} primaryAction={<Button variant="secondary" size="compact" onClick={() => void loadNextGroupPage().catch(() => undefined)}>{t("organizeGroupLoadMore")}</Button>} density="compact" /> : null}
                 {!isLoading && !visibleGroups.length && (!groupHasMore || !groupNextCursor) ? <StateBlock tone={activeTab === "blocked" ? "info" : "neutral"} title={emptyTabTitle(activeTab, t)} description={emptyTabDescription(activeTab, t)} density="compact" /> : null}
@@ -812,7 +812,7 @@ export function OrganizeSuggestionsView() {
                 ) : null}
               </section>
             </div>
-            <aside className="grid content-start gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-4" data-organize-execution-boundary>
+            <aside className="v340-panel v340-panel-quiet grid content-start gap-3 p-4" data-organize-execution-boundary>
               <div>
                 <h2 className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("organizeWorkflowBoundaryTitle")}</h2>
                 <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{t("organizeWorkflowBoundaryDesc")}</p>
@@ -826,8 +826,8 @@ export function OrganizeSuggestionsView() {
             </aside>
           </div>
 
-          <footer className="sticky bottom-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-organize-review-action>
-            <span className="text-xs leading-5 text-[var(--zc-text-secondary)]">{t("organizeReviewExecutionHint")}</span>
+          <footer className="v340-action-bar shrink-0" data-organize-review-action>
+            <span className="v340-action-bar-note">{t("organizeReviewExecutionHint")}</span>
             <Button variant="primary" disabled={isMutating || !canDryRun || (Boolean(dryRun) && Boolean(mutationUnavailable))} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined} onClick={() => void reviewExecution().catch(() => undefined)}><Play size={15} aria-hidden="true" />{dryRun ? t("organizeDryRunAction") : t("organizeReviewExecution")}</Button>
           </footer>
 

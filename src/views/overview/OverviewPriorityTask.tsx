@@ -20,36 +20,29 @@ export function OverviewPriorityTask({
   metrics?: readonly OverviewMetric[];
 }) {
   const content = priorityContent(task, t);
-  const Icon = content.icon;
   const showChooseFolder = task.kind === "unindexed"
     || task.kind === "update"
     || task.kind === "scan-failed"
     || task.kind === "scan-permission"
     || task.kind === "scan-canceled";
   return (
-    <section className="grid gap-0 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" aria-labelledby="overview-priority-title" data-overview-status-strip="true">
-      <div className={cn("grid min-w-0", metrics.length > 0 ? "sm:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]" : "") }>
-        <div className={cn("flex min-w-0 items-start gap-4 p-4 sm:p-5", metrics.length > 0 && "sm:col-span-1")}>
-          <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-[var(--zc-radius-control)]", content.iconClass)} aria-hidden="true">
-            <Icon size={20} className={task.kind === "scan-active" ? "animate-spin motion-reduce:animate-none" : ""} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <span className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{task.kind === "orderly" ? t("overviewCurrentStatusLabel") : t("overviewPriorityLabel")}</span>
-            <h2 id="overview-priority-title" className="mt-1 text-lg font-semibold text-[var(--zc-text-primary)]">{content.title}</h2>
-            <p className="mt-1 min-w-0 max-w-full break-words text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">
-              {content.description}
-            </p>
-          </div>
+    <section className="v340-status-band" aria-labelledby="overview-priority-title" data-overview-status-strip="true">
+      <div className="v340-status-cell">
+        <span className="v340-status-label">{task.kind === "orderly" ? t("overviewCurrentStatusLabel") : t("overviewPriorityLabel")}</span>
+        <div className="v340-status-strong">
+          <span className="v340-dot" data-tone={content.tone} aria-hidden="true" />
+          <h2 id="overview-priority-title" title={content.title}>{content.title}</h2>
         </div>
-        {metrics.map((metric) => (
-          <div key={metric.label} className="border-t border-[var(--zc-divider)] px-4 py-3 sm:border-l sm:border-t-0 sm:px-4 sm:py-5">
-            <span className="block text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{metric.label}</span>
-            <strong className="mt-1 block truncate text-lg font-semibold tabular-nums text-[var(--zc-text-primary)]" title={metric.value}>{metric.value}</strong>
-            {metric.hint ? <span className="mt-0.5 block truncate text-xs text-[var(--zc-text-secondary)]" title={metric.hint}>{metric.hint}</span> : null}
-          </div>
-        ))}
+        <span className="v340-status-meta v340-status-meta-clamp [overflow-wrap:anywhere]" title={content.description}>{content.description}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-[var(--zc-divider)] px-4 py-3 sm:px-5">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="v340-status-cell">
+          <span className="v340-status-label">{metric.label}</span>
+          <strong className="v340-status-value" title={metric.value}>{metric.value}</strong>
+          {metric.hint ? <span className="v340-status-meta" title={metric.hint}>{metric.hint}</span> : null}
+        </div>
+      ))}
+      <div className="v340-status-actions">
         <button data-overview-primary="true" className={buttonPrimary} onClick={onPrimary}>
           <span>{content.primaryLabel}</span>
           <ArrowRight size={17} />
@@ -81,6 +74,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "search-permission") return {
     icon: AlertTriangle,
     iconClass: "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]",
+    tone: "danger",
     title: task.reason === "no_source" ? t("overviewTaskSearchNoSource") : t("overviewTaskSearchPermission"),
     description: task.reason === "no_source"
       ? t("overviewTaskSearchNoSourceDesc")
@@ -97,6 +91,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "content-failure") return {
     icon: AlertTriangle,
     iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    tone: "warning",
     title: t("overviewTaskContentFailure"),
     description: task.error || t("overviewTaskContentFailureDesc"),
     primaryLabel: t("overviewReviewContent")
@@ -104,6 +99,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "managed-root-stale") return {
     icon: RefreshCw,
     iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    tone: "warning",
     title: task.reason === "permission"
       ? t("overviewTaskManagedRootPermission")
       : task.reason === "retry_exhausted"
@@ -135,6 +131,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "scan-permission") return {
     icon: AlertTriangle,
     iconClass: "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]",
+    tone: "danger",
     title: t("overviewTaskPermission"),
     description: task.error || t("overviewTaskPermissionDesc"),
     primaryLabel: t("overviewRetryScan")
@@ -142,6 +139,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "scan-failed") return {
     icon: AlertTriangle,
     iconClass: "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]",
+    tone: "danger",
     title: t("overviewTaskScanFailed"),
     description: task.error || t("overviewTaskScanFailedDesc"),
     primaryLabel: t("overviewRetryScan")
@@ -149,6 +147,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "scan-active") return {
     icon: LoaderCircle,
     iconClass: "bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]",
+    tone: "info",
     title: t("overviewTaskScanning"),
     description: t("overviewTaskScanningDesc")
       .replace("{count}", (task.fileCount ?? 0).toLocaleString())
@@ -158,6 +157,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "scan-canceling") return {
     icon: LoaderCircle,
     iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    tone: "warning",
     title: t("overviewTaskCanceling"),
     description: t("overviewTaskCancelingDesc").replace("{count}", (task.fileCount ?? 0).toLocaleString()),
     primaryLabel: t("overviewViewProgress")
@@ -165,6 +165,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "scan-canceled") return {
     icon: X,
     iconClass: "bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)]",
+    tone: "neutral",
     title: t("overviewTaskCanceled"),
     description: t("overviewTaskCanceledDesc").replace("{count}", (task.fileCount ?? 0).toLocaleString()),
     primaryLabel: t("overviewRetryScan")
@@ -172,6 +173,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "scan-partial") return {
     icon: AlertTriangle,
     iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    tone: "warning",
     title: t("overviewTaskPartial"),
     description: t("overviewTaskPartialDesc")
       .replace("{files}", (task.fileCount ?? 0).toLocaleString())
@@ -181,6 +183,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "review") return {
     icon: Sparkles,
     iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    tone: "warning",
     title: t("overviewTaskReview").replace("{count}", (task.count ?? 0).toLocaleString()),
     description: t("overviewTaskReviewDesc"),
     primaryLabel: t("overviewViewSuggestions")
@@ -188,6 +191,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "cleanup") return {
     icon: ScanSearch,
     iconClass: "bg-[var(--zc-success-soft)] text-[var(--zc-success-text)]",
+    tone: "success",
     title: t("overviewTaskCleanup").replace("{count}", (task.count ?? 0).toLocaleString()),
     description: (task.bytesAreEstimated ? t("overviewTaskCleanupEstimatedDesc") : t("overviewTaskCleanupDesc")).replace("{size}", formatBytes(task.bytes ?? 0)),
     primaryLabel: t("overviewViewCleanup")
@@ -195,6 +199,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "unindexed") return {
     icon: ScanSearch,
     iconClass: "bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]",
+    tone: "info",
     title: t("overviewTaskUnindexed"),
     description: t("overviewTaskUnindexedDesc"),
     primaryLabel: t("overviewStartScan")
@@ -202,6 +207,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "update") return {
     icon: RefreshCw,
     iconClass: "bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]",
+    tone: "info",
     title: t("overviewTaskUpdate"),
     description: t("overviewTaskUpdateDesc"),
     primaryLabel: t("overviewCheckUpdates")
@@ -209,6 +215,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   return {
     icon: CheckCircle2,
     iconClass: "bg-[var(--zc-success-soft)] text-[var(--zc-success-text)]",
+    tone: "success",
     title: t("overviewTaskOrderly"),
     description: t("overviewTaskOrderlyDesc").replace("{count}", (task.fileCount ?? 0).toLocaleString()),
     primaryLabel: t("overviewScanNewLocation")

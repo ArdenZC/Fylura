@@ -381,7 +381,7 @@ export function ScannerView() {
   }
 
   return (
-    <div className={cn(pageSurface, "grid content-start gap-5 pb-8")}>
+    <div className={cn(pageSurface, "v340-page")}>
       <OverviewPriorityTask
         task={priorityTask}
         t={t}

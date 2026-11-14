@@ -234,7 +234,9 @@ function priorityTitle() {
 }
 
 function coverageText() {
-  return container.querySelector("#overview-system-coverage-title")?.parentElement?.textContent ?? "";
+  // The section head is its own row inside the section; read the whole section
+  // so the label, value and hint are all included.
+  return container.querySelector("#overview-system-coverage-title")?.closest("section")?.textContent ?? "";
 }
 
 function reclaimableMetric(labelText = t("overviewMetricReclaimable")) {

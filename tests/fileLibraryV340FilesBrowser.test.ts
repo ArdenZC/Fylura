@@ -6,6 +6,7 @@ import { statusCountText, statusSelectionText } from "../src/views/fileLibrary/s
 import { librarySelectionCount, librarySelectionSize } from "../src/views/fileLibrary/status/libraryStatus";
 import type { PresentationInteractionProjection } from "../src/views/fileLibrary/list/interactionContracts";
 import type { LibrarySourceOwner } from "../src/views/fileLibrary/library/librarySourceOwner";
+import { gridCellsInRow } from "../src/views/fileLibrary/list/SharedFileGrid";
 import { makeTranslator } from "../src/i18n";
 
 const t = makeTranslator("en");
@@ -98,6 +99,16 @@ describe("v3.40 Files browser surfaces", () => {
     expect(list).toContain('t("statusSelectAllLoaded")');
     // Density changes re-measure the virtualiser instead of keeping stale sizes.
     expect(list).toContain("rowVirtualizer.measure()");
+  });
+
+  it("bounds each grid row to the entries it actually has", () => {
+    // A complete directory must not render ghost tiles after its last entry.
+    expect(gridCellsInRow(0, 7, 4)).toBe(4);
+    expect(gridCellsInRow(0, 7, 14)).toBe(7);
+    expect(gridCellsInRow(1, 7, 10)).toBe(3);
+    expect(gridCellsInRow(2, 7, 14)).toBe(0);
+    expect(gridCellsInRow(2, 7, 15)).toBe(1);
+    expect(gridCellsInRow(0, 7, 0)).toBe(0);
   });
 
   it("presents Finder columns from the pane's own navigation stack", () => {

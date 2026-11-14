@@ -49,7 +49,7 @@ import { projectAcceptedFileLibraryActivation } from "../utils/fileLibraryActiva
 import { useSearchNavigationHandoff } from "../hooks/useSearchNavigationHandoff";
 import { FileLibraryExperienceProvider, useFileLibraryExperience } from "../views/fileLibrary/FileLibraryExperienceProvider";
 import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
-import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
+import { APP_SHELL_CONTENT_ID, ModalHost, acquireMainDepth } from "./modal/ModalPortal";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
@@ -136,6 +136,9 @@ export function AppShell() {
   const { view } = useNavigationContext();
   const [hasOpenedLibrary, setHasOpenedLibrary] = useState(view === "library");
   useEffect(() => { if (view === "library") setHasOpenedLibrary(true); }, [view]);
+  // The spotlight is not a ModalPortal, so it participates in the same main
+  // depth counter explicitly.
+  useEffect(() => (isCommandOpen ? acquireMainDepth() : undefined), [isCommandOpen]);
   const viewStageRef = useRef<HTMLDivElement | null>(null);
   const viewMotionReadyRef = useRef(false);
   useLayoutEffect(() => {

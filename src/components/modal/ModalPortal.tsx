@@ -21,6 +21,7 @@ type ModalSnapshot = {
 };
 
 let modalCount = 0;
+let mainDepthCount = 0;
 let modalSequence = 0;
 let modalSnapshots: ModalSnapshot[] = [];
 let observer: MutationObserver | null = null;
@@ -75,6 +76,24 @@ function startIsolationObserver() {
 function stopIsolationObserver() {
   observer?.disconnect();
   observer = null;
+}
+
+/**
+ * Depth cue from MOTION.md §3.3: while a modal layer is present the main
+ * workspace recedes by 0.6%. The counter is shared with non-ModalPortal
+ * layers (the command spotlight) so overlapping layers cannot clear it early.
+ */
+export function acquireMainDepth() {
+  if (typeof document === "undefined") return () => undefined;
+  mainDepthCount += 1;
+  document.documentElement.classList.add("zc-modal-depth");
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    mainDepthCount = Math.max(0, mainDepthCount - 1);
+    if (mainDepthCount === 0) document.documentElement.classList.remove("zc-modal-depth");
+  };
 }
 
 export function acquireModalIsolation() {
@@ -380,6 +399,7 @@ export function ModalPortal({ children, modalId, onEscape, initialFocusRef, rest
       preferredRestore: () => preferredRestoreRef.current?.() ?? null
     });
     const releaseIsolation = host && !inline ? acquireModalIsolation() : () => undefined;
+    const releaseDepth = host && !inline ? acquireMainDepth() : () => undefined;
     const focusFrame = requestAnimationFrame(() => {
       if (isTopModal(id)) focusModalEntry(getTopModal(), initialFocusRefValue.current?.current ?? null);
     });
@@ -387,6 +407,7 @@ export function ModalPortal({ children, modalId, onEscape, initialFocusRef, rest
       cancelAnimationFrame(focusFrame);
       unregister();
       releaseIsolation();
+      releaseDepth();
     };
   }, [host, id, inline]);
 
@@ -416,6 +437,8 @@ export function resetModalInfrastructureForTests() {
   stopModalKeydownListener();
   stopModalFocusinListener();
   modalCount = 0;
+  mainDepthCount = 0;
+  document.documentElement.classList.remove("zc-modal-depth");
   stopIsolationObserver();
   for (const snapshot of modalSnapshots) {
     if (!snapshot.element.isConnected) continue;

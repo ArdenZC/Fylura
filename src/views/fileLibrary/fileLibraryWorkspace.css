@@ -163,7 +163,6 @@
 }
 
 .file-library-navigation-slot,
-.file-library-context-slot,
 .file-library-content-slot {
   min-height: 0;
   min-width: 0;
@@ -434,10 +433,6 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-}
-
-.file-library-context-slot {
-  display: none;
 }
 
 .file-library-context-panel {

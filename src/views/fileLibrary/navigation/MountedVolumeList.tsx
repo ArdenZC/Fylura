@@ -23,19 +23,40 @@ export function MountedVolumeList({ mounted, onOpen, t }: {
         : networkAvailability === "available" ? "filesLocationOpenVerified"
           : networkAvailability === "permission_required" ? "filesLocationPermission"
             : networkAvailability === "offline" ? "filesLocationOffline" : "filesLocationUnknown";
-      return <div key={location.id} className="flex min-w-0 items-center gap-1">
-        <button type="button" className="file-library-navigation-item min-w-0 flex-1"
+      const offline = networkLocation && (networkAvailability === "offline" || networkAvailability === "permission_required");
+      const total = location.volume?.totalBytes ?? null;
+      const available = location.volume?.availableBytes ?? null;
+      const usedPercent = total && total > 0 && available !== null
+        ? Math.round(Math.min(100, Math.max(0, ((total - available) / total) * 100)))
+        : null;
+      const chip: { key: "filesVolumeReadOnly" | "filesCloudProvider" | "filesDeviceDisconnected"; variant: string } | null = location.volume?.readOnly
+        ? { key: "filesVolumeReadOnly", variant: "is-ro" }
+        : location.kind === "cloud_provider"
+          ? { key: "filesCloudProvider", variant: "is-cloud" }
+          : offline
+            ? { key: "filesDeviceDisconnected", variant: "is-off" }
+            : null;
+      const detail = networkLocation
+        ? t(networkStatusKey)
+        : !location.available
+          ? t(location.volume?.availability === "permission_required" ? "filesLocationPermission" : location.volume?.availability === "unknown" ? "filesLocationUnknown" : "filesDeviceDisconnected")
+          : available !== null
+            ? `${t("filesSpaceAvailable")} ${formatBytes(available)}${total !== null ? ` / ${formatBytes(total)}` : ""}`
+            : t("filesSpaceUnknown");
+      return <div key={location.id} className="file-library-device-row" data-device-row data-device-id={location.id} data-device-offline={offline ? "true" : undefined}>
+        <Icon size={16} aria-hidden="true" className="file-library-device-icon" />
+        <button type="button" className="file-library-device-open"
           disabled={(!location.available && !networkLocation) || mounted.ejectingId === location.id} title={location.path} onClick={() => onOpen(location)}>
-          <Icon size={16} aria-hidden="true" />
-          <span className="min-w-0 truncate">{location.displayName || location.path}
-            <small className="block truncate text-muted-foreground">{networkLocation ? t(networkStatusKey) : !location.available ? t(location.volume?.availability === "permission_required" ? "filesLocationPermission" : location.volume?.availability === "unknown" ? "filesLocationUnknown" : "filesDeviceDisconnected")
-              : [location.volume?.readOnly ? t("filesVolumeReadOnly") : null,
-                location.volume?.availableBytes != null ? `${formatBytes(location.volume.availableBytes)} ${t("filesSpaceAvailable")}` : null].filter(Boolean).join(" · ")}</small>
+          <span className="file-library-device-name">
+            <b>{location.displayName || location.path}</b>
+            {chip ? <span className={`file-library-device-chip ${chip.variant}`}>{t(chip.key)}</span> : null}
           </span>
+          <small className="file-library-device-detail">{detail}</small>
+          {usedPercent !== null ? <span className="file-library-device-bar" aria-hidden="true"><i style={{ width: `${usedPercent}%` }} /></span> : null}
         </button>
-        {location.volume?.canEject && location.available ? <button type="button" className="rounded p-1.5 text-muted-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 disabled:opacity-50"
+        {location.volume?.canEject && location.available ? <button type="button" className="file-library-device-eject"
           disabled={transferring || mounted.ejectingId !== null} aria-label={`${t("filesEjectVolume")} ${location.displayName}`} title={t("filesEjectVolume")}
-          onClick={() => void mounted.eject(location)}><Unplug size={15} aria-hidden="true" /></button> : null}
+          onClick={() => void mounted.eject(location)}><Unplug size={14} aria-hidden="true" /></button> : null}
       </div>;
     })}
   </>;

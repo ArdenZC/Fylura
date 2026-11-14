@@ -279,3 +279,24 @@ it("classifies explicit SMB Browse failures without probing network paths", () =
   expect(networkAvailabilityFromBrowseError("browse_cursor_invalid")).toBeNull();
   expect(networkAvailabilityFromBrowseError({ message: "browse_directory_permission_denied" })).toBe("permission_required");
 });
+
+it("renders real capacity, read-only chip and eject affordance for a mounted volume", () => {
+  const volume: KnownLocation = {
+    id: "volume:E:", kind: "volume", path: "E:/", displayName: "Archive SSD", available: true,
+    volume: { identity: "disk-e", kind: "removable", readOnly: true, availableBytes: 40 * 1024 ** 3, totalBytes: 100 * 1024 ** 3, canEject: true, availability: "available" }
+  };
+  const html = renderToString(createElement(MountedVolumeList, {
+    mounted: {
+      locations: [volume], loading: false, failed: false, ejectingId: null, ejectError: null,
+      refresh: async () => undefined, recordNetworkBrowse: () => undefined, eject: async () => undefined
+    },
+    onOpen: () => undefined,
+    t: makeTranslator("en")
+  }));
+  expect(html).toContain("file-library-device-row");
+  expect(html).toContain("file-library-device-chip is-ro");
+  expect(html).toContain("Read-only");
+  // 40 of 100 GB free → 60% used.
+  expect(html).toContain('style="width:60%"');
+  expect(html).toContain("file-library-device-eject");
+});

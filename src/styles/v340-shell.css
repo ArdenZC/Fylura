@@ -704,8 +704,9 @@
   border-radius: var(--zc-radius-panel);
   background: var(--zc-glass-main);
   box-shadow: var(--zc-ring), var(--zc-lift);
-  -webkit-backdrop-filter: var(--zc-glass-main-blur);
-  backdrop-filter: var(--zc-glass-main-blur);
+  /* The main sheet is 93% opaque, so its 20px blur is visually inert — but it
+   * forced a full-panel re-raster on every overlay frame (measured 33.3ms p50
+   * vs 16.7ms without it at 1× CPU). Sidebar and titlebar keep their glass. */
 }
 
 :root.dark .zc-app-workspace {

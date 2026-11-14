@@ -554,6 +554,7 @@ export function FileLibraryWorkbench({
       closePaneMenuNow(restore);
       return;
     }
+    if (restore) paneMenuTriggerRef.current?.focus({ preventScroll: true });
     setPaneMenuClosing(true);
     paneMenuTimerRef.current = window.setTimeout(() => {
       paneMenuTimerRef.current = null;
@@ -713,6 +714,8 @@ export function FileLibraryWorkbench({
             ref={paneMenuRef}
             className="wb-pane-menu-panel"
             data-closing={paneMenuClosing ? "true" : undefined}
+            aria-hidden={paneMenuClosing ? true : undefined}
+            inert={paneMenuClosing ? true : undefined}
             role="group"
             aria-label={t("wbPaneLayoutGroup")}
             onClick={(event) => {

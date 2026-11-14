@@ -1107,7 +1107,7 @@ export function SettingsSelect<T extends string>({
             role="listbox"
             aria-label={label}
             data-settings-select-menu
-            className="fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1.5 shadow-[var(--zc-shadow-menu)]"
+            className="settings-v340-select-menu fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1.5 shadow-[var(--zc-shadow-menu)]"
             style={menuStyle}
           >
             {options.map((option, index) => {

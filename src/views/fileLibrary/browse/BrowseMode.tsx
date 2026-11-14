@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useLayoutEffect, useState } fr
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { BrowseSortSpec, LocationDescriptor } from "../../../types/fileWorkspace";
+import type { BrowsePresentationEntry } from "../presentation/contracts";
 import { launchBrowseEntry, revealBrowseEntry } from "../../../api/fileWorkspaceApi";
 import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
@@ -17,6 +18,8 @@ import { browsePlaceStatusLabel, useBrowsePlaces, type BrowsePlaceEntry } from "
 import { createBrowseInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
+import { FileLibraryStatusBar } from "../status/FileLibraryStatusBar";
+import { BrowseColumnView } from "./BrowseColumnView";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
@@ -52,6 +55,30 @@ export function BrowseMode() {
   useEffect(() => setRevealError(null), [source.sessionId, source.currentPathRef?.id]);
   const { controller: previewController, state: previewState } = usePreviewExperience();
   const visibleEntries = useMemo(() => showHidden ? source.entries : source.entries.filter((entry) => !entry.isHidden), [showHidden, source.entries]);
+  // Size is only summed when every selected entry is loaded and reports a
+  // size; a partial sum would misstate how much is selected.
+  // Retains the entries of folders the pane has already visited so an ancestor
+  // column can show what was actually seen. This is a presentation cache over
+  // the pane's own session, not a second enumeration or selection authority.
+  const columnCache = useRef(new Map<string, readonly BrowsePresentationEntry[]>());
+  const previousColumn = useRef<{ id: string | null; entries: readonly BrowsePresentationEntry[] }>({ id: null, entries: [] });
+  const currentPathRefId = source.currentPathRef?.id ?? null;
+  useEffect(() => {
+    const previous = previousColumn.current;
+    if (previous.id !== null && previous.id !== currentPathRefId && previous.entries.length > 0) {
+      columnCache.current.set(previous.id, previous.entries);
+    }
+    previousColumn.current = { id: currentPathRefId, entries: source.entries };
+  }, [currentPathRefId, source.entries]);
+
+  const selectedSize = useMemo(() => {
+    if (source.selectedCount === 0) return null;
+    const selected = visibleEntries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId));
+    if (selected.length !== source.selectedCount) return null;
+    if (selected.some((entry) => entry.size === undefined)) return null;
+    return selected.reduce((total, entry) => total + (entry.size ?? 0), 0);
+  }, [source.selectedCount, source.selectedIds, visibleEntries]);
+
   const visibleCollection = useMemo(() => source.collection === null ? null : ({
     ...source.collection,
     provenance: {
@@ -276,6 +303,7 @@ export function BrowseMode() {
   const selectionText = source.selectedCount === 0
     ? t("browseSelectionNone")
     : t("browseSelectionLoaded").replace("{count}", String(source.selectedCount));
+
   function handleListEscape() {
     if (contextMenu) {
       closeContextMenu("escape");
@@ -429,33 +457,6 @@ export function BrowseMode() {
       data-browse-query-empty-partial={emptyPartialQuery ? "true" : "false"}
       data-browse-sort-capability="backend-snapshot"
     >
-      <header className="browse-mode-header">
-        <div className="min-w-0">
-          <details className="browse-mode-help">
-            <summary>{t("fmBrowseHelp")}</summary>
-            <p className="browse-mode-description">{t("fileLibraryBrowseTargetDesc")} {t("u3SortLimit")}</p>
-          </details>
-        </div>
-        <div className="browse-mode-actions">
-          <button className="browse-action" type="button" onClick={source.openLocationPicker}>
-            <MapPin size={15} aria-hidden="true" />
-            {t("browseLocationsButton")}
-          </button>
-          <button
-            className="browse-action"
-            type="button"
-            disabled={source.enumerationState === "loading"
-              || source.enumerationState === "loading_more"
-              || source.changeState === "checking"
-              || source.changeState === "refreshing"}
-            aria-label={t("browseRefresh")}
-            onClick={() => void source.refreshEnumeration()}
-          >
-            <RefreshCw size={15} aria-hidden="true" />
-            {t("browseRefresh")}
-          </button>
-        </div>
-      </header>
 
       {breadcrumbHost ? createPortal(breadcrumbNavigation, breadcrumbHost) : <div className="browse-mode-toolbar">
         {breadcrumbNavigation}
@@ -497,10 +498,17 @@ export function BrowseMode() {
                 </NoticeBanner>
               ) : null}
               {revealError ? <NoticeBanner tone="warning" title={revealError} /> : null}
-              <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
-                {[changeStatusText ?? statusText, selectionText].filter(Boolean).join(" · ")}
-              </div>
-              {viewMode === "grid" ? <SharedFileGrid
+              {viewMode === "columns" ? <BrowseColumnView
+                source={source}
+                interaction={interaction}
+                t={t}
+                cachedColumns={columnCache.current}
+                onActivate={(entry) => activateEntry(entry)}
+                onNavigateCrumb={(index) => {
+                  const crumb = source.breadcrumbs[index];
+                  if (crumb) source.navigateToBreadcrumb(crumb);
+                }}
+              /> : viewMode === "grid" ? <SharedFileGrid
                 interaction={interaction}
                 language={language}
                 t={t}
@@ -592,6 +600,30 @@ export function BrowseMode() {
           /> : null}
         </div>
       </div>
+      <FileLibraryStatusBar
+        loadedCount={source.loadedCount}
+        totalCount={source.knownCount}
+        selectionCount={source.selectedCount}
+        selectionScope={source.selectedCount === 0 ? "none" : "loaded"}
+        selectedSize={selectedSize}
+        statusText={[changeStatusText ?? statusText].filter(Boolean).join(" · ")}
+        sourceText={`${source.browse.location.displayName} · ${completion === "complete" ? t("browseEnumerationCompleteShort") : t("browseEnumerationPartialShort")}`}
+        live
+        t={t}
+        actions={<>
+          <button type="button" onClick={source.openLocationPicker}>{t("browseLocationsButton")}</button>
+          <button
+            type="button"
+            disabled={source.enumerationState === "loading"
+              || source.enumerationState === "loading_more"
+              || source.changeState === "checking"
+              || source.changeState === "refreshing"}
+            onClick={() => void source.refreshEnumeration()}
+          >
+            {t("browseRefresh")}
+          </button>
+        </>}
+      />
     </div>
   );
 }

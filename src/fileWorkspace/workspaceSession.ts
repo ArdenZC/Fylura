@@ -12,7 +12,7 @@ export const WORKSPACE_RESTORE_SCHEMA_VERSION = 1 as const;
 export type WorkspaceMode = NavigationTarget["kind"];
 export type LibraryNavigationTarget = Extract<NavigationTarget, { kind: "library" }>;
 export type BrowseNavigationTarget = Extract<NavigationTarget, { kind: "browse" }>;
-export type WorkspaceViewMode = "list" | "grid";
+export type WorkspaceViewMode = "list" | "grid" | "columns";
 
 /**
  * Bounded presentation state is session/UI context only. It is deliberately
@@ -81,7 +81,7 @@ const LIBRARY_NAVIGATION_SOURCES: readonly LibraryNavigationSource[] = [
 ];
 
 const WORKSPACE_PLATFORMS = ["macos", "windows"] as const;
-const WORKSPACE_VIEW_MODES = ["list", "grid"] as const;
+const WORKSPACE_VIEW_MODES = ["list", "grid", "columns"] as const;
 const MAX_RESTORE_TEXT_LENGTH = 4096;
 const MAX_SCROLL_ANCHOR_LENGTH = 512;
 

@@ -495,23 +495,8 @@
   color: var(--zc-text-primary);
 }
 
-/* --------------------------------------------------------- list rhythm */
-
-/* The list body keeps its own virtualisation and interaction owners; this only
- * aligns the header band and the trailing rule with the v3.40 rhythm. */
-.shared-file-list-header {
-  min-height: 36px;
-  padding: 0 12px;
-  align-items: center;
-  color: var(--zc-text-tertiary);
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.014em;
-}
-
-.shared-file-list-row {
-  border-bottom: 1px solid var(--zc-divider);
-}
+/* The list header, rows and selection column are owned by
+ * `list/sharedFileList.css`; this file only frames the workspace around them. */
 
 /* ------------------------------------------------------------- inspector */
 
@@ -559,4 +544,226 @@
   .wb-icon {
     transition: none;
   }
+}
+
+/* ------------------------------------------------------------ pane menu */
+
+/* One trigger replaces the previous row of selects and buttons: the strip
+ * states the arrangement and keeps every pane control one click away. */
+.wb-pane-menu {
+  position: relative;
+  flex: none;
+}
+
+.wb-pane-menu > summary {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--zc-radius-control);
+  padding: 0 7px;
+  color: var(--zc-text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.wb-pane-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.wb-pane-menu > summary:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-pane-menu[open] > summary {
+  background: var(--zc-primary-soft);
+  color: var(--zc-primary-text);
+}
+
+.wb-pane-layout-icon {
+  fill: currentColor;
+  opacity: 0.7;
+}
+
+.wb-pane-menu-count {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-pane-menu-panel {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: 268px;
+  gap: 8px;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-panel);
+  background: var(--zc-surface-overlay);
+  padding: 10px;
+  box-shadow: var(--zc-shadow-menu);
+}
+
+.wb-pane-menu-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-pane-menu-label {
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  letter-spacing: 0.014em;
+}
+
+.wb-pane-menu-row .wb-seg {
+  justify-self: start;
+}
+
+.wb-pane-menu-row select {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid var(--zc-control-border);
+  border-radius: 6px;
+  background: var(--zc-surface);
+  padding: 0 4px;
+  color: var(--zc-text-secondary);
+  font-size: 11.5px;
+}
+
+.wb-pane-menu-actions {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--zc-divider);
+  padding-top: 6px;
+}
+
+.wb-pane-menu-actions button {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 6px;
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.wb-pane-menu-actions button:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-pane-menu-actions button:disabled {
+  opacity: 0.38;
+}
+
+.wb-pane-menu-hint {
+  margin: 0;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------- multi-pane state */
+
+/* The focused pane is marked with a single inset rule, not a colour wash: the
+ * rows inside it already own the selection colour. */
+.wb-tab-panel[data-multiple="true"] .wb-pane[data-focused="true"] {
+  box-shadow: inset 0 0 0 1px var(--zc-primary);
+}
+
+.wb-tab-panel[data-multiple="true"] .wb-pane {
+  border-radius: 8px;
+}
+
+.wb-divider {
+  background: transparent;
+}
+
+.wb-divider-column::after,
+.wb-divider-row::after {
+  position: absolute;
+  background: var(--zc-divider);
+  content: "";
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.wb-divider-column::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+}
+
+.wb-divider-row::after {
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+}
+
+.wb-divider:hover::after,
+.wb-divider:focus-visible::after,
+.wb-divider:active::after {
+  background: var(--zc-primary);
+}
+
+.wb-divider:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+/* ------------------------------------------------------------- inspector */
+
+/* Fact rows follow the prototype's 9px rhythm with a single hairline per row,
+ * and the value column reads one step louder than its label. */
+.file-library-context-facts {
+  gap: 0;
+  font-size: 12px;
+}
+
+.file-library-context-facts > div {
+  gap: 10px;
+  border-bottom: 1px solid var(--zc-divider);
+  padding: 9px 0;
+}
+
+.file-library-context-facts > div:first-child {
+  border-top: 1px solid var(--zc-divider);
+}
+
+.file-library-context-facts dt {
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+.file-library-context-facts dd {
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+}
+
+.file-library-context-selection-count {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.file-library-context-entry-heading > div > strong,
+.file-library-context-entry-heading strong {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.file-library-context-note {
+  font-size: 11.5px;
+  line-height: 1.5;
 }

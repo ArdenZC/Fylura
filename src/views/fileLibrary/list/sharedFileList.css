@@ -1,3 +1,12 @@
+/*
+ * Shared file list — v3.40 geometry.
+ *
+ * One row model for Browse and Library: a 46px (36px compact) row on a 10px
+ * radius, a hairline divider inset 8px on both sides, a 22px selection column
+ * and a flexible name track. Virtualisation owns each row's absolute position,
+ * so nothing here may change a row's measured height.
+ */
+
 .shared-file-list-shell {
   display: flex;
   height: 100%;
@@ -17,6 +26,7 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  padding: 0 2px 0 0;
 }
 
 .file-selection-marquee {
@@ -33,58 +43,159 @@
   min-width: 0;
   grid-template-columns: var(--shared-file-list-columns, minmax(220px, 1.5fr) minmax(96px, 0.7fr) 132px 92px);
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .shared-file-list-header {
-  position: sticky;
-  z-index: 1;
-  top: 0;
-  min-height: 34px;
-  padding: 7px 12px;
+  z-index: 2;
+  min-height: 36px;
+  flex: none;
+  padding: 0 12px 0 10px;
   border-bottom: 1px solid var(--zc-divider);
   background: var(--zc-surface);
   color: var(--zc-text-tertiary);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.014em;
 }
 
 .shared-file-list-header-cell {
   position: relative;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-file-list-header-cell > button {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 2px 4px;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.shared-file-list-header-cell > button:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.shared-file-list-header-cell > button[aria-pressed="true"] {
+  color: var(--zc-text-primary);
 }
 
 .shared-file-list-column-resize {
   position: absolute;
   z-index: 2;
-  top: -8px;
-  right: -8px;
-  bottom: -8px;
-  width: 16px;
+  top: -10px;
+  right: -6px;
+  bottom: -10px;
+  width: 12px;
   cursor: col-resize;
   touch-action: none;
 }
 
+.shared-file-list-column-resize::after {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 5px;
+  width: 1px;
+  background: transparent;
+  content: "";
+}
+
+.shared-file-list-column-resize:hover::after,
+.shared-file-list-column-resize:focus-visible::after,
+.shared-file-list-column-resize:active::after {
+  background: var(--zc-primary);
+}
+
 .shared-file-list-column-resize:focus-visible {
-  outline: 2px solid var(--zc-focus-ring);
+  outline: 2px solid var(--zc-focus);
   outline-offset: -4px;
 }
 
-.shared-file-list-size-heading,
-.shared-file-list-size {
-  text-align: right;
+/* ------------------------------------------------------------ selection */
+
+.shared-file-list-select-cell {
+  display: grid;
+  place-items: center;
 }
+
+.shared-file-list-select-all {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border-radius: 3.5px;
+  accent-color: var(--zc-primary);
+  cursor: pointer;
+}
+
+/* The row checkbox is a visual affordance: the option row owns selection and
+ * exposes it through `aria-selected`, so no nested control is announced. */
+.shared-file-list-checkbox {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border: 1.4px solid var(--zc-border-strong);
+  border-radius: 3.5px;
+  background: var(--zc-surface);
+  color: transparent;
+  opacity: 0;
+  transition: opacity var(--zc-duration-fast) var(--zc-ease-standard),
+    background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    border-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.shared-file-list-row:hover .shared-file-list-checkbox,
+.shared-file-list-row.is-selected .shared-file-list-checkbox {
+  opacity: 1;
+}
+
+.shared-file-list-row.is-selected .shared-file-list-checkbox {
+  border-color: var(--zc-primary);
+  background: var(--zc-primary);
+  color: var(--zc-primary-contrast);
+}
+
+/* --------------------------------------------------------------- rows */
 
 .shared-file-list-row {
   position: absolute;
   left: 0;
   top: 0;
   width: 100%;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--zc-divider);
+  padding: 0 10px 0 8px;
+  border-radius: var(--zc-radius-row);
   color: var(--zc-text-primary);
   font-size: 13px;
-  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard), box-shadow var(--zc-duration-fast) var(--zc-ease-standard);
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+/* Inset hairline: rows never draw a full-bleed rule, and a selected row hides
+ * its own top rule plus the next row's so the selection reads as one object. */
+.shared-file-list-row + .shared-file-list-row::before {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  left: 8px;
+  height: 1px;
+  background: var(--zc-divider);
+  content: "";
+  pointer-events: none;
+}
+
+.shared-file-list-row.is-selected::before,
+.shared-file-list-row.is-selected + .shared-file-list-row::before {
+  opacity: 0;
 }
 
 .shared-file-list-row:hover {
@@ -95,13 +206,20 @@
   background: var(--zc-surface-selected);
 }
 
-.shared-file-list-row.is-focused {
-  outline: 2px solid var(--zc-focus-ring);
-  outline-offset: -2px;
+.shared-file-list-row.is-selected:hover {
+  background: var(--zc-surface-selected-hover);
+}
+
+.shared-file-list:focus-visible .shared-file-list-row.is-focused {
+  box-shadow: inset 0 0 0 2px var(--zc-focus);
 }
 
 .shared-file-list-row-unloaded {
   pointer-events: none;
+}
+
+.shared-file-list-row.is-missing .shared-file-list-name-copy > strong {
+  color: var(--zc-text-secondary);
 }
 
 .shared-file-list-name,
@@ -112,13 +230,13 @@
 }
 
 .shared-file-list-name {
-  gap: 9px;
+  gap: 10px;
 }
 
 .shared-file-list-name-copy {
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 1px;
   overflow: hidden;
 }
 
@@ -131,10 +249,14 @@
 
 .shared-file-list-name-copy > span,
 .shared-file-list-kind,
+.shared-file-list-created,
 .shared-file-list-modified,
 .shared-file-list-size {
-  color: var(--zc-text-secondary);
-  font-size: 12px;
+  overflow: hidden;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shared-file-list-name-copy > span.shared-file-list-warning {
@@ -143,25 +265,34 @@
 
 .shared-file-list-name-copy > strong {
   color: var(--zc-text-primary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
+.shared-file-list-row.is-selected .shared-file-list-name-copy > strong {
+  font-weight: 520;
+}
+
+/* Type icons are 16px strokes in the file-type colour: no chip, no border. */
 .shared-file-list-icon {
   position: relative;
   display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   place-items: center;
-  border: 1px solid var(--zc-divider);
-  border-radius: var(--zc-radius-control);
-  background: var(--zc-surface-subtle);
-  color: var(--zc-primary);
+  color: var(--zc-file-folder);
 }
 
-.shared-file-list-row.is-missing .shared-file-list-name-copy > strong {
-  color: var(--zc-text-secondary);
-}
+.shared-file-list-icon[data-file-kind="pdf"] { color: var(--zc-file-pdf); }
+.shared-file-list-icon[data-file-kind="doc"] { color: var(--zc-file-doc); }
+.shared-file-list-icon[data-file-kind="sheet"] { color: var(--zc-file-sheet); }
+.shared-file-list-icon[data-file-kind="deck"] { color: var(--zc-file-slide); }
+.shared-file-list-icon[data-file-kind="img"] { color: var(--zc-file-image); }
+.shared-file-list-icon[data-file-kind="video"] { color: var(--zc-file-video); }
+.shared-file-list-icon[data-file-kind="audio"] { color: var(--zc-file-audio); }
+.shared-file-list-icon[data-file-kind="code"] { color: var(--zc-file-code); }
+.shared-file-list-icon[data-file-kind="zip"] { color: var(--zc-file-archive); }
+.shared-file-list-icon[data-file-kind="file"] { color: var(--zc-text-tertiary); }
 
 .shared-file-list-warning-icon {
   position: absolute;
@@ -172,25 +303,41 @@
   color: var(--zc-warning-text);
 }
 
-.shared-file-list-kind,
-.shared-file-list-modified,
 .shared-file-list-size {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.shared-file-list-created,
+.shared-file-list-modified {
+  font-variant-numeric: tabular-nums;
 }
 
 .shared-file-list-open-folder {
   position: absolute;
   right: 8px;
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   place-items: center;
-  border: 1px solid var(--zc-control-border);
-  border-radius: var(--zc-radius-control);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--zc-text-tertiary);
+  opacity: 0;
+  transition: opacity var(--zc-duration-fast) var(--zc-ease-standard),
+    background-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.shared-file-list-row:hover .shared-file-list-open-folder,
+.shared-file-list-row.is-selected .shared-file-list-open-folder,
+.shared-file-list-open-folder:focus-visible {
+  opacity: 1;
+}
+
+.shared-file-list-open-folder:hover {
   background: var(--zc-surface);
-  color: var(--zc-text-secondary);
+  color: var(--zc-text-primary);
 }
 
 .shared-file-list-empty,
@@ -201,82 +348,64 @@
   text-align: center;
 }
 
+.shared-file-list-empty {
+  display: grid;
+  min-height: 140px;
+  place-items: center;
+  color: var(--zc-text-tertiary);
+}
+
+.shared-file-list-loaded-all {
+  padding: 10px 12px;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
 .shared-file-list-load-more {
   align-self: center;
-  min-height: 34px;
+  min-height: 32px;
   margin: 8px auto;
   padding: 6px 12px;
   font-size: 12px;
 }
 
 .shared-file-list:focus-visible,
-.shared-file-list-row:focus-visible,
 .shared-file-list-open-folder:focus-visible {
-  outline: 2px solid var(--zc-focus-ring);
-  outline-offset: 2px;
+  outline: 0;
 }
 
-@media (max-width: 1100px) {
-  .shared-file-list-header,
-  .shared-file-list-row {
-    grid-template-columns: minmax(0, 1fr) 92px;
-  }
+.shared-file-list-open-folder:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: 1px;
+}
 
-  .shared-file-list-kind,
-  .shared-file-list-modified,
-  .shared-file-list-header > :nth-child(2),
-  .shared-file-list-header > :nth-child(3) {
-    display: none;
+/* ------------------------------------------------------------- compact */
+
+.shared-file-list-shell.is-compact .shared-file-list-row {
+  font-size: 12.5px;
+}
+
+.shared-file-list-shell.is-compact .shared-file-list-name-copy > span {
+  display: none;
+}
+
+.shared-file-list-shell.is-compact .shared-file-list-checkbox {
+  width: 13px;
+  height: 13px;
+}
+
+@media (forced-colors: active) {
+  .shared-file-list-checkbox,
+  .shared-file-list-row.is-selected {
+    outline: 1px solid Highlight;
+    outline-offset: -1px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shared-file-list-row {
+  .shared-file-list-row,
+  .shared-file-list-checkbox,
+  .shared-file-list-open-folder {
     transition: none;
   }
-}
-
-@media (forced-colors: active) {
-  .shared-file-list-row.is-selected,
-  .shared-file-list-row.is-focused {
-    outline: 2px solid CanvasText;
-  }
-}
-
-.has-created-column .shared-file-list-header,
-.has-created-column .shared-file-list-row {
-  grid-template-columns: var(--shared-file-list-columns, minmax(180px, 1.5fr) minmax(70px, 0.6fr) 132px 132px 92px);
-}
-.shared-file-list-header button {
-  min-width: 0;
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-}
-.shared-file-list-header button.shared-file-list-size-heading { text-align: right; }
-.shared-file-list-header button[aria-pressed="true"] { color: var(--zc-text-primary); }
-.shared-file-list-header button:focus-visible { outline: 2px solid var(--zc-focus-ring); outline-offset: 2px; }
-.shared-file-list-created {
-  overflow: hidden;
-  color: var(--zc-text-secondary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-@media (max-width: 1100px) {
-  .shared-file-list-header,
-  .shared-file-list-row {
-    grid-template-columns: minmax(0, 1fr) 92px;
-  }
-
-  .shared-file-list-column-resize { display: none; }
-
-  .has-created-column .shared-file-list-header,
-  .has-created-column .shared-file-list-row { grid-template-columns: minmax(0, 1fr) 92px; }
-  .has-created-column .shared-file-list-created,
-  .has-created-column .shared-file-list-header > :nth-child(4) { display: none; }
 }

@@ -136,171 +136,10 @@
   font-weight: 400;
 }
 
-/* Retained file-object grammar: selection, focus and primary action stay distinct. */
-.file-library-workspace .shared-file-list-row {
-  min-height: 44px;
-  border-color: var(--zc-divider);
-  font-size: 13px;
-  line-height: 20px;
-  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
-    color var(--zc-duration-fast) var(--zc-ease-standard);
-}
-
-.file-library-workspace .shared-file-list-header > :first-child {
-  padding-left: 28px;
-}
-
-.file-library-workspace .shared-file-list-name::before {
-  content: "";
-  display: grid;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: var(--zc-radius-micro);
-  background: transparent;
-  color: transparent;
-  font-size: 12px;
-  line-height: 1;
-  font-weight: 600;
-}
-
-.file-library-workspace .shared-file-list-row.is-selected .shared-file-list-name::before {
-  content: "✓";
-  border-color: var(--zc-selection-mark);
-  background: var(--zc-selection-mark);
-  color: var(--zc-surface);
-}
-
-.file-library-workspace .shared-file-list-row:hover {
-  background: var(--zc-surface-hover);
-}
-
-.file-library-workspace .shared-file-list-row.is-selected {
-  background: var(--zc-surface-selected);
-}
-
-.file-library-workspace .shared-file-list-row.is-focused,
-.file-library-workspace .shared-file-list-row:focus-visible {
-  outline: 0;
-  background: var(--zc-focus-soft);
-  box-shadow: none;
-}
-
-.file-library-workspace .shared-file-list-row.is-selected.is-focused,
-.file-library-workspace .shared-file-list-row.is-selected:focus-visible {
-  background: var(--zc-selected-focus);
-  color: var(--zc-text-primary);
-}
-
-.file-library-workspace .shared-file-list:focus-visible {
-  outline: 0;
-}
-
-.file-library-workspace .shared-file-list-open-folder {
-  border-color: transparent;
-  background: transparent;
-  color: var(--zc-text-secondary);
-}
-
-.file-library-workspace .shared-file-list-open-folder:hover {
-  background: var(--zc-surface-hover);
-  color: var(--zc-text-primary);
-}
-
-.file-library-workspace .shared-file-list-open-folder:focus-visible {
-  outline: 0;
-  background: var(--zc-focus-soft);
-  color: var(--zc-focus);
-}
-
-.file-library-workspace .shared-file-grid:focus-visible {
-  outline: 0;
-}
-
-.file-library-workspace .shared-file-grid-cell {
-  border-color: transparent;
-  border-radius: var(--zc-radius-row);
-  box-shadow: none;
-  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
-    color var(--zc-duration-fast) var(--zc-ease-standard);
-}
-
-.file-library-workspace .shared-file-grid-cell::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 8px;
-  left: 8px;
-  display: grid;
-  width: 20px;
-  height: 20px;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: var(--zc-radius-micro);
-  background: transparent;
-  color: transparent;
-  font-size: 12px;
-  line-height: 1;
-  font-weight: 600;
-}
-
-.file-library-workspace .shared-file-grid-cell.is-selected::before {
-  content: "✓";
-  border-color: var(--zc-selection-mark);
-  background: var(--zc-selection-mark);
-  color: var(--zc-surface);
-}
-
-.file-library-workspace .shared-file-grid-cell:hover {
-  background: var(--zc-surface-hover);
-}
-
-.file-library-workspace .shared-file-grid-cell.is-selected {
-  border-color: transparent;
-  background: var(--zc-surface-selected);
-}
-
-.file-library-workspace .shared-file-grid-cell.is-focused {
-  border-color: transparent;
-  background: var(--zc-focus-soft);
-  box-shadow: none;
-}
-
-.file-library-workspace .shared-file-grid-cell.is-selected.is-focused {
-  background: var(--zc-selected-focus);
-}
-
-.file-library-workspace .shared-file-grid-name,
-.file-library-workspace .shared-file-list-name-copy > strong {
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-}
-
-.file-library-workspace .shared-file-list-name-copy > span,
-.file-library-workspace .shared-file-list-kind,
-.file-library-workspace .shared-file-list-modified,
-.file-library-workspace .shared-file-list-size,
-.file-library-workspace .shared-file-grid-details {
-  color: var(--zc-text-secondary);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 400;
-}
-
-.file-library-workspace .shared-file-list-icon {
-  border-color: transparent;
-  background: transparent;
-  color: var(--zc-text-secondary);
-}
-
-.file-library-workspace .shared-file-grid-thumbnail {
-  border-color: var(--zc-divider);
-  border-radius: var(--zc-radius-control);
-  background: var(--zc-surface-subtle);
-}
+/* File-object presentation moved to its owning stylesheets in the v3.40
+ * baseline: `list/sharedFileList.css`, `list/sharedFileGrid.css` and
+ * `fileLibraryV340.css`. Keeping a second grammar here re-introduced the
+ * duplicated checkbox and the focus-overrides this batch removed. */
 
 .file-library-workspace[data-layout="large"] .file-library-navigation-panel {
   gap: 12px;
@@ -466,8 +305,7 @@
     outline-offset: -2px;
   }
 
-  .file-library-workspace .shared-file-list-row.is-selected .shared-file-list-name::before,
-  .file-library-workspace .shared-file-grid-cell.is-selected::before {
+  .file-library-workspace .shared-file-list-row.is-selected .shared-file-list-checkbox {
     border-color: Highlight;
     background: Highlight;
     color: HighlightText;

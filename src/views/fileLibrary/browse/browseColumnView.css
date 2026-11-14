@@ -1,0 +1,150 @@
+/*
+ * Finder-style column browser inside one pane (v3.40 §0.2).
+ *
+ * Columns are 226px, the last one grows, rows are 26px single-line and the
+ * selected row uses the primary tint. This is a presentation of the pane's own
+ * navigation stack; no second enumeration session is created.
+ */
+
+.browse-columns {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: var(--zc-radius-row);
+  background: var(--zc-surface);
+  box-shadow: var(--zc-card-ring);
+}
+
+.browse-column {
+  display: flex;
+  width: 226px;
+  min-width: 180px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--zc-divider);
+}
+
+.browse-column[data-browse-column-current="true"] {
+  min-width: 240px;
+  flex: 1 1 auto;
+  border-right: 0;
+}
+
+.browse-column-head {
+  display: flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  border-bottom: 1px solid var(--zc-divider);
+  padding: 0 8px;
+}
+
+.browse-column-title {
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 2px 6px;
+  color: var(--zc-text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.014em;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-column-title:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.browse-column-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 4px 4px 12px;
+  list-style: none;
+}
+
+.browse-column-row {
+  display: flex;
+  width: 100%;
+  height: 26px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 6px;
+  color: var(--zc-text-primary);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.browse-column-row:hover {
+  background: var(--zc-surface-hover);
+}
+
+.browse-column-row.is-selected {
+  background: var(--zc-surface-selected);
+}
+
+.browse-column-row:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+.browse-column-icon {
+  flex: none;
+  color: var(--zc-file-folder);
+}
+
+.browse-column-name {
+  overflow: hidden;
+  flex: 1 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-column-chevron {
+  flex: none;
+  color: var(--zc-text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.browse-column-empty {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  padding: 12px 10px;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+.browse-column-empty button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  color: var(--zc-primary-text);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.browse-column-empty button:hover {
+  background: var(--zc-surface-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browse-column-row {
+    transition: none;
+  }
+}

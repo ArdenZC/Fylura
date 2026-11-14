@@ -561,19 +561,28 @@ export function FileLibraryWorkbench({
     }, 130);
   }
 
+  // Keep the latest dismiss closure for document listeners without re-running
+  // the entrance on every render (hover, focus and size changes re-render).
+  const dismissPaneMenuRef = useRef(dismissPaneMenu);
+  dismissPaneMenuRef.current = dismissPaneMenu;
+
+  useEffect(() => {
+    if (!paneMenuOpen) return;
+    playOverlayEnter(paneMenuRef.current, "menu", { origin: "top right" });
+  }, [paneMenuOpen]);
+
   useEffect(() => {
     if (!paneMenuOpen) return undefined;
-    playOverlayEnter(paneMenuRef.current, "menu", { origin: "top right" });
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (paneMenuRef.current?.contains(target) || paneMenuTriggerRef.current?.contains(target)) return;
-      dismissPaneMenu(false);
+      dismissPaneMenuRef.current(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      dismissPaneMenu(true);
+      dismissPaneMenuRef.current(true);
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -581,7 +590,7 @@ export function FileLibraryWorkbench({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  });
+  }, [paneMenuOpen]);
 
   useEffect(() => {
     if (!paneMenuClosing) return;

@@ -1,7 +1,7 @@
 import { usePane } from "../workbench/PaneContext";
 import { useAppStore } from "../../../store/useAppStore";
 import { AlertTriangle, Check, FileText, Folder, FolderOpen } from "lucide-react";
-import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { BrowseSortSpec } from "../../../types/fileWorkspace";
 import type { Language } from "../../../i18n";
@@ -39,6 +39,28 @@ function readListColumnWidths() {
     }
   } catch { /* Use the default list geometry when storage is unavailable. */ }
   return [290, 110, 110, 120, 85];
+}
+
+/**
+ * Whether every currently loaded row is selected.
+ *
+ * Counts alone are not enough: a whole-query selection can exclude rows that
+ * are still loaded, and a loaded page can be larger than the source's reported
+ * selection. The answer comes from the source's membership predicate.
+ */
+export function loadedSelectionState(interaction: PresentationInteractionProjection) {
+  let selected = 0;
+  for (let index = 0; index < interaction.loadedRowCount; index += 1) {
+    if (interaction.source === "browse") {
+      const entry = interaction.entryAt(index);
+      if (entry !== undefined && interaction.isSelected(entry)) selected += 1;
+    } else {
+      const entry = interaction.entryAt(index);
+      if (entry !== undefined && interaction.isSelected(entry)) selected += 1;
+    }
+  }
+  const all = interaction.loadedRowCount > 0 && selected === interaction.loadedRowCount;
+  return { selected, all, some: selected > 0 && !all };
 }
 
 export function listRowHeight(density: string | undefined) {
@@ -312,18 +334,13 @@ export function SharedFileList({
     ...columns.map((column) => `${columnWidths[column.widthIndex!]}px`)
   ].join(" ");
 
-  // Header selection state is derived from the source's own selection, never
-  // from the mounted rows: a loaded-page selection must not read as the whole
-  // directory (or the whole query) unless the source says so.
-  const selectionCount = interaction.source === "browse"
-    ? interaction.selection.size
-    : interaction.selection?.kind === "all_matching"
-      ? interaction.rowCount
-      : interaction.selection?.fileIds.length ?? 0;
-  const selectsWholeQuery = interaction.source === "library" && interaction.selection?.kind === "all_matching";
-  const allLoadedSelected = interaction.loadedRowCount > 0
-    && (selectsWholeQuery || selectionCount >= interaction.loadedRowCount);
-  const someSelected = selectionCount > 0 && !allLoadedSelected;
+  // Header selection state asks the source about each loaded entry instead of
+  // comparing counts. A whole-query selection can still exclude individual
+  // files, so "N >= loaded" would wrongly tick the box for a page that has an
+  // unselected row in it.
+  const loadedSelection = useMemo(() => loadedSelectionState(interaction), [interaction]);
+  const allLoadedSelected = loadedSelection.all;
+  const someSelected = loadedSelection.some;
   const selectAllLabel = interaction.capabilities.selectAll === "all_matching"
     ? t("statusSelectAllMatching").replace("{count}", interaction.rowCount.toLocaleString(language))
     : t("statusSelectAllLoaded").replace("{count}", interaction.loadedRowCount.toLocaleString(language));

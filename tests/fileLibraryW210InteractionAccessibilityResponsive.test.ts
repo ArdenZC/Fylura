@@ -101,7 +101,7 @@ describe("W2-10 interaction/accessibility/responsive integration contracts", () 
   it("keeps Browse partial ARIA truthful and wires both item context-menu paths", () => {
     const browseMode = read("src/views/fileLibrary/browse/BrowseMode.tsx");
     const grid = read("src/views/fileLibrary/list/SharedFileGrid.tsx");
-    expect(browseMode).toContain("onOpenContextMenu={openFocusedContextMenu}");
+    expect(browseMode).toContain("onOpenContextMenu={() => openFocusedContextMenu()}");
     expect(browseMode).toContain("handleRowContextMenu(event, entry)");
     expect(browseMode).toContain('ariaLabel={t("browseContextMenu")}');
     expect(grid).toContain('interaction.source === "browse" && interaction.hasMore ? undefined : rowCount');

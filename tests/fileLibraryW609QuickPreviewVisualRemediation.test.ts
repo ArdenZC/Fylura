@@ -35,7 +35,7 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(styles).toContain('[data-density="compact"] .zc-quick-preview-card');
     expect(styles).toContain("background: var(--zc-surface-overlay);");
     expect(styles).toContain("box-shadow: var(--zc-shadow-float);");
-    expect(styles).toContain("grid-template-columns: 84px minmax(0, 1fr) 112px;");
+    expect(styles).toContain("grid-template-columns: 84px minmax(0, 1fr) 132px;");
     expect(styles).toContain("grid-template-columns: minmax(0, 1fr) 240px;");
     expect(surface).toContain("data-preview-content-mode={state.phase === \"content\"");
     expect(styles).toContain("height: 100%;");

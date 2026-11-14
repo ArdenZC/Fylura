@@ -236,15 +236,15 @@ describe("settings view UI", () => {
     const previewStyles = read("src/views/fileLibrary/preview/zenFloatingQuickPreview.css");
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
 
-    expect(shellV26).toContain("grid-template-columns: 196px minmax(0, 1fr) !important");
-    expect(shellV26).toContain("max-width: 800px !important");
+    expect(shellV26).toContain("grid-template-columns: 212px minmax(0, 1fr) !important");
+    expect(shellV26).toContain("max-width: 820px !important");
     expect(shellV26).toContain("grid-template-columns: minmax(0, 1fr) 206px");
     expect(shellV26).toContain("[data-settings-content] [data-settings-select-control]");
     expect(shellV26).toContain("width: 176px");
     expect(shellV26).toContain("@media (max-width: 760px)");
     expect(settingsPrimitives).toContain("createPortal(");
     expect(settingsPrimitives).toContain("document.body");
-    expect(previewStyles).toContain("grid-template-columns: 84px minmax(0, 1fr) 112px");
+    expect(previewStyles).toContain("grid-template-columns: 84px minmax(0, 1fr) 132px");
     expect(previewStyles).toContain("padding: 28px");
     expect(previewStyles).toContain("padding: 15px");
     expect(previewStyles).toContain("min-height: 29px");

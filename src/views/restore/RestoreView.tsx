@@ -417,10 +417,12 @@ export function RestoreView() {
   return (
     <div ref={pageScrollRef} className={cn(pageSurface, "overflow-x-hidden overflow-y-auto") }>
       <div className="mx-auto grid min-h-full max-w-[1500px] content-start gap-5 pb-4">
-        <header className="flex justify-end">
-          <div className="flex max-w-xl items-start gap-2 rounded-[var(--zc-radius-control)] border border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] px-3 py-2 text-xs leading-5 text-[var(--zc-neutral-text)]"><ShieldCheck size={16} className="mt-0.5 shrink-0" aria-hidden="true" />{t("historySafetyBoundary")}</div>
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <span className="v340-section-hint">{t("historyWorkspaceTitle")}</span>
+          <div className="flex max-w-xl items-center gap-1.5 rounded-[var(--zc-radius-control)] bg-[var(--zc-neutral-soft)] px-2 py-1 text-xs leading-5 text-[var(--zc-neutral-text)]"><ShieldCheck size={15} className="shrink-0" aria-hidden="true" />{t("historySafetyBoundary")}</div>
         </header>
 
+        <div className="v340-kpi">
         <MetricStrip
           ariaLabel={t("historyWorkspaceTitle")}
           density="compact"
@@ -431,6 +433,7 @@ export function RestoreView() {
             { label: t("historySummaryExcluded"), value: summary.unavailable }
           ]}
         />
+        </div>
 
         <section className={cn(panelSurface, "grid gap-4 overflow-visible p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]")}>
           <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
@@ -473,7 +476,7 @@ export function RestoreView() {
           </div>
         </section>
 
-        {selectedCount > 0 && <div className={cn(contentPanel, "sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 p-3 shadow-[var(--zc-shadow-float)]")}><div className="min-w-0"><strong className="block text-sm tabular-nums">{replace(t("historySelectedCount"), { count: selectedCount })}</strong><span className="block text-xs text-[var(--muted)] tabular-nums">{mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : `${replace(t("historyExecutableCount"), { count: executableCount })} · ${replace(t("historyExcludedCount"), { count: excludedCount })}`}</span></div>{executableCount > 0 ? <button ref={confirmTriggerRef} type="button" className={buttonPrimary} disabled={busy || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined} onClick={() => void prepareConfirmation()}><RotateCcw size={16} />{busy ? t("restoring") : replace(t("historyRestoreActionCount"), { count: executableCount })}</button> : null}</div>}
+        {selectedCount > 0 && <div className="v340-action-bar" data-history-selection-bar><div className="min-w-0"><strong className="block text-sm tabular-nums">{replace(t("historySelectedCount"), { count: selectedCount })}</strong><span className="block text-xs text-[var(--muted)] tabular-nums">{mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : `${replace(t("historyExecutableCount"), { count: executableCount })} · ${replace(t("historyExcludedCount"), { count: excludedCount })}`}</span></div>{executableCount > 0 ? <button ref={confirmTriggerRef} type="button" className={buttonPrimary} disabled={busy || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined} onClick={() => void prepareConfirmation()}><RotateCcw size={16} />{busy ? t("restoring") : replace(t("historyRestoreActionCount"), { count: executableCount })}</button> : null}</div>}
 
         {restoreProgress && <OperationProgressPanel progress={restoreProgress} isCanceling={isOperationCanceling} onCancel={cancelOperations} t={t} />}
         {cleanupRestoreProgress && <section className={cn(contentPanel, "grid gap-2 p-4")} aria-live="polite"><strong className="text-sm">{t("historyCleanupProgressTitle")}</strong><p className={mutedText}>{replace(t("historyCleanupProgressLine"), { processed: cleanupRestoreProgress.processed, total: cleanupRestoreProgress.total, path: cleanupRestoreProgress.currentPath || cleanupRestoreProgress.currentItemId || "-" })}</p><p className={cn(mutedText, "tabular-nums")}>{replace(t("historyCleanupProgressCounts"), { restored: cleanupRestoreProgress.restored, conflicts: cleanupRestoreProgress.conflicts, missing: cleanupRestoreProgress.missing, failed: cleanupRestoreProgress.failed, canceled: cleanupRestoreProgress.canceled })}</p><button type="button" className="justify-self-start text-sm text-[var(--zc-primary)] disabled:opacity-60" disabled={cleanupRestoreProgress.cancelRequested} onClick={() => void cancelCleanupRestore()}>{cleanupRestoreProgress.cancelRequested ? t("operationCanceling") : t("cancel")}</button></section>}

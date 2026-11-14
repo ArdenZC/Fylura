@@ -71,6 +71,7 @@ function PaneLayoutIcon({ count, layout }: { count: number; layout: "columns" | 
     </svg>
   );
 }
+import { playPaneEnter } from "../../../utils/motion";
 
 function tabLabel(tab: WorkbenchTab, t: Translator) {
   const pane = tab.panes.find((pane) => pane.id === tab.activePaneId)!;
@@ -502,6 +503,17 @@ export function FileLibraryWorkbench({
     focus,
     t,
   });
+  const paneMotionReady = useRef(false);
+  useLayoutEffect(() => {
+    if (!paneMotionReady.current) {
+      paneMotionReady.current = true;
+      return;
+    }
+    root.current?.querySelectorAll<HTMLElement>(".wb-pane").forEach((pane) => {
+      if (pane.offsetParent !== null) playPaneEnter(pane);
+    });
+  }, [active.paneCount, active.layout]);
+
   return (
     <div
       ref={root}

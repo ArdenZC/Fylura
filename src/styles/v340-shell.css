@@ -176,7 +176,13 @@
   border-radius: var(--zc-radius-control);
   background: transparent;
   color: var(--zc-text-secondary);
-  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
+  transition:
+    transform var(--zc-dur-release) var(--zc-spring-pop),
+    max-width var(--zc-dur-panel) var(--zc-spring-smooth),
+    height var(--zc-dur-panel) var(--zc-spring-smooth),
+    padding var(--zc-dur-panel) var(--zc-spring-smooth),
+    gap var(--zc-dur-panel) var(--zc-spring-smooth),
+    background-color var(--zc-duration-fast) var(--zc-ease-standard),
     color var(--zc-duration-fast) var(--zc-ease-standard);
 }
 
@@ -324,7 +330,10 @@
   gap: var(--zc-shell-gap);
   min-width: 0;
   min-height: 0;
-  transition: grid-template-columns var(--zc-dur-panel) var(--zc-spring-smooth);
+  contain: layout;
+  transition:
+    grid-template-columns var(--zc-dur-panel) var(--zc-spring-smooth),
+    gap var(--zc-dur-panel) var(--zc-spring-smooth);
 }
 
 .zc-shell-body[data-sidebar-mode="rail"] {
@@ -332,11 +341,18 @@
 }
 
 .zc-shell-body[data-sidebar-mode="hidden"] {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 0 minmax(0, 1fr);
+  gap: 0;
 }
 
+/* The sidebar stays mounted while closing so its width, padding and text can
+ * interpolate. `display:none` snapped the frame and made text jump. */
 .zc-shell-body[data-sidebar-mode="hidden"] > .zc-sidebar {
-  display: none;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ---------------------------------------------------------------- sidebar */
@@ -344,6 +360,11 @@
 .zc-sidebar {
   display: flex;
   min-width: 0;
+  contain: layout;
+  transition:
+    opacity 140ms var(--zc-ease-standard),
+    padding var(--zc-dur-panel) var(--zc-spring-smooth),
+    border-radius var(--zc-dur-panel) var(--zc-spring-smooth);
   min-height: 0;
   flex-direction: column;
   gap: 6px;
@@ -376,10 +397,19 @@
   align-items: center;
   gap: 9px;
   padding: 2px 6px 8px;
+  transition:
+    gap var(--zc-dur-panel) var(--zc-spring-smooth),
+    padding var(--zc-dur-panel) var(--zc-spring-smooth);
 }
 
 .zc-sidebar-brand-text {
   min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    max-width var(--zc-dur-panel) var(--zc-spring-smooth),
+    opacity 110ms var(--zc-ease-standard);
 }
 
 .zc-sidebar-brand-text strong {
@@ -426,6 +456,7 @@
   position: relative;
   display: flex;
   width: 100%;
+  max-width: 220px;
   height: 32px;
   align-items: center;
   gap: 9px;
@@ -464,9 +495,14 @@
 }
 
 .zc-nav-text {
+  max-width: 220px;
   overflow: hidden;
+  opacity: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    max-width var(--zc-dur-panel) var(--zc-spring-smooth),
+    opacity 110ms var(--zc-ease-standard);
 }
 
 .zc-nav-count {
@@ -533,6 +569,12 @@
 
 .zc-sidebar-account-text {
   min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    max-width var(--zc-dur-panel) var(--zc-spring-smooth),
+    opacity 110ms var(--zc-ease-standard);
 }
 
 .zc-sidebar-account-text strong {
@@ -568,10 +610,22 @@
 }
 
 .zc-shell-body[data-sidebar-mode="rail"] .zc-sidebar-brand-text,
-.zc-shell-body[data-sidebar-mode="rail"] .zc-nav-text,
-.zc-shell-body[data-sidebar-mode="rail"] .zc-nav-count,
 .zc-shell-body[data-sidebar-mode="rail"] .zc-sidebar-account-text {
-  display: none;
+  max-width: 0;
+  opacity: 0;
+}
+
+.zc-shell-body[data-sidebar-mode="rail"] .zc-nav-text {
+  max-width: 0;
+  opacity: 0;
+}
+
+/* The count collapses with the label instead of disappearing in one frame. */
+.zc-shell-body[data-sidebar-mode="rail"] .zc-nav-count {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width var(--zc-dur-panel) var(--zc-spring-smooth), opacity 110ms var(--zc-ease-standard);
 }
 
 .zc-shell-body[data-sidebar-mode="rail"] .zc-nav-group {
@@ -594,10 +648,12 @@
 }
 
 .zc-shell-body[data-sidebar-mode="rail"] .zc-nav-item {
-  height: 38px;
+  width: 100%;
+  max-width: 40px;
+  height: 40px;
   justify-content: center;
   gap: 0;
-  padding: 0;
+  padding: 0 11px;
 }
 
 .zc-shell-body[data-sidebar-mode="rail"] .zc-nav-item > svg {
@@ -623,7 +679,17 @@
 
 .zc-shell-body[data-sidebar-mode="rail"] .zc-sidebar-account {
   justify-content: center;
+  gap: 0;
   padding: 4px;
+}
+
+.zc-shell-body[data-sidebar-mode="rail"] [data-ai-processing-mode] {
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ----------------------------------------------------------- main panel */
@@ -631,6 +697,7 @@
 .zc-app-workspace {
   display: flex;
   min-width: 0;
+  contain: layout;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;

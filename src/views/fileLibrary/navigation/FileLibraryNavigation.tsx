@@ -315,9 +315,18 @@ function LibraryNavigationDisclosure({
         <Icon size={16} aria-hidden="true" />
         <span>{label}</span>
       </button>
-      {open ? items.length > 0 ? <div className="file-library-navigation-list file-library-navigation-sublist">
-        {items.map((item) => <LibraryNavigationButton key={item.id} item={item} icon={Tag} />)}
-      </div> : <p className="file-library-navigation-muted file-library-navigation-empty-child">{emptyLabel}</p> : null}
+      <div
+        className="file-library-navigation-group-body"
+        data-open={open ? "true" : "false"}
+        aria-hidden={!open}
+        inert={!open ? true : undefined}
+      >
+        <div>
+          {items.length > 0 ? <div className="file-library-navigation-list file-library-navigation-sublist">
+            {items.map((item) => <LibraryNavigationButton key={item.id} item={item} icon={Tag} />)}
+          </div> : <p className="file-library-navigation-muted file-library-navigation-empty-child">{emptyLabel}</p>}
+        </div>
+      </div>
     </section>
   );
 }

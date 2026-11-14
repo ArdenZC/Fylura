@@ -137,6 +137,7 @@ export function LibraryMode() {
   const {
     contextMenu,
     openContextMenu,
+    contextClosing,
     closeContextMenu,
     openFocusedContextMenu,
     handleRowContextMenu
@@ -450,7 +451,8 @@ export function LibraryMode() {
         <LibraryContextMenu
           context={contextMenu}
           t={t}
-          onClose={() => closeContextMenu("action")}
+          closing={contextClosing}
+          onClose={(reason) => closeContextMenu(reason === "escape" ? "escape" : "action")}
           onPreview={(trigger) => {
             const fileId = contextMenu.file.id;
             closeContextMenu("dialog-handoff");

@@ -15,6 +15,8 @@ import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/
 import { formatBytes } from "../../../utils/format";
 import { localizedStableError, readableError } from "../../../utils/viewHelpers";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
+import { playOverlayEnter, playOverlayExit, prefersReducedMotion } from "../../../utils/motion";
+import { CountBadge } from "../../../components/motion/CountBadge";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
 import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
@@ -79,7 +81,7 @@ export function FileManagementToolbar() {
   const surface = pane ? state.surfaces[pane.id]?.read() : state.surface?.();
   const focused = !pane || pane.focused && pane.visible;
   const panelId = pane ? `fm-auxiliary-panel-${pane.id}` : "fm-auxiliary-panel";
-  useEffect(() => { if (!focused) setPanel(null); }, [focused]);
+  useEffect(() => { if (!focused) closePanelNow(false); }, [focused]);
   const [previewPage, setPreviewPage] = useState(0); const [basketPage, setBasketPage] = useState(0); const [resultPage, setResultPage] = useState(0);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   useEffect(() => {
@@ -90,22 +92,63 @@ export function FileManagementToolbar() {
   const [places, setPlaces] = useState<SavedPlace[]>([]); const [currentPath, setCurrentPath] = useState("");
   const [locationInput, setLocationInput] = useState("");
   const [panel, setPanel] = useState<"more" | "places" | "results" | "tasks" | null>(null);
+  const [panelClosing, setPanelClosing] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const panelTriggerRef = useRef<HTMLElement | null>(null);
+  const panelCloseTimerRef = useRef<number | null>(null);
   const panelOpen = focused && (state.basketOpen || panel !== null);
-  function closePanel(restore = true) {
-    useFileManagementStore.setState({ basketOpen: false }); setPanel(null);
+  const panelMounted = panelOpen || panelClosing;
+
+  function cancelPanelClose() {
+    if (panelCloseTimerRef.current !== null) {
+      window.clearTimeout(panelCloseTimerRef.current);
+      panelCloseTimerRef.current = null;
+    }
+    setPanelClosing(false);
+  }
+
+  function closePanelNow(restore = true) {
+    cancelPanelClose();
+    useFileManagementStore.setState({ basketOpen: false });
+    setPanel(null);
     if (restore) panelTriggerRef.current?.focus();
   }
+
+  // Committed actions and trigger toggles close in the same frame; only
+  // dismissals (Escape, outside click, dismiss button) play the 130ms exit so
+  // the operation the user chose is never delayed by animation.
+  function closePanel(restore = true) {
+    closePanelNow(restore);
+  }
+
+  function dismissPanel(restore = true) {
+    if (!panelOpen && !panelClosing) return;
+    if (prefersReducedMotion() || panelCloseTimerRef.current !== null) {
+      if (panelCloseTimerRef.current === null) closePanelNow(restore);
+      return;
+    }
+    setPanelClosing(true);
+    panelCloseTimerRef.current = window.setTimeout(() => {
+      panelCloseTimerRef.current = null;
+      closePanelNow(restore);
+    }, 130);
+  }
+
   function openPanel(next: "more" | "places" | "results" | "tasks" | "basket", trigger?: HTMLElement) {
     if (trigger) panelTriggerRef.current = trigger;
+    cancelPanelClose();
     useFileManagementStore.setState({ basketOpen: next === "basket" });
     setPanel(next === "basket" ? null : next);
   }
+
+  useEffect(() => () => {
+    if (panelCloseTimerRef.current !== null) window.clearTimeout(panelCloseTimerRef.current);
+  }, []);
   useEffect(() => {
     if (!panelOpen) return;
     const element = panelRef.current;
     element?.querySelector<HTMLElement>("button:not(:disabled), input")?.focus();
+    playOverlayEnter(element, "menu", { origin: "top right" });
     const workspace = element?.closest(".file-library-workspace");
     const fitPanel = () => {
       if (element && workspace) element.style.maxHeight = `${Math.max(80, Math.min(480, workspace.getBoundingClientRect().bottom - element.getBoundingClientRect().top - 8))}px`;
@@ -115,19 +158,24 @@ export function FileManagementToolbar() {
     if (workspace) observer?.observe(workspace);
     if (element?.parentElement) observer?.observe(element.parentElement);
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closePanel(); }
+      if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); dismissPanel(); }
     };
     const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !panelRef.current?.contains(event.target) && !panelTriggerRef.current?.contains(event.target)) closePanel(false);
+      if (event.target instanceof Node && !panelRef.current?.contains(event.target) && !panelTriggerRef.current?.contains(event.target)) dismissPanel(false);
     };
     const focusOutside = (event: FocusEvent) => {
-      if (event.target instanceof Node && !panelRef.current?.contains(event.target) && !panelTriggerRef.current?.contains(event.target)) closePanel(false);
+      if (event.target instanceof Node && !panelRef.current?.contains(event.target) && !panelTriggerRef.current?.contains(event.target)) dismissPanel(false);
     };
     document.addEventListener("keydown", keydown);
     document.addEventListener("pointerdown", outside);
     document.addEventListener("focusin", focusOutside);
     return () => { observer?.disconnect(); document.removeEventListener("keydown", keydown); document.removeEventListener("pointerdown", outside); document.removeEventListener("focusin", focusOutside); };
   }, [panelOpen, panel, state.basketOpen]);
+
+  useEffect(() => {
+    if (!panelClosing) return;
+    void playOverlayExit(panelRef.current, "menu");
+  }, [panelClosing]);
   const [transfer, setTransfer] = useState<TransferIntent | null>(null);
   const transferRef = useRef(transfer); transferRef.current = transfer;
   const [nameIntent, setNameIntent] = useState<NameIntent | null>(null);
@@ -910,7 +958,7 @@ export function FileManagementToolbar() {
       <button className={buttonGhost} disabled={disabled} aria-label={t("fmCut")} title={t("fmCut")} data-fm-primary-action onClick={() => collect("cut")}><Scissors size={14}/><span className="fm-action-label">{t("fmCut")}</span></button>
       <button className={buttonGhost} disabled={pasteDisabled} aria-label={`${t("fmPaste")}${state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}`} title={t("fmPaste")} data-fm-primary-action onClick={() => paste()}><ClipboardPaste size={14}/><span className="fm-action-label">{t("fmPaste")}</span>{state.clipboard?.tickets.length ? ` (${state.clipboard.tickets.length})` : ""}</button>
       <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "tasks"} onClick={(event) => panel === "tasks" ? closePanel() : openPanel("tasks", event.currentTarget)}><Activity size={14}/><span>{t("fmTasks")}{taskAttentionCount ? ` · ${taskAttentionCount}` : ""}</span></button>
-      <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <span className="fm-count">{state.basket.length}</span>}</button>
+      <button className={cn(buttonGhost, "fm-more-trigger")} aria-expanded={panel === "more"} aria-controls={panelId} onClick={(event) => panel === "more" ? closePanel() : openPanel("more", event.currentTarget)}><MoreHorizontal size={16}/>{t("fmMore")}{state.basket.length > 0 && <CountBadge className="fm-count" value={state.basket.length} />}</button>
       {!!state.results.length && <button className={cn(buttonGhost, "fm-result-trigger")} aria-expanded={panel === "results"} onClick={(event) => panel === "results" ? closePanel() : openPanel("results", event.currentTarget)}>{state.results.some((log) => log.status !== "success") ? <AlertTriangle size={14}/> : <Check size={14}/>}<span>{resultsSummary}</span></button>}
     </div>
     {focused && (error || notice) && <div className="fm-notice" role={error ? "alert" : "status"}>{error || notice}<button className={buttonGhost} aria-label={t("fmDismiss")} onClick={dismissNotice}><X size={14}/></button></div>}
@@ -921,8 +969,8 @@ export function FileManagementToolbar() {
       <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
       <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
     </aside>}
-    {panelOpen && <div ref={panelRef} id={panelId} className="fm-panel" role="region" aria-label={panelTitle}>
-      <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basket.length})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => closePanel()}><X size={16}/></button></div>
+    {panelMounted && <div ref={panelRef} id={panelId} data-fm-panel data-closing={panelClosing ? "true" : undefined} className="fm-panel" role="region" aria-label={panelTitle}>
+      <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basket.length})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => dismissPanel()}><X size={16}/></button></div>
       <div className="fm-panel-body">
       {panel === "more" && <div className="fm-more-actions">
       <button className={buttonGhost} disabled={disabled} onClick={moveSelection}><FolderInput size={14}/>{t("fmMove")}</button>
@@ -1002,14 +1050,14 @@ export function FileManagementToolbar() {
       </>}
       </div>
     </div>}
-    {nameIntent && <ModalPortal initialFocusRef={nameInputRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={cancelNameEntry}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>
+    {nameIntent && <ModalPortal initialFocusRef={nameInputRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={cancelNameEntry}><div data-confirm-backdrop="true" className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section data-confirm-card="true" className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>
       <header className="fm-dialog-header"><h2 id={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>{t(nameIntent.action === "rename" ? "fmRename" : nameIntent.action === "create_file" ? "fmNewFile" : "fmNewFolder")}</h2></header>
       <form onSubmit={(event) => { event.preventDefault(); submitNameEntry(); }}>
         <div className="fm-dialog-body"><label className="fm-destination">{t(nameIntent.action === "rename" ? "fmNewName" : nameIntent.action === "create_file" ? "fmFileName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label></div>
         <footer className="fm-dialog-footer"><button type="button" className={buttonSecondary} onClick={cancelNameEntry}>{t("fmCancel")}</button><button type="submit" className={buttonPrimary} disabled={!newName.trim()}>{t(nameIntent.action === "rename" ? "fmRename" : nameIntent.action === "create_file" ? "fmNewFile" : "fmNewFolder")}</button></footer>
       </form>
     </section></div></ModalPortal>}
-    {focused && transfer && state.transferOpen && plan && <ModalPortal initialFocusRef={nameConflict ? nameInputRef : undefined} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={closeTransfer}><div className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section className="fm-dialog fm-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"} aria-busy={state.transferRunning}>
+    {focused && transfer && state.transferOpen && plan && <ModalPortal initialFocusRef={nameConflict ? nameInputRef : undefined} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={closeTransfer}><div data-confirm-backdrop="true" className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section data-confirm-card="true" className="fm-dialog fm-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"} aria-busy={state.transferRunning}>
       <header className="fm-dialog-header">
         <div className="fm-dialog-title"><AlertTriangle size={21}/><div>
           <h2 id={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"}>{t(nameConflict ? "fmConflict" : "fmConflictsTitle")}</h2>

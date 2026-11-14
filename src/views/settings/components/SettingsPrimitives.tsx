@@ -15,6 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import { cn, focusSurface, focusVisibleState, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
+import { playOverlayEnter, playOverlayExit, prefersReducedMotion } from "../../../utils/motion";
 import { switchThumb, switchTrack } from "../../../components/ui/Switch";
 import "../settingsV340.css";
 
@@ -948,8 +949,11 @@ export function SettingsSelect<T extends string>({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [menuAbove, setMenuAbove] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const closeTimerRef = useRef<number | null>(null);
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
   const selectedOption = options.find((option) => option.value === value) ?? options[0];
   const menuId = `${id}-listbox`;
@@ -969,6 +973,7 @@ export function SettingsSelect<T extends string>({
       const availableAbove = Math.max(96, rect.top - 12);
       const maxHeight = Math.min(320, Math.max(availableBelow, availableAbove));
       const openUp = availableBelow < 180 && availableAbove > availableBelow;
+      setMenuAbove(openUp);
       const top = openUp
         ? Math.max(8, rect.top - Math.min(maxHeight, availableAbove) - 4)
         : Math.min(viewportHeight - 8 - Math.min(maxHeight, availableBelow), rect.bottom + 4);
@@ -980,14 +985,14 @@ export function SettingsSelect<T extends string>({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (controlRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
+      dismissMenu(false);
     }
 
     function handleOutsideFocus(event: FocusEvent) {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (controlRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
+      dismissMenu(false);
     }
 
     updateMenuPosition();
@@ -1008,16 +1013,63 @@ export function SettingsSelect<T extends string>({
     setActiveIndex((current) => Math.min(current, Math.max(0, options.length - 1)));
   }, [open, options.length]);
 
-  function closeAndRestoreFocus() {
+  useEffect(() => {
+    if (!open) return;
+    playOverlayEnter(menuRef.current, "menu", {
+      above: menuAbove,
+      origin: menuAbove ? "bottom left" : "top left"
+    });
+  }, [open, menuAbove]);
+
+  useEffect(() => {
+    if (!closing) return;
+    void playOverlayExit(menuRef.current, "menu");
+  }, [closing]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  function cancelPendingClose() {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setClosing(false);
+  }
+
+  function openMenu() {
+    cancelPendingClose();
+    setActiveIndex(selectedIndex);
+    setOpen(true);
+  }
+
+  function closeNow() {
+    cancelPendingClose();
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
+  }
+
+  function dismissMenu(restoreFocus = true) {
+    if (!open || closing || closeTimerRef.current !== null) return;
+    if (prefersReducedMotion()) {
+      closeNow();
+      return;
+    }
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setClosing(false);
+      setOpen(false);
+      if (restoreFocus) triggerRef.current?.focus({ preventScroll: true });
+    }, 130);
   }
 
   function chooseOption(index: number) {
     const option = options[index];
     if (!option || disabled) return;
     onChange(option.value);
-    closeAndRestoreFocus();
+    closeNow();
   }
 
   function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -1025,20 +1077,18 @@ export function SettingsSelect<T extends string>({
     const isOpen = open;
     if (event.key === "Escape" && isOpen) {
       event.preventDefault();
-      closeAndRestoreFocus();
+      dismissMenu();
       return;
     }
     if ((event.key === "Enter" || event.key === " " || event.key === "Spacebar") && !isOpen) {
       event.preventDefault();
-      setActiveIndex(selectedIndex);
-      setOpen(true);
+      openMenu();
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!isOpen) {
-        setActiveIndex(selectedIndex);
-        setOpen(true);
+        openMenu();
         return;
       }
       const delta = event.key === "ArrowDown" ? 1 : -1;
@@ -1057,11 +1107,21 @@ export function SettingsSelect<T extends string>({
 
   function handleTriggerClick() {
     if (disabled || !options.length) return;
+    if (open && (closing || closeTimerRef.current !== null)) {
+      // A second click during the exit reverses it instead of starting a
+      // second, conflicting dismissal. The menu is still mounted, so replay
+      // the entrance explicitly (the open-state effect will not fire again).
+      cancelPendingClose();
+      playOverlayEnter(menuRef.current, "menu", {
+        above: menuAbove,
+        origin: menuAbove ? "bottom left" : "top left"
+      });
+      return;
+    }
     if (open) {
-      closeAndRestoreFocus();
+      dismissMenu();
     } else {
-      setActiveIndex(selectedIndex);
-      setOpen(true);
+      openMenu();
     }
   }
 
@@ -1107,6 +1167,7 @@ export function SettingsSelect<T extends string>({
             role="listbox"
             aria-label={label}
             data-settings-select-menu
+            data-closing={closing ? "true" : undefined}
             className="settings-v340-select-menu fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1.5 shadow-[var(--zc-shadow-menu)]"
             style={menuStyle}
           >

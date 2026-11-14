@@ -67,7 +67,9 @@ export function useAppChrome({ theme, setTheme, setLanguage, searchHotkey }: Use
         event.preventDefault();
         setIsCommandOpen(true);
       }
-      if (event.key === "Escape") setIsCommandOpen(false);
+      // The command modal owns Escape while it is mounted so its 130ms exit
+      // and ModalPortal focus restoration can complete.
+      if (event.key === "Escape" && !document.querySelector("[data-command-modal]")) setIsCommandOpen(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

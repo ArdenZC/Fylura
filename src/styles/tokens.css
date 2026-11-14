@@ -188,6 +188,7 @@
   --zc-dur-pop-out: 130ms;
   --zc-dur-panel: 200ms;
   --zc-dur-page: 220ms;
+  --zc-dur-toast: 320ms;
   --zc-spring-smooth: cubic-bezier(0.32, 0.72, 0, 1);
   --zc-spring-pop: cubic-bezier(0.34, 1.38, 0.64, 1);
   --zc-spring-bounce: cubic-bezier(0.2, 1.62, 0.36, 1);

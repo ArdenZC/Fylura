@@ -63,6 +63,40 @@ describe("v3.40 motion system", () => {
     expect(motion).toContain("var(--zc-dur-release) var(--zc-spring-bounce)");
   });
 
+  it("plays menu and modal entrances/exits through the shared overlay helper", () => {
+    const motion = read("src/utils/motion.ts");
+    const css = read("src/styles/v340-motion.css");
+    const tokens = read("src/styles/tokens.css");
+    expect(tokens).toContain("--zc-dur-toast: 320ms");
+    expect(motion).toContain('"zc-menu-in"');
+    expect(motion).toContain('"zc-menu-out"');
+    expect(motion).toContain('"zc-modal-out"');
+    expect(motion).toContain('"zc-toast-in"');
+    expect(motion).toContain('"zc-badge-pop"');
+    expect(motion).toContain("--zc-spring-bounce");
+    expect(css).toContain("[data-confirm-card]");
+    expect(css).toContain("zc-dialog-card-in");
+    expect(css).toContain("zc-preview-in");
+    expect(css).toContain('[data-command-modal][data-closing="true"]');
+  });
+
+  it("keeps every dismissible menu mounted for its exit and reopens mid-exit", () => {
+    const settings = read("src/views/settings/components/SettingsPrimitives.tsx");
+    const workbench = read("src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx");
+    const toolbar = read("src/views/fileLibrary/management/FileManagementToolbar.tsx");
+    const command = read("src/components/CommandModal.tsx");
+    const chrome = read("src/hooks/useAppChrome.ts");
+    expect(settings).toContain("function dismissMenu(restoreFocus = true)");
+    expect(settings).toContain("cancelPendingClose()");
+    expect(settings).toContain('data-closing={closing ? "true" : undefined}');
+    expect(workbench).not.toContain("<details className=\"wb-pane-menu\"");
+    expect(workbench).toContain("dismissPaneMenu");
+    expect(toolbar).toContain("data-fm-panel");
+    expect(toolbar).toContain("dismissPanel");
+    expect(command).toContain("[0.34, 1.38, 0.64, 1]");
+    expect(chrome).toContain('document.querySelector("[data-command-modal]")');
+  });
+
   it("skips WAAPI under reduced motion and cancels duplicate runs", () => {
     const helper = read("src/utils/motion.ts");
     const press = read("src/components/motion/PressMotion.tsx");

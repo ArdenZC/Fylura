@@ -1,0 +1,56 @@
+{
+  "settingsSelect": [
+    {
+      "id": "zc-menu-in",
+      "duration": 240
+    }
+  ],
+  "paneMenu": [
+    {
+      "id": "zc-menu-in",
+      "duration": 240
+    }
+  ],
+  "contextMenu": [
+    {
+      "id": "zc-menu-in",
+      "duration": 240
+    }
+  ],
+  "commandModal": [
+    {
+      "id": "",
+      "duration": 240
+    }
+  ],
+  "commandScrim": 1,
+  "commandExit": [
+    {
+      "id": "zc-modal-out",
+      "duration": 130
+    }
+  ],
+  "toolbarPanel": [
+    {
+      "id": "zc-menu-in",
+      "duration": 240
+    }
+  ],
+  "confirmDialog": {
+    "card": {
+      "name": "zc-dialog-card-in",
+      "duration": "0.24s",
+      "running": 1
+    },
+    "backdrop": {
+      "name": "zc-scrim-in",
+      "duration": "0.2s"
+    }
+  },
+  "quickPreview": {
+    "present": true,
+    "name": "zc-preview-in",
+    "duration": 260
+  },
+  "quickPreviewClosed": true
+}

@@ -278,3 +278,92 @@ html :is(button, [role="button"], [role="tab"], [role="radio"], summary):focus-v
 .shared-file-grid-cell.is-selected:hover {
   transition: none !important;
 }
+
+/* Pane menu trigger replaces the former <details><summary>; same geometry,
+ * but open/close now run through the shared overlay motion helper. */
+.wb-pane-menu-trigger {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--zc-radius-control);
+  background: transparent;
+  padding: 0 7px;
+  color: var(--zc-text-secondary);
+  cursor: pointer;
+}
+
+.wb-pane-menu-trigger:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-pane-menu[data-open="true"] .wb-pane-menu-trigger {
+  background: var(--zc-primary-soft);
+  color: var(--zc-primary-text);
+}
+
+.wb-pane-menu-panel[data-closing="true"],
+.settings-v340-select-menu[data-closing="true"],
+[data-context-menu][data-closing="true"] {
+  pointer-events: none;
+}
+
+[data-command-modal][data-closing="true"],
+[data-toast][data-closing="true"] {
+  pointer-events: none;
+}
+
+/* Command search scrim fades under the 240ms card; the scrim itself is not a
+ * geometry change, so it uses the short colour curve. */
+[data-command-overlay="main"] {
+  animation: zc-scrim-in 200ms var(--zc-ease-standard) both;
+}
+
+@keyframes zc-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Quick Preview card enters once per mount. Its exit cannot delay
+ * controller.close(): that call releases the preview resource immediately. */
+.zc-quick-preview-card {
+  animation: zc-preview-in 260ms var(--zc-spring-pop) both;
+}
+
+@keyframes zc-preview-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-command-overlay="main"],
+  .zc-quick-preview-card {
+    animation: none !important;
+  }
+}
+
+/* Confirm / execution dialogs enter together: scrim fades on the colour curve,
+ * the card uses the 240ms pop. Exits stay immediate because every caller runs
+ * a real file operation or resolution in the same tick; holding the dialog
+ * mounted for 130ms would delay the operation, not just the picture. */
+[data-confirm-backdrop] {
+  animation: zc-scrim-in 200ms var(--zc-ease-standard) both;
+}
+
+[data-confirm-card] {
+  animation: zc-dialog-card-in 240ms var(--zc-spring-pop) both;
+}
+
+@keyframes zc-dialog-card-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.965); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-confirm-backdrop],
+  [data-confirm-card] {
+    animation: none !important;
+  }
+}

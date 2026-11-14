@@ -150,6 +150,7 @@ export function BrowseMode() {
   }, []);
   const {
     contextMenu,
+    contextClosing,
     closeContextMenu,
     openFocusedContextMenu,
     handleRowContextMenu
@@ -602,7 +603,8 @@ export function BrowseMode() {
               title={contextMenu.entry.displayName}
               ariaLabel={t("browseContextMenu")}
               items={browseContextItems}
-              onClose={() => closeContextMenu("action")}
+              closing={contextClosing}
+              onClose={(reason) => closeContextMenu(reason === "escape" ? "escape" : "action")}
             />
           ) : null}
           {backgroundMenu ? <FileLibraryContextMenu

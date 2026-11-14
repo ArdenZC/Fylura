@@ -276,12 +276,14 @@ describe("settings component system", () => {
 
     await act(async () => { trigger.focus(); trigger.click(); });
     await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 160)); });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
 
     await act(async () => { trigger.focus(); trigger.click(); });
     const outside = container.querySelector<HTMLButtonElement>("[data-settings-test-outside]")!;
     await act(async () => outside.focus());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 160)); });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(outside);
   });

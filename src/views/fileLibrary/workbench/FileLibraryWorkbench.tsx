@@ -18,6 +18,7 @@ import {
   useFileLibraryExperience,
 } from "../FileLibraryExperienceProvider";
 import { useChromeContext, useI18nContext } from "../../../contexts/AppContexts";
+import { playOverlayEnter, playOverlayExit, playPaneEnter, prefersReducedMotion } from "../../../utils/motion";
 import { defaultFileLibraryProjection } from "../../../store/useFileLibraryV2Store";
 import { useFileLibraryStore } from "../../../store/useFileLibraryStore";
 import { useAppStore } from "../../../store/useAppStore";
@@ -71,8 +72,6 @@ function PaneLayoutIcon({ count, layout }: { count: number; layout: "columns" | 
     </svg>
   );
 }
-import { playPaneEnter } from "../../../utils/motion";
-
 function tabLabel(tab: WorkbenchTab, t: Translator) {
   const pane = tab.panes.find((pane) => pane.id === tab.activePaneId)!;
   return (
@@ -503,16 +502,95 @@ export function FileLibraryWorkbench({
     focus,
     t,
   });
-  const paneMotionReady = useRef(false);
+  const paneMotionRef = useRef<{ count: number; ids: string[] } | null>(null);
   useLayoutEffect(() => {
-    if (!paneMotionReady.current) {
-      paneMotionReady.current = true;
-      return;
-    }
-    root.current?.querySelectorAll<HTMLElement>(".wb-pane").forEach((pane) => {
-      if (pane.offsetParent !== null) playPaneEnter(pane);
+    const panes = [...(root.current?.querySelectorAll<HTMLElement>(".wb-pane") ?? [])]
+      .filter((pane) => pane.offsetParent !== null);
+    const ids = panes.map((pane) => pane.getAttribute("data-pane-id") ?? "");
+    const previous = paneMotionRef.current;
+    paneMotionRef.current = { count: active.paneCount, ids };
+    if (!previous || previous.count === active.paneCount) return;
+    // Only the panes that did not exist before land in; re-running the entrance
+    // on every existing pane made a layout change look like a full refresh.
+    const previousIds = new Set(previous.ids);
+    panes.forEach((pane, index) => {
+      const newlyRevealed = index >= previous.count || !previousIds.has(ids[index]);
+      if (newlyRevealed) playPaneEnter(pane);
     });
   }, [active.paneCount, active.layout]);
+
+  // Keep the known pane ids current for renders that do not change the count
+  // (initial hydration, async pane admission). Without this a first layout
+  // change saw an empty previous set and replayed every pane.
+  useLayoutEffect(() => {
+    if (!paneMotionRef.current || paneMotionRef.current.count !== active.paneCount) return;
+    const ids = [...(root.current?.querySelectorAll<HTMLElement>(".wb-pane") ?? [])]
+      .filter((pane) => pane.offsetParent !== null)
+      .map((pane) => pane.getAttribute("data-pane-id") ?? "");
+    if (ids.length !== paneMotionRef.current.ids.length || ids.some((id, index) => id !== paneMotionRef.current?.ids[index])) {
+      paneMotionRef.current = { count: active.paneCount, ids };
+    }
+  });
+
+  const [paneMenuOpen, setPaneMenuOpen] = useState(false);
+  const [paneMenuClosing, setPaneMenuClosing] = useState(false);
+  const paneMenuRef = useRef<HTMLDivElement | null>(null);
+  const paneMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const paneMenuTimerRef = useRef<number | null>(null);
+
+  function closePaneMenuNow(restore = false) {
+    if (paneMenuTimerRef.current !== null) {
+      window.clearTimeout(paneMenuTimerRef.current);
+      paneMenuTimerRef.current = null;
+    }
+    setPaneMenuClosing(false);
+    setPaneMenuOpen(false);
+    if (restore) paneMenuTriggerRef.current?.focus({ preventScroll: true });
+  }
+
+  function dismissPaneMenu(restore = false) {
+    if (!paneMenuOpen || paneMenuClosing || paneMenuTimerRef.current !== null) return;
+    if (prefersReducedMotion()) {
+      closePaneMenuNow(restore);
+      return;
+    }
+    setPaneMenuClosing(true);
+    paneMenuTimerRef.current = window.setTimeout(() => {
+      paneMenuTimerRef.current = null;
+      closePaneMenuNow(restore);
+    }, 130);
+  }
+
+  useEffect(() => {
+    if (!paneMenuOpen) return undefined;
+    playOverlayEnter(paneMenuRef.current, "menu", { origin: "top right" });
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (paneMenuRef.current?.contains(target) || paneMenuTriggerRef.current?.contains(target)) return;
+      dismissPaneMenu(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      dismissPaneMenu(true);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  });
+
+  useEffect(() => {
+    if (!paneMenuClosing) return;
+    void playOverlayExit(paneMenuRef.current, "menu");
+  }, [paneMenuClosing]);
+
+  useEffect(() => () => {
+    if (paneMenuTimerRef.current !== null) window.clearTimeout(paneMenuTimerRef.current);
+  }, []);
 
   return (
     <div
@@ -591,33 +669,48 @@ export function FileLibraryWorkbench({
         >
           <Plus size={17} />
         </button>
-        <details className="wb-pane-menu" data-pane-menu>
-          <summary
+        <div className="wb-pane-menu" data-pane-menu data-open={paneMenuOpen ? "true" : "false"}>
+          <button
+            ref={paneMenuTriggerRef}
+            type="button"
             className="wb-pane-menu-trigger"
             aria-label={t("wbPaneCount")}
+            aria-expanded={paneMenuOpen}
+            aria-haspopup="dialog"
             title={`${t("wbPaneCount")}: ${active.paneCount}`}
             data-pane-count={active.paneCount}
+            onClick={() => {
+              if (paneMenuOpen && (paneMenuClosing || paneMenuTimerRef.current !== null)) {
+                setPaneMenuClosing(false);
+                if (paneMenuTimerRef.current !== null) {
+                  window.clearTimeout(paneMenuTimerRef.current);
+                  paneMenuTimerRef.current = null;
+                }
+                playOverlayEnter(paneMenuRef.current, "menu", { origin: "top right" });
+                return;
+              }
+              if (paneMenuOpen) {
+                dismissPaneMenu(true);
+              } else {
+                setPaneMenuClosing(false);
+                setPaneMenuOpen(true);
+              }
+            }}
           >
             <PaneLayoutIcon count={active.paneCount} layout={active.layout} />
             <span className="wb-pane-menu-count">{active.paneCount}</span>
-          </summary>
-          <div
+          </button>
+          {paneMenuOpen ? <div
+            ref={paneMenuRef}
             className="wb-pane-menu-panel"
+            data-closing={paneMenuClosing ? "true" : undefined}
             role="group"
             aria-label={t("wbPaneLayoutGroup")}
             onClick={(event) => {
               // Choosing an action dismisses the menu; a select keeps it open
               // so the destination picker is not closed mid-selection.
               if ((event.target as Element).closest("button")) {
-                (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                const details = event.currentTarget.closest("details") as HTMLDetailsElement | null;
-                details?.removeAttribute("open");
-                details?.querySelector("summary")?.focus();
+                closePaneMenuNow(false);
               }
             }}
           >
@@ -706,8 +799,8 @@ export function FileLibraryWorkbench({
                 <p className="wb-pane-menu-hint">{!wide ? t("wbCompactPane") : t("wbDragHint")}</p>
               </>
             ) : null}
-          </div>
-        </details>
+          </div> : null}
+        </div>
         {active.paneCount === 2 ? <FolderComparison key={active.id} compact={!wide} paneIds={visiblePanes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} /> : null}
       </header>
       {state.tabs.map((tab) => (

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { listColumnSet, listRowHeight, loadedSelectionState } from "../src/views/fileLibrary/list/SharedFileList";
+import { listColumnSet, listNameMinWidth, listRowHeight, loadedSelectionState } from "../src/views/fileLibrary/list/SharedFileList";
 import { statusCountText, statusSelectionText } from "../src/views/fileLibrary/status/FileLibraryStatusBar";
 import { librarySelectionCount, librarySelectionSize } from "../src/views/fileLibrary/status/libraryStatus";
 import type { PresentationInteractionProjection } from "../src/views/fileLibrary/list/interactionContracts";
@@ -16,12 +16,20 @@ describe("v3.40 Files browser surfaces", () => {
     expect(listRowHeight("compact")).toBe(36);
     expect(listRowHeight(undefined)).toBe(46);
 
-    // Wide: type + created. Medium: created only. Narrow: neither.
-    expect(listColumnSet(true, 1200)).toEqual({ showType: true, showCreated: true });
-    expect(listColumnSet(true, 850)).toEqual({ showType: false, showCreated: true });
-    expect(listColumnSet(true, 600)).toEqual({ showType: false, showCreated: false });
+    // Wide: type + created + modified + size. Medium: drops type. Narrow:
+    // drops created, then modified, and only the name survives at the floor.
+    expect(listColumnSet(true, 1200)).toEqual({ showType: true, showCreated: true, showModified: true, showSize: true });
+    expect(listColumnSet(true, 850)).toEqual({ showType: false, showCreated: true, showModified: true, showSize: true });
+    expect(listColumnSet(true, 650)).toEqual({ showType: false, showCreated: false, showModified: true, showSize: true });
+    expect(listColumnSet(true, 500)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: true });
+    expect(listColumnSet(true, 400)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: true });
+    expect(listColumnSet(true, 340)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: false });
     // The library source has no created column at any width.
-    expect(listColumnSet(false, 1200)).toEqual({ showType: true, showCreated: false });
+    expect(listColumnSet(false, 1200)).toEqual({ showType: true, showCreated: false, showModified: true, showSize: true });
+    // The name floor also adapts so a narrow pane never overflows its tracks.
+    expect(listNameMinWidth(1200)).toBe(180);
+    expect(listNameMinWidth(500)).toBe(150);
+    expect(listNameMinWidth(340)).toBe(120);
   });
 
   it("never reports a loaded page as the directory total", () => {

@@ -534,6 +534,22 @@
     display: none;
   }
 
+  /* A 50px input is not a search field. Keep a usable floor and let the
+   * breadcrumb give up the space; it truncates cleanly. */
+  .wb-pane .file-library-workspace .file-library-location-row .file-library-command-bar .file-library-command-search {
+    min-width: 150px;
+    max-width: 220px;
+  }
+
+  .file-library-command-bar .file-library-command-search input {
+    min-width: 0;
+  }
+
+  .wb-pane .file-library-workspace .file-library-location-row .file-library-command-bar,
+  .file-library-location-row .file-library-command-bar {
+    flex-shrink: 0;
+  }
+
   .fm-workflow {
     padding-inline: 10px;
   }
@@ -766,4 +782,44 @@
 .file-library-context-note {
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+/* Small panes: the start page becomes a compact list instead of a grid of
+ * half-width cards that pushes every location below the fold. */
+@container (max-width: 620px) {
+  /* browseMode.css is imported by the view after this stylesheet, so these
+   * narrowing rules carry the extra class to win the cascade. */
+  .browse-mode .browse-mode-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .browse-mode-header .browse-mode-description {
+    display: none;
+  }
+
+  .browse-mode .browse-location-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .browse-mode .browse-location-card {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+  }
+
+  .browse-mode .browse-location-card-header {
+    flex: 1 1 auto;
+  }
+
+  .browse-mode .browse-location-actions {
+    flex: none;
+  }
+
+  .browse-mode .browse-location-title {
+    font-size: 12.5px;
+  }
 }

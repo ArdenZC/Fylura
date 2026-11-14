@@ -317,3 +317,57 @@
     margin-left: 0;
   }
 }
+
+/* v3.40 §8.4: the row rule is inset to the text, not the bleed. */
+[data-settings-content] [data-settings-row] {
+  position: relative;
+  border-bottom-color: transparent;
+}
+
+[data-settings-content] [data-settings-row]::after {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 1px;
+  background: var(--zc-divider);
+  content: "";
+}
+
+[data-settings-content] [data-settings-row]:last-child::after {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  [data-settings-content] [data-settings-row]::after {
+    background: CanvasText;
+  }
+}
+
+/* Switches must keep their on/off reading in forced-colors mode: both the
+ * track and thumb would otherwise collapse to the same system color. */
+@media (forced-colors: active) {
+  [data-settings-switch-track] {
+    border: 1px solid CanvasText;
+    forced-color-adjust: none;
+  }
+
+  [data-settings-switch-thumb] {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+
+  [data-settings-switch-control] input:checked ~ [data-settings-switch-track] {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  [data-settings-switch-control] input:checked ~ [data-settings-switch-thumb] {
+    background: HighlightText;
+  }
+
+  [data-settings-switch-control] input:focus-visible ~ [data-settings-switch-track] {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}

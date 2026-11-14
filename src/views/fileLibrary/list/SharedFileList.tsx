@@ -29,7 +29,11 @@ const LIST_COLUMN_MIN_WIDTHS = [180, 80, 100, 100, 80] as const;
 /** Below this container width the decorative type column is dropped. */
 const TYPE_COLUMN_MIN_CONTAINER = 900;
 /** Below this container width the creation-time column is dropped too. */
-const CREATED_COLUMN_MIN_CONTAINER = 700;
+const CREATED_COLUMN_MIN_CONTAINER = 720;
+/** Below this width the modified time gives way to the name and size. */
+const MODIFIED_COLUMN_MIN_CONTAINER = 620;
+/** Below this width only the name survives; size follows at 420. */
+const SIZE_COLUMN_MIN_CONTAINER = 360;
 
 function readListColumnWidths() {
   try {
@@ -70,10 +74,21 @@ export function listRowHeight(density: string | undefined) {
 /** Which optional columns fit the current container. Tracks and cells are
  * dropped together so a hidden column never leaves an empty rail behind. */
 export function listColumnSet(showCreatedSource: boolean, containerWidth: number) {
-  const showType = containerWidth <= 0 || containerWidth >= TYPE_COLUMN_MIN_CONTAINER;
-  const showCreated = showCreatedSource
-    && (containerWidth <= 0 || containerWidth >= CREATED_COLUMN_MIN_CONTAINER);
-  return { showType, showCreated };
+  const fits = (minimum: number) => containerWidth <= 0 || containerWidth >= minimum;
+  const showType = fits(TYPE_COLUMN_MIN_CONTAINER);
+  const showCreated = showCreatedSource && fits(CREATED_COLUMN_MIN_CONTAINER);
+  // Narrow panes keep the two columns a file browser is actually read for:
+  // the name and the size. Modified time is the first to go.
+  const showModified = fits(MODIFIED_COLUMN_MIN_CONTAINER);
+  const showSize = fits(SIZE_COLUMN_MIN_CONTAINER);
+  return { showType, showCreated, showModified, showSize };
+}
+
+/** Name floor: narrower panes give the name less room before it truncates. */
+export function listNameMinWidth(containerWidth: number) {
+  if (containerWidth > 0 && containerWidth < 360) return 120;
+  if (containerWidth > 0 && containerWidth < 620) return 150;
+  return LIST_COLUMN_MIN_WIDTHS[0];
 }
 
 export type ListLoadMoreDecision =
@@ -319,19 +334,25 @@ export function SharedFileList({
     }
   }
 
-  const { showType, showCreated } = listColumnSet(interaction.source === "browse", containerWidth);
+  const { showType, showCreated, showModified, showSize } = listColumnSet(interaction.source === "browse", containerWidth);
   const columns: { field: BrowseSortSpec["field"]; label: string; widthIndex?: number }[] = [
     ...(showType ? [{ field: "type" as const, label: t("fileType"), widthIndex: 1 }] : []),
     ...(showCreated ? [{ field: "created" as const, label: t("u3Created"), widthIndex: 2 }] : []),
-    { field: "modified", label: t("fileModified"), widthIndex: 3 },
-    { field: "size", label: t("fileSize"), widthIndex: 4 }
+    ...(showModified ? [{ field: "modified" as const, label: t("fileModified"), widthIndex: 3 }] : []),
+    ...(showSize ? [{ field: "size" as const, label: t("fileSize"), widthIndex: 4 }] : [])
   ];
+  const nameMinWidth = listNameMinWidth(containerWidth);
+  const columnMinWidth = (index: number) => index === 0 ? nameMinWidth : LIST_COLUMN_MIN_WIDTHS[index]!;
   // The name track flexes between its floor and the stored width so a narrow
   // pane shrinks names before it overflows; the other tracks stay exact.
   const columnsStyle = [
     `${CHECKBOX_COLUMN_WIDTH}px`,
-    `minmax(${LIST_COLUMN_MIN_WIDTHS[0]}px, ${columnWidths[0]}px)`,
-    ...columns.map((column) => `${columnWidths[column.widthIndex!]}px`)
+    `minmax(${nameMinWidth}px, ${columnWidths[0]}px)`,
+    // The size column is last and has no resize handle, so it absorbs the
+    // remaining width and keeps its values flush with the panel edge.
+    ...columns.map((column) => column.field === "size"
+      ? `minmax(${columnWidths[column.widthIndex!]}px, 1fr)`
+      : `${columnWidths[column.widthIndex!]}px`)
   ].join(" ");
 
   // Header selection state asks the source about each loaded entry instead of
@@ -354,7 +375,7 @@ export function SharedFileList({
   function resizePointerMove(event: ReactPointerEvent<HTMLSpanElement>) {
     const resize = resizeRef.current;
     if (!resize) return;
-    const width = Math.min(1200, Math.max(LIST_COLUMN_MIN_WIDTHS[resize.index]!, resize.initialWidth + event.clientX - resize.startX));
+    const width = Math.min(1200, Math.max(columnMinWidth(resize.index), resize.initialWidth + event.clientX - resize.startX));
     setColumnWidths((current) => current.map((value, index) => index === resize.index ? width : value));
   }
   function resizePointerUp() {
@@ -366,7 +387,7 @@ export function SharedFileList({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     event.stopPropagation();
-    const width = Math.min(1200, Math.max(LIST_COLUMN_MIN_WIDTHS[widthIndex]!, columnWidths[widthIndex]! + (event.key === "ArrowRight" ? 16 : -16)));
+    const width = Math.min(1200, Math.max(columnMinWidth(widthIndex), columnWidths[widthIndex]! + (event.key === "ArrowRight" ? 16 : -16)));
     setColumnWidths((current) => current.map((value, index) => index === widthIndex ? width : value));
     const next = columnWidths.map((value, index) => index === widthIndex ? width : value);
     try { window.localStorage.setItem("fylura.files.listColumnWidths", JSON.stringify(next)); } catch { /* Width changes remain active for this session. */ }
@@ -402,6 +423,9 @@ export function SharedFileList({
             onClick={() => onSort("name")}>
             {t("fileName")}{sort?.field === "name" ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
           </button> : <span>{t("fileName")}</span>}
+          <span role="separator" aria-orientation="vertical" aria-label={`${t("fileName")} column width`} aria-valuemin={nameMinWidth} aria-valuemax={1200} aria-valuenow={columnWidths[0]} tabIndex={0} className="shared-file-list-column-resize"
+            onPointerDown={(event) => resizePointerDown(event, 0)} onPointerMove={resizePointerMove} onPointerUp={resizePointerUp}
+            onPointerCancel={resizePointerUp} onKeyDown={(event) => resizeByKeyboard(event, 0)} />
         </div>
         {columns.map(({ field, label, widthIndex }, index) => (
           <div key={field} className="shared-file-list-header-cell">
@@ -464,6 +488,8 @@ export function SharedFileList({
                   entry={entry}
                   showType={showType}
                   showCreated={showCreated}
+                  showModified={showModified}
+                  showSize={showSize}
                   index={virtualRow.index}
                   selected={isInteractionEntrySelected(interaction, entry)}
                   focused={isInteractionEntryFocused(interaction, entry)}
@@ -517,6 +543,8 @@ const SharedFileRow = memo(function SharedFileRow({
   entry,
   showType,
   showCreated,
+  showModified,
+  showSize,
   index,
   selected,
   focused,
@@ -531,6 +559,8 @@ const SharedFileRow = memo(function SharedFileRow({
   entry: PresentationEntry;
   showType: boolean;
   showCreated: boolean;
+  showModified: boolean;
+  showSize: boolean;
   index: number;
   selected: boolean;
   focused: boolean;
@@ -600,12 +630,12 @@ const SharedFileRow = memo(function SharedFileRow({
       {showCreated ? <time className="shared-file-list-created">
         {entry.createdAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.createdAt), language)}
       </time> : null}
-      <time className="shared-file-list-modified" dateTime={entry.modifiedAt === undefined ? undefined : String(entry.modifiedAt)}>
+      {showModified ? <time className="shared-file-list-modified" dateTime={entry.modifiedAt === undefined ? undefined : String(entry.modifiedAt)}>
         {entry.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.modifiedAt), language)}
-      </time>
-      <span className="shared-file-list-size">
+      </time> : null}
+      {showSize ? <span className="shared-file-list-size">
         {entry.size === undefined ? t("browseUnknownValue") : formatBytes(entry.size)}
-      </span>
+      </span> : null}
       {entry.source === "browse" && isDirectory ? (
         <button
           className="shared-file-list-open-folder"

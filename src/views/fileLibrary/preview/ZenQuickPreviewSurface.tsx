@@ -1,7 +1,8 @@
-import { Info, Pin, X } from "lucide-react";
+import { Archive, File, FileText, Film, Folder, Image as ImageIcon, Info, Music, Pin, Table, X } from "lucide-react";
 import { useCallback, useId, type RefObject } from "react";
 import { tauriApi } from "../../../api/tauriApi";
 import { useI18nContext } from "../../../contexts/AppContexts";
+import { useAppStore } from "../../../store/useAppStore";
 import { buttonSecondary, cn, overlaySurface } from "../../../utils/tw";
 import { usePreviewExperience } from "./PreviewExperienceProvider";
 import {
@@ -27,6 +28,9 @@ export function ZenQuickPreviewSurface({
 }) {
   const { controller, state } = usePreviewExperience();
   const { language, t } = useI18nContext();
+  // The floating host is portaled outside the app root, so the root's
+  // data-density attribute is not an ancestor here; the card carries its own.
+  const density = useAppStore((store) => store.density);
   const titleId = useId();
   const descriptionId = useId();
   const detailsOpen = state.detailsOpen;
@@ -70,6 +74,7 @@ export function ZenQuickPreviewSurface({
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       data-preview-card="true"
+      data-density={density}
       data-preview-surface-mode={mode}
       data-preview-details-open={detailsOpen ? "true" : "false"}
       data-preview-state={state.phase}
@@ -87,6 +92,7 @@ export function ZenQuickPreviewSurface({
       <QuickPreviewHeader
         mode={mode}
         title={title}
+        typeIcon={previewTypeIcon(source?.extension, fileType, source?.entryKind)}
         navigationLabel={navigationLabel}
         titleId={titleId}
         descriptionId={descriptionId}
@@ -131,6 +137,7 @@ export function ZenQuickPreviewSurface({
 function QuickPreviewHeader({
   mode,
   title,
+  typeIcon: TypeIcon,
   navigationLabel,
   titleId,
   descriptionId,
@@ -143,6 +150,8 @@ function QuickPreviewHeader({
 }: {
   mode: "floating" | "pinned";
   title: string;
+  /** File-type glyph for the left-aligned identity block. */
+  typeIcon: typeof File;
   navigationLabel: string;
   titleId: string;
   descriptionId: string;
@@ -155,13 +164,18 @@ function QuickPreviewHeader({
 }) {
   return (
     <header className="zc-quick-preview-header">
+      <div className="zc-quick-preview-identity">
+        <span className="zc-quick-preview-identity-icon" aria-hidden="true">
+          <TypeIcon size={16} strokeWidth={1.7} />
+        </span>
+        <div className="zc-quick-preview-header-title min-w-0">
+          <h2 id={titleId} className="zc-quick-preview-title" title={title}>{title}</h2>
+          <p className="zc-quick-preview-title-meta" title={navigationLabel}>{navigationLabel}</p>
+          <p id={descriptionId} className="sr-only">{t("previewFileInfo")}</p>
+        </div>
+      </div>
       <div className="zc-quick-preview-header-navigation">
         <PreviewNavigation compact />
-      </div>
-      <div className="zc-quick-preview-header-title min-w-0">
-        <h2 id={titleId} className="zc-quick-preview-title" title={title}>{title}</h2>
-        <p className="zc-quick-preview-title-meta">{navigationLabel}</p>
-        <p id={descriptionId} className="sr-only">{t("previewFileInfo")}</p>
       </div>
       <div className="zc-quick-preview-header-actions">
         <button
@@ -288,4 +302,25 @@ function QuickPreviewViewport({
 
 function PreviewFact({ label, value }: { label: string; value: string }) {
   return <div className="zc-quick-preview-fact"><dt>{label}</dt><dd title={value}>{value}</dd></div>;
+}
+
+/**
+ * Type glyph for the preview identity block. Presentation only: the preview
+ * source still comes from the controller's opaque projection.
+ */
+export function previewTypeIcon(
+  extension: string | undefined,
+  mediaType: string | undefined,
+  entryKind: "file" | "directory" | undefined
+) {
+  if (entryKind === "directory") return Folder;
+  const ext = (extension ?? "").toLocaleLowerCase();
+  const type = (mediaType ?? "").toLocaleLowerCase();
+  if (type.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "heic", "avif"].includes(ext)) return ImageIcon;
+  if (type.startsWith("video/") || ["mp4", "mov", "mkv", "webm", "avi"].includes(ext)) return Film;
+  if (type.startsWith("audio/") || ["mp3", "wav", "flac", "m4a", "aac", "ogg"].includes(ext)) return Music;
+  if (["zip", "gz", "tar", "7z", "rar", "dmg"].includes(ext)) return Archive;
+  if (["xls", "xlsx", "csv", "tsv", "numbers"].includes(ext)) return Table;
+  if (["pdf", "doc", "docx", "md", "txt", "rtf", "ppt", "pptx", "key"].includes(ext)) return FileText;
+  return File;
 }

@@ -951,6 +951,7 @@ export function SettingsView() {
       inert={isLoadingSettings ? true : undefined}
       className="contents"
     >
+      <h1 className="sr-only">{t("settingsPageTitle")}</h1>
       <SettingsLayout
         sections={settingsSections}
         activeSectionId={activeSettingsSection}

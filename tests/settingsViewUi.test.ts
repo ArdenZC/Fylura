@@ -93,7 +93,8 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("settingsSectionsLabel");
     expect(settingsSurface).toContain("href={packageInfo.homepage}");
     expect(settingsSurface).toContain('t("aboutOpenProject")');
-    expect(settingsView).not.toContain("<h1");
+    expect(settingsView.match(/<h1/g)).toHaveLength(1);
+    expect(settingsView).toContain('className="sr-only">{t("settingsPageTitle")}</h1>');
     expect(appShell).toContain("ShellViewHeading");
     const sectionIds = [
       "settings-general",

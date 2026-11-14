@@ -431,3 +431,15 @@
 .browse-mode[data-browse-state="current-folder"] .browse-results-panel { position: relative; }
 .browse-mode[data-browse-state="current-folder"] .browse-results-status { order: 2; flex: 0 0 auto; padding: 2px 4px; font-size: 11px; }
 .browse-mode[data-browse-state="current-folder"] .browse-mode-actions .browse-action { min-height: 26px; padding: 2px 6px; border: 0; background: transparent; font-size: 11px; }
+
+/* Inspector open/close: the list gives up / regains width over 200ms. The
+ * panel content itself is data and stays instant (MOTION §3.3). */
+.file-library-browse-context-layout {
+  transition: grid-template-columns var(--zc-dur-panel) var(--zc-spring-smooth);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-library-browse-context-layout {
+    transition: none;
+  }
+}

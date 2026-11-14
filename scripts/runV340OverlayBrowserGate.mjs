@@ -48,10 +48,21 @@ try {
     await page.locator("#settings-close-behavior-trigger").click();
     await page.waitForTimeout(25);
     const enter = await animations(page, "[data-settings-select-menu]", "zc-menu-in");
-    assert.ok(enter.some((animation) => animation.duration === 240), `select enter ${index}: ${JSON.stringify(enter)}`);
+    assert.ok(enter.some((animation) => animation.duration === 200), `select enter ${index}: ${JSON.stringify(enter)}`);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(25);
     assert.equal(await page.locator("[data-settings-select-menu]").getAttribute("data-closing"), "true");
+    const closingA11y = await page.evaluate(() => {
+      const menu = document.querySelector("[data-settings-select-menu]");
+      return {
+        inert: menu?.hasAttribute("inert") ?? false,
+        ariaHidden: menu?.getAttribute("aria-hidden"),
+        focusOnTrigger: document.activeElement?.id === "settings-close-behavior-trigger"
+      };
+    });
+    assert.equal(closingA11y.inert, true, `closing menu must be inert: ${JSON.stringify(closingA11y)}`);
+    assert.equal(closingA11y.ariaHidden, "true");
+    assert.equal(closingA11y.focusOnTrigger, true);
     const exit = await animations(page, "[data-settings-select-menu]", "zc-menu-out");
     assert.ok(exit.some((animation) => animation.duration === 130), `select exit ${index}: ${JSON.stringify(exit)}`);
     await page.waitForTimeout(140);
@@ -70,7 +81,7 @@ try {
   assert.equal(await page.locator("[data-settings-select-menu]").count(), 1);
   assert.equal(await page.locator("[data-settings-select-menu]").getAttribute("data-closing"), null);
   const reopen = await animations(page, "[data-settings-select-menu]", "zc-menu-in");
-  assert.ok(reopen.some((animation) => animation.duration === 240), JSON.stringify(reopen));
+  assert.ok(reopen.some((animation) => animation.duration === 200), JSON.stringify(reopen));
   await page.keyboard.press("Escape");
   await page.waitForTimeout(150);
 
@@ -101,24 +112,46 @@ try {
     assert.ok(enter.some((animation) => animation.duration === 240), `context enter ${index}`);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(25);
+    assert.equal(await page.locator("[data-context-menu]").evaluate((el) => el.hasAttribute("inert")), true);
     const exit = await animations(page, "[data-context-menu]", "zc-menu-out");
     assert.ok(exit.some((animation) => animation.duration === 130), `context exit ${index}`);
     await page.waitForTimeout(140);
     assert.equal(await page.locator("[data-context-menu]").count(), 0);
   }
 
-  // Command modal: 240ms card, 130ms exit, Escape owned by the dialog.
+  // Command modal: 260ms card, 130ms exit, Escape owned by the dialog.
   step = "command-modal";
   await page.keyboard.press("Control+k");
   await page.waitForTimeout(30);
   const modalEnter = await animations(page, "[data-command-modal]");
-  assert.ok(modalEnter.some((animation) => animation.duration === 240), JSON.stringify(modalEnter));
+  assert.ok(modalEnter.some((animation) => animation.duration === 260), JSON.stringify(modalEnter));
+  await page.waitForFunction(() => document.documentElement.classList.contains("zc-modal-depth"), null, { timeout: 1500 });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".zc-app-workspace")).transform.includes("0.994"), null, { timeout: 1500 });
+  const depthOn = await page.evaluate(() => ({
+    cmd: Boolean(document.querySelector("[data-command-modal]")),
+    classOn: document.documentElement.classList.contains("zc-modal-depth"),
+    transform: getComputedStyle(document.querySelector(".zc-app-workspace")).transform
+  }));
+  assert.equal(depthOn.cmd, true, JSON.stringify(depthOn));
+  assert.equal(depthOn.classOn, true, JSON.stringify(depthOn));
+  assert.ok(depthOn.transform.includes("0.994"), JSON.stringify(depthOn));
   await page.keyboard.press("Escape");
   await page.waitForTimeout(30);
   assert.equal(await page.locator("[data-command-modal]").count(), 1, "modal must stay mounted during exit");
   const modalExit = await animations(page, "[data-command-modal]", "zc-modal-out");
   assert.ok(modalExit.some((animation) => animation.duration === 130));
   await page.waitForFunction(() => !document.querySelector("[data-command-modal]"), null, { timeout: 1500 });
+  await page.waitForFunction(() => !document.documentElement.classList.contains("zc-modal-depth"), null, { timeout: 1500 });
+  await page.waitForFunction(() => {
+    const transform = getComputedStyle(document.querySelector(".zc-app-workspace")).transform;
+    return transform === "none" || transform === "matrix(1, 0, 0, 1, 0, 0)";
+  }, null, { timeout: 1500 });
+  const depthOff = await page.evaluate(() => ({
+    classOn: document.documentElement.classList.contains("zc-modal-depth"),
+    transform: getComputedStyle(document.querySelector(".zc-app-workspace")).transform
+  }));
+  assert.equal(depthOff.classOn, false);
+  assert.ok(depthOff.transform === "none" || depthOff.transform === "matrix(1, 0, 0, 1, 0, 0)", JSON.stringify(depthOff));
 
   // Toolbar More panel: five mounts, Escape runs the 130ms exit.
   step = "toolbar-panel";
@@ -148,15 +181,37 @@ try {
       card: card ? getComputedStyle(card).animationName : null,
       cardDuration: card ? getComputedStyle(card).animationDuration : null,
       backdrop: backdrop ? getComputedStyle(backdrop).animationName : null,
+      backdropBlur: backdrop ? getComputedStyle(backdrop).backdropFilter : null,
       focused: document.activeElement?.tagName
     };
   });
   assert.equal(dialog.card, "zc-dialog-card-in");
   assert.equal(dialog.cardDuration, "0.24s");
   assert.ok(dialog.backdrop?.includes("zc-scrim-in"), JSON.stringify(dialog));
+  assert.ok(dialog.backdrop?.includes("zc-scrim-blur"), JSON.stringify(dialog));
+  await page.waitForTimeout(220);
+  const settledBlur = await page.evaluate(() => getComputedStyle(document.querySelector("[data-confirm-backdrop]")).backdropFilter);
+  assert.ok(settledBlur.includes("blur(3px)"), settledBlur);
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(40);
-  assert.equal(await page.locator("[data-confirm-card]").count(), 0);
+  await page.waitForTimeout(20);
+  const ghost = await page.evaluate(() => {
+    const node = document.querySelector("[data-zc-exit-ghost]");
+    return {
+      present: Boolean(node),
+      inert: node?.hasAttribute("inert") ?? false,
+      ariaHidden: node?.getAttribute("aria-hidden"),
+      role: node?.querySelector("[role='dialog']")?.getAttribute("role") ?? null,
+      realDialog: Boolean(document.querySelector("[data-confirm-card]")),
+      focusInsideGhost: node?.contains(document.activeElement) ?? false
+    };
+  });
+  assert.equal(ghost.realDialog, false, "real dialog must unmount immediately");
+  assert.equal(ghost.present, true, JSON.stringify(ghost));
+  assert.equal(ghost.inert, true);
+  assert.equal(ghost.ariaHidden, "true");
+  assert.equal(ghost.focusInsideGhost, false);
+  await page.waitForTimeout(160);
+  assert.equal(await page.locator("[data-zc-exit-ghost]").count(), 0);
 
   // Quick Preview: every mount replays the 260ms card entrance and closes
   // synchronously (resource release is never delayed by motion).

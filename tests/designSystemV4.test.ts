@@ -208,7 +208,10 @@ describe("v3.40 design foundation (approved prototype baseline)", () => {
     expect(filesV340).toContain('.file-library-workspace[data-layout="large"]');
     expect(filesV340).toContain('.file-library-workspace[data-layout="large"][data-tree-inline="true"] .file-library-workspace-body');
     expect(filesV340).toContain("var(--zc-tree-width)");
-    expect(filesV340).toContain("var(--zc-inspector-width)");
+    // The Inspector splits inside the browse/library content, not as a third
+    // workspace column (an empty third track squeezed the list to 370px).
+    const browseCss = read("src/views/fileLibrary/browse/browseMode.css");
+    expect(browseCss).toContain("var(--zc-inspector-width)");
     expect(filesV340).toContain(".file-library-command-button[aria-pressed=\"true\"]");
     expect(filesV340).toContain("background: var(--zc-primary-soft)");
     const filesV26 = read("src/views/fileLibrary/fileLibraryV26.css");

@@ -1015,7 +1015,7 @@ export function SettingsSelect<T extends string>({
 
   useEffect(() => {
     if (!open) return;
-    playOverlayEnter(menuRef.current, "menu", {
+    playOverlayEnter(menuRef.current, "select", {
       above: menuAbove,
       origin: menuAbove ? "bottom left" : "top left"
     });
@@ -1056,12 +1056,14 @@ export function SettingsSelect<T extends string>({
       closeNow();
       return;
     }
+    // Move the keyboard out before the panel becomes inert; keeping focus in a
+    // closing layer would leave Tab/Enter aimed at an invisible control.
+    if (restoreFocus) triggerRef.current?.focus({ preventScroll: true });
     setClosing(true);
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;
       setClosing(false);
       setOpen(false);
-      if (restoreFocus) triggerRef.current?.focus({ preventScroll: true });
     }, 130);
   }
 
@@ -1112,7 +1114,7 @@ export function SettingsSelect<T extends string>({
       // second, conflicting dismissal. The menu is still mounted, so replay
       // the entrance explicitly (the open-state effect will not fire again).
       cancelPendingClose();
-      playOverlayEnter(menuRef.current, "menu", {
+      playOverlayEnter(menuRef.current, "select", {
         above: menuAbove,
         origin: menuAbove ? "bottom left" : "top left"
       });
@@ -1168,6 +1170,8 @@ export function SettingsSelect<T extends string>({
             aria-label={label}
             data-settings-select-menu
             data-closing={closing ? "true" : undefined}
+            aria-hidden={closing ? true : undefined}
+            inert={closing ? true : undefined}
             className="settings-v340-select-menu fixed z-[120] grid gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1.5 shadow-[var(--zc-shadow-menu)]"
             style={menuStyle}
           >

@@ -15,7 +15,7 @@ import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/
 import { formatBytes } from "../../../utils/format";
 import { localizedStableError, readableError } from "../../../utils/viewHelpers";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
-import { playOverlayEnter, playOverlayExit, prefersReducedMotion } from "../../../utils/motion";
+import { playExitGhost, playOverlayEnter, playOverlayExit, prefersReducedMotion } from "../../../utils/motion";
 import { CountBadge } from "../../../components/motion/CountBadge";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
@@ -127,10 +127,11 @@ export function FileManagementToolbar() {
       if (panelCloseTimerRef.current === null) closePanelNow(restore);
       return;
     }
+    if (restore) panelTriggerRef.current?.focus({ preventScroll: true });
     setPanelClosing(true);
     panelCloseTimerRef.current = window.setTimeout(() => {
       panelCloseTimerRef.current = null;
-      closePanelNow(restore);
+      closePanelNow(false);
     }, 130);
   }
 
@@ -295,6 +296,7 @@ export function FileManagementToolbar() {
   }
   function clearTransferState(intent?: TransferIntent) {
     const current = useFileManagementStore.getState();
+    playExitGhost(document.querySelector('[data-fm-dialog="conflict"]'));
     if (intent && current.activeTransferId !== intent.id) return;
     setTransfer(null); setPlan(null); setConflictTicketIds([]);
     useFileManagementStore.setState({ transferOpen: false, transferActive: false, transferRunning: false, activeTransferId: null, activeTransferTask: null, transferTicketIds: [] });
@@ -711,6 +713,7 @@ export function FileManagementToolbar() {
   }
   function cancelNameEntry() {
     const pending = nameIntent;
+    playExitGhost(document.querySelector('[data-fm-dialog="name"]'));
     setNameIntent(null);
     if (pending?.action === "rename") void releaseUnused(pending.tickets.map((ticket) => ticket.id));
     restoreRef.current?.focus();
@@ -719,6 +722,7 @@ export function FileManagementToolbar() {
     const pending = nameIntent;
     const trimmedName = newName.trim();
     if (!pending || !trimmedName) return;
+    playExitGhost(document.querySelector('[data-fm-dialog="name"]'));
     setNameIntent(null);
     begin(pending.tickets, pending.action, "selection", {
       destinationDirectory: pending.destinationDirectory,
@@ -969,7 +973,7 @@ export function FileManagementToolbar() {
       <p className="fm-muted">{taskProgressDetails(liveTaskProgress) || t("fmTaskBytesUnknown")}</p>
       <div className="fm-toolbar"><button className={buttonGhost} onClick={() => openPanel("tasks")}>{t("fmTaskDetails")}</button><button className={buttonGhost} onClick={() => setView("restore")}>{t("fmHistory")}</button></div>
     </aside>}
-    {panelMounted && <div ref={panelRef} id={panelId} data-fm-panel data-closing={panelClosing ? "true" : undefined} className="fm-panel" role="region" aria-label={panelTitle}>
+    {panelMounted && <div ref={panelRef} id={panelId} data-fm-panel data-closing={panelClosing ? "true" : undefined} aria-hidden={panelClosing ? true : undefined} inert={panelClosing ? true : undefined} className="fm-panel" role="region" aria-label={panelTitle}>
       <div className="fm-panel-heading"><h2>{panelTitle}{state.basketOpen ? ` (${state.basket.length})` : ""}</h2><button className={buttonGhost} aria-label={t("fmDismiss")} onClick={() => dismissPanel()}><X size={16}/></button></div>
       <div className="fm-panel-body">
       {panel === "more" && <div className="fm-more-actions">
@@ -1050,14 +1054,14 @@ export function FileManagementToolbar() {
       </>}
       </div>
     </div>}
-    {nameIntent && <ModalPortal initialFocusRef={nameInputRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={cancelNameEntry}><div data-confirm-backdrop="true" className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section data-confirm-card="true" className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>
+    {nameIntent && <ModalPortal initialFocusRef={nameInputRef} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={cancelNameEntry}><div data-confirm-backdrop="true" data-fm-dialog="name" className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section data-confirm-card="true" className="fm-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>
       <header className="fm-dialog-header"><h2 id={pane ? `fm-name-title-${pane.id}` : "fm-name-title"}>{t(nameIntent.action === "rename" ? "fmRename" : nameIntent.action === "create_file" ? "fmNewFile" : "fmNewFolder")}</h2></header>
       <form onSubmit={(event) => { event.preventDefault(); submitNameEntry(); }}>
         <div className="fm-dialog-body"><label className="fm-destination">{t(nameIntent.action === "rename" ? "fmNewName" : nameIntent.action === "create_file" ? "fmFileName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label></div>
         <footer className="fm-dialog-footer"><button type="button" className={buttonSecondary} onClick={cancelNameEntry}>{t("fmCancel")}</button><button type="submit" className={buttonPrimary} disabled={!newName.trim()}>{t(nameIntent.action === "rename" ? "fmRename" : nameIntent.action === "create_file" ? "fmNewFile" : "fmNewFolder")}</button></footer>
       </form>
     </section></div></ModalPortal>}
-    {focused && transfer && state.transferOpen && plan && <ModalPortal initialFocusRef={nameConflict ? nameInputRef : undefined} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={closeTransfer}><div data-confirm-backdrop="true" className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section data-confirm-card="true" className="fm-dialog fm-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"} aria-busy={state.transferRunning}>
+    {focused && transfer && state.transferOpen && plan && <ModalPortal initialFocusRef={nameConflict ? nameInputRef : undefined} restoreFocus={() => restoreRef.current?.isConnected ? restoreRef.current : panelTriggerRef.current} onEscape={closeTransfer}><div data-confirm-backdrop="true" data-fm-dialog="conflict" className="fixed inset-0 grid place-items-center bg-[var(--zc-overlay)] p-4"><section data-confirm-card="true" className="fm-dialog fm-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"} aria-busy={state.transferRunning}>
       <header className="fm-dialog-header">
         <div className="fm-dialog-title"><AlertTriangle size={21}/><div>
           <h2 id={pane ? `fm-conflict-title-${pane.id}` : "fm-conflict-title"}>{t(nameConflict ? "fmConflict" : "fmConflictsTitle")}</h2>

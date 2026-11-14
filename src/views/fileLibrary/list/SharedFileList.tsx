@@ -25,11 +25,11 @@ const ROW_HEIGHT_COMPACT = 36;
 const CHECKBOX_COLUMN_WIDTH = 22;
 const OVERSCAN = 8;
 const LOAD_MORE_THRESHOLD = 4;
-const LIST_COLUMN_MIN_WIDTHS = [180, 80, 100, 100, 80] as const;
+// v3.40 list columns: name / type / modified / size. Creation time lives in
+// the Inspector, not as a fifth table column (DESIGN-SPEC §5.2).
+const LIST_COLUMN_MIN_WIDTHS = [180, 80, 100, 80] as const;
 /** Below this container width the decorative type column is dropped. */
-const TYPE_COLUMN_MIN_CONTAINER = 900;
-/** Below this container width the creation-time column is dropped too. */
-const CREATED_COLUMN_MIN_CONTAINER = 720;
+const TYPE_COLUMN_MIN_CONTAINER = 540;
 /** Below this width the modified time gives way to the name and size. */
 const MODIFIED_COLUMN_MIN_CONTAINER = 620;
 /** Below this width only the name survives. */
@@ -41,8 +41,15 @@ function readListColumnWidths() {
     if (Array.isArray(parsed) && parsed.length === LIST_COLUMN_MIN_WIDTHS.length && parsed.every((value, index) => Number.isFinite(value) && value >= LIST_COLUMN_MIN_WIDTHS[index]! && value <= 1200)) {
       return parsed as number[];
     }
+    // Migrate the previous five-column snapshot (name/type/created/modified/size).
+    if (Array.isArray(parsed) && parsed.length === 5) {
+      const migrated = [parsed[0], parsed[1], parsed[3], parsed[4]];
+      if (migrated.every((value, index) => Number.isFinite(value) && value >= LIST_COLUMN_MIN_WIDTHS[index]! && value <= 1200)) {
+        return migrated as number[];
+      }
+    }
   } catch { /* Use the default list geometry when storage is unavailable. */ }
-  return [290, 110, 110, 120, 85];
+  return [290, 96, 118, 78];
 }
 
 /**
@@ -73,15 +80,14 @@ export function listRowHeight(density: string | undefined) {
 
 /** Which optional columns fit the current container. Tracks and cells are
  * dropped together so a hidden column never leaves an empty rail behind. */
-export function listColumnSet(showCreatedSource: boolean, containerWidth: number) {
+export function listColumnSet(containerWidth: number) {
   const fits = (minimum: number) => containerWidth <= 0 || containerWidth >= minimum;
   const showType = fits(TYPE_COLUMN_MIN_CONTAINER);
-  const showCreated = showCreatedSource && fits(CREATED_COLUMN_MIN_CONTAINER);
   // Narrow panes keep the two columns a file browser is actually read for:
   // the name and the size. Modified time is the first to go.
   const showModified = fits(MODIFIED_COLUMN_MIN_CONTAINER);
   const showSize = fits(SIZE_COLUMN_MIN_CONTAINER);
-  return { showType, showCreated, showModified, showSize };
+  return { showType, showModified, showSize };
 }
 
 /** Name floor: narrower panes give the name less room before it truncates. */
@@ -203,7 +209,24 @@ export function SharedFileList({
   useEffect(() => {
     const element = shellRef.current;
     if (!element) return;
-    const measure = () => setContainerWidth(element.clientWidth);
+    // Only the column thresholds and the name floor depend on width. Updating
+    // state on every pixel re-rendered every row during the 200ms sidebar
+    // transition; crossing a breakpoint is the only change that matters.
+    const measure = () => {
+      const width = element.clientWidth;
+      setContainerWidth((current) => {
+        if (current === width) return current;
+        const currentColumns = listColumnSet(current);
+        const nextColumns = listColumnSet(width);
+        if (currentColumns.showType === nextColumns.showType
+          && currentColumns.showModified === nextColumns.showModified
+          && currentColumns.showSize === nextColumns.showSize
+          && listNameMinWidth(current) === listNameMinWidth(width)) {
+          return current;
+        }
+        return width;
+      });
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
@@ -334,12 +357,11 @@ export function SharedFileList({
     }
   }
 
-  const { showType, showCreated, showModified, showSize } = listColumnSet(interaction.source === "browse", containerWidth);
+  const { showType, showModified, showSize } = listColumnSet(containerWidth);
   const columns: { field: BrowseSortSpec["field"]; label: string; widthIndex?: number }[] = [
-    ...(showType ? [{ field: "type" as const, label: t("fileType"), widthIndex: 1 }] : []),
-    ...(showCreated ? [{ field: "created" as const, label: t("u3Created"), widthIndex: 2 }] : []),
-    ...(showModified ? [{ field: "modified" as const, label: t("fileModified"), widthIndex: 3 }] : []),
-    ...(showSize ? [{ field: "size" as const, label: t("fileSize"), widthIndex: 4 }] : [])
+    ...(showType ? [{ field: "type" as const, label: t("fileListTypeColumn"), widthIndex: 1 }] : []),
+    ...(showModified ? [{ field: "modified" as const, label: t("fileModified"), widthIndex: 2 }] : []),
+    ...(showSize ? [{ field: "size" as const, label: t("fileSize"), widthIndex: 3 }] : [])
   ];
   const nameMinWidth = listNameMinWidth(containerWidth);
   const columnMinWidth = (index: number) => index === 0 ? nameMinWidth : LIST_COLUMN_MIN_WIDTHS[index]!;
@@ -398,7 +420,6 @@ export function SharedFileList({
       className={cn(
         "shared-file-list-shell",
         showType && "has-type-column",
-        showCreated && "has-created-column",
         density === "compact" && "is-compact"
       )}
       data-list-row-height={rowHeight}
@@ -487,7 +508,6 @@ export function SharedFileList({
                   key={entry.renderKey}
                   entry={entry}
                   showType={showType}
-                  showCreated={showCreated}
                   showModified={showModified}
                   showSize={showSize}
                   index={virtualRow.index}
@@ -542,7 +562,6 @@ export function SharedFileList({
 const SharedFileRow = memo(function SharedFileRow({
   entry,
   showType,
-  showCreated,
   showModified,
   showSize,
   index,
@@ -558,7 +577,6 @@ const SharedFileRow = memo(function SharedFileRow({
 }: {
   entry: PresentationEntry;
   showType: boolean;
-  showCreated: boolean;
   showModified: boolean;
   showSize: boolean;
   index: number;
@@ -627,9 +645,6 @@ const SharedFileRow = memo(function SharedFileRow({
         </span>
       </span>
       {showType ? <span className="shared-file-list-kind">{isDirectory ? kindLabel : entry.typeHint ?? entry.extension ?? kindLabel}</span> : null}
-      {showCreated ? <time className="shared-file-list-created">
-        {entry.createdAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.createdAt), language)}
-      </time> : null}
       {showModified ? <time className="shared-file-list-modified" dateTime={entry.modifiedAt === undefined ? undefined : String(entry.modifiedAt)}>
         {entry.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.modifiedAt), language)}
       </time> : null}

@@ -17,16 +17,14 @@ describe("v3.40 Files browser surfaces", () => {
     expect(listRowHeight("compact")).toBe(36);
     expect(listRowHeight(undefined)).toBe(46);
 
-    // Wide: type + created + modified + size. Medium: drops type. Narrow:
-    // drops created, then modified, and only the name survives at the floor.
-    expect(listColumnSet(true, 1200)).toEqual({ showType: true, showCreated: true, showModified: true, showSize: true });
-    expect(listColumnSet(true, 850)).toEqual({ showType: false, showCreated: true, showModified: true, showSize: true });
-    expect(listColumnSet(true, 650)).toEqual({ showType: false, showCreated: false, showModified: true, showSize: true });
-    expect(listColumnSet(true, 500)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: true });
-    expect(listColumnSet(true, 400)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: true });
-    expect(listColumnSet(true, 340)).toEqual({ showType: false, showCreated: false, showModified: false, showSize: false });
-    // The library source has no created column at any width.
-    expect(listColumnSet(false, 1200)).toEqual({ showType: true, showCreated: false, showModified: true, showSize: true });
+    // v3.40 columns are name / type / modified / size. Type survives while a
+    // wide window keeps its Inspector open (≈700px list), then modified gives
+    // way before size, and only the name survives at the floor.
+    expect(listColumnSet(1200)).toEqual({ showType: true, showModified: true, showSize: true });
+    expect(listColumnSet(710)).toEqual({ showType: true, showModified: true, showSize: true });
+    expect(listColumnSet(500)).toEqual({ showType: false, showModified: false, showSize: true });
+    expect(listColumnSet(400)).toEqual({ showType: false, showModified: false, showSize: true });
+    expect(listColumnSet(340)).toEqual({ showType: false, showModified: false, showSize: false });
     // The name floor also adapts so a narrow pane never overflows its tracks.
     expect(listNameMinWidth(1200)).toBe(180);
     expect(listNameMinWidth(500)).toBe(150);

@@ -80,6 +80,13 @@ describe("v3.40 motion system", () => {
     expect(css).toContain('[data-command-modal][data-closing="true"]');
   });
 
+  it("styles the pane-menu segmented control instead of raw count text", () => {
+    const filesCss = read("src/views/fileLibrary/fileLibraryV340.css");
+    expect(filesCss).toContain(".wb-pane-menu-row .wb-seg > button[aria-pressed=\"true\"]");
+    expect(filesCss).toContain("background: var(--zc-primary-soft)");
+    expect(filesCss).toContain("border-radius: 8px");
+  });
+
   it("keeps every dismissible menu mounted for its exit and reopens mid-exit", () => {
     const settings = read("src/views/settings/components/SettingsPrimitives.tsx");
     const workbench = read("src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx");
@@ -94,6 +101,7 @@ describe("v3.40 motion system", () => {
     expect(toolbar).toContain("data-fm-panel");
     expect(toolbar).toContain("dismissPanel");
     expect(command).toContain("[0.34, 1.38, 0.64, 1]");
+    expect(command).toContain("duration: 0.26");
     expect(chrome).toContain('document.querySelector("[data-command-modal]")');
   });
 

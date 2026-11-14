@@ -1,0 +1,158 @@
+{
+  "chrome": "151.0.7922.34",
+  "viewport": "1440x900",
+  "records": [
+    {
+      "id": "pane-menu",
+      "label": "多窗格布局菜单 240ms",
+      "frames": [
+        {
+          "phase": "start",
+          "file": "pane-menu-start.png",
+          "animations": [
+            {
+              "id": "zc-menu-in",
+              "duration": 240,
+              "easing": "cubic-bezier(0.34, 1.38, 0.64, 1)",
+              "state": "running"
+            }
+          ]
+        },
+        {
+          "phase": "mid",
+          "file": "pane-menu-mid.png",
+          "animations": []
+        },
+        {
+          "phase": "end",
+          "file": "pane-menu-end.png",
+          "animations": []
+        }
+      ]
+    },
+    {
+      "id": "sidebar",
+      "label": "应用侧栏收展 200ms",
+      "frames": [
+        {
+          "phase": "start",
+          "file": "sidebar-start.png",
+          "animations": [
+            {
+              "id": "",
+              "duration": 200,
+              "easing": "cubic-bezier(0.32, 0.72, 0, 1)",
+              "state": "running"
+            },
+            {
+              "id": "",
+              "duration": 200,
+              "easing": "cubic-bezier(0.32, 0.72, 0, 1)",
+              "state": "running"
+            },
+            {
+              "id": "",
+              "duration": 200,
+              "easing": "cubic-bezier(0.32, 0.72, 0, 1)",
+              "state": "running"
+            }
+          ]
+        },
+        {
+          "phase": "mid",
+          "file": "sidebar-mid.png",
+          "animations": []
+        },
+        {
+          "phase": "end",
+          "file": "sidebar-end.png",
+          "animations": []
+        }
+      ]
+    },
+    {
+      "id": "quick-preview",
+      "label": "Quick Preview 260ms",
+      "frames": [
+        {
+          "phase": "start",
+          "file": "quick-preview-start.png",
+          "animations": [
+            {
+              "id": "zc-preview-in",
+              "duration": 260,
+              "easing": "linear",
+              "state": "running"
+            }
+          ]
+        },
+        {
+          "phase": "mid",
+          "file": "quick-preview-mid.png",
+          "animations": [
+            {
+              "id": "zc-preview-in",
+              "duration": 260,
+              "easing": "linear",
+              "state": "finished"
+            }
+          ]
+        },
+        {
+          "phase": "end",
+          "file": "quick-preview-end.png",
+          "animations": [
+            {
+              "id": "zc-preview-in",
+              "duration": 260,
+              "easing": "linear",
+              "state": "finished"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "confirm",
+      "label": "确认层 240ms + 3px 遮罩模糊",
+      "frames": [
+        {
+          "phase": "start",
+          "file": "confirm-start.png",
+          "animations": [
+            {
+              "id": "zc-dialog-card-in",
+              "duration": 240,
+              "easing": "linear",
+              "state": "running"
+            }
+          ]
+        },
+        {
+          "phase": "mid",
+          "file": "confirm-mid.png",
+          "animations": [
+            {
+              "id": "zc-dialog-card-in",
+              "duration": 240,
+              "easing": "linear",
+              "state": "finished"
+            }
+          ]
+        },
+        {
+          "phase": "end",
+          "file": "confirm-end.png",
+          "animations": [
+            {
+              "id": "zc-dialog-card-in",
+              "duration": 240,
+              "easing": "linear",
+              "state": "finished"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

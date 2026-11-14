@@ -30,7 +30,7 @@ const commandShellCollapsed =
   "h-16 w-full max-w-[720px] rounded-full";
 const commandShellExpanded =
   "rounded-2xl";
-const commandShellDialogWidth = "max-w-[720px]";
+const commandShellDialogWidth = "max-w-[560px]";
 const commandShellStandaloneExpanded = "w-full max-w-[720px]";
 
 const commandInputRowBase =
@@ -583,7 +583,7 @@ export function CommandModal({
       className={cn(
         standalone
           ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
-          : "fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] sm:pt-[20vh]"
+          : "fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[14vh]"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && closeSpotlight()}
     >
@@ -600,7 +600,7 @@ export function CommandModal({
         exit={{ opacity: 0, scale: 0.985 }}
         transition={prefersReducedMotion
           ? { duration: 0 }
-          : { duration: 0.24, ease: [0.34, 1.38, 0.64, 1] }}
+          : { duration: 0.26, ease: [0.34, 1.38, 0.64, 1] }}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-label={t("globalSearch")}

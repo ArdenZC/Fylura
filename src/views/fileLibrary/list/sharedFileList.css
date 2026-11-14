@@ -249,7 +249,6 @@
 
 .shared-file-list-name-copy > span,
 .shared-file-list-kind,
-.shared-file-list-created,
 .shared-file-list-modified,
 .shared-file-list-size {
   overflow: hidden;
@@ -308,7 +307,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.shared-file-list-created,
 .shared-file-list-modified {
   font-variant-numeric: tabular-nums;
 }

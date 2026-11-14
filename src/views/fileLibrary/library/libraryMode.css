@@ -47,3 +47,13 @@
     scroll-behavior: auto;
   }
 }
+
+.file-library-library-mode-result {
+  transition: grid-template-columns var(--zc-dur-panel) var(--zc-spring-smooth);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-library-library-mode-result {
+    transition: none;
+  }
+}

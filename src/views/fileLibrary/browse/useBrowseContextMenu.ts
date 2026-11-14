@@ -107,6 +107,9 @@ export function useBrowseContextMenu({
       return;
     }
     if (contextClosing) return;
+    // Escape returns focus before the menu goes inert; outside clicks leave
+    // focus to the pointer target and are reconciled after the exit.
+    if (reason === "escape") restoreFocus(restoreTarget);
     setContextClosing(true);
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;

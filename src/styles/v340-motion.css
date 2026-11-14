@@ -63,9 +63,6 @@ html [data-zc-press="active"]:not(:disabled) {
   grid-template-columns: 0 minmax(0, 1fr);
 }
 
-.file-library-workspace[data-layout="large"][data-tree-inline="false"][data-context-open="true"] .file-library-workspace-body {
-  grid-template-columns: 0 minmax(0, 1fr) var(--zc-inspector-width);
-}
 
 .file-library-workspace[data-layout="large"][data-tree-inline="false"] .file-library-navigation-slot {
   display: block !important;
@@ -364,6 +361,55 @@ html :is(button, [role="button"], [role="tab"], [role="radio"], summary):focus-v
 @media (prefers-reduced-motion: reduce) {
   [data-confirm-backdrop],
   [data-confirm-card] {
+    animation: none !important;
+  }
+}
+
+/* MOTION.md §3.3 depth: a modal layer makes the main workspace recede by
+ * 0.6% over 200ms. Only the workspace moves; titlebar, sidebar and the
+ * body-level modal host stay put, matching the prototype's `.main` rule. */
+.zc-app-workspace {
+  transform-origin: 50% 42%;
+  transition: transform var(--zc-dur-panel) var(--zc-spring-pop);
+}
+
+html.zc-modal-depth .zc-app-workspace {
+  transform: scale(0.994);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zc-app-workspace {
+    transition: none;
+  }
+
+  html.zc-modal-depth .zc-app-workspace {
+    transform: none;
+  }
+}
+
+/* Prototype `.spot` uses a 3px scrim blur so the workspace falls behind the
+ * search card instead of competing with it. */
+[data-command-overlay="main"] {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+/* Confirm / execution layers: the scrim blurs 0→3px over 200ms while fading,
+ * matching the prototype's `backdrop-filter` transition. Exits use the inert
+ * snapshot helper and fade over 130ms. */
+[data-confirm-backdrop] {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: zc-scrim-in 200ms var(--zc-ease-standard) both, zc-scrim-blur 200ms var(--zc-ease-standard) both;
+}
+
+@keyframes zc-scrim-blur {
+  from { -webkit-backdrop-filter: blur(0); backdrop-filter: blur(0); }
+  to { -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-confirm-backdrop] {
     animation: none !important;
   }
 }

@@ -291,11 +291,6 @@ function FileLibraryPane() {
                     : <BrowseMode />}
                 </main>
 
-                <aside
-                  className="file-library-context-slot"
-                  data-workspace-slot="context"
-                  aria-hidden="true"
-                />
               </div>
             </ContextPanelPresentationProvider>
           </div>

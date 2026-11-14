@@ -9,6 +9,7 @@ import { CountBadge } from "../src/components/motion/CountBadge";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
 import { useAppStore } from "../src/store/useAppStore";
 import { useWatcherStatusStore } from "../src/store/useWatcherStatusStore";
+import { acquireMainDepth, resetModalInfrastructureForTests } from "../src/components/modal/ModalPortal";
 
 const t = makeTranslator("zh");
 const chrome = { view: "library", t, language: "zh" } as ChromeContextValue;
@@ -33,6 +34,7 @@ beforeEach(() => {
   root = createRoot(container);
   useAppStore.setState({ toast: null, language: "zh" });
   useWatcherStatusStore.getState().reset();
+  resetModalInfrastructureForTests();
   installAnimate();
 });
 
@@ -103,6 +105,16 @@ describe("overlay presence feedback", () => {
     });
     // Durable errors are a projection: they resolve in the same commit.
     expect(container.querySelector("[data-toast]")).toBeNull();
+  });
+
+  it("counts overlapping modal layers before clearing the workspace depth cue", () => {
+    const releaseOuter = acquireMainDepth();
+    const releaseInner = acquireMainDepth();
+    expect(document.documentElement.classList.contains("zc-modal-depth")).toBe(true);
+    releaseInner();
+    expect(document.documentElement.classList.contains("zc-modal-depth")).toBe(true);
+    releaseOuter();
+    expect(document.documentElement.classList.contains("zc-modal-depth")).toBe(false);
   });
 
   it("pulses a count badge once per value change", async () => {

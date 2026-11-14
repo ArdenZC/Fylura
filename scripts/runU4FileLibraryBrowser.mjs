@@ -10,11 +10,13 @@ import { assertCheckoutEvidence } from "./ciEvidence.mjs";
 /** v3.40 pane controls live in one menu; these helpers keep the gates readable. */
 async function setPaneCount(page, count) {
   const menu = page.locator('[data-pane-menu]');
-  if ((await menu.getAttribute('open')) === null) await menu.locator('> summary').click();
+  if ((await menu.locator('.wb-pane-menu-trigger').getAttribute('aria-expanded')) !== 'true') {
+    await menu.locator('.wb-pane-menu-trigger').click();
+  }
   await menu.getByRole('button', { name: `Pane \u00d7 ${count}`, exact: true }).click();
 }
 async function readPaneCount(page) {
-  return page.locator('[data-pane-menu] > summary').getAttribute('data-pane-count');
+  return page.locator('[data-pane-menu] .wb-pane-menu-trigger').getAttribute('data-pane-count');
 }
 
 const actualCheckoutSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();

@@ -81,7 +81,7 @@ export function PlatformDiagnosticsSettingsSection({
         : t("platformUnknown");
 
   return (
-    <SettingsSection id="settings-platform-diagnostics" title={t("platformDiagnosticsTitle")} description={t("platformDiagnosticsDesc")} progressiveDisclosure>
+    <SettingsSection id="settings-platform-diagnostics" title={t("platformDiagnosticsTitle")} description={t("platformDiagnosticsDesc")}>
       <SettingsControlGroup title={t("platformIdentityTitle")} description={t("platformIdentityDesc")}>
         <SettingsRow label={t("platformDiagnosticsPlatform")}>
           <span className={quietText}>{platformLabel(capabilities?.platform, t)}</span>

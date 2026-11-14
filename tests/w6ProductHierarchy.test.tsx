@@ -96,6 +96,9 @@ describe("W6-03 product hierarchy", () => {
     expect(settingsNavigationSectionId("settings-platform-diagnostics")).toBe("settings-platform-diagnostics");
     expect(settingsNavigationSectionId("settings-managed-scopes")).toBe("settings-managed-scopes");
     expect(settingsNavigationSectionId("settings-search-scope")).toBe("settings-search");
+    expect(settingsNavigationSectionId("settings-ai-provider")).toBe("settings-ai");
+    expect(settingsNavigationSectionId("settings-ai-api-key")).toBe("settings-ai");
+    expect(settingsNavigationSectionId("settings-general")).toBe("settings-general");
   });
 
   it("reveals a progressively disclosed technical section when a compatibility deep link targets it", () => {

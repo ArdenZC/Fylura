@@ -29,6 +29,7 @@ describe("settings view UI", () => {
     const settingsSections = settingsSectionPaths.map(read).join("\n");
     const settingsSurface = `${settingsView}\n${settingsSections}`;
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
+    const settingsCss = read("src/views/settings/settingsV340.css");
     const sharedUi = read("src/views/shared/ui.ts");
     const appShell = read("src/components/AppShell.tsx");
     const t = makeTranslator("zh");
@@ -52,12 +53,11 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("SettingsLayout");
     expect(settingsView).toContain("SettingsSection");
     expect(settingsView).toContain("SettingsControlGroup");
-    expect(settingsView).toContain("SettingsSegmentedControl");
+    expect(settingsView).toContain("SettingsSelect");
     expect(settingsView).toContain("SettingsSwitch");
+    expect(settingsPrimitives).toContain('data-settings-v340');
     expect(settingsPrimitives).toContain('data-settings-scroll-container');
-    expect(settingsPrimitives).toContain('data-settings-layout-grid');
-    expect(settingsPrimitives).toContain('min-[841px]:grid-cols-[200px_minmax(0,1fr)]');
-    expect(settingsPrimitives).toContain('max-w-[1240px]');
+    expect(settingsPrimitives).toContain('data-settings-head');
     expect(settingsPrimitives).toContain('role="radiogroup"');
     expect(settingsPrimitives).toContain('role="switch"');
     expect(settingsPrimitives).toContain("data-settings-switch-track");
@@ -65,20 +65,19 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain('aria-current={active ? "location" : undefined}');
     expect(settingsPrimitives).toContain("centerSettingsNavItem");
     expect(settingsPrimitives).not.toContain('scrollIntoView({ block: "nearest", inline: "nearest" })');
-    expect(settingsPrimitives).toContain("[scrollbar-width:none]");
+    expect(settingsCss).toContain("scrollbar-width: none");
     expect(settingsPrimitives).toContain('data-settings-nav-fade="end"');
-    expect(settingsPrimitives).toContain("sticky top-0 z-20");
-    expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
-    expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
-    expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
+    expect(settingsCss).toContain("grid-template-columns: 212px minmax(0, 1fr)");
+    expect(settingsCss).toContain("grid-template-columns: minmax(0, 1fr) auto");
+    expect(settingsCss).not.toContain("min-[720px]:grid-cols");
     expect(settingsPrimitives).toContain("data-settings-progressive-disclosure");
     expect(settingsPrimitives).toContain("options.revealContent");
     expect(settingsModel).toContain('"settings-global-index"');
     expect(settingsModel).toContain('"settings-platform-diagnostics"');
     expect(settingsModel).toContain('"settings-managed-scopes"');
-    expect(settingsModel).toContain('return settingsSectionRequestTarget(sectionId);');
+    expect(settingsModel).toContain('.find((id) => target === id || target.startsWith(`${id}-`))');
     expect(settingsModel).toContain('export const SETTINGS_NAV_SECTION_IDS = SETTINGS_SECTION_IDS;');
-    expect(settingsSurface).toContain('progressiveDisclosure');
+    expect(settingsPrimitives).toContain('progressiveDisclosure');
     expect(settingsSurface).toContain('t("settingsAppearanceLanguage")');
     expect(settingsSurface).toContain('t("settingsScanRoots")');
     expect(settingsSurface).toContain('t("settingsSearch")');
@@ -194,54 +193,36 @@ describe("settings view UI", () => {
     expect(shellV26).not.toContain("data-settings-readonly-switch");
   });
 
-  it.each([
-    { width: 1282, layout: "two-column", nav: "vertical", rows: "two-column" },
-    { width: 969, layout: "two-column", nav: "vertical", rows: "two-column" },
-    { width: 840, layout: "single-column", nav: "horizontal-scroll", rows: "two-column" },
-    { width: 760, layout: "single-column", nav: "horizontal-scroll", rows: "stacked" }
-  ] as const)("keeps the retained Settings composition at $width px", ({ width, layout, nav, rows }) => {
+  it("keeps the v3.40 Settings composition at its documented breakpoints", () => {
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
-    const shellV26 = read("src/styles/w6-07-shell-v26.css");
-    const settingsSource = `${settingsPrimitives}\n${shellV26}`;
-    const desktopComposition = width > 840;
-    const stackedRows = width <= 760;
+    const settingsCss = read("src/views/settings/settingsV340.css");
+    const settingsSource = `${settingsPrimitives}\n${settingsCss}`;
 
     expect(settingsSource).not.toContain("1179px");
     expect(settingsSource).not.toContain("1180px");
-    expect(shellV26).toContain("@media (max-width: 840px)");
-    expect(shellV26).toContain("@media (max-width: 760px)");
-    expect(desktopComposition).toBe(layout === "two-column");
-    expect((width <= 840)).toBe(nav === "horizontal-scroll");
-    expect(stackedRows).toBe(rows === "stacked");
-
-    if (desktopComposition) {
-      expect(settingsPrimitives).toContain("min-[841px]:grid-cols-[200px_minmax(0,1fr)]");
-      expect(shellV26).toContain("[data-settings-layout-grid] {");
-    } else {
-      expect(shellV26).toContain("grid-template-columns: 1fr !important;");
-      expect(shellV26).toContain("[data-settings-section-nav-shell] nav {");
-      expect(shellV26).toContain("display: flex;");
-    }
-
-    if (stackedRows) {
-      expect(shellV26).toContain("[data-settings-content] [data-settings-row] {");
-      expect(shellV26).toContain("grid-template-columns: 1fr;");
-    } else {
-      expect(shellV26).toContain("grid-template-columns: minmax(0, 1fr) 206px;");
-    }
+    expect(settingsCss).toContain("grid-template-columns: 212px minmax(0, 1fr)");
+    expect(settingsCss).toContain("max-width: 820px");
+    expect(settingsCss).toContain("@media (max-width: 840px)");
+    expect(settingsCss).toContain("@media (max-width: 760px)");
+    expect(settingsCss).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(settingsCss).toContain("grid-template-columns: minmax(0, 1fr) auto;");
+    expect(settingsPrimitives).toContain("data-settings-head");
+    expect(settingsPrimitives).toContain("settings-v340-row");
+    expect(settingsPrimitives).toContain("SettingsSearchField");
+    expect(settingsPrimitives).toContain("settings-v340-result-module");
   });
 
-  it("keeps Settings and Quick Preview parity geometry bounded to the retained structural target", () => {
-    const shellV26 = read("src/styles/w6-07-shell-v26.css");
+  it("keeps Settings and Quick Preview parity geometry bounded to the v3.40 structural target", () => {
+    const settingsCss = read("src/views/settings/settingsV340.css");
     const previewStyles = read("src/views/fileLibrary/preview/zenFloatingQuickPreview.css");
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
 
-    expect(shellV26).toContain("grid-template-columns: 212px minmax(0, 1fr) !important");
-    expect(shellV26).toContain("max-width: 820px !important");
-    expect(shellV26).toContain("grid-template-columns: minmax(0, 1fr) 206px");
-    expect(shellV26).toContain("[data-settings-content] [data-settings-select-control]");
-    expect(shellV26).toContain("width: 176px");
-    expect(shellV26).toContain("@media (max-width: 760px)");
+    expect(settingsCss).toContain("grid-template-columns: 212px minmax(0, 1fr)");
+    expect(settingsCss).toContain("max-width: 820px");
+    expect(settingsCss).toContain("width: 300px");
+    expect(settingsCss).toContain("min-width: 136px");
+    expect(settingsCss).toContain("max-width: 236px");
+    expect(settingsCss).toContain("@media (max-width: 760px)");
     expect(settingsPrimitives).toContain("createPortal(");
     expect(settingsPrimitives).toContain("document.body");
     expect(previewStyles).toContain("grid-template-columns: minmax(0, 1fr) auto auto");
@@ -264,8 +245,8 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}");
     expect(settingsView).toContain("aiSettingsSaveFailed");
     expect(settingsView).not.toContain("setAiSettings(previous)");
-    expect(settingsView).toContain('layout="three-option-responsive"');
-    expect(settingsView).toContain('controlWidth="wide"');
+    expect(settingsView).toContain('id="settings-ai-mode"');
+    expect(settingsView).toContain('id="settings-ai-classification-preset"');
     expect(settingsView).toContain("data-ai-status-region");
     expect(settingsView).toContain("data-ai-advanced-connection-grid");
     expect(settingsView).not.toContain("settings-ai-advanced-provider");
@@ -276,8 +257,8 @@ describe("settings view UI", () => {
     expect(settingsView.match(/id="settings-ai-provider"/g)).toHaveLength(1);
     expect(settingsView).toContain("apiKey: settings.apiKey");
     expect(settingsView).not.toContain("batchSize: preset.providerKind");
-    expect(settingsNavigation).toContain("scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, {");
-    expect(settingsNavigation).toContain('container.addEventListener("scroll", scheduleUpdate');
+    expect(settingsNavigation).toContain("scrollSettingsSectionIntoView(container, targetId, {");
+    expect(settingsNavigation).toContain("setActiveSettingsSection(navigationId)");
     expect(settingsView).toContain("developerMode ? (");
     expect(settingsView).toContain('t("aiAdvancedConnection")');
     expect(settingsView).toContain("SettingsSecretField");

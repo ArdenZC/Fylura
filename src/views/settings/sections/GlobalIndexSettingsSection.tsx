@@ -113,7 +113,7 @@ export function GlobalIndexSettingsSection({
     );
   };
   return (
-    <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")} progressiveDisclosure>
+    <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")}>
       <IndexCoverageSettings t={t} sources={sources} statusText={statusText} disabled={isUpdating || loadState !== "loaded"} />
       {loadState === "error" ? (
         <SettingsInlineMessage tone="warning" role="alert" status="load_failed">
@@ -215,7 +215,7 @@ export function GlobalIndexSettingsSection({
           </SettingsInlineMessage> : null}
           <div data-global-index-sources-state={loadState === "loaded" ? hasSources ? "available" : "no_source" : "unknown"} className="grid gap-2">
             {sources.map((source) => (
-              <div key={source.volume.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
+              <div key={source.volume.id} data-settings-item className={cn(compactInteractiveRow(), "px-3 py-2")}>
                 <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                   <div className="min-w-0 text-left">
                     <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{source.volume.displayName}</strong>

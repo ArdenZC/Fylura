@@ -8,7 +8,6 @@ import {
   SettingsInlineMessage,
   SettingsLayout,
   SettingsRow,
-  SettingsSearch,
   SettingsSelect,
   SettingsSection,
   SettingsSectionNav,
@@ -16,7 +15,6 @@ import {
   SettingsDisclosure,
   SettingsSwitch,
   SettingsSwitchControl,
-  activeSettingsSectionId,
   scrollSettingsSectionIntoView
 } from "../src/views/settings/components/SettingsPrimitives";
 import { SettingsSecretField } from "../src/views/settings/components/SettingsSecretField";
@@ -127,31 +125,43 @@ function unconfirmedWindowsGlobalIndexSource(): GlobalIndexSource {
 }
 
 describe("settings component system", () => {
-  it("searches rendered settings metadata and keeps keyboard focus in the result list", async () => {
-    const onSelect = vi.fn();
+  it("searches every mounted section from the page head and opens the first result", async () => {
+    const onSectionChange = vi.fn();
+    const searchCopy = {
+      label: "Search settings",
+      placeholder: "Search settings",
+      clearLabel: "Clear settings search",
+      escHint: "Esc clears search",
+      title: "Search results",
+      summary: (sectionCount: number, itemCount: number) => `${sectionCount} sections · ${itemCount} items`,
+      resultLead: (count: number, sectionCount: number) => `Found ${count} settings in ${sectionCount} sections`,
+      noMatch: (query: string) => `No settings match ${query}`,
+      suggestionsLabel: "Try these keywords",
+      suggestions: ["index"],
+      itemCount: (count: number) => `${count} items`
+    };
     function Harness() {
-      const scopeRef = useRef<HTMLDivElement | null>(null);
+      const [activeSectionId, setActiveSectionId] = useState("general");
+      const scrollRef = useRef<HTMLDivElement | null>(null);
       return (
-        <>
-          <SettingsSearch
-            containerRef={scopeRef}
-            sections={[{ id: "general", label: "General" }, { id: "appearance", label: "Appearance" }]}
-            onSelect={onSelect}
-            label="Search settings"
-            placeholder="Search settings"
-            clearLabel="Clear settings search"
-            noResultsLabel="No matches"
-            resultCountLabel={(count) => `${count} matches`}
-          />
-          <div ref={scopeRef}>
-            <SettingsSection id="general" title="General" description="Window behavior">
-              <SettingsRow label="Launch at login" description="Prepare after login"><span>Off</span></SettingsRow>
-            </SettingsSection>
-            <SettingsSection id="appearance" title="Appearance" description="Theme and density">
-              <SettingsRow label="Interface density" description="Default or compact"><span>Default</span></SettingsRow>
-            </SettingsSection>
-          </div>
-        </>
+        <SettingsLayout
+          sections={[{ id: "general", label: "General" }, { id: "appearance", label: "Appearance" }]}
+          activeSectionId={activeSectionId}
+          sectionLabel="Sections"
+          scrollRef={scrollRef}
+          search={searchCopy}
+          onSectionChange={(sectionId, options) => {
+            onSectionChange(sectionId, options);
+            setActiveSectionId(sectionId);
+          }}
+        >
+          <SettingsSection id="general" title="General" description="Window behavior">
+            <SettingsRow label="Launch at login" description="Prepare after login"><span>Off</span></SettingsRow>
+          </SettingsSection>
+          <SettingsSection id="appearance" title="Appearance" description="Theme and density">
+            <SettingsRow label="Interface density" description="Default or compact"><span>Default</span></SettingsRow>
+          </SettingsSection>
+        </SettingsLayout>
       );
     }
 
@@ -162,27 +172,25 @@ describe("settings component system", () => {
     await act(async () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const result = container.querySelector<HTMLButtonElement>("[data-settings-search-result]")!;
-    expect(result.textContent).toContain("Launch at login");
-    expect(container.querySelector("[data-settings-search-no-results]")).toBeNull();
 
+    const resultsPage = container.querySelector<HTMLElement>("[data-settings-search-results]")!;
+    expect(resultsPage.textContent).toContain("Search results");
+    expect(resultsPage.textContent).toContain("Launch at login");
+    expect(resultsPage.textContent).toContain("General");
+    expect(container.querySelector("[data-settings-sections]")?.hasAttribute("hidden")).toBe(true);
+    expect(container.querySelector('[data-settings-section="general"]')?.getAttribute("aria-current")).toBeNull();
+
+    const firstResult = container.querySelector<HTMLButtonElement>("[data-settings-search-result]")!;
     await act(async () => {
-      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      firstResult.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
     });
-    expect(document.activeElement).toBe(result);
-    await act(async () => {
-      result.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    });
-    expect(document.activeElement).toBe(input);
-    await act(async () => {
-      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-    });
-    expect(document.activeElement).toBe(result);
-    await act(async () => {
-      result.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    });
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ sectionId: "general", title: "Launch at login", targetId: "general-heading" }));
+
+    expect(onSectionChange).toHaveBeenCalledWith("general", { focusContent: false });
     expect(input.value).toBe("");
+    expect(container.querySelector("[data-settings-search-results]")).toBeNull();
+    expect(container.querySelector("[data-settings-sections]")?.hasAttribute("hidden")).toBe(false);
+    expect(document.activeElement).toBe(container.querySelector("#general-heading"));
   });
 
   it("keeps Zen Select backed by a native value while exposing listbox keyboard and focus behavior", async () => {
@@ -649,61 +657,30 @@ describe("settings component system", () => {
     expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("Start indexing"))).toBe(true);
   });
 
-  it("renders a bounded wide layout and lets long three-option labels wrap inside their row", async () => {
+  it("renders one section at a time while keeping every section mounted for search", async () => {
     await act(async () => root.render(
       <SettingsLayout
-        sections={[{ id: "ai", label: "AI" }]}
-        activeSectionId="ai"
+        sections={[{ id: "general", label: "General" }, { id: "ai", label: "AI" }]}
+        activeSectionId="general"
         sectionLabel="Sections"
         onSectionChange={vi.fn()}
       >
+        <SettingsSection id="general" title="General">
+          <SettingsRow label="Launch at login"><span>Off</span></SettingsRow>
+        </SettingsSection>
         <SettingsSection id="ai" title="AI">
-          <SettingsRow controlWidth="wide" label="AI mode">
-            <SettingsSegmentedControl
-              value="off"
-              ariaLabel="AI mode"
-              layout="three-option-responsive"
-              options={[
-                { value: "off", label: "AI is off" },
-                { value: "local", label: "Using a local model" },
-                { value: "cloud", label: "Using cloud AI" }
-              ]}
-              onChange={vi.fn()}
-            />
-          </SettingsRow>
+          <SettingsRow label="AI mode"><span>Off</span></SettingsRow>
         </SettingsSection>
       </SettingsLayout>
     ));
 
-    const layout = container.querySelector<HTMLElement>("[data-settings-layout-grid]")!;
-    const content = container.querySelector<HTMLElement>("[data-settings-content]")!;
-    const row = container.querySelector<HTMLElement>("[data-settings-row]")!;
-    const group = container.querySelector<HTMLElement>("[data-settings-segmented-control]")!;
-    const radios = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
-
-    expect(layout.className).toContain("max-w-[1240px]");
-    expect(layout.className).toContain("grid-cols-[200px_minmax(0,1fr)]");
-    expect(content.className).toContain("min-w-0");
-    expect(row.className).toContain("grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
-    expect(group.className).toContain("grid-cols-3");
-    expect(radios.every((radio) => radio.className.includes("min-w-0") && radio.className.includes("whitespace-normal"))).toBe(true);
-    expect(radios.every((radio) => !radio.className.includes("whitespace-nowrap"))).toBe(true);
-  });
-
-  it("switches the active section at the visibility boundary instead of leaving a previous tail active", () => {
-    const scrollOwner = document.createElement("div");
-    scrollOwner.innerHTML = '<div data-settings-section-nav-shell></div><section id="general"></section><section id="privacy"></section>';
-    Object.defineProperties(scrollOwner, {
-      clientHeight: { configurable: true, value: 500 },
-      scrollHeight: { configurable: true, value: 1600 },
-      scrollTop: { configurable: true, writable: true, value: 600 }
-    });
-    scrollOwner.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 500, right: 900, bottom: 500, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
-    scrollOwner.querySelector<HTMLElement>("[data-settings-section-nav-shell]")!.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 48, right: 900, bottom: 48, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
-    scrollOwner.querySelector<HTMLElement>("#general")!.getBoundingClientRect = () => ({ top: -500, left: 0, width: 900, height: 620, right: 900, bottom: 120, x: 0, y: -500, toJSON() { return {}; } } as DOMRect);
-    scrollOwner.querySelector<HTMLElement>("#privacy")!.getBoundingClientRect = () => ({ top: 150, left: 0, width: 900, height: 500, right: 900, bottom: 650, x: 0, y: 150, toJSON() { return {}; } } as DOMRect);
-
-    expect(activeSettingsSectionId(scrollOwner, ["general", "privacy"])).toBe("privacy");
+    const general = container.querySelector<HTMLElement>("#general")!;
+    const ai = container.querySelector<HTMLElement>("#ai")!;
+    expect(general.getAttribute("data-settings-section-current")).toBe("true");
+    expect(ai.getAttribute("data-settings-section-current")).toBe("false");
+    expect(ai.textContent).toContain("AI mode");
+    expect(container.querySelector('[data-settings-section="general"]')?.getAttribute("aria-current")).toBe("location");
+    expect(general.querySelector("[data-settings-section-count]")?.textContent).toBe("1");
   });
 
   it("keeps segmented controls as roving, arrow-key radio groups", async () => {
@@ -866,7 +843,7 @@ describe("settings component system", () => {
     expect(document.activeElement).toBe(buttons[0]);
   });
 
-  it("keeps the first and last narrow navigation items outside the fade gutters", async () => {
+  it("keeps narrow navigation items within the scroll owner after Home and End", async () => {
     function Harness() {
       const [activeSectionId, setActiveSectionId] = useState("general");
       return (
@@ -895,8 +872,7 @@ describe("settings component system", () => {
       offsetWidth: { configurable: true, value: 80 }
     }));
 
-    expect(nav.className).toContain("scroll-px-5");
-    expect(nav.className).toContain("px-5");
+    expect(nav.className).toContain("settings-v340-nav");
     buttons[0].focus();
     await act(async () => buttons[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
     expect(document.activeElement).toBe(buttons[2]);
@@ -907,22 +883,16 @@ describe("settings component system", () => {
     expect(nav.scrollLeft).toBe(0);
   });
 
-  it("scrolls section content for arrow, Home, and End navigation while keeping focus in the nav", async () => {
+  it("moves the active section from the nav without a scroll-spy", async () => {
     const sectionIds = ["general", "appearance", "ai"];
     function Harness() {
       const [activeSectionId, setActiveSectionId] = useState("general");
-      const scrollRef = useRef<HTMLDivElement | null>(null);
-      const navigate = (sectionId: string, options?: { focusContent?: boolean }) => {
-        setActiveSectionId(sectionId);
-        window.requestAnimationFrame(() => scrollSettingsSectionIntoView(scrollRef.current, sectionId, options));
-      };
       return (
         <SettingsLayout
           sections={sectionIds.map((id) => ({ id, label: id }))}
           activeSectionId={activeSectionId}
           sectionLabel="Sections"
-          onSectionChange={navigate}
-          scrollRef={scrollRef}
+          onSectionChange={setActiveSectionId}
         >
           {sectionIds.map((id) => <SettingsSection key={id} id={id} title={id}>{id} content</SettingsSection>)}
         </SettingsLayout>
@@ -930,47 +900,24 @@ describe("settings component system", () => {
     }
 
     await act(async () => root.render(<Harness />));
-    const scrollOwner = container.querySelector<HTMLElement>("[data-settings-scroll-container]")!;
-    const navShell = container.querySelector<HTMLElement>("[data-settings-section-nav-shell]")!;
-    Object.defineProperties(scrollOwner, {
-      clientHeight: { configurable: true, value: 400 },
-      scrollHeight: { configurable: true, value: 1600 }
-    });
-    scrollOwner.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 400, right: 900, bottom: 400, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
-    navShell.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 40, right: 900, bottom: 40, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
-    sectionIds.forEach((id, index) => {
-      const section = container.querySelector<HTMLElement>(`#${id}`)!;
-      section.getBoundingClientRect = () => {
-        const top = 48 + index * 500 - scrollOwner.scrollTop;
-        return { top, left: 0, width: 800, height: 400, right: 800, bottom: top + 400, x: 0, y: top, toJSON() { return {}; } } as DOMRect;
-      };
-    });
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-
     const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("[data-settings-section]")];
     buttons()[0].focus();
     await act(async () => buttons()[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(scrollOwner.scrollTop).toBe(500);
     expect(buttons()[1].getAttribute("aria-current")).toBe("location");
+    expect(container.querySelector("#appearance")?.getAttribute("data-settings-section-current")).toBe("true");
+    expect(container.querySelector("#general")?.getAttribute("data-settings-section-current")).toBe("false");
     expect(document.activeElement).toBe(buttons()[1]);
 
     await act(async () => buttons()[1].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
-    expect(scrollOwner.scrollTop).toBe(1000);
     expect(document.activeElement).toBe(buttons()[2]);
+    expect(container.querySelector("#ai")?.getAttribute("data-settings-section-current")).toBe("true");
 
     await act(async () => buttons()[2].dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
-    expect(scrollOwner.scrollTop).toBe(0);
     expect(document.activeElement).toBe(buttons()[0]);
-
-    await act(async () => buttons()[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
-    expect(scrollOwner.scrollTop).toBe(1000);
-    expect(document.activeElement).toBe(buttons()[2]);
     expect(document.documentElement.scrollTop).toBe(0);
-    expect(document.body.scrollTop).toBe(0);
   });
 
-  it("scrolls and focuses the target heading for mouse section navigation", async () => {
+  it("focuses the target heading for mouse navigation and deep targets inside the section", async () => {
     function Harness() {
       const [activeSectionId, setActiveSectionId] = useState("general");
       const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -986,23 +933,23 @@ describe("settings component system", () => {
           scrollRef={scrollRef}
         >
           <SettingsSection id="general" title="General">General</SettingsSection>
-          <SettingsSection id="ai" title="AI">AI</SettingsSection>
+          <SettingsSection id="ai" title="AI">
+            <button type="button" id="settings-ai-provider">Provider</button>
+          </SettingsSection>
         </SettingsLayout>
       );
     }
 
     await act(async () => root.render(<Harness />));
-    const scrollOwner = container.querySelector<HTMLElement>("[data-settings-scroll-container]")!;
-    const navShell = container.querySelector<HTMLElement>("[data-settings-section-nav-shell]")!;
-    scrollOwner.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 400, right: 900, bottom: 400, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
-    navShell.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 40, right: 900, bottom: 40, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
-    const aiSection = container.querySelector<HTMLElement>("#ai")!;
-    aiSection.getBoundingClientRect = () => ({ top: 548 - scrollOwner.scrollTop, left: 0, width: 800, height: 400, right: 800, bottom: 948 - scrollOwner.scrollTop, x: 0, y: 548 - scrollOwner.scrollTop, toJSON() { return {}; } } as DOMRect);
-
     await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="ai"]')?.click());
-    expect(scrollOwner.scrollTop).toBe(500);
     expect(container.querySelector('[data-settings-section="ai"]')?.getAttribute("aria-current")).toBe("location");
     expect(document.activeElement).toBe(container.querySelector("#ai-heading"));
+
+    const scrollOwner = container.querySelector<HTMLElement>("[data-settings-scroll-container]")!;
+    await act(async () => {
+      scrollSettingsSectionIntoView(scrollOwner, "settings-ai-provider", { revealContent: true });
+    });
+    expect(document.activeElement).toBe(container.querySelector("#settings-ai-provider"));
   });
 
   it("keeps disabled segmented controls inert and correctly exposed", async () => {

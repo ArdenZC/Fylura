@@ -1,8 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  type WheelEvent
+} from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, Search, X } from "lucide-react";
-import { cn, focusSurface, focusVisibleState, focusWithinSurface, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
+import { Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { cn, focusSurface, focusVisibleState, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { switchThumb, switchTrack } from "../../../components/ui/Switch";
+import "../settingsV340.css";
 
 export type SettingsSectionOption = {
   id: string;
@@ -22,33 +36,27 @@ type SectionChangeOptions = {
   revealContent?: boolean;
 };
 
-export function settingsSectionContentTop(container: HTMLElement) {
-  const containerRect = container.getBoundingClientRect();
-  const navShell = container.querySelector<HTMLElement>("[data-settings-section-nav-shell]");
-  const navRect = navShell?.getBoundingClientRect();
-  const horizontalNav = Boolean(navRect && navRect.width >= containerRect.width * 0.75);
-  return containerRect.top + (horizontalNav && navRect ? navRect.height + 8 : 0);
-}
-
 export function scrollSettingsSectionIntoView(
   container: HTMLElement | null,
   sectionId: string,
   options: SectionChangeOptions = {}
 ) {
   if (!container) return null;
-  const section = container.querySelector<HTMLElement>(`#${sectionId}`);
-  if (!section) return null;
-  if (options.revealContent) {
-    const disclosure = section.querySelector<HTMLDetailsElement>("details[data-settings-progressive-disclosure]");
-    if (disclosure) disclosure.open = true;
-  }
-  const firstSection = container.querySelector<HTMLElement>("[data-settings-section-content]");
-  const targetTop = settingsSectionContentTop(container);
-  container.scrollTop = section === firstSection
-    ? 0
-    : Math.max(0, container.scrollTop + section.getBoundingClientRect().top - targetTop);
+  const target = container.querySelector<HTMLElement>(`[id="${sectionId}"]`);
+  if (!target) return null;
+  const section = target.closest<HTMLElement>("[data-settings-section-content]") ?? target;
+  const disclosure = target.querySelector<HTMLDetailsElement>("details")
+    ?? target.closest<HTMLDetailsElement>("details");
+  if (disclosure && (options.revealContent || !disclosure.open)) disclosure.open = true;
   const heading = section.querySelector<HTMLElement>("[data-settings-section-heading]");
-  if (options.focusContent !== false) (heading ?? section).focus({ preventScroll: true });
+  const sectionTarget = target === section;
+  const visibleTarget = sectionTarget ? section : target;
+  if (options.focusContent !== false) (sectionTarget ? heading ?? target : target).focus({ preventScroll: true });
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = visibleTarget.getBoundingClientRect();
+  if (!sectionTarget && (targetRect.top < containerRect.top + 60 || targetRect.bottom > containerRect.bottom - 24)) {
+    container.scrollTop += targetRect.top - containerRect.top - 80;
+  }
   return { section, heading };
 }
 
@@ -56,18 +64,6 @@ export function centerSettingsNavItem(nav: HTMLElement | null, item: HTMLElement
   if (!nav || !item || nav.scrollWidth <= nav.clientWidth) return;
   const target = item.offsetLeft - (nav.clientWidth - item.offsetWidth) / 2;
   nav.scrollLeft = Math.max(0, Math.min(target, nav.scrollWidth - nav.clientWidth));
-}
-
-export function activeSettingsSectionId(container: HTMLElement, sectionIds: readonly string[]) {
-  const sections = sectionIds
-    .map((id) => container.querySelector<HTMLElement>(`#${id}`))
-    .filter((section): section is HTMLElement => Boolean(section));
-  if (!sections.length) return null;
-  if (container.scrollHeight <= container.clientHeight) return sections[0].id;
-  if (container.scrollTop + container.clientHeight >= container.scrollHeight - 1) return sections[sections.length - 1].id;
-  const contentTop = settingsSectionContentTop(container);
-  const activationLine = contentTop + Math.min(240, Math.max(72, container.clientHeight * 0.4));
-  return [...sections].reverse().find((section) => section.getBoundingClientRect().top <= activationLine)?.id ?? sections[0].id;
 }
 
 const settingsControl = cn(
@@ -145,186 +141,203 @@ export function collectSettingsSearchResults(
   return results;
 }
 
-export function SettingsSearch({
-  containerRef,
-  sections,
-  onSelect,
-  label,
-  placeholder,
-  clearLabel,
-  noResultsLabel,
-  resultCountLabel,
-  localeKey
-}: {
-  containerRef: RefObject<HTMLDivElement | null>;
-  sections: readonly SettingsSectionOption[];
-  onSelect: (result: SettingsSearchResult) => void;
+export type SettingsSearchCopy = {
   label: string;
   placeholder: string;
   clearLabel: string;
-  noResultsLabel: string;
-  resultCountLabel: (count: number, query: string) => string;
-  localeKey?: string;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const results = useMemo(
-    () => collectSettingsSearchResults(containerRef.current, sections, query),
-    [containerRef, localeKey, query, sections]
-  );
+  escHint: string;
+  title: string;
+  summary: (sections: number, items: number) => string;
+  resultLead: (count: number, sections: number) => string;
+  noMatch: (query: string) => string;
+  suggestionsLabel: string;
+  suggestions: string[];
+  itemCount: (count: number) => string;
+};
 
-  useEffect(() => {
-    setActiveIndex(-1);
-  }, [query, localeKey]);
+type SettingsPageContextValue = {
+  activeSectionId: string;
+  counts: Record<string, number>;
+  itemCount: (count: number) => string;
+};
 
-  const clear = useCallback(() => {
-    setQuery("");
-    setActiveIndex(-1);
-    inputRef.current?.focus({ preventScroll: true });
-  }, []);
+const SettingsPageContext = createContext<SettingsPageContextValue | null>(null);
 
-  function focusResult(index: number) {
-    if (!results.length) return;
-    const nextIndex = Math.max(0, Math.min(index, results.length - 1));
-    setActiveIndex(nextIndex);
-    window.requestAnimationFrame(() => resultRefs.current[nextIndex]?.focus({ preventScroll: true }));
-  }
+function settingsSectionCount(container: HTMLElement | null, sectionId: string) {
+  const section = container?.querySelector<HTMLElement>(`[id="${sectionId}"]`);
+  if (!section) return 0;
+  return section.querySelectorAll<HTMLElement>("[data-settings-row], [data-settings-item]").length;
+}
 
-  function selectResult(result: SettingsSearchResult) {
-    setQuery("");
-    setActiveIndex(-1);
-    onSelect(result);
-  }
+function sameCounts(left: Record<string, number>, right: Record<string, number>) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left[key] === right[key]);
+}
 
-  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Escape") {
-      if (query) {
-        event.preventDefault();
-        clear();
-      }
-      return;
-    }
-    if (!results.length) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      focusResult(activeIndex < 0 ? 0 : activeIndex + 1);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      focusResult(activeIndex < 0 ? results.length - 1 : activeIndex - 1);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      focusResult(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      focusResult(results.length - 1);
-    } else if (event.key === "Enter") {
-      // §8.5: Enter opens the first result (or the highlighted one).
-      event.preventDefault();
-      selectResult(results[activeIndex >= 0 ? activeIndex : 0]);
-    }
-  }
-
-  function handleResultKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      focusResult(index + 1);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      focusResult(index - 1);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      focusResult(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      focusResult(results.length - 1);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      setActiveIndex(-1);
-      inputRef.current?.focus({ preventScroll: true });
-    } else if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
-      event.preventDefault();
-      selectResult(results[index]);
-    }
-  }
-
-  const hasQuery = Boolean(query.trim());
+function settingsHighlightedText(text: string, query: string) {
+  const term = query.trim();
+  if (!term) return text;
+  const index = text.toLocaleLowerCase().indexOf(term.toLocaleLowerCase());
+  if (index < 0) return text;
   return (
-    <div data-settings-search className="relative w-full max-w-[360px]" role="search">
-      <div className={cn(
-        "flex min-h-[var(--zc-control-height-current)] items-center gap-2 rounded-[var(--zc-radius-control)] border border-transparent bg-[var(--zc-surface-subtle)] px-3",
-        "transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-        "hover:bg-[var(--zc-surface-hover)]",
-        focusWithinSurface
-      )}>
-        <Search size={15} aria-hidden="true" className="shrink-0 text-[var(--zc-text-tertiary)]" />
-        <input
-          ref={inputRef}
-          type="search"
-          role="searchbox"
-          value={query}
-          aria-label={label}
-          aria-controls="settings-search-results"
-          aria-expanded={hasQuery}
-          placeholder={placeholder}
-          data-settings-search-input
-          className="min-w-0 flex-1 bg-transparent text-sm text-[var(--zc-text-primary)] outline-none placeholder:text-[var(--zc-text-tertiary)]"
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setActiveIndex(-1);
-          }}
-          onKeyDown={handleInputKeyDown}
-        />
-        {hasQuery ? (
-          <button
-            type="button"
-            data-settings-search-clear
-            aria-label={clearLabel}
-            title={clearLabel}
-            className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-tertiary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]", focusVisibleState)}
-            onClick={clear}
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        ) : null}
-      </div>
+    <>
+      {text.slice(0, index)}
+      <mark>{text.slice(index, index + term.length)}</mark>
+      {text.slice(index + term.length)}
+    </>
+  );
+}
+
+export function SettingsSearchField({
+  value,
+  onChange,
+  onEnter,
+  onArrowDown,
+  onEscape,
+  onClear,
+  label,
+  placeholder,
+  clearLabel,
+  inputRef
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onEnter?: () => void;
+  onArrowDown?: () => void;
+  onEscape?: () => void;
+  onClear: () => void;
+  label: string;
+  placeholder: string;
+  clearLabel: string;
+  inputRef?: RefObject<HTMLInputElement | null>;
+}) {
+  const hasQuery = Boolean(value.trim());
+  return (
+    <div data-settings-search className="settings-v340-search" role="search">
+      <Search size={14} aria-hidden="true" className="settings-v340-search-icon" />
+      <input
+        ref={inputRef}
+        type="search"
+        role="searchbox"
+        value={value}
+        aria-label={label}
+        aria-controls={hasQuery ? "settings-search-results-page" : undefined}
+        aria-expanded={hasQuery}
+        placeholder={placeholder}
+        data-settings-search-input
+        className="settings-v340-search-input"
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onEscape?.();
+            return;
+          }
+          if (event.key === "Enter" && hasQuery) {
+            event.preventDefault();
+            onEnter?.();
+            return;
+          }
+          if (event.key === "ArrowDown" && hasQuery) {
+            event.preventDefault();
+            onArrowDown?.();
+          }
+        }}
+      />
       {hasQuery ? (
-        <div
-          id="settings-search-results"
-          data-settings-search-results
-          className="absolute right-0 top-[calc(100%+0.5rem)] z-40 grid max-h-[min(24rem,calc(100vh-2rem))] w-full gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-overlay)] p-1.5 shadow-[var(--zc-shadow-menu)]"
+        <button
+          type="button"
+          data-settings-search-clear
+          aria-label={clearLabel}
+          title={clearLabel}
+          className="settings-v340-search-clear"
+          onClick={onClear}
         >
-          {results.length ? (
-            <>
-              <p className="px-2 py-1 text-xs text-[var(--zc-text-tertiary)]" aria-live="polite">{resultCountLabel(results.length, query)}</p>
-              {results.map((result, index) => (
-                <button
-                  key={`${result.sectionId}-${result.title}-${index}`}
-                  ref={(element) => { resultRefs.current[index] = element; }}
-                  type="button"
-                  data-settings-search-result={result.sectionId}
-                  data-settings-search-target={result.targetId}
-                  className={cn(
-                    "grid min-w-0 gap-0.5 rounded-[var(--zc-radius-control)] px-3 py-2 text-left transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-                    "hover:bg-[var(--zc-surface-hover)]",
-                    focusVisibleState,
-                    activeIndex === index && "bg-[var(--zc-surface-hover)]"
-                  )}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => selectResult(result)}
-                  onKeyDown={(event) => handleResultKeyDown(event, index)}
-                >
-                  <span className="truncate text-sm font-medium text-[var(--zc-text-primary)]">{result.title}</span>
-                  <span className="truncate text-xs text-[var(--zc-text-tertiary)]">{result.description || result.sectionLabel}</span>
-                </button>
-              ))}
-            </>
-          ) : <p data-settings-search-no-results className="px-3 py-3 text-sm text-[var(--zc-text-secondary)]">{noResultsLabel}</p>}
-        </div>
+          <X size={11} aria-hidden="true" />
+        </button>
       ) : null}
-      {hasQuery && !results.length ? <span className="sr-only" aria-live="polite">{noResultsLabel}</span> : null}
     </div>
+  );
+}
+
+function SettingsSearchResults({
+  query,
+  results,
+  copy,
+  onSelect,
+  onSuggestion,
+  onEscape,
+  resultRef
+}: {
+  query: string;
+  results: SettingsSearchResult[];
+  copy: SettingsSearchCopy;
+  onSelect: (result: SettingsSearchResult) => void;
+  onSuggestion: (suggestion: string) => void;
+  onEscape: () => void;
+  resultRef: RefObject<HTMLDivElement | null>;
+}) {
+  const sectionCount = new Set(results.map((result) => result.sectionId)).size;
+  return (
+    <section
+      id="settings-search-results-page"
+      data-settings-search-results
+      aria-labelledby="settings-search-results-heading"
+      className="settings-v340-results"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onEscape();
+        }
+      }}
+    >
+      <header className="settings-v340-section-head">
+        <div className="settings-v340-section-head-text">
+          <h2 id="settings-search-results-heading" tabIndex={-1} data-settings-search-heading>
+            {copy.title}
+            {results.length ? <span className="settings-v340-count">{copy.itemCount(results.length)}</span> : null}
+          </h2>
+          <p className="settings-v340-lead" aria-live="polite">
+            {results.length ? copy.resultLead(results.length, sectionCount) : copy.noMatch(query.trim())}
+          </p>
+        </div>
+      </header>
+      {results.length ? (
+        <div ref={resultRef} data-settings-search-result-list className="settings-v340-result-list">
+          {results.map((result, index) => (
+            <button
+              key={`${result.sectionId}-${result.title}-${index}`}
+              type="button"
+              data-settings-search-result={result.sectionId}
+              data-settings-search-target={result.targetId}
+              className="settings-v340-result"
+              onClick={() => onSelect(result)}
+            >
+              <span className="settings-v340-result-module">{result.sectionLabel}</span>
+              <span className="settings-v340-result-main">
+                <strong>{settingsHighlightedText(result.title, query)}</strong>
+                {result.description ? <span>{settingsHighlightedText(result.description, query)}</span> : null}
+              </span>
+              <ChevronRight size={14} aria-hidden="true" className="settings-v340-result-arrow" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div data-settings-search-no-results className="settings-v340-no-results">
+          <span>{copy.suggestionsLabel}</span>
+          <div className="settings-v340-suggestions">
+            {copy.suggestions.map((suggestion) => (
+              <button key={suggestion} type="button" data-settings-search-suggestion={suggestion} onClick={() => onSuggestion(suggestion)}>
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -334,7 +347,7 @@ export function SettingsLayout({
   onSectionChange,
   scrollRef,
   sectionLabel,
-  header,
+  search,
   children
 }: {
   sections: SettingsSectionOption[];
@@ -342,28 +355,221 @@ export function SettingsLayout({
   onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;
   scrollRef?: RefObject<HTMLDivElement | null>;
   sectionLabel: string;
-  header?: ReactNode;
+  search?: SettingsSearchCopy;
   children: ReactNode;
 }) {
+  const localScrollRef = useRef<HTMLDivElement | null>(null);
+  const ownerRef = scrollRef ?? localScrollRef;
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SettingsSearchResult[]>([]);
+  const [pendingFocus, setPendingFocus] = useState<{ targetId: string; nonce: number } | null>(null);
+  const focusNonceRef = useRef(0);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [scrolled, setScrolled] = useState(false);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const navButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const sectionKey = sections.map((section) => section.id).join("|");
+  const searching = Boolean(query.trim());
+  const totalItems = Object.values(counts).reduce((total, count) => total + count, 0);
+
+  useLayoutEffect(() => {
+    const container = ownerRef.current;
+    if (!container) return undefined;
+    const measure = () => {
+      const next: Record<string, number> = {};
+      for (const section of sections) next[section.id] = settingsSectionCount(container, section.id);
+      setCounts((current) => sameCounts(current, next) ? current : next);
+    };
+    measure();
+    const observer = new MutationObserver(measure);
+    observer.observe(container, { childList: true, subtree: true });
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionKey]);
+
+  useLayoutEffect(() => {
+    const container = ownerRef.current;
+    if (!container || !searching) {
+      setResults([]);
+      return;
+    }
+    setResults(collectSettingsSearchResults(container, sections, query));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, searching, sectionKey, totalItems, search?.label]);
+
+  useLayoutEffect(() => {
+    const container = ownerRef.current;
+    if (!container) return undefined;
+    const update = () => {
+      setScrolled(container.scrollTop > 1);
+      setMoreBelow(container.scrollTop + container.clientHeight < container.scrollHeight - 2);
+    };
+    update();
+    container.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    return () => {
+      container.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [ownerRef, searching]);
+
+  useLayoutEffect(() => {
+    const container = ownerRef.current;
+    if (!container) return;
+    container.scrollTop = 0;
+  }, [activeSectionId, searching, ownerRef]);
+
+  useEffect(() => {
+    if (!pendingFocus) return undefined;
+    const { targetId } = pendingFocus;
+    const frame = window.requestAnimationFrame(() => {
+      const container = ownerRef.current;
+      if (!container) return;
+      const target = container.querySelector<HTMLElement>(`[id="${targetId}"]`);
+      if (!target) return;
+      const disclosure = target.closest<HTMLDetailsElement>("details");
+      if (disclosure && !disclosure.open) disclosure.open = true;
+      const row = target.closest<HTMLElement>("[data-settings-row]") ?? target;
+      row.setAttribute("data-settings-flash", "true");
+      window.setTimeout(() => row.removeAttribute("data-settings-flash"), 1800);
+      const control = target.matches("button, input, select, textarea, [tabindex]")
+        ? target
+        : target.querySelector<HTMLElement>("button, input, select, textarea, [tabindex]");
+      const focusTarget = control?.matches("[data-settings-select-native]")
+        ? control.parentElement?.querySelector<HTMLElement>("[data-settings-select-trigger]")
+        : control;
+      const finalTarget = focusTarget && !focusTarget.matches(":disabled")
+        ? focusTarget
+        : target.closest<HTMLElement>("[data-settings-section-content]")?.querySelector<HTMLElement>("[data-settings-section-heading]");
+      finalTarget?.focus({ preventScroll: true });
+      const targetRect = target.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      if (targetRect.top < containerRect.top + 72 || targetRect.bottom > containerRect.bottom - 24) {
+        container.scrollTop += targetRect.top - containerRect.top - 96;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingFocus, ownerRef]);
+
+  function changeSection(sectionId: string, options?: SectionChangeOptions) {
+    if (query) setQuery("");
+    onSectionChange(sectionId, options);
+  }
+
+  function selectSearchResult(result: SettingsSearchResult) {
+    setQuery("");
+    focusNonceRef.current += 1;
+    setPendingFocus({ targetId: result.targetId ?? `${result.sectionId}-heading`, nonce: focusNonceRef.current });
+    onSectionChange(result.sectionId, { focusContent: false });
+  }
+
+  function clearSearch() {
+    setQuery("");
+    searchInputRef.current?.focus({ preventScroll: true });
+  }
+
+  const contextValue = useMemo<SettingsPageContextValue>(() => ({
+    activeSectionId,
+    counts,
+    itemCount: search?.itemCount ?? ((count: number) => String(count))
+  }), [activeSectionId, counts, search?.itemCount]);
+
   return (
-    <div data-settings-layout className="flex h-full min-h-0 min-w-0 flex-col">
-      {header ? <div data-settings-page-header className="mx-auto flex w-full max-w-[1240px] shrink-0 justify-end px-1 pb-3">{header}</div> : null}
-      <div ref={scrollRef} data-settings-scroll-container className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain pr-1">
-        <div
-          data-settings-layout-grid
-          className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-5 px-1 pb-8 min-[841px]:grid-cols-[200px_minmax(0,1fr)] min-[841px]:items-start min-[841px]:gap-[clamp(2rem,3vw,2.75rem)]"
+    <div data-settings-v340 data-settings-layout>
+      <aside data-settings-section-nav-shell>
+        <nav
+          aria-label={sectionLabel}
+          data-settings-section-nav
+          className="settings-v340-nav"
         >
-          <SettingsSectionNav
-            sections={sections}
-            activeSectionId={activeSectionId}
-            onSectionChange={onSectionChange}
-            sectionLabel={sectionLabel}
-          />
-          <div data-settings-content className="grid min-w-0 max-w-[800px] gap-7">{children}</div>
+          {sections.map((section, index) => {
+            const active = activeSectionId === section.id;
+            return (
+              <button
+                key={section.id}
+                ref={(element) => { navButtonRefs.current[index] = element; }}
+                type="button"
+                data-settings-section={section.id}
+                aria-current={!searching && active ? "location" : undefined}
+                tabIndex={active ? 0 : -1}
+                className={cn("settings-v340-nav-item", !searching && active && "is-active")}
+                onClick={() => changeSection(section.id)}
+                onKeyDown={(event) => moveNavFocus(event, index)}
+              >
+                {section.label}
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
+      <div data-settings-pane className="settings-v340-pane">
+        {search ? (
+          <div data-settings-head className="settings-v340-head">
+            <SettingsSearchField
+              value={query}
+              onChange={setQuery}
+              onClear={clearSearch}
+              onEscape={clearSearch}
+              onEnter={() => { if (results[0]) selectSearchResult(results[0]); }}
+              onArrowDown={() => resultsRef.current?.querySelector<HTMLButtonElement>("[data-settings-search-result]")?.focus({ preventScroll: true })}
+              label={search.label}
+              placeholder={search.placeholder}
+              clearLabel={search.clearLabel}
+              inputRef={searchInputRef}
+            />
+            <span data-settings-head-hint className="settings-v340-hint" aria-live="polite">
+              {searching ? search.escHint : search.summary(sections.length, totalItems)}
+            </span>
+          </div>
+        ) : null}
+        <div
+          ref={ownerRef}
+          data-settings-scroll-container
+          data-scrolled={scrolled ? "true" : undefined}
+          data-more-below={moreBelow ? "true" : undefined}
+          className="settings-v340-scroll"
+        >
+          <div data-settings-sections hidden={searching || undefined} className="settings-v340-sections">
+            <SettingsPageContext.Provider value={contextValue}>
+              {children}
+            </SettingsPageContext.Provider>
+          </div>
+          {searching && search ? (
+            <SettingsSearchResults
+              query={query}
+              results={results}
+              copy={search}
+              onSelect={selectSearchResult}
+              onSuggestion={(suggestion) => {
+                setQuery(suggestion);
+                searchInputRef.current?.focus({ preventScroll: true });
+              }}
+              onEscape={clearSearch}
+              resultRef={resultsRef}
+            />
+          ) : null}
         </div>
       </div>
     </div>
   );
+
+  function moveNavFocus(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const isNext = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const isPrevious = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    if (!isNext && !isPrevious && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? sections.length - 1
+        : (index + (isNext ? 1 : -1) + sections.length) % sections.length;
+    const next = sections[nextIndex];
+    changeSection(next.id, { focusContent: false });
+    window.requestAnimationFrame(() => navButtonRefs.current[nextIndex]?.focus());
+  }
 }
 
 export function SettingsSectionNav({
@@ -377,13 +583,9 @@ export function SettingsSectionNav({
   onSectionChange: (sectionId: string, options?: SectionChangeOptions) => void;
   sectionLabel: string;
 }) {
-  // Every mounted section owns its own navigation item. Technical sections
-  // remain quiet disclosures, but they must not be projected into another
-  // section or disappear from the active navigation model.
-  const visibleSections = sections;
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const navRef = useRef<HTMLElement | null>(null);
-  const activeIndex = visibleSections.findIndex((section) => section.id === activeSectionId);
+  const activeIndex = sections.findIndex((section) => section.id === activeSectionId);
 
   useEffect(() => {
     if (activeIndex < 0) return;
@@ -407,32 +609,24 @@ export function SettingsSectionNav({
     const nextIndex = event.key === "Home"
       ? 0
       : event.key === "End"
-        ? visibleSections.length - 1
-        : (index + (isNext ? 1 : -1) + visibleSections.length) % visibleSections.length;
-    const next = visibleSections[nextIndex];
-    onSectionChange(next.id, { focusContent: false });
+        ? sections.length - 1
+        : (index + (isNext ? 1 : -1) + sections.length) % sections.length;
+    onSectionChange(sections[nextIndex].id, { focusContent: false });
     window.requestAnimationFrame(() => buttonRefs.current[nextIndex]?.focus());
   }
 
   return (
-    <aside
-      data-settings-section-nav-shell
-      className="sticky top-0 z-20 min-w-0 border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] py-2 min-[841px]:top-4 min-[841px]:self-start min-[841px]:border-b-0 min-[841px]:bg-transparent min-[841px]:py-0"
-    >
-      <p className="mb-2 hidden px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)] min-[841px]:block">
-        {sectionLabel}
-      </p>
-      <div className="relative min-w-0">
-        <nav
-          ref={navRef}
-          aria-label={sectionLabel}
-          data-settings-section-nav
-          className="flex max-w-full scroll-px-5 gap-1 overflow-x-auto overscroll-contain px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[841px]:grid min-[841px]:overflow-visible min-[841px]:px-0 min-[841px]:pb-0"
-          onWheel={handleWheel}
-        >
-          {visibleSections.map((section, index) => {
-            const active = activeSectionId === section.id;
-            return (
+    <aside data-settings-section-nav-shell className="settings-v340-nav-shell">
+      <nav
+        ref={navRef}
+        aria-label={sectionLabel}
+        data-settings-section-nav
+        className="settings-v340-nav"
+        onWheel={handleWheel}
+      >
+        {sections.map((section, index) => {
+          const active = activeSectionId === section.id;
+          return (
             <button
               key={section.id}
               ref={(element) => { buttonRefs.current[index] = element; }}
@@ -440,25 +634,17 @@ export function SettingsSectionNav({
               data-settings-section={section.id}
               aria-current={active ? "location" : undefined}
               tabIndex={active ? 0 : -1}
-              className={cn(
-                "min-h-9 min-w-0 shrink-0 whitespace-nowrap rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium leading-5 text-[var(--zc-text-secondary)]",
-                "min-[841px]:w-full min-[841px]:whitespace-normal",
-                "transition-[background,border-color,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-                "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-                active ? selectedFocusVisibleState : focusVisibleState,
-                active && selectedSurface
-              )}
+              className={cn("settings-v340-nav-item", active && "is-active")}
               onClick={() => onSectionChange(section.id)}
               onKeyDown={(event) => moveFocus(event, index)}
             >
               {section.label}
             </button>
-            );
-          })}
-        </nav>
-        <span data-settings-nav-fade="start" aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-[var(--zc-surface)] to-transparent min-[841px]:hidden" />
-        <span data-settings-nav-fade="end" aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-[var(--zc-surface)] to-transparent min-[841px]:hidden" />
-      </div>
+          );
+        })}
+      </nav>
+      <span data-settings-nav-fade="start" aria-hidden="true" className="settings-v340-nav-fade is-start" />
+      <span data-settings-nav-fade="end" aria-hidden="true" className="settings-v340-nav-fade is-end" />
     </aside>
   );
 }
@@ -478,52 +664,52 @@ export function SettingsSection({
   progressiveDisclosure?: boolean;
   className?: string;
 }) {
-  const sectionClass = cn("grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] pb-7 outline-none last:border-b-0", className);
+  const page = useContext(SettingsPageContext);
+  const count = page?.counts[id];
+  const countBadge = typeof count === "number" && count > 0
+    ? <span data-settings-section-count className="settings-v340-count">{page?.itemCount(count)}</span>
+    : null;
+  const sectionClass = cn("settings-v340-section", className);
+  const sectionData = {
+    tabIndex: -1,
+    "data-settings-section-content": true,
+    "data-settings-search-label": title,
+    "data-settings-search-description": description,
+    "data-settings-section-current": page ? String(page.activeSectionId === id) : "true"
+  } as const;
+
   if (progressiveDisclosure) {
     return (
-      <section
-        id={id}
-        tabIndex={-1}
-        aria-labelledby={`${id}-heading`}
-        data-settings-section-content
-        data-settings-progressive-section
-        data-settings-search-label={title}
-        data-settings-search-description={description}
-        className={sectionClass}
-      >
-        <details data-settings-progressive-disclosure className="group grid min-w-0 gap-[var(--zc-density-gap)]">
-          <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-4 rounded-[var(--zc-radius-control)] py-1", focusVisibleState)}>
-            <span className="grid min-w-0 gap-1">
-              <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="text-base font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)] outline-none">
+      <section id={id} aria-labelledby={`${id}-heading`} {...sectionData} className={sectionClass}>
+        <details data-settings-progressive-disclosure className="settings-v340-disclosure">
+          <summary>
+            <span className="settings-v340-section-head-text">
+              <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="settings-v340-section-title">
                 {title}
+                {countBadge}
               </h2>
-              {description ? <span className="max-w-2xl text-sm font-normal leading-6 text-[var(--zc-text-secondary)]">{description}</span> : null}
+              {description ? <span className="settings-v340-lead">{description}</span> : null}
             </span>
-            <span aria-hidden="true" className="mt-0.5 text-[var(--zc-text-tertiary)] transition-transform group-open:rotate-90">›</span>
+            <span aria-hidden="true" className="settings-v340-disclosure-caret">›</span>
           </summary>
-          <div className="grid min-w-0 gap-0 pt-1">{children}</div>
+          <div data-settings-section-body className="settings-v340-section-body">{children}</div>
         </details>
       </section>
     );
   }
 
   return (
-    <section
-      id={id}
-      tabIndex={-1}
-      aria-labelledby={`${id}-heading`}
-      data-settings-section-content
-      data-settings-search-label={title}
-      data-settings-search-description={description}
-      className={sectionClass}
-    >
-      <header className="grid gap-1">
-        <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="text-lg font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)] outline-none">
-          {title}
-        </h2>
-        {description ? <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p> : null}
+    <section id={id} aria-labelledby={`${id}-heading`} {...sectionData} className={sectionClass}>
+      <header className="settings-v340-section-head">
+        <div className="settings-v340-section-head-text">
+          <h2 id={`${id}-heading`} data-settings-section-heading tabIndex={-1} className="settings-v340-section-title">
+            {title}
+            {countBadge}
+          </h2>
+          {description ? <p className="settings-v340-lead">{description}</p> : null}
+        </div>
       </header>
-      <div className="grid min-w-0 gap-0">{children}</div>
+      <div data-settings-section-body className="settings-v340-section-body">{children}</div>
     </section>
   );
 }
@@ -543,11 +729,12 @@ export function SettingsControlGroup({
     <div
       data-settings-search-label={title}
       data-settings-search-description={description}
-      className={cn("grid min-w-0 gap-[var(--zc-density-gap)] border-t border-[var(--zc-divider)] pt-5 first:border-t-0 first:pt-0", className)}
+      data-settings-group
+      className={cn("settings-v340-group", className)}
     >
-      {title ? <h3 className="text-sm font-semibold text-[var(--zc-text-primary)]">{title}</h3> : null}
-      {description ? <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</p> : null}
-      <div className="grid min-w-0 gap-0">{children}</div>
+      {title ? <h3 data-settings-group-title className="settings-v340-group-title">{title}</h3> : null}
+      {description ? <p className="settings-v340-group-desc">{description}</p> : null}
+      <div data-settings-group-rows className="settings-v340-group-rows">{children}</div>
     </div>
   );
 }
@@ -572,29 +759,21 @@ export function SettingsRow({
   return (
     <div
       data-settings-row
+      data-control-width={controlWidth}
       data-settings-search-label={label}
       data-settings-search-description={[description, hint].filter(Boolean).join(" ") || undefined}
-      className={cn(
-        "grid min-w-0 gap-[var(--zc-density-gap)] border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[841px]:items-start",
-        controlWidth === "wide"
-          ? "min-[841px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]"
-          : "min-[841px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]",
-        className
-      )}
+      className={cn("settings-v340-row", className)}
     >
-      <div className="min-w-0">
+      <div className="settings-v340-row-label">
         {id ? (
-          <label htmlFor={id} className="block text-sm font-medium text-[var(--zc-text-primary)]">{label}</label>
+          <label htmlFor={id} className="settings-v340-row-title">{label}</label>
         ) : (
-          <strong className="block text-sm font-medium text-[var(--zc-text-primary)]">{label}</strong>
+          <strong className="settings-v340-row-title">{label}</strong>
         )}
-        {description ? <span className="mt-1 block max-w-[600px] text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</span> : null}
-        {hint ? <span className="mt-1 block max-w-[600px] text-xs leading-5 text-[var(--zc-text-tertiary)]">{hint}</span> : null}
+        {description ? <span className="settings-v340-row-desc">{description}</span> : null}
+        {hint ? <span className="settings-v340-row-hint">{hint}</span> : null}
       </div>
-      <div className={cn(
-        "min-w-0 min-[841px]:w-full min-[841px]:justify-self-end",
-        controlWidth === "wide" ? "min-[841px]:max-w-[480px]" : "min-[841px]:max-w-[360px]"
-      )}>{children}</div>
+      <div className="settings-v340-row-control">{children}</div>
     </div>
   );
 }
@@ -639,9 +818,9 @@ export function SettingsSegmentedControl<T extends string>({
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
       className={cn(
-        "max-w-full gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-1",
-        layout === "three-option-responsive" ? "grid grid-cols-1 min-[841px]:grid-cols-3" : "flex flex-wrap",
-        disabled && "cursor-not-allowed opacity-60"
+        "settings-v340-segmented",
+        layout === "three-option-responsive" && "is-responsive",
+        disabled && "is-disabled"
       )}
     >
       {options.map((option, index) => {
@@ -656,13 +835,10 @@ export function SettingsSegmentedControl<T extends string>({
             disabled={disabled}
             tabIndex={disabled ? -1 : selected ? 0 : -1}
             className={cn(
-              "min-h-[var(--zc-control-height-current)] min-w-0 shrink-0 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm font-medium text-[var(--zc-text-secondary)]",
-              layout === "three-option-responsive" ? "w-full whitespace-normal text-center leading-5" : "whitespace-nowrap",
-              "transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-              "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
-              "disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",
-              selected ? selectedFocusVisibleState : focusVisibleState,
-              selected && cn(selectedSurface, "font-semibold")
+              "settings-v340-segment",
+              layout === "three-option-responsive" && "is-responsive",
+              selected && "is-selected",
+              selected ? selectedFocusVisibleState : focusVisibleState
             )}
             onClick={() => { if (!disabled) onChange(option.value); }}
             onKeyDown={(event) => handleKeyDown(event, index)}
@@ -917,7 +1093,7 @@ export function SettingsSelect<T extends string>({
           aria-controls={menuId}
           aria-activedescendant={open && options[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
           disabled={disabled || options.length === 0}
-          className={cn(settingsSelect, "flex w-full items-center justify-between gap-3 text-left", open && "border-[var(--zc-control-border-hover)] bg-[var(--zc-surface)]")}
+          className={cn(settingsSelect, "settings-v340-select", open && "is-open")}
           onClick={handleTriggerClick}
           onKeyDown={handleTriggerKeyDown}
         >
@@ -999,9 +1175,9 @@ export function SettingsTextField({
   disabled?: boolean;
 }) {
   return (
-    <label data-settings-search-label={label} data-settings-search-description={description} className="grid min-w-0 gap-1.5">
-      <span className="text-sm font-medium text-[var(--zc-text-primary)]">{label}</span>
-      {description ? <span className="text-xs leading-5 text-[var(--zc-text-tertiary)]">{description}</span> : null}
+    <label data-settings-item data-settings-search-label={label} data-settings-search-description={description} className="settings-v340-field">
+      <span className="settings-v340-field-label">{label}</span>
+      {description ? <span className="settings-v340-field-desc">{description}</span> : null}
       <input id={id} className={cn(settingsField, "w-full")} type={type} value={value} placeholder={placeholder} list={list} min={min} max={max} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
@@ -1028,16 +1204,17 @@ export function SettingsDisclosure({
       onToggle={(event) => onOpenChange?.(event.currentTarget.open)}
       data-settings-search-label={title}
       data-settings-search-description={description}
-      className="group grid min-w-0 gap-3 border-t border-[var(--zc-divider)] pt-4"
+      data-settings-disclosure
+      className="settings-v340-disclosure"
     >
-      <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-3 text-sm font-semibold text-[var(--zc-text-primary)]", focusVisibleState)}>
-        <span className="min-w-0">
-          <span className="block">{title}</span>
-          {description ? <span className="mt-1 block text-xs font-normal leading-5 text-[var(--zc-text-tertiary)]">{description}</span> : null}
+      <summary className={cn("settings-v340-disclosure-summary", focusVisibleState)}>
+        <span className="settings-v340-section-head-text">
+          <span className="settings-v340-disclosure-title">{title}</span>
+          {description ? <span className="settings-v340-disclosure-desc">{description}</span> : null}
         </span>
-        <span aria-hidden="true" className="mt-0.5 text-[var(--zc-text-tertiary)] transition-transform group-open:rotate-90">›</span>
+        <span aria-hidden="true" className="settings-v340-disclosure-caret">›</span>
       </summary>
-      <div className="grid min-w-0 gap-4">{children}</div>
+      <div className="settings-v340-disclosure-body">{children}</div>
     </details>
   );
 }
@@ -1052,10 +1229,10 @@ export function SettingsEmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="grid min-h-28 place-items-center gap-3 rounded-[var(--zc-radius-field)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-5 py-6 text-center">
-      <div className="grid max-w-xl gap-1">
-        <strong className="text-sm text-[var(--zc-text-primary)]">{title}</strong>
-        {description ? <span className="text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</span> : null}
+    <div data-settings-empty className="settings-v340-empty">
+      <div>
+        <strong>{title}</strong>
+        {description ? <span>{description}</span> : null}
       </div>
       {action ? <div>{action}</div> : null}
     </div>

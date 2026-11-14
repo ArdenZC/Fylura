@@ -41,7 +41,7 @@
 ## 复现
 
 ```bash
-npm run test:browser:motion:v340
+node scripts/runV340MotionBrowserGate.mjs
 node scripts/captureV340MotionEvidence.mjs
 npx vitest run tests/motionPressFeedback.test.tsx tests/v340MotionSystem.test.ts
 ```

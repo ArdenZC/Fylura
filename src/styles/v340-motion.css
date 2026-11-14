@@ -1,0 +1,280 @@
+/*
+ * v3.40 motion layer — high-frequency interactions (PR 1).
+ *
+ * Colour never rides a spring. Geometry (press, panels, tree branches) uses
+ * the approved single-overshoot curves; data rows and system menus stay
+ * instant. WAAPI entry points live in `utils/motion.ts`.
+ */
+
+/* ------------------------------------------------------------ press feedback */
+
+html [data-zc-press] {
+  transition:
+    transform var(--zc-dur-release) var(--zc-spring-pop),
+    background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    color var(--zc-duration-fast) var(--zc-ease-standard),
+    border-color var(--zc-duration-fast) var(--zc-ease-standard),
+    box-shadow var(--zc-duration-fast) var(--zc-ease-standard),
+    opacity var(--zc-duration-fast) var(--zc-ease-standard) !important;
+}
+
+html [data-zc-press="release"] {
+  transform: scale(1) !important;
+  transition:
+    transform var(--zc-dur-release) var(--zc-spring-pop),
+    background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    color var(--zc-duration-fast) var(--zc-ease-standard),
+    border-color var(--zc-duration-fast) var(--zc-ease-standard),
+    box-shadow var(--zc-duration-fast) var(--zc-ease-standard),
+    opacity var(--zc-duration-fast) var(--zc-ease-standard) !important;
+}
+
+html [data-zc-press="active"]:not(:disabled) {
+  transform: scale(var(--zc-press-scale)) !important;
+  transition:
+    transform var(--zc-dur-press) var(--zc-spring-out),
+    background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    color var(--zc-duration-fast) var(--zc-ease-standard),
+    border-color var(--zc-duration-fast) var(--zc-ease-standard),
+    box-shadow var(--zc-duration-fast) var(--zc-ease-standard),
+    opacity var(--zc-duration-fast) var(--zc-ease-standard) !important;
+}
+
+/* ------------------------------------------------------------ panel motion */
+
+.zc-sidebar,
+.zc-app-workspace,
+.file-library-navigation-slot,
+.wb-pane-cell {
+  contain: layout;
+}
+
+.file-library-navigation-slot {
+  transition:
+    opacity 160ms var(--zc-ease-standard),
+    border-color 160ms var(--zc-ease-standard);
+}
+
+.file-library-workspace[data-layout="large"] .file-library-workspace-body {
+  transition: grid-template-columns var(--zc-dur-panel) var(--zc-spring-smooth);
+}
+
+.file-library-workspace[data-layout="large"][data-tree-inline="false"] .file-library-workspace-body {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.file-library-workspace[data-layout="large"][data-tree-inline="false"][data-context-open="true"] .file-library-workspace-body {
+  grid-template-columns: 0 minmax(0, 1fr) var(--zc-inspector-width);
+}
+
+.file-library-workspace[data-layout="large"][data-tree-inline="false"] .file-library-navigation-slot {
+  display: block !important;
+  overflow: hidden;
+  opacity: 0;
+  border-right-color: transparent;
+  pointer-events: none;
+}
+
+.file-library-workspace[data-layout="large"][data-tree-inline="false"] .file-library-navigation-panel {
+  width: var(--file-tree-width, var(--zc-tree-width));
+  opacity: 0;
+  transition: opacity 160ms var(--zc-ease-standard);
+}
+
+.file-library-workspace[data-tree-inline="true"] .file-library-navigation-panel {
+  width: var(--file-tree-width, var(--zc-tree-width));
+}
+
+/* ------------------------------------------------------- directory branches */
+
+.file-library-tree-branch {
+  display: grid;
+  align-content: start;
+  grid-template-rows: 0fr;
+  opacity: 0.35;
+  transition:
+    grid-template-rows var(--zc-dur-panel) var(--zc-spring-smooth),
+    opacity 150ms var(--zc-ease-standard);
+}
+
+.file-library-tree-branch[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.file-library-tree-branch > [data-tree-branch-inner] {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-library-tree-branch[data-open="true"] {
+  animation: zc-tree-branch-in var(--zc-dur-panel) var(--zc-spring-smooth);
+}
+
+@keyframes zc-tree-branch-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0.35;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+.file-library-navigation-group-body {
+  display: grid;
+  align-content: start;
+  grid-template-rows: 0fr;
+  opacity: 0.35;
+  transition:
+    grid-template-rows var(--zc-dur-panel) var(--zc-spring-smooth),
+    opacity 150ms var(--zc-ease-standard);
+}
+
+.file-library-navigation-group-body[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.file-library-navigation-group-body > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------- file row feedback */
+
+/* Hover may fade in; selection may not. A shared transition made clicks feel
+ * 120ms late even though the state was already committed. */
+.shared-file-list-row {
+  transition: none;
+}
+
+.shared-file-list-row:not(.is-selected):hover {
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.shared-file-grid-cell {
+  transition: none;
+}
+
+.shared-file-grid-cell:not(.is-selected):hover {
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    border-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.shared-file-list-checkbox[data-checked="true"] svg {
+  animation: zc-file-check-in var(--zc-dur-release) var(--zc-spring-bounce) both;
+}
+
+@keyframes zc-file-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* --------------------------------------------------------------- panes/views */
+
+.wb-pane {
+  transition: box-shadow 140ms var(--zc-ease-standard);
+}
+
+.wb-pane-cell {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------------ scroll material */
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border: 0;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background: rgba(20, 32, 50, 0.15);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 32, 50, 0.3);
+  background-clip: content-box;
+}
+
+:root.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  background-clip: content-box;
+}
+
+:root.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+  background-clip: content-box;
+}
+
+/* --------------------------------------------------------------- focus rings */
+
+html :is(button, [role="button"], [role="tab"], [role="radio"], summary):focus-visible {
+  transition:
+    outline-color 120ms var(--zc-ease-standard),
+    box-shadow 180ms var(--zc-spring-smooth);
+}
+
+/* -------------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  html [data-zc-press],
+  html [data-zc-press="active"],
+  html [data-zc-press="release"],
+  .file-library-tree-branch,
+  .file-library-tree-branch[data-open="true"],
+  .file-library-navigation-group-body,
+  .shared-file-list-row,
+  .shared-file-grid-cell {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .file-library-tree-branch[data-open="true"] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+/* Tree rows are content-sized: a stretched grid row made an expanded branch
+ * fill the whole navigation height instead of its own children. */
+.file-library-navigation-list {
+  align-content: start;
+}
+
+/* The collapsed-tree capsule is vertically centred with a transform; preserve
+ * that translation while adding press scale. */
+.file-library-tree-handle[data-zc-press="active"] {
+  transform: translateY(-50%) scale(var(--zc-press-scale)) !important;
+}
+
+.file-library-tree-handle[data-zc-press="release"] {
+  transform: translateY(-50%) scale(1) !important;
+}
+
+/* Selection is a data-state change, not a hover. Kill any in-flight hover
+ * colour transition on the selected row so the fill lands in the same frame. */
+.shared-file-list-row.is-selected,
+.shared-file-list-row.is-selected:hover,
+.shared-file-grid-cell.is-selected,
+.shared-file-grid-cell.is-selected:hover {
+  transition: none !important;
+}

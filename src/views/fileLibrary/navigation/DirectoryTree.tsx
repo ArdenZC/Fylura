@@ -688,12 +688,21 @@ export function DirectoryTree({
           </button>
         </div>
         {node.error !== null ? <p className="file-library-navigation-muted flex items-center gap-1" role="status" style={{ paddingInlineStart: `${(node.depth + 1) * 12 + 6}px` }}><CircleAlert size={13} aria-hidden="true" />{describeDirectoryTreeError(node.error, t)}</p> : null}
-        {canExpand && node.expanded && node.childKeys.length > 0 ? (
-          <div role="group" className="file-library-navigation-list file-library-navigation-sublist">
-            {node.childKeys.map((childKey) => {
-              const child = nodes.get(childKey);
-              return child ? renderNode(child) : null;
-            })}
+        {canExpand && node.childKeys.length > 0 ? (
+          <div
+            className="file-library-tree-branch"
+            data-open={node.expanded ? "true" : "false"}
+            aria-hidden={!node.expanded}
+            inert={!node.expanded ? true : undefined}
+          >
+            <div data-tree-branch-inner>
+              <div role="group" className="file-library-navigation-list file-library-navigation-sublist">
+                {node.childKeys.map((childKey) => {
+                  const child = nodes.get(childKey);
+                  return child ? renderNode(child) : null;
+                })}
+              </div>
+            </div>
           </div>
         ) : null}
         {node.depth >= MAX_DEPTH ? <p className="file-library-navigation-muted" role="status" style={{ paddingInlineStart: `${(node.depth + 1) * 12 + 6}px` }}>{t("fileLibraryNavigationTreeDepthLimit")}</p> : null}

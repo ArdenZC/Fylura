@@ -1,0 +1,39 @@
+{
+  "sidebarExpanded": 216,
+  "sidebarRailMid": 75.203125,
+  "railTextMidOpacity": "0.00287688",
+  "sidebarRail": 64,
+  "sidebarHiddenMid": 4.71875,
+  "sidebarHidden": 0,
+  "treeOpenWidth": 196,
+  "treeClosingWidth": 14.4375,
+  "treeClosingPanelWidth": 196,
+  "treeClosedWidth": 0,
+  "treeOpeningWidth": 181.515625,
+  "selection": {
+    "transitionDuration": "0s",
+    "checkAnimations": [
+      {
+        "duration": 260,
+        "id": ""
+      }
+    ]
+  },
+  "viewSwap": [
+    {
+      "id": "zc-view-swap",
+      "duration": 240
+    }
+  ],
+  "paneEnter": [
+    260,
+    260
+  ],
+  "pageEnter": [
+    220
+  ],
+  "reducedMotion": {
+    "sidebarWidthAfter30ms": 64,
+    "transitions": "1e-06s"
+  }
+}

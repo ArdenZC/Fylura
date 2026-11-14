@@ -4,6 +4,7 @@
 @import "./views/shared/v340Pages.css";
 @import "./styles/w6-07-shell-v26.css";
 @import "./views/fileLibrary/fileLibraryV26.css";
+@import "./styles/v340-motion.css";
 
 :root {
   color-scheme: light;

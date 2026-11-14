@@ -19,13 +19,15 @@ import {
   TriangleAlert,
   X
 } from "lucide-react";
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { tauriApi } from "../api/tauriApi";
 import { CommandModal } from "./CommandModal";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, WorkspaceTopActions } from "./ShellChrome";
 import { BrandMark } from "./ui/BrandMark";
+import { PressMotion } from "./motion/PressMotion";
+import { playPageEnter } from "../utils/motion";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useCommandContext, useI18nContext, useNavigationContext, useWindowContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
@@ -133,6 +135,15 @@ export function AppShell() {
   const { view } = useNavigationContext();
   const [hasOpenedLibrary, setHasOpenedLibrary] = useState(view === "library");
   useEffect(() => { if (view === "library") setHasOpenedLibrary(true); }, [view]);
+  const viewStageRef = useRef<HTMLDivElement | null>(null);
+  const viewMotionReadyRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!viewMotionReadyRef.current) {
+      viewMotionReadyRef.current = true;
+      return;
+    }
+    playPageEnter(viewStageRef.current);
+  }, [view]);
   const { t } = useI18nContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
@@ -190,6 +201,7 @@ export function AppShell() {
       {!isSearchMode && <SearchLibraryHandoff />}
       {isSearchMode ? <SearchWindow /> : (
         <div className={appRoot} data-density={density}>
+          <PressMotion />
           <AmbientMesh />
           <div id={APP_SHELL_CONTENT_ID} className="zc-shell">
             <Titlebar
@@ -203,21 +215,19 @@ export function AppShell() {
               t={t}
             />
             <div className="zc-shell-body" data-sidebar-mode={sidebarMode}>
-              {sidebarMode !== "hidden" && (
-                <Sidebar
-                  groups={groups}
-                  mode={sidebarMode}
-                  canExpand={!narrow}
-                  onExpand={() => { setSidebarHidden(false); setSidebarRail(false); }}
-                />
-              )}
+              <Sidebar
+                groups={groups}
+                mode={sidebarMode}
+                canExpand={!narrow}
+                onExpand={() => { setSidebarHidden(false); setSidebarRail(false); }}
+              />
               <div className="zc-app-workspace">
                 <main data-flush={view === "library" || view === "settings" ? "true" : undefined}>
                   {view !== "library" && view !== "settings" ? (
                     <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
                   ) : null}
                   <ToastContainer />
-                  <div className={viewStageClass}>
+                  <div className={viewStageClass} ref={viewStageRef}>
                     {(hasOpenedLibrary || view === "library") && <div hidden={view !== "library"} className="h-full min-h-0 min-w-0">
                       <ViewErrorBoundary><Suspense fallback={<div className={softPanel}>{t("loading")}</div>}><FileLibraryWorkspace active={view === "library"}/></Suspense></ViewErrorBoundary>
                     </div>}
@@ -425,15 +435,20 @@ export const Sidebar = memo(function Sidebar({
   }
 
   return (
-    <aside id="zc-main-sidebar" className="zc-sidebar" aria-label={t("appName")} data-sidebar-mode={mode}>
+    <aside
+      id="zc-main-sidebar"
+      className="zc-sidebar"
+      aria-label={t("appName")}
+      aria-hidden={mode === "hidden" ? true : undefined}
+      inert={mode === "hidden" ? true : undefined}
+      data-sidebar-mode={mode}
+    >
       <div className="zc-sidebar-brand">
         <BrandMark size="sidebar" decorative />
-        {!rail && (
-          <div className="zc-sidebar-brand-text">
-            <strong>{t("appName")}</strong>
-            <span>{t("appTagline")}</span>
-          </div>
-        )}
+        <div className="zc-sidebar-brand-text">
+          <strong>{t("appName")}</strong>
+          <span>{t("appTagline")}</span>
+        </div>
         {rail && canExpand && (
           <button type="button" className="zc-titlebar-tool" onClick={onExpand} aria-label={t("shellShowSidebar")} title={t("shellShowSidebar")}>
             <PanelLeftOpen size={15} />

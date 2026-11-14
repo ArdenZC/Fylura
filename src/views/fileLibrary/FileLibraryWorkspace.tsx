@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, ChevronRight, Columns3, Grid2X2, List, PanelLeft
 import { lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
+import { playViewSwap } from "../../utils/motion";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import { isManagedLibraryBrowserFixture, type FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
@@ -118,10 +119,17 @@ function FileLibraryPane() {
   // after navigating into a folder the new history entry starts empty, so the
   // pane re-applies the mode the user last chose.
   const columnModeSticky = useRef(false);
+  const previousViewModeRef = useRef(viewMode);
   const changeViewMode = useCallback((nextViewMode: WorkspaceViewMode) => {
+    if (nextViewMode === controller.getState().workspace.session.presentation.viewMode) return;
     columnModeSticky.current = nextViewMode === "columns";
     controller.setViewMode(nextViewMode);
   }, [controller]);
+  useLayoutEffect(() => {
+    if (previousViewModeRef.current === viewMode) return;
+    previousViewModeRef.current = viewMode;
+    playViewSwap(workspaceRef.current?.querySelector(".file-library-content-slot"));
+  }, [viewMode]);
   useEffect(() => {
     if (columnModeSticky.current && viewMode !== "columns") controller.setViewMode("columns");
   }, [controller, viewMode]);
@@ -205,7 +213,7 @@ function FileLibraryPane() {
             data-context-open={contextOpen ? "true" : "false"}
             data-file-library-navigation-open={navigationVisible ? "true" : "false"}
             data-tree-inline={treeInline ? "true" : "false"}
-            style={treeInline ? { "--file-tree-width": `${treeWidth}px` } as React.CSSProperties : undefined}
+            style={layout === "large" ? { "--file-tree-width": `${treeWidth}px` } as React.CSSProperties : undefined}
           >
             <div className="file-library-location-row">
             <PathBar />
@@ -244,8 +252,9 @@ function FileLibraryPane() {
                   className="file-library-navigation-slot"
                   data-workspace-slot="navigation"
                   aria-hidden={!navigationVisible}
+                  inert={!navigationVisible ? true : undefined}
                 >
-                  {navigationVisible && (pane?.visible ?? true) ? (
+                  {(layout === "large" || navigationVisible) && (pane?.visible ?? true) ? (
                     <FileLibraryNavigation
                       controller={controller}
                       state={state}

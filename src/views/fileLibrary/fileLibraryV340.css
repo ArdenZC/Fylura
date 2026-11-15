@@ -177,6 +177,8 @@
 
 .wb-crumbs button {
   max-width: 220px;
+  min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   border-radius: 6px;
   padding: 3px 6px;

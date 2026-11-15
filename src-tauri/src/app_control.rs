@@ -31,9 +31,13 @@ const SEARCH_WINDOW_LABEL: &str = "search";
 #[cfg(feature = "desktop-runtime")]
 const MAIN_WINDOW_CLOSE_REQUESTED_EVENT: &str = "main-window-close-requested";
 const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
+#[allow(dead_code)]
 const MAIN_WINDOW_WIDTH: f64 = 1280.0;
+#[allow(dead_code)]
 const MAIN_WINDOW_HEIGHT: f64 = 860.0;
+#[allow(dead_code)]
 const MAIN_WINDOW_MIN_WIDTH: f64 = 980.0;
+#[allow(dead_code)]
 const MAIN_WINDOW_MIN_HEIGHT: f64 = 680.0;
 /// Pick a first-launch window that always fits the monitor's work area.
 ///
@@ -42,6 +46,7 @@ const MAIN_WINDOW_MIN_HEIGHT: f64 = 680.0;
 /// screen. Keep the designed size when it fits, otherwise shrink to the work
 /// area minus a 48px breathing margin and centre it. The documented minimum
 /// (980×680) is still honoured whenever the work area can contain it.
+#[allow(dead_code)]
 fn main_window_geometry(
     work_x: i32,
     work_y: i32,
@@ -1120,10 +1125,14 @@ fn ensure_main_window_locked<R: Runtime>(
     };
     let url = main_window_restore_url(generation, last_view);
     lifecycle.record_creation_start(generation);
-    let (initial_width, initial_height, initial_x, initial_y) = app
-        .primary_monitor()
+    // Prefer the display under the pointer (laptop + external monitor), then
+    // fall back to the primary display.
+    let initial_monitor = app
+        .cursor_position()
         .ok()
-        .flatten()
+        .and_then(|point| app.monitor_from_point(point.x, point.y).ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let (initial_width, initial_height, initial_x, initial_y) = initial_monitor
         .map(|monitor| {
             let work = monitor.work_area();
             main_window_geometry(
@@ -3030,6 +3039,14 @@ mod tests {
         assert_eq!((width, height), (1280.0, 816.0));
         assert!(x >= 0.0 && y >= 0.0);
         assert!(x + width <= 1536.0 && y + height <= 864.0);
+    }
+
+    #[test]
+    fn first_launch_window_centres_inside_a_secondary_display_work_area() {
+        let (width, height, x, y) = main_window_geometry(2560, 120, 2560, 1320, 1.0);
+        assert_eq!((width, height), (1280.0, 860.0));
+        assert!(x >= 2560.0 && x + width <= 5120.0);
+        assert!(y >= 120.0 && y + height <= 1440.0);
     }
 
     #[test]

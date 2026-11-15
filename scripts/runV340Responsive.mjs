@@ -143,7 +143,7 @@ async function open(display, windowSpec) {
     localStorage.setItem("zc-onboarding-complete", "true");
     localStorage.setItem("zc-language", "zh");
   }, { platform: display.platform });
-  await page.goto(`${baseUrl}/?browser-mock=1`);
+  await page.goto(`${baseUrl}/?browser-mock=1&u3-folder-move=1&devices-fixture=1`);
   await page.waitForTimeout(1500);
   return { page, context };
 }
@@ -203,10 +203,12 @@ const PAGE_STATES = STATES.filter((state) => ["overview", "organize", "cleanup",
 
 const cases = [];
 for (const display of DISPLAYS) {
+  // Large displays keep their real logical width (up to 2560), so the matrix
+  // also proves the 1180px reading cap instead of only testing a 1440 window.
   const fit = {
-    id: `fit-${Math.min(display.width - 48, 1440)}x${Math.min(display.height - 48, 900)}`,
-    width: Math.min(display.width - 48, 1440),
-    height: Math.min(display.height - 48, 900),
+    id: `fit-${Math.min(display.width - 48, 2560)}x${Math.min(display.height - 48, 1440)}`,
+    width: Math.min(display.width - 48, 2560),
+    height: Math.min(display.height - 48, 1440),
     state: "normal"
   };
   for (const state of DISPLAY_STATES) {
@@ -290,7 +292,7 @@ for (const item of quick ? cases.slice(0, 8) : cases) {
 const SHOTS = [
   { display: "fhd-150", window: "1280x720", state: "files" },
   { display: "uhd-250", window: "1536x864", state: "files-quad" },
-  { display: "mac-air13", window: "1280x832", state: "files-columns" },
+  { display: "mac-air13", window: "980x680", state: "files-columns" },
   { display: "mac-5k", window: "2560x1440", state: "settings" }
 ];
 for (const shot of SHOTS) {

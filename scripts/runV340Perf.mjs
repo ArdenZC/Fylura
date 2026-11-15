@@ -23,7 +23,7 @@ const requestedCpu = process.argv.includes("--cpu")
   : null;
 const rates = requestedCpu ? [requestedCpu] : [1, 4];
 
-const server = await createServer({ root: process.cwd(), server: { host: "127.0.0.1", port: 0 } });
+const server = await createServer({ root: process.cwd(), server: { host: "127.0.0.1", port: 5200 + Math.floor(Math.random() * 400) } });
 await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 assert.ok(baseUrl, "vite server did not start");
@@ -33,7 +33,17 @@ const chromeVersion = browser.version();
 const INSTRUMENT = `(() => {
   window.__perf = { frames: [], loaf: [] };
   let last = 0;
-  const loop = (t) => { if (last) window.__perf.frames.push(+(t - last).toFixed(2)); last = t; requestAnimationFrame(loop); };
+  const loop = (t) => {
+    if (last) {
+      window.__perf.frames.push({
+        dt: +(t - last).toFixed(2),
+        t,
+        active: document.getAnimations().length > 0
+      });
+    }
+    last = t;
+    requestAnimationFrame(loop);
+  };
   requestAnimationFrame(loop);
   try {
     new PerformanceObserver((list) => {
@@ -50,22 +60,26 @@ const INSTRUMENT = `(() => {
 })()`;
 
 const STATS = `(() => {
-  const frames = window.__perf.frames.slice(2, Math.max(3, window.__perf.frames.length - 2));
-  const sorted = [...frames].sort((a, b) => a - b);
-  const pct = (q) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] : 0;
+  const all = window.__perf.frames.slice(2, Math.max(3, window.__perf.frames.length - 2));
+  // Only frames where a CSS transition or WAAPI animation was actually running.
+  // Idle waits between repetitions must not dilute p50/p95 or hide dropped frames.
+  const active = all.filter((frame) => frame.active);
+  const sample = (active.length >= 8 ? active : all).map((frame) => frame.dt).sort((a, b) => a - b);
+  const pct = (q) => sample.length ? sample[Math.min(sample.length - 1, Math.floor(sample.length * q))] : 0;
   const budget = 1000 / 60;
   return {
-    frames: frames.length,
+    frames: sample.length,
+    idleFrames: all.length - active.length,
     p50: +pct(0.5).toFixed(1),
     p95: +pct(0.95).toFixed(1),
-    max: frames.length ? Math.max(...frames) : 0,
-    dropped: frames.filter((value) => value > budget * 1.6).length,
+    max: sample.length ? Math.max(...sample) : 0,
+    dropped: sample.filter((value) => value > budget * 1.6).length,
     loaf: window.__perf.loaf
   };
 })()`;
 
-async function openPage(cdpRate) {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "light" });
+async function openPage(cdpRate, dpr = 1) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: dpr, colorScheme: "light" });
   const page = await context.newPage();
   const cdp = await context.newCDPSession(page);
   await cdp.send("Performance.enable");
@@ -323,6 +337,7 @@ for (const rate of rates) {
         closing: outcome.closing ?? null,
         final: outcome.final ?? null,
         frames: stats.frames,
+        idleFrames: stats.idleFrames ?? 0,
         p50: stats.p50,
         p95: stats.p95,
         max: stats.max,
@@ -347,6 +362,46 @@ for (const rate of rates) {
   report.runs.push(run);
   await writeFile(path.join(outDir, `perf-${rate}x.json`), `${JSON.stringify({ ...report, cpu: rate, scenarios: run.scenarios }, null, 2)}\n`, "utf8");
 }
+
+// Extra sample: four panes on a Retina-class DPR (layout is the heaviest
+// multi-pane path and the one with the largest 4x long frame).
+const highDpr = [];
+for (const rate of rates) {
+  const layoutScenario = SCENARIOS.find((scenario) => scenario.id === "layout");
+  const { context, page, cdp } = await openPage(rate, 2);
+  try {
+    await page.evaluate(INSTRUMENT);
+    const before = await metrics(cdp);
+    const outcome = await layoutScenario.run(page);
+    const after = await metrics(cdp);
+    const stats = await page.evaluate(STATS);
+    highDpr.push({
+      cpu: rate,
+      dpr: 2,
+      verified: Boolean(outcome.verified),
+      animation: outcome.animation,
+      frames: stats.frames,
+      p50: stats.p50,
+      p95: stats.p95,
+      dropped: stats.dropped,
+      layout: Math.round((after.LayoutCount || 0) - (before.LayoutCount || 0)),
+      layoutMs: Math.round(((after.LayoutDuration || 0) - (before.LayoutDuration || 0)) * 1000),
+      styleMs: Math.round(((after.RecalcStyleDuration || 0) - (before.RecalcStyleDuration || 0)) * 1000),
+      loafCount: (stats.loaf ?? []).length,
+      loafMax: (stats.loaf ?? []).length ? Math.max(...stats.loaf.map((entry) => entry.duration)) : 0
+    });
+  } finally {
+    await context.close();
+  }
+}
+await writeFile(path.join(outDir, "perf-high-dpr.json"), `${JSON.stringify({
+  chrome: chromeVersion,
+  viewport: "1440x900",
+  dpr: 2,
+  platform: "Win32 mock",
+  fixture: "browser-mock=1 (managed mock root)",
+  scenarios: highDpr
+}, null, 2)}\n`, "utf8");
 
 await browser.close();
 await server.close();

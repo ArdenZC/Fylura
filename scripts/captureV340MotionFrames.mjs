@@ -10,7 +10,7 @@ import { createServer } from "vite";
 
 const outDir = path.join(process.cwd(), "docs/design/v340-evidence/parity/motion-frames");
 await mkdir(outDir, { recursive: true });
-const server = await createServer({ root: process.cwd(), server: { host: "127.0.0.1", port: 0 } });
+const server = await createServer({ root: process.cwd(), server: { host: "127.0.0.1", port: 5200 + Math.floor(Math.random() * 400) } });
 await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 const browser = await chromium.launch({ headless: true });

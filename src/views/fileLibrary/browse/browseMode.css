@@ -443,3 +443,9 @@
     transition: none;
   }
 }
+
+/* Medium windows keep the prototype's split Inspector; compact windows use
+ * the sheet. Multi-pane overlays stay scoped to their pane. */
+.file-library-workspace[data-layout="medium"] .browse-mode-body.has-context .file-library-browse-context-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 260px);
+}

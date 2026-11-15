@@ -35,8 +35,9 @@ let serial = 0;
 export const managementHistory: OperationLog[] = [];
 const parent = (path: string) => path.slice(0, path.lastIndexOf("/"));
 export function managementFixturePage(sessionId: string, directory: string, enumerationId: string): BrowseEntry[] | null {
-  if (!["C:/U1/", "C:/U3/"].some((prefix) => directory.replace(/\\/g, "/").startsWith(prefix))) return null;
-  return [...files].filter(([path]) => parent(path) === directory).map(([path, file]) => ({
+  const normalized = directory.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!["C:/U1", "C:/U3"].some((root) => normalized === root || normalized.startsWith(`${root}/`))) return null;
+  return [...files].filter(([path]) => parent(path) === normalized).map(([path, file]) => ({
     ref: { kind: "ephemeral", browseSessionId: sessionId, entryId: `${enumerationId}:${file.id}:${file.version}` },
     name: path.slice(path.lastIndexOf("/") + 1), displayPath: path, kind: file.directory ? "directory" : "file",
     ...(file.directory ? { pathRef: { id: `${enumerationId}:${file.id}:path` } } : { extension: path.split(".").at(-1), size: file.size ?? 10 }),

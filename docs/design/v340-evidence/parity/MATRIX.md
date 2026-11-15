@@ -56,15 +56,16 @@
 | 文件列表 | 四列 `22/1fr/96/118/78`、46/36 行、表头 36、发丝线 | PASS | **本轮修复空第三列与创建列** |
 | Inspector | 288px、标题「信息」、事实行、操作 | PASS | 标题/宽度已对齐；关闭内容瞬切 PARTIAL |
 | 状态栏 | 真实 loaded/total、选择范围、大小仅在已知时 | PASS | 未把已读取当全目录 |
-| 设备行 | 图标+名称+容量条+只读/云盘 chip+eject | PARTIAL | 组件测试通过；browser mock 无挂载卷 |
-| Files 1–4 窗格 | 2×2、分隔条、焦点环、窗格独立路径 | PASS | `panes4` 截图 + U3/U4 |
+| 设备行 | 图标+名称+容量条+只读/离线 chip+eject | PASS | 只读 SSD 60/256GB、离线 NAS 展示 fixture；`mountedLocations.test` |
+| Files 1–4 窗格 | 2×2、分隔条、焦点环、窗格独立路径/文件 | PASS | 四格分别加载 C:/U3/Left、C:/U3/Right、C:/U1/Source、C:/U1/Organize |
 | Overview | 状态带、任务行、最近/覆盖区 | PASS | 保留「无问候语」差异 |
-| AI Organize | 空态/计划 KPI/分组/操作条 | PASS | 空态卡片偏窄但可用；数据不同 |
-| AI Cleanup | 范围、扫描、空态、运行 KPI | PASS | 无范围时大面积留白属真实空态 |
+| AI Organize | 8 项计划、KPI、分组、审核条 | PASS | `pm01-organize=rich`，真实 plan/group/virtualized 列表 |
+| AI Cleanup | 9 条 finding、大小、风险原因、选择 | PASS | `pm01-cleanup=rich`：6 safe + 2 review + 1 caution |
 | History / Restore | KPI、批次列表、详情、时间线 | PASS | `prod-history-*` |
 | Settings | 212px 导航、60px 搜索头、820px 内容、单分区 | PASS | #582 基线复核 |
 | Global Search | 560 宽、14vh、遮罩 3px、48 输入行、34 结果行 | PASS | **本轮 720→560、20vh→14vh、补模糊** |
 | Preview / 菜单 | 卡片 1180×780、260ms；菜单 origin/翻向 | PASS | `motion-frames` |
+| macOS Finder Columns | 226px 祖先 / 244px 预览、层级、横向滚动 | PASS | MacIntel + DPR2，MoveFolder→nested 两级列；980 窄窗滚动 |
 | 深浅主题 | 画布/表面/文字/边框/玻璃 | PASS | 20 组双图 |
 | 窄窗 850 / DPR2 / 强制色 | 无横向溢出、控件可用 | PASS | 既有证据 + PR3 复核 |
 
@@ -89,16 +90,26 @@
 
 | 场景 | 1× p50/p95 | 1× 掉帧 | 4× p50/p95 | 4× Layout ms | 结果 |
 |---|---|---|---|---|---|
-| 页面切换 | 16.7/16.7 | 1 | 16.7/116.6 | 302 | PASS（整页重建） |
-| 侧栏收展 | 16.7/16.8 | 0 | 33.3/133.4 | 155 | PASS（低端可感知） |
-| 菜单弹出 | 16.7/16.8 | 0 | 16.7/83.4 | 35 | PASS |
-| 确认层 | 16.7/33.4 | 8 | 16.7/133.4 | 103 | PASS（保留 3px 模糊） |
-| 目录树折叠 | 16.7/16.7 | 0 | 16.7/16.8 | 221 | PASS |
-| 列表↔网格 | 16.7/16.8 | 0 | 16.7/33.4 | 159 | PASS |
-| 窗格布局切换 | 16.7/16.8 | 3 | 16.7/150.0 | 227 | PASS（四窗格重建） |
+| 页面切换 | 16.7/16.7 | 0 | 16.7/116.7 | 302 | PASS（整页重建） |
+| 侧栏收展 | 16.7/16.8 | 0 | 16.7/166.6 | 161 | PARTIAL（4× p95 偏高） |
+| 菜单弹出 | 16.7/16.7 | 0 | 16.7/100.0 | 36 | PASS |
+| 确认层 | 16.7/49.9 | 8 | 16.7/150.0 | 103 | PASS（3px 模糊保留） |
+| 目录树折叠 | 16.7/16.8 | 0 | 16.7/16.8 | 263 | PASS |
+| 列表↔网格 | 16.7/16.7 | 0 | 16.7/116.7 | 169 | PASS |
+| 窗格布局切换 | 16.7/16.8 | 3 | 16.7/216.7 | 235 | PARTIAL（最长 LoAF 542ms） |
+
+活动窗口统计：空闲帧不参与 p50/p95。DPR2 四窗格：1× 16.7/16.8、5 掉帧；
+4× 16.7/249.9、20 掉帧、LoAF 558ms。
 
 关键修复：移除主区无效 `backdrop-filter`（浮层 33.3→16.7ms）、移除空第三列
 （列表 370→658px）、列表宽度更新量化（只在断点变化时重渲染）。
+
+## D2. 响应式 / DPI（PR A）
+
+144 / 144 PASS，覆盖 1080P/2K/4K 缩放、Air13/15、Pro14/16、5K、980–2560 逻辑窗口。
+详见 `../responsive/README.md` 与 `responsive.json`。关键：首次窗口按 work area 适配、
+Finder 列宽 226/244、5K 名称列 1fr、内容页 1180 上限、窄窗四窗格单活动窗格 + 菜单切换。
+原生跨屏/每屏 DPI/WKWebView overlay scrollbar = NOT_TESTED。
 
 ## E. 本轮修复清单
 
@@ -114,7 +125,8 @@
 10. 设置下拉 200ms/.98；搜索卡片 260ms；Inspector 列宽 200ms。
 11. 多窗格菜单分段控件补样式（1/2/3/4 选中态、焦点环）。
 12. 主区 `backdrop-filter` 移除，浮层帧率翻倍。
-12. PR1 窗格重播修复回归复核。
+13. PR1 窗格重播修复回归复核。
+14. 5K 文件名 1fr / 数据列固定；Finder 列 226/244；首次窗口按 work area 适配。
 
 ## F. 明确保留（不计 PASS）
 
@@ -122,4 +134,4 @@
 - 生产无多选底部浮条（N/A）。
 - Inspector 关闭内容瞬切；Quick Preview 关闭无退场；两者均以数据/资源安全为先。
 - Toast 真实 watcher 错误浏览器触发未覆盖。
-- 原生安装版、真实设备、macOS overlay scrollbar：NOT_TESTED / #487 暂缓。
+- 原生安装版、真实设备凭证、跨屏 DPR/拖放坐标、macOS overlay scrollbar：NOT_TESTED / #487 暂缓。

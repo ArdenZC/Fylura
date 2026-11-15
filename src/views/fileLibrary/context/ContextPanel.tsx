@@ -53,7 +53,7 @@ export function ContextPanel({
     </div>
   );
 
-  if (inline) {
+  if (inline || usePaneOverlay) {
     return (
       <aside
         className={cn(

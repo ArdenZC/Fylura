@@ -1,5 +1,5 @@
 import { SELECTED_PREVIEW_LIMIT } from "../preview/useSelectedPreview";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { buttonSecondary } from "../../../utils/tw";
 import type { Translator } from "../../../types/ui";
 import { File, Folder, Info, X } from "lucide-react";
@@ -17,6 +17,19 @@ import {
   type ContextPanelProjection
 } from "./contextPanelProjection";
 
+/** Keeps the 980px minimum window on the modal sheet; 1024px+ splits inline. */
+function useInlineContextWidth() {
+  const [wide, setWide] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const update = () => setWide(window.innerWidth >= 1024);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return wide;
+}
+
 export function ContextPanel({
   projection,
   open,
@@ -29,10 +42,12 @@ export function ContextPanel({
   restoreFocus: () => HTMLElement | null;
 }) {
   const { layout, paneOverlay } = useContextPanelPresentation();
+  const wideEnoughForInline = useInlineContextWidth();
   const usePaneOverlay = paneOverlay && layout !== "large";
-  // A single medium window has enough room for the prototype's inline 260px
-  // inspector; only compact windows and multi-pane overlays use the sheet.
-  const inline = layout === "large" || (layout === "medium" && !paneOverlay);
+  // A 1024px+ medium window has room for the prototype's inline 260px
+  // inspector; the 980px minimum, compact layouts and pane overlays keep the
+  // modal sheet.
+  const inline = layout === "large" || (layout === "medium" && wideEnoughForInline && !paneOverlay);
   if (!open || projection.kind === "none") return null;
 
   const title = contextTitle(projection);

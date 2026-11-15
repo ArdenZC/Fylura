@@ -369,12 +369,10 @@ export function SharedFileList({
   // pane shrinks names before it overflows; the other tracks stay exact.
   const columnsStyle = [
     `${CHECKBOX_COLUMN_WIDTH}px`,
-    `minmax(${nameMinWidth}px, ${columnWidths[0]}px)`,
-    // The size column is last and has no resize handle, so it absorbs the
-    // remaining width and keeps its values flush with the panel edge.
-    ...columns.map((column) => column.field === "size"
-      ? `minmax(${columnWidths[column.widthIndex!]}px, 1fr)`
-      : `${columnWidths[column.widthIndex!]}px`)
+    // The name column absorbs wide displays; the data columns keep their
+    // measured widths (a 5K window must not turn the size lane into 1400px).
+    `minmax(${nameMinWidth}px, 1fr)`,
+    ...columns.map((column) => `${columnWidths[column.widthIndex!]}px`)
   ].join(" ");
 
   // Header selection state asks the source about each loaded entry instead of
@@ -444,9 +442,6 @@ export function SharedFileList({
             onClick={() => onSort("name")}>
             {t("fileName")}{sort?.field === "name" ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
           </button> : <span>{t("fileName")}</span>}
-          <span role="separator" aria-orientation="vertical" aria-label={`${t("fileName")} column width`} aria-valuemin={nameMinWidth} aria-valuemax={1200} aria-valuenow={columnWidths[0]} tabIndex={0} className="shared-file-list-column-resize"
-            onPointerDown={(event) => resizePointerDown(event, 0)} onPointerMove={resizePointerMove} onPointerUp={resizePointerUp}
-            onPointerCancel={resizePointerUp} onKeyDown={(event) => resizeByKeyboard(event, 0)} />
         </div>
         {columns.map(({ field, label, widthIndex }, index) => (
           <div key={field} className="shared-file-list-header-cell">

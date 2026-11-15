@@ -28,9 +28,13 @@
   border-right: 1px solid var(--zc-divider);
 }
 
+/* Finder columns are fixed: 226px for ancestors, 244px for the preview
+ * column (DESIGN-SPEC §5.4). A growing last column turned into one huge list
+ * on wide displays instead of a column browser. */
 .browse-column[data-browse-column-current="true"] {
-  min-width: 240px;
-  flex: 1 1 auto;
+  width: 244px;
+  min-width: 244px;
+  flex: 0 0 244px;
   border-right: 0;
 }
 

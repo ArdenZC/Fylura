@@ -62,6 +62,37 @@ describe("PM-01 browser presentation fixtures", () => {
     expect(run).toMatchObject({ status: "failed", errorCode: "browser_presentation_analysis_failure" });
   });
 
+  it("builds an eight-item organize plan from real plan/group projections", async () => {
+    vi.stubGlobal("location", new URL("http://localhost/?pm01-organize=rich"));
+    const plans = await mockInvokeCommand<any[]>("list_organization_plans");
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ materializedCount: 8, requestedCount: 8 });
+    const items = await mockInvokeCommand<any>("query_organization_plan_items", {
+      request: { planId: plans[0].id, pageSize: 100 }
+    });
+    expect(items.items).toHaveLength(8);
+    const groups = await mockInvokeCommand<any>("query_organization_plan_groups", {
+      request: { planId: plans[0].id, pageSize: 100 }
+    });
+    expect(groups.groups.length).toBeGreaterThan(1);
+  });
+
+  it("publishes nine rich cleanup findings with safe, review and caution tiers", async () => {
+    vi.stubGlobal("location", new URL("http://localhost/?pm01-cleanup=rich"));
+    const run = await mockInvokeCommand<any>("start_analysis_run", {
+      request: {
+        requestKey: "pm01-browser-rich-cleanup",
+        scope: { kind: "approvedCleanupPaths", paths: ["C:/Users/Zen/Documents"] }
+      }
+    });
+    expect(run).toMatchObject({ status: "completed", findingsPublished: 9, safeCount: 6, reviewCount: 2, cautionCount: 1 });
+    const page = await mockInvokeCommand<any>("list_analysis_findings", { runId: run.id, limit: 100 });
+    expect(page.findings).toHaveLength(9);
+    expect(page.findings.filter((finding: { tier: string }) => finding.tier === "safe")).toHaveLength(6);
+    expect(page.findings.filter((finding: { tier: string }) => finding.tier === "review")).toHaveLength(2);
+    expect(page.findings.filter((finding: { tier: string }) => finding.tier === "caution")).toHaveLength(1);
+  });
+
   it("labels useful-folder and manual-index routes as browser presentation settings", async () => {
     vi.stubGlobal("location", new URL("http://localhost/?pm01-onboarding=folder-index-off"));
     const versioned = await mockInvokeCommand<any>("get_settings");

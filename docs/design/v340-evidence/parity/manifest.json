@@ -140,7 +140,52 @@
       "viewport": "850x680",
       "proto": "proto-files-light-850x680.webp",
       "prod": "prod-files-light-850x680.webp"
+    },
+    {
+      "scenario": "mac-files",
+      "theme": "light",
+      "viewport": "1440x900",
+      "dpr": 2,
+      "platform": "MacIntel",
+      "proto": "proto-mac-files-light-1440x900.webp",
+      "prod": "prod-mac-files-light-1440x900.webp"
+    },
+    {
+      "scenario": "mac-columns",
+      "theme": "light",
+      "viewport": "1440x900",
+      "dpr": 2,
+      "platform": "MacIntel",
+      "proto": "proto-mac-columns-light-1440x900.webp",
+      "prod": "prod-mac-columns-light-1440x900.webp"
+    },
+    {
+      "scenario": "mac-files-air13",
+      "theme": "light",
+      "viewport": "1280x832",
+      "dpr": 2,
+      "platform": "MacIntel",
+      "proto": "proto-mac-files-air13-light-1280x832.webp",
+      "prod": "prod-mac-files-air13-light-1280x832.webp"
+    },
+    {
+      "scenario": "mac-files",
+      "theme": "dark",
+      "viewport": "1440x900",
+      "dpr": 2,
+      "platform": "MacIntel",
+      "proto": "proto-mac-files-dark-1440x900.webp",
+      "prod": "prod-mac-files-dark-1440x900.webp"
+    },
+    {
+      "scenario": "mac-columns",
+      "theme": "dark",
+      "viewport": "1440x900",
+      "dpr": 2,
+      "platform": "MacIntel",
+      "proto": "proto-mac-columns-dark-1440x900.webp",
+      "prod": "prod-mac-columns-dark-1440x900.webp"
     }
   ],
-  "note": "Committed images are WebP (quality 0.9) derivatives of the PNG capture; captureV340Parity.mjs writes PNG."
+  "note": "Committed images are WebP (quality 0.9) derivatives of the PNG capture; captureV340Parity.mjs writes PNG and extracts the prototype from the committed ZIP."
 }

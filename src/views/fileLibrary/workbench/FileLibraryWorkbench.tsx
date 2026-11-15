@@ -502,14 +502,36 @@ export function FileLibraryWorkbench({
     focus,
     t,
   });
+  // Unhiding four virtualized panes in one React commit produced a ~520ms
+  // script task at 4× CPU. Reveal them one per frame; identity, paths and
+  // controllers stay owned by the existing pane model.
+  const [paneReveal, setPaneReveal] = useState<{ tabId: string; count: number }>({ tabId: active.id, count: active.paneCount });
+  useEffect(() => {
+    if (paneReveal.tabId !== active.id) {
+      setPaneReveal({ tabId: active.id, count: active.paneCount });
+      return undefined;
+    }
+    if (paneReveal.count > active.paneCount) {
+      setPaneReveal({ tabId: active.id, count: active.paneCount });
+      return undefined;
+    }
+    if (paneReveal.count >= active.paneCount) return undefined;
+    const frame = requestAnimationFrame(() => {
+      setPaneReveal((current) => current.tabId === active.id
+        ? { tabId: current.tabId, count: Math.min(active.paneCount, current.count + 1) }
+        : current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active.id, active.paneCount, paneReveal]);
+  const revealCount = paneReveal.tabId === active.id ? Math.min(paneReveal.count, active.paneCount) : active.paneCount;
   const paneMotionRef = useRef<{ count: number; ids: string[] } | null>(null);
   useLayoutEffect(() => {
     const panes = [...(root.current?.querySelectorAll<HTMLElement>(".wb-pane") ?? [])]
       .filter((pane) => pane.offsetParent !== null);
     const ids = panes.map((pane) => pane.getAttribute("data-pane-id") ?? "");
     const previous = paneMotionRef.current;
-    paneMotionRef.current = { count: active.paneCount, ids };
-    if (!previous || previous.count === active.paneCount) return;
+    paneMotionRef.current = { count: revealCount, ids };
+    if (!previous || previous.count === revealCount) return;
     // Only the panes that did not exist before land in; re-running the entrance
     // on every existing pane made a layout change look like a full refresh.
     const previousIds = new Set(previous.ids);
@@ -517,7 +539,7 @@ export function FileLibraryWorkbench({
       const newlyRevealed = index >= previous.count || !previousIds.has(ids[index]);
       if (newlyRevealed) playPaneEnter(pane);
     });
-  }, [active.paneCount, active.layout]);
+  }, [revealCount, active.layout]);
 
   // Keep the known pane ids current for renders that do not change the count
   // (initial hydration, async pane admission). Without this a first layout
@@ -825,12 +847,13 @@ export function FileLibraryWorkbench({
           hidden={state.activeTabId !== tab.id}
           data-multiple={tab.paneCount > 1 && wide}
         >
-          <WorkbenchLayout tab={tab} model={model} wide={wide} label={t("wbResizePane")} disabled={locked}>
+          <WorkbenchLayout tab={tab} model={model} wide={wide} revealCount={tab.id === active.id ? revealCount : tab.paneCount} label={t("wbResizePane")} disabled={locked}>
           {tab.panes.map((pane, index) => {
+            const tabReveal = tab.id === active.id ? revealCount : tab.paneCount;
             const visible =
               workspaceReady && workspaceActive &&
               state.activeTabId === tab.id &&
-              index < tab.paneCount && (wide || tab.activePaneId === pane.id);
+              index < tab.paneCount && index < tabReveal && (wide || tab.activePaneId === pane.id);
             return (
               <PaneHost
                 key={pane.id}

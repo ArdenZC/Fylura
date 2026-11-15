@@ -1862,12 +1862,14 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
   const failed = scenario === "analysis-failure";
   const singleFindingVisibilityFixture = scenario === "visibility";
   const manyFindingVisibilityFixture = scenario === "visibility-many";
+  const richFixture = scenario === "rich";
   const visibilityFixture = singleFindingVisibilityFixture || manyFindingVisibilityFixture;
   if (scenario === "workflow") mockWorkflowAssessed.clear();
-  const hasPresentationFindings = visibilityFixture || scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview" || scenario === "workflow";
-  const safeFindingCount = singleFindingVisibilityFixture ? 1 : manyFindingVisibilityFixture ? 48 : hasPresentationFindings ? 1 : 0;
-  const reviewFindingCount = hasPresentationFindings && !visibilityFixture ? 1 : 0;
-  const presentationFindingCount = safeFindingCount + reviewFindingCount + (scenario === "workflow" ? 1 : 0);
+  const hasPresentationFindings = visibilityFixture || richFixture || scenario === "current-assessment" || scenario === "request-unavailable" || scenario === "preview" || scenario === "workflow";
+  const safeFindingCount = richFixture ? 6 : singleFindingVisibilityFixture ? 1 : manyFindingVisibilityFixture ? 48 : hasPresentationFindings ? 1 : 0;
+  const reviewFindingCount = richFixture ? 2 : hasPresentationFindings && !visibilityFixture ? 1 : 0;
+  const cautionFindingCount = richFixture || scenario === "workflow" ? 1 : 0;
+  const presentationFindingCount = safeFindingCount + reviewFindingCount + cautionFindingCount;
   const requestedPaths = request?.scope?.paths?.map((path) => path.trim()).filter(Boolean) ?? [];
   const cleanupCandidates = mockStorageAnalysis().candidates;
   const safeCandidate = cleanupCandidates.find((candidate) => candidate.id === "storage-safe-node-modules");
@@ -1899,7 +1901,7 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
     findingsPublished: presentationFindingCount,
     safeCount: safeFindingCount,
     reviewCount: reviewFindingCount,
-    cautionCount: scenario === "workflow" ? 1 : 0,
+    cautionCount: cautionFindingCount,
     exactReclaimableBytes: hasPresentationFindings ? safeCandidate?.size ?? 1024 : 0,
     potentialReclaimableBytes: hasPresentationFindings
       ? (safeCandidate?.size ?? 1024) * safeFindingCount + (reviewCandidate?.size ?? 1024) * reviewFindingCount
@@ -1927,17 +1929,23 @@ function startMockAnalysisRun(request?: StartAnalysisRunRequest): AnalysisRun {
           }
           : finding;
       }),
-      ...(reviewFindingCount ? [makeMockCleanupFinding(run, reviewCandidate, reviewFindingId, reviewPath, "review")] : []),
-      ...(scenario === "workflow" ? [{ ...makeMockCleanupFinding(run, undefined, "browser-protected", `${rootPath}/personal-records`, "review"), tier: "caution", title: "personal-records", executable: false, actionKind: "reveal", reason: "Personal records are protected; retain them.", category: "User files" }] : [])
+      ...Array.from({ length: reviewFindingCount }, (_, index) => makeMockCleanupFinding(
+        run,
+        reviewCandidate,
+        reviewFindingCount > 1 ? `${reviewFindingId}-${index + 1}` : reviewFindingId,
+        reviewFindingCount > 1 ? `${reviewPath.replace(/\.mp4$/, "")}-${index + 1}.mp4` : reviewPath,
+        "review"
+      )),
+      ...(cautionFindingCount ? [{ ...makeMockCleanupFinding(run, undefined, "browser-protected", `${rootPath}/personal-records`, "review"), tier: "caution", title: "personal-records", executable: false, actionKind: "reveal", reason: "Personal records are protected; retain them.", category: "User files" }] : [])
     ]
     : [];
   mockAnalysisRuns = [run, ...mockAnalysisRuns].slice(0, 20);
   return run;
 }
 
-function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" | "visibility" | "visibility-many" | "workflow" {
+function mockCleanupPresentationScenario(): "none" | "analysis-failure" | "current-assessment" | "request-unavailable" | "preview" | "visibility" | "visibility-many" | "workflow" | "rich" {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" || value === "visibility" || value === "visibility-many" || value === "workflow" ? value : "none";
+  return value === "analysis-failure" || value === "current-assessment" || value === "request-unavailable" || value === "preview" || value === "visibility" || value === "visibility-many" || value === "workflow" || value === "rich" ? value : "none";
 }
 
 function makeMockCleanupFinding(
@@ -4465,11 +4473,23 @@ function browserPresentationFeatureReadinessFixture(): AIProductFeatureReadiness
 
 function listMockOrganizationPlans(): OrganizationPlan[] {
   const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-organize");
-  if (fixture && ["needs-analysis", "ready", "review", "blocked"].includes(fixture)
+  if (fixture === "rich" && !mockFiles.some((file) => file.id === "mock-rich-meeting")) {
+    // Presentation-only files: they exercise the real plan/group/review UI
+    // without adding any executable native operation.
+    mockFiles.push(
+      file({ id: "mock-rich-meeting", name: "meeting-notes.md", path: "C:/Users/Zen/Documents/Work/meeting-notes.md", directory: "C:/Users/Zen/Documents/Work", extension: "md", size: 18_000, file_type: "Document", purpose: "Work", lifecycle: "Active", confidence: 0.88 }),
+      file({ id: "mock-rich-budget", name: "budget-2026.xlsx", path: "C:/Users/Zen/Documents/Finance/budget-2026.xlsx", directory: "C:/Users/Zen/Documents/Finance", extension: "xlsx", size: 640_000, file_type: "Spreadsheet", purpose: "Finance", lifecycle: "Active", confidence: 0.84 }),
+      file({ id: "mock-rich-cover", name: "cover-hero.png", path: "C:/Users/Zen/Downloads/cover-hero.png", directory: "C:/Users/Zen/Downloads", extension: "png", size: 3_200_000, file_type: "Image", purpose: "Work", lifecycle: "Active", confidence: 0.81 }),
+      file({ id: "mock-rich-invoice", name: "invoice-q3.pdf", path: "C:/Users/Zen/Downloads/invoice-q3.pdf", directory: "C:/Users/Zen/Downloads", extension: "pdf", size: 420_000, file_type: "Document", purpose: "Finance", lifecycle: "Active", confidence: 0.83 }),
+      file({ id: "mock-rich-week6", name: "week-06.key", path: "C:/Users/Zen/Documents/Teaching/week-06.key", directory: "C:/Users/Zen/Documents/Teaching", extension: "key", size: 5_600_000, file_type: "Presentation", purpose: "Teaching", lifecycle: "Active", confidence: 0.79 })
+    );
+  }
+  if (fixture && ["needs-analysis", "ready", "review", "blocked", "rich"].includes(fixture)
     && !mockOrganizationPlans.some((plan) => plan.id.startsWith("browser-presentation-organization-plan-"))) {
-    const fileIds = mockFiles.filter((file) => !file.is_stale).slice(0, 3).map((file) => file.id);
+    const count = fixture === "rich" ? 8 : 3;
+    const fileIds = mockFiles.filter((file) => !file.is_stale).slice(0, count).map((file) => file.id);
     createMockOrganizationPlan({
-      title: "Browser presentation fixture",
+      title: fixture === "rich" ? "整理建议 · 2026 秋季" : "Browser presentation fixture",
       source: { kind: "explicit", fileIds },
       expectedCount: fileIds.length
     });

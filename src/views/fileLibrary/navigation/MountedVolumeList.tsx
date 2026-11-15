@@ -29,12 +29,12 @@ export function MountedVolumeList({ mounted, onOpen, t }: {
       const usedPercent = total && total > 0 && available !== null
         ? Math.round(Math.min(100, Math.max(0, ((total - available) / total) * 100)))
         : null;
-      const chip: { key: "filesVolumeReadOnly" | "filesCloudProvider" | "filesDeviceDisconnected"; variant: string } | null = location.volume?.readOnly
+      const chip: { key: "filesVolumeReadOnly" | "filesCloudProvider" | "filesDeviceOfflineChip"; variant: string } | null = location.volume?.readOnly
         ? { key: "filesVolumeReadOnly", variant: "is-ro" }
         : location.kind === "cloud_provider"
           ? { key: "filesCloudProvider", variant: "is-cloud" }
           : offline
-            ? { key: "filesDeviceDisconnected", variant: "is-off" }
+            ? { key: "filesDeviceOfflineChip", variant: "is-off" }
             : null;
       const detail = networkLocation
         ? t(networkStatusKey)

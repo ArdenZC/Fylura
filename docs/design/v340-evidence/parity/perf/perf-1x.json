@@ -11,7 +11,7 @@
         {
           "id": "page",
           "name": "页面切换",
-          "durationMs": 3390,
+          "durationMs": 3392,
           "verified": true,
           "animation": {
             "id": "zc-page-in",
@@ -23,16 +23,17 @@
             "opacity": "1",
             "transform": "none"
           },
-          "frames": 198,
+          "frames": 141,
+          "idleFrames": 58,
           "p50": 16.7,
           "p95": 16.7,
-          "max": 33.2,
-          "dropped": 1,
-          "layout": 60,
-          "recalc": 212,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 62,
+          "recalc": 214,
           "layoutMs": 51,
-          "styleMs": 40,
-          "scriptMs": 295,
+          "styleMs": 43,
+          "scriptMs": 301,
           "loafCount": 0,
           "loafMax": 0,
           "loafStyleMs": 0
@@ -40,7 +41,7 @@
         {
           "id": "rail",
           "name": "侧栏收展",
-          "durationMs": 2121,
+          "durationMs": 2140,
           "verified": true,
           "animation": {
             "property": "opacity, padding, border-radius",
@@ -50,25 +51,26 @@
           "closing": null,
           "final": {
             "widths": [
-              82.65625,
-              7.859375,
-              189.53125,
               75.234375,
               7.84375,
-              189.421875
+              189.484375,
+              75.21875,
+              7.859375,
+              189.46875
             ],
             "finalWidth": 216
           },
-          "frames": 124,
+          "frames": 76,
+          "idleFrames": 48,
           "p50": 16.7,
           "p95": 16.8,
           "max": 16.8,
           "dropped": 0,
-          "layout": 94,
-          "recalc": 103,
-          "layoutMs": 60,
-          "styleMs": 29,
-          "scriptMs": 600,
+          "layout": 95,
+          "recalc": 104,
+          "layoutMs": 59,
+          "styleMs": 30,
+          "scriptMs": 585,
           "loafCount": 0,
           "loafMax": 0,
           "loafStyleMs": 0
@@ -76,7 +78,7 @@
         {
           "id": "menu",
           "name": "菜单弹出",
-          "durationMs": 1199,
+          "durationMs": 1173,
           "verified": true,
           "animation": {
             "id": "zc-menu-in",
@@ -91,15 +93,16 @@
           "final": {
             "menuCount": 0
           },
-          "frames": 68,
+          "frames": 63,
+          "idleFrames": 3,
           "p50": 16.7,
-          "p95": 16.8,
+          "p95": 16.7,
           "max": 16.8,
           "dropped": 0,
-          "layout": 16,
-          "recalc": 98,
+          "layout": 15,
+          "recalc": 95,
           "layoutMs": 6,
-          "styleMs": 13,
+          "styleMs": 14,
           "scriptMs": 164,
           "loafCount": 0,
           "loafMax": 0,
@@ -108,7 +111,7 @@
         {
           "id": "sheet",
           "name": "确认层",
-          "durationMs": 935,
+          "durationMs": 926,
           "verified": true,
           "animation": {
             "id": "zc-dialog-card-in",
@@ -117,18 +120,19 @@
           "closing": null,
           "final": {
             "realDialog": 0,
-            "ghost": 0
+            "ghost": 1
           },
-          "frames": 42,
+          "frames": 30,
+          "idleFrames": 10,
           "p50": 16.7,
-          "p95": 33.4,
-          "max": 50.1,
+          "p95": 49.9,
+          "max": 50,
           "dropped": 8,
-          "layout": 30,
-          "recalc": 81,
+          "layout": 27,
+          "recalc": 74,
           "layoutMs": 18,
-          "styleMs": 32,
-          "scriptMs": 70,
+          "styleMs": 30,
+          "scriptMs": 72,
           "loafCount": 0,
           "loafMax": 0,
           "loafStyleMs": 0
@@ -136,7 +140,7 @@
         {
           "id": "tree",
           "name": "目录树折叠",
-          "durationMs": 1996,
+          "durationMs": 2013,
           "verified": true,
           "animation": {
             "property": "grid-template-rows, opacity",
@@ -154,16 +158,17 @@
               }
             ]
           },
-          "frames": 116,
+          "frames": 74,
+          "idleFrames": 42,
           "p50": 16.7,
-          "p95": 16.7,
+          "p95": 16.8,
           "max": 16.8,
           "dropped": 0,
-          "layout": 90,
-          "recalc": 106,
-          "layoutMs": 38,
-          "styleMs": 9,
-          "scriptMs": 34,
+          "layout": 91,
+          "recalc": 107,
+          "layoutMs": 48,
+          "styleMs": 10,
+          "scriptMs": 36,
           "loafCount": 0,
           "loafMax": 0,
           "loafStyleMs": 0
@@ -171,7 +176,7 @@
         {
           "id": "view",
           "name": "列表↔网格",
-          "durationMs": 3555,
+          "durationMs": 3567,
           "verified": true,
           "animation": {
             "id": "zc-view-swap",
@@ -183,16 +188,17 @@
             "list": 1,
             "grid": 0
           },
-          "frames": 209,
+          "frames": 150,
+          "idleFrames": 60,
           "p50": 16.7,
-          "p95": 16.8,
+          "p95": 16.7,
           "max": 16.8,
           "dropped": 0,
           "layout": 60,
           "recalc": 250,
-          "layoutMs": 27,
-          "styleMs": 43,
-          "scriptMs": 206,
+          "layoutMs": 29,
+          "styleMs": 46,
+          "scriptMs": 198,
           "loafCount": 0,
           "loafMax": 0,
           "loafStyleMs": 0
@@ -200,7 +206,7 @@
         {
           "id": "layout",
           "name": "窗格布局切换",
-          "durationMs": 3084,
+          "durationMs": 3095,
           "verified": true,
           "animation": {
             "id": "zc-pane-in",
@@ -216,19 +222,20 @@
               "1"
             ]
           },
-          "frames": 175,
+          "frames": 111,
+          "idleFrames": 65,
           "p50": 16.7,
           "p95": 16.8,
-          "max": 66.6,
+          "max": 33.4,
           "dropped": 3,
-          "layout": 96,
-          "recalc": 200,
-          "layoutMs": 35,
-          "styleMs": 29,
-          "scriptMs": 375,
+          "layout": 101,
+          "recalc": 211,
+          "layoutMs": 41,
+          "styleMs": 33,
+          "scriptMs": 443,
           "loafCount": 2,
-          "loafMax": 90,
-          "loafStyleMs": 81
+          "loafMax": 86,
+          "loafStyleMs": 72
         }
       ]
     }
@@ -238,7 +245,7 @@
     {
       "id": "page",
       "name": "页面切换",
-      "durationMs": 3390,
+      "durationMs": 3392,
       "verified": true,
       "animation": {
         "id": "zc-page-in",
@@ -250,16 +257,17 @@
         "opacity": "1",
         "transform": "none"
       },
-      "frames": 198,
+      "frames": 141,
+      "idleFrames": 58,
       "p50": 16.7,
       "p95": 16.7,
-      "max": 33.2,
-      "dropped": 1,
-      "layout": 60,
-      "recalc": 212,
+      "max": 16.8,
+      "dropped": 0,
+      "layout": 62,
+      "recalc": 214,
       "layoutMs": 51,
-      "styleMs": 40,
-      "scriptMs": 295,
+      "styleMs": 43,
+      "scriptMs": 301,
       "loafCount": 0,
       "loafMax": 0,
       "loafStyleMs": 0
@@ -267,7 +275,7 @@
     {
       "id": "rail",
       "name": "侧栏收展",
-      "durationMs": 2121,
+      "durationMs": 2140,
       "verified": true,
       "animation": {
         "property": "opacity, padding, border-radius",
@@ -277,25 +285,26 @@
       "closing": null,
       "final": {
         "widths": [
-          82.65625,
-          7.859375,
-          189.53125,
           75.234375,
           7.84375,
-          189.421875
+          189.484375,
+          75.21875,
+          7.859375,
+          189.46875
         ],
         "finalWidth": 216
       },
-      "frames": 124,
+      "frames": 76,
+      "idleFrames": 48,
       "p50": 16.7,
       "p95": 16.8,
       "max": 16.8,
       "dropped": 0,
-      "layout": 94,
-      "recalc": 103,
-      "layoutMs": 60,
-      "styleMs": 29,
-      "scriptMs": 600,
+      "layout": 95,
+      "recalc": 104,
+      "layoutMs": 59,
+      "styleMs": 30,
+      "scriptMs": 585,
       "loafCount": 0,
       "loafMax": 0,
       "loafStyleMs": 0
@@ -303,7 +312,7 @@
     {
       "id": "menu",
       "name": "菜单弹出",
-      "durationMs": 1199,
+      "durationMs": 1173,
       "verified": true,
       "animation": {
         "id": "zc-menu-in",
@@ -318,15 +327,16 @@
       "final": {
         "menuCount": 0
       },
-      "frames": 68,
+      "frames": 63,
+      "idleFrames": 3,
       "p50": 16.7,
-      "p95": 16.8,
+      "p95": 16.7,
       "max": 16.8,
       "dropped": 0,
-      "layout": 16,
-      "recalc": 98,
+      "layout": 15,
+      "recalc": 95,
       "layoutMs": 6,
-      "styleMs": 13,
+      "styleMs": 14,
       "scriptMs": 164,
       "loafCount": 0,
       "loafMax": 0,
@@ -335,7 +345,7 @@
     {
       "id": "sheet",
       "name": "确认层",
-      "durationMs": 935,
+      "durationMs": 926,
       "verified": true,
       "animation": {
         "id": "zc-dialog-card-in",
@@ -344,18 +354,19 @@
       "closing": null,
       "final": {
         "realDialog": 0,
-        "ghost": 0
+        "ghost": 1
       },
-      "frames": 42,
+      "frames": 30,
+      "idleFrames": 10,
       "p50": 16.7,
-      "p95": 33.4,
-      "max": 50.1,
+      "p95": 49.9,
+      "max": 50,
       "dropped": 8,
-      "layout": 30,
-      "recalc": 81,
+      "layout": 27,
+      "recalc": 74,
       "layoutMs": 18,
-      "styleMs": 32,
-      "scriptMs": 70,
+      "styleMs": 30,
+      "scriptMs": 72,
       "loafCount": 0,
       "loafMax": 0,
       "loafStyleMs": 0
@@ -363,7 +374,7 @@
     {
       "id": "tree",
       "name": "目录树折叠",
-      "durationMs": 1996,
+      "durationMs": 2013,
       "verified": true,
       "animation": {
         "property": "grid-template-rows, opacity",
@@ -381,16 +392,17 @@
           }
         ]
       },
-      "frames": 116,
+      "frames": 74,
+      "idleFrames": 42,
       "p50": 16.7,
-      "p95": 16.7,
+      "p95": 16.8,
       "max": 16.8,
       "dropped": 0,
-      "layout": 90,
-      "recalc": 106,
-      "layoutMs": 38,
-      "styleMs": 9,
-      "scriptMs": 34,
+      "layout": 91,
+      "recalc": 107,
+      "layoutMs": 48,
+      "styleMs": 10,
+      "scriptMs": 36,
       "loafCount": 0,
       "loafMax": 0,
       "loafStyleMs": 0
@@ -398,7 +410,7 @@
     {
       "id": "view",
       "name": "列表↔网格",
-      "durationMs": 3555,
+      "durationMs": 3567,
       "verified": true,
       "animation": {
         "id": "zc-view-swap",
@@ -410,16 +422,17 @@
         "list": 1,
         "grid": 0
       },
-      "frames": 209,
+      "frames": 150,
+      "idleFrames": 60,
       "p50": 16.7,
-      "p95": 16.8,
+      "p95": 16.7,
       "max": 16.8,
       "dropped": 0,
       "layout": 60,
       "recalc": 250,
-      "layoutMs": 27,
-      "styleMs": 43,
-      "scriptMs": 206,
+      "layoutMs": 29,
+      "styleMs": 46,
+      "scriptMs": 198,
       "loafCount": 0,
       "loafMax": 0,
       "loafStyleMs": 0
@@ -427,7 +440,7 @@
     {
       "id": "layout",
       "name": "窗格布局切换",
-      "durationMs": 3084,
+      "durationMs": 3095,
       "verified": true,
       "animation": {
         "id": "zc-pane-in",
@@ -443,19 +456,20 @@
           "1"
         ]
       },
-      "frames": 175,
+      "frames": 111,
+      "idleFrames": 65,
       "p50": 16.7,
       "p95": 16.8,
-      "max": 66.6,
+      "max": 33.4,
       "dropped": 3,
-      "layout": 96,
-      "recalc": 200,
-      "layoutMs": 35,
-      "styleMs": 29,
-      "scriptMs": 375,
+      "layout": 101,
+      "recalc": 211,
+      "layoutMs": 41,
+      "styleMs": 33,
+      "scriptMs": 443,
       "loafCount": 2,
-      "loafMax": 90,
-      "loafStyleMs": 81
+      "loafMax": 86,
+      "loafStyleMs": 72
     }
   ]
 }

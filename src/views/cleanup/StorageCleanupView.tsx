@@ -83,7 +83,7 @@ type Props = {
 function browserPresentationCleanupPath(kind: "downloads" | "desktop" | "documents" | "temp"): string | null {
   if (!isBrowserMockEnabled()) return null;
   const fixture = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-cleanup");
-  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview", "visibility", "visibility-many", "workflow"].includes(fixture)) return null;
+  if (!fixture || !["analysis-failure", "current-assessment", "request-unavailable", "preview", "visibility", "visibility-many", "workflow", "rich"].includes(fixture)) return null;
   // Explicit PM-01 browser fixtures use synthetic paths; native scope selection remains OS-owned.
   return {
     downloads: "C:/Users/Zen/Downloads",

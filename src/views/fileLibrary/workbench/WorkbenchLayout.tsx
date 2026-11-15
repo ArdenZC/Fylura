@@ -1,10 +1,11 @@
 import { useRef, type ReactNode } from "react";
 import type { FileWorkbenchModel, WorkbenchTab } from "./workbenchModel";
 /** Layout preferences only; pane controllers and transfer ownership stay outside. */
-export function WorkbenchLayout({ tab, model, wide, children, label, disabled }: {
+export function WorkbenchLayout({ tab, model, wide, revealCount, children, label, disabled }: {
     tab: WorkbenchTab;
     model: FileWorkbenchModel;
     wide: boolean;
+    revealCount: number;
     children: ReactNode[];
     label: string;
     disabled: boolean;
@@ -57,7 +58,7 @@ export function WorkbenchLayout({ tab, model, wide, children, label, disabled }:
     }
     return <div ref={root} className="wb-layout" data-columns={columns} data-rows={rows} style={{ gridTemplateColumns: tab.columnSizes.slice(0, columns).map((n) => `minmax(0, ${n}fr)`).join(" "),
             gridTemplateRows: tab.rowSizes.slice(0, rows).map((n) => `minmax(0, ${n}fr)`).join(" ") }}>
-    {children.map((child, index) => <div className="wb-pane-cell" key={tab.panes[index].id} hidden={index >= tab.paneCount || (!wide && tab.panes[index].id !== tab.activePaneId)}>{child}</div>)}
+    {children.map((child, index) => <div className="wb-pane-cell" key={tab.panes[index].id} hidden={index >= tab.paneCount || index >= revealCount || (!wide && tab.panes[index].id !== tab.activePaneId)}>{child}</div>)}
     {Array.from({ length: columns - 1 }, (_, i) => separator("columnSizes", i, columns))}
     {rows > 1 && separator("rowSizes", 0, rows)}
   </div>;

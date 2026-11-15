@@ -309,7 +309,7 @@
 .wb-workbench[data-wide="false"] .wb-cross-label { display: none; }
 
 .wb-layout { display: grid; position: relative; gap: 8px; min-height: 0; min-width: 0; height: 100%; }
-.wb-pane-cell { min-height: 0; min-width: 0; overflow: hidden; }
+.wb-pane-cell { min-height: 0; min-width: 0; overflow: hidden; contain: layout paint; }
 .wb-pane-cell > .wb-pane { height: 100%; }
 .wb-tab-panel[data-multiple="true"] .wb-pane { border: 1px solid var(--zc-divider); padding-inline: 6px; }
 .wb-tab-panel[data-multiple="true"] .wb-pane[data-focused="true"] { border-top: 2px solid var(--zc-primary); }

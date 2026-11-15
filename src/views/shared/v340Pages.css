@@ -11,7 +11,10 @@
 
 .v340-page {
   display: grid;
+  width: 100%;
+  max-width: 1180px;
   min-width: 0;
+  margin-inline: auto;
   align-content: start;
   gap: 18px;
   padding-bottom: 32px;

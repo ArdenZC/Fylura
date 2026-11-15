@@ -155,7 +155,7 @@ export function BrowseMode() {
     openFocusedContextMenu,
     handleRowContextMenu
   } = useBrowseContextMenu({ source, restoreFocus: restoreBrowseFocus });
-  const viewMode = state.workspace.session.presentation.viewMode ?? "list";
+  const viewMode = state.workspace.session.presentation.viewMode ?? (platform === "darwin" ? "columns" : "list");
   const browseSearchInputRef = useRef<HTMLInputElement | null>(null);
   const browseSearch = useMemo(() => (
     <SearchField
@@ -503,6 +503,7 @@ export function BrowseMode() {
                 source={source}
                 interaction={interaction}
                 t={t}
+                language={language}
                 cachedColumns={columnCache.current}
                 showHidden={showHidden}
                 onActivate={(entry, ancestor) => {
@@ -520,6 +521,10 @@ export function BrowseMode() {
                   previewSourceFromEntry(entry, source.collection),
                   trigger,
                   event
+                )}
+                onPreviewOpen={(entry, trigger) => previewController.open(
+                  previewSourceFromEntry(entry, source.collection),
+                  trigger
                 )}
                 onContextMenu={(event, entry) => handleRowContextMenu(event, entry)}
                 onOpenContextMenu={(entry) => openFocusedContextMenu(entry)}

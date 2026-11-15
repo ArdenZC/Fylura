@@ -18,6 +18,7 @@ import { createServer } from "vite";
 const outDir = path.join(process.cwd(), "docs/design/v340-evidence/responsive");
 await mkdir(outDir, { recursive: true });
 const quick = process.argv.includes("--quick");
+const columnsOnly = process.argv.includes("--columns-only");
 
 const DISPLAYS = [
   { id: "fhd-100", label: "1080P 100%", width: 1920, height: 1080, dpr: 1, platform: "Win32" },
@@ -107,6 +108,10 @@ const MEASURE = `(() => {
   const grid = document.querySelector(".shared-file-grid-row");
   const gridColumns = grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length : 0;
   const columnsView = rect(document.querySelector("[data-browse-column-view], .browse-columns"));
+  const columnsRoot = document.querySelector(".browse-columns");
+  const columns = [...document.querySelectorAll(".browse-column")].map(rect);
+  const previewElement = document.querySelector(".browse-column-preview");
+  const columnPreview = previewElement && previewElement.getClientRects().length ? rect(previewElement) : null;
   return {
     viewport: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio },
     overflow,
@@ -124,6 +129,11 @@ const MEASURE = `(() => {
     pageContent: rect(document.querySelector(".v340-page")),
     gridColumns,
     columnsView,
+    columns: columns.filter(Boolean),
+    columnPreview,
+    columnScroll: columnsRoot ? { left: Math.round(columnsRoot.scrollLeft), width: Math.round(columnsRoot.scrollWidth), client: Math.round(columnsRoot.clientWidth) } : null,
+    selectedColumnRow: rect(document.querySelector(".browse-column-row.is-selected")),
+    contextOpen: document.querySelector(".file-library-workspace")?.getAttribute("data-context-open") ?? null,
     documentScroll: document.documentElement.scrollHeight - document.documentElement.clientHeight
   };
 })()`;
@@ -143,7 +153,7 @@ async function open(display, windowSpec) {
     localStorage.setItem("zc-onboarding-complete", "true");
     localStorage.setItem("zc-language", "zh");
   }, { platform: display.platform });
-  await page.goto(`${baseUrl}/?browser-mock=1&u3-folder-move=1&devices-fixture=1`);
+  await page.goto(`${baseUrl}/?browser-mock=1&u3-folder-move=1&devices-fixture=1&finder-fixture=1`);
   await page.waitForTimeout(1500);
   return { page, context };
 }
@@ -162,11 +172,62 @@ async function openRoot(page) {
   }
 }
 
+async function openFinderColumns(page, { depth = 3, select = "assets-2025.zip", inspect = false } = {}) {
+  await page.locator(".zc-sidebar").getByRole("button", { name: "文件", exact: true }).click();
+  await page.waitForTimeout(700);
+  await page.locator('[data-file-library-view="columns"]').click();
+  await page.waitForTimeout(300);
+  const pane = page.locator("[data-pane-id]").first();
+  await pane.getByRole("button", { name: "编辑路径（Ctrl/Cmd+L）", exact: true }).click();
+  const input = pane.getByRole("textbox", { name: "文件夹路径", exact: true });
+  await input.fill("C:/U3/Finder");
+  await input.press("Enter");
+  await page.waitForTimeout(900);
+  const row = (name) => page.locator('.browse-column[data-browse-column-current="true"] .browse-column-row', { hasText: name }).first();
+  await row("Documents").click();
+  await page.waitForTimeout(450);
+  if (depth >= 3) {
+    await row("Workspace").click();
+    await page.waitForTimeout(500);
+  }
+  if (depth >= 4) {
+    await row("Assets").click();
+    await page.waitForTimeout(450);
+  }
+  if (select) {
+    await page.locator('.browse-column[data-browse-column-current="true"] .browse-column-row', { hasText: select }).first().click();
+    await page.waitForTimeout(350);
+  }
+  if (inspect) {
+    await page.locator("[data-file-library-context-toggle]").click();
+    await page.waitForTimeout(350);
+  }
+}
+
 const STATES = [
   { id: "files", prepare: async (page) => { await openRoot(page); await page.locator("[role='option']").first().click(); } },
   { id: "files-inspector", prepare: async (page) => { await openRoot(page); await page.locator("[role='option']").first().click(); await page.locator("[data-file-library-context-toggle]").click(); await page.waitForTimeout(350); } },
   { id: "files-grid", prepare: async (page) => { await openRoot(page); await page.locator('[data-file-library-view="grid"]').click(); await page.waitForTimeout(350); } },
-  { id: "files-columns", prepare: async (page) => { await openRoot(page); await page.locator('[data-file-library-view="columns"]').click(); await page.waitForTimeout(400); } },
+  { id: "files-columns", prepare: async (page) => { await openFinderColumns(page, { depth: 3, select: "assets-2025.zip" }); } },
+  { id: "files-columns-two", prepare: async (page) => { await openFinderColumns(page, { depth: 2, select: null }); } },
+  { id: "files-columns-deep", prepare: async (page) => { await openFinderColumns(page, { depth: 4, select: "poster.png" }); } },
+  { id: "files-columns-inspector", prepare: async (page) => { await openFinderColumns(page, { depth: 3, select: "assets-2025.zip", inspect: true }); } },
+  { id: "files-columns-switch", prepare: async (page) => {
+    await openFinderColumns(page, { depth: 3, select: "assets-2025.zip" });
+    await page.locator(".browse-column").first().locator(".browse-column-row", { hasText: "Documents" }).first().click();
+    await page.waitForTimeout(300);
+    await page.locator('.browse-column[data-browse-column-current="true"] .browse-column-row', { hasText: "Workspace" }).first().click();
+    await page.waitForTimeout(400);
+    await page.locator('.browse-column[data-browse-column-current="true"] .browse-column-row', { hasText: "assets-2025.zip" }).first().click();
+    await page.waitForTimeout(300);
+  } },
+  { id: "files-columns-shrink", prepare: async (page) => {
+    await openFinderColumns(page, { depth: 3, select: "assets-2025.zip" });
+    await page.setViewportSize({ width: 980, height: 680 });
+    await page.waitForTimeout(450);
+    await page.setViewportSize({ width: 1280, height: 832 });
+    await page.waitForTimeout(500);
+  } },
   {
     id: "files-quad",
     prepare: async (page) => {
@@ -182,9 +243,14 @@ const STATES = [
   { id: "history", prepare: async (page) => { await page.locator(".zc-sidebar").getByRole("button", { name: "历史记录", exact: true }).click(); await page.waitForTimeout(500); } },
   { id: "settings", prepare: async (page) => { await page.locator(".zc-sidebar").getByRole("button", { name: "设置", exact: true }).click(); await page.waitForTimeout(500); } },
   { id: "search", prepare: async (page) => {
-    const mac = await page.evaluate(() => navigator.platform.startsWith("Mac"));
-    await page.keyboard.press(mac ? "Meta+k" : "Control+k");
-    await page.waitForTimeout(400);
+    const trigger = page.locator(".zc-titlebar-search");
+    if (await trigger.count()) await trigger.click();
+    else {
+      const mac = await page.evaluate(() => navigator.platform.startsWith("Mac"));
+      await page.keyboard.press(mac ? "Meta+k" : "Control+k");
+    }
+    await page.locator("[data-command-modal]").waitFor({ state: "visible", timeout: 8000 });
+    await page.waitForTimeout(250);
   } },
   {
     id: "preview",
@@ -197,8 +263,29 @@ const STATES = [
   }
 ];
 
-const DISPLAY_STATES = STATES.filter((state) => ["files", "files-inspector", "files-grid", "files-columns", "files-quad", "settings", "search", "preview"].includes(state.id));
-const WINDOW_STATES = STATES.filter((state) => ["files", "files-quad", "settings", "files-columns"].includes(state.id));
+const COLUMN_STATES = ["files-columns", "files-columns-two", "files-columns-deep", "files-columns-inspector", "files-columns-switch", "files-columns-shrink"];
+// Every combination is covered at least once, but not every size repeats every
+// column state: two/deep/inspector/switch/shrink each get their own device or
+// window where they can actually differ. This keeps the gate real without
+// multiplying a 4s Finder setup by 5 displays × 7 windows.
+const COLUMN_DISPLAY_SCOPE = {
+  "files-columns": ["mac-air13", "mac-air15", "mac-pro14", "mac-pro16", "mac-5k"],
+  "files-columns-two": ["mac-air13", "mac-pro14"],
+  "files-columns-deep": ["mac-air13", "mac-pro14"],
+  "files-columns-inspector": ["mac-pro14"],
+  "files-columns-switch": ["mac-air13"],
+  "files-columns-shrink": ["mac-air13"]
+};
+const COLUMN_WINDOW_SCOPE = {
+  "files-columns": "all",
+  "files-columns-two": ["980x680", "1280x720"],
+  "files-columns-deep": ["980x680", "1280x720"],
+  "files-columns-inspector": ["1280x720"],
+  "files-columns-switch": ["1280x720"],
+  "files-columns-shrink": ["1280x720"]
+};
+const DISPLAY_STATES = STATES.filter((state) => ["files", "files-inspector", "files-grid", "files-quad", "settings", "search", "preview", ...COLUMN_STATES].includes(state.id));
+const WINDOW_STATES = STATES.filter((state) => ["files", "files-quad", "settings", "files-columns", "files-columns-two", "files-columns-deep", "files-columns-inspector", "files-columns-switch", "files-columns-shrink"].includes(state.id));
 const PAGE_STATES = STATES.filter((state) => ["overview", "organize", "cleanup", "history"].includes(state.id));
 
 const cases = [];
@@ -212,14 +299,18 @@ for (const display of DISPLAYS) {
     state: "normal"
   };
   for (const state of DISPLAY_STATES) {
-    if (state.id === "files-columns" && display.platform !== "MacIntel") continue;
+    if (COLUMN_STATES.includes(state.id) && display.platform !== "MacIntel") continue;
+    const scope = COLUMN_DISPLAY_SCOPE[state.id];
+    if (scope && !scope.includes(display.id)) continue;
     cases.push({ display, windowSpec: fit, state });
   }
 }
 for (const display of DISPLAYS.filter((item) => ["fhd-100", "mac-air13"].includes(item.id))) {
   for (const windowSpec of WINDOWS.filter((item) => item.width <= display.width && item.height <= display.height)) {
     for (const state of WINDOW_STATES) {
-      if (state.id === "files-columns" && display.platform !== "MacIntel") continue;
+      if (COLUMN_STATES.includes(state.id) && display.platform !== "MacIntel") continue;
+      const scope = COLUMN_WINDOW_SCOPE[state.id];
+      if (scope && scope !== "all" && !scope.includes(windowSpec.id)) continue;
       cases.push({ display, windowSpec, state });
     }
   }
@@ -228,7 +319,10 @@ for (const display of DISPLAYS.filter((item) => ["fhd-100", "mac-pro14"].include
   for (const state of PAGE_STATES) cases.push({ display, windowSpec: WINDOWS.find((item) => item.id === "1440x900"), state });
 }
 
-for (const item of quick ? cases.slice(0, 8) : cases) {
+const selectedCases = quick
+  ? cases.slice(0, 8)
+  : columnsOnly ? cases.filter((item) => COLUMN_STATES.includes(item.state.id)) : cases;
+for (const item of selectedCases) {
   const { display, windowSpec, state } = item;
   console.log(`[v340-responsive] ${display.id} ${windowSpec.id} ${state.id}`);
   const { page, context } = await open(display, windowSpec);
@@ -246,6 +340,26 @@ for (const item of quick ? cases.slice(0, 8) : cases) {
     if (state.id === "settings" && metrics.settingsContent && metrics.settingsContent.w > 821) pageFailures.push(`settings content ${metrics.settingsContent.w}px > 820px`);
     if (["overview", "organize", "cleanup", "history"].includes(state.id) && metrics.pageContent && metrics.pageContent.w > 1181) pageFailures.push(`page content ${metrics.pageContent.w}px > 1180px`);
     if (state.id === "files-grid" && metrics.viewport.w >= 1280 && metrics.gridColumns < 3) pageFailures.push(`grid columns ${metrics.gridColumns} < 3`);
+    if (COLUMN_STATES.includes(state.id)) {
+      const expectedColumns = state.id === "files-columns-two" ? 2 : state.id === "files-columns-deep" ? 4 : 3;
+      if (metrics.columns.length !== expectedColumns) pageFailures.push(`finder columns ${metrics.columns.length}/${expectedColumns}`);
+      if (state.id !== "files-columns-two" && !metrics.selectedColumnRow) pageFailures.push("finder selected file row missing");
+      const previewExpected = expectedColumns >= 3
+        && metrics.viewport.w >= 1320
+        && state.id !== "files-columns-inspector";
+      if (previewExpected && !metrics.columnPreview) pageFailures.push("finder preview column missing");
+      if (!previewExpected && metrics.columnPreview) pageFailures.push("finder preview column should be hidden");
+      if (metrics.columnPreview && Math.abs(metrics.columnPreview.w - 244) > 1) pageFailures.push(`finder preview ${metrics.columnPreview.w}px != 244px`);
+      const expectedWidth = metrics.viewport.w <= 1040 ? 182 : metrics.viewport.w <= 1200 ? 190 : metrics.viewport.w <= 1320 ? 206 : 226;
+      if (metrics.columns.some((column) => Math.abs(column.w - expectedWidth) > 1)) {
+        pageFailures.push(`finder column widths ${metrics.columns.map((column) => column.w).join("/")} != ${expectedWidth}`);
+      }
+      if (state.id === "files-columns-deep" && metrics.columnScroll && metrics.columnScroll.width > metrics.columnScroll.client + 1) {
+        const maxScroll = metrics.columnScroll.width - metrics.columnScroll.client;
+        if (metrics.columnScroll.left < maxScroll - 24) pageFailures.push(`finder columns not scrolled to current (${metrics.columnScroll.left}/${maxScroll})`);
+      }
+      if (state.id === "files-columns-inspector" && metrics.contextOpen !== "true") pageFailures.push("finder inspector did not open");
+    }
     if (state.id === "files-quad") {
       const visiblePanes = metrics.panes.length;
       if (visiblePanes !== 4 && !(visiblePanes === 1 && metrics.paneCount === "4")) pageFailures.push(`quad panes ${visiblePanes}/${metrics.paneCount}`);
@@ -295,7 +409,7 @@ const SHOTS = [
   { display: "mac-air13", window: "980x680", state: "files-columns" },
   { display: "mac-5k", window: "2560x1440", state: "settings" }
 ];
-for (const shot of SHOTS) {
+for (const shot of columnsOnly ? [] : SHOTS) {
   const display = DISPLAYS.find((item) => item.id === shot.display);
   const windowSpec = WINDOWS.find((item) => item.id === shot.window);
   const state = STATES.find((item) => item.id === shot.state);

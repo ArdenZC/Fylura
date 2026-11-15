@@ -24,6 +24,7 @@ import {
 import { FileManagementToolbar } from "./management/FileManagementToolbar";
 import "./fileLibraryWorkspace.css";
 import "./fileLibraryV340.css";
+import "./macFinderV340.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
 const BrowseMode = lazy(() => import("./browse/BrowseMode").then((module) => ({ default: module.BrowseMode })));
@@ -110,7 +111,8 @@ function FileLibraryPane() {
 
   const history = state.workspace.session;
   const contextOpen = history.presentation.contextOpen === true;
-  const viewMode = history.presentation.viewMode ?? "list";
+  const viewMode = history.presentation.viewMode
+    ?? (state.mode === "browse" && platform === "darwin" ? "columns" : "list");
   const targetLabel = state.mode === "library"
     ? t("fileLibraryModeLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryNoFolderOpen");
@@ -208,6 +210,7 @@ function FileLibraryPane() {
             ref={workspaceRef}
             className="file-library-workspace"
             data-layout={layout}
+            data-platform={platform}
             data-mode={state.mode}
             data-detached-browse={state.detachedBrowse ? "true" : "false"}
             data-context-open={contextOpen ? "true" : "false"}

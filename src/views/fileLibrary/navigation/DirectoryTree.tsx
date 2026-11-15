@@ -724,7 +724,7 @@ export function DirectoryTree({
   return (
     <section className="file-library-navigation-section" aria-labelledby={`file-library-navigation-tree-heading-${paneId}`} data-file-library-directory-tree="true">
       <div className="file-library-navigation-section-heading">
-        <h3 id={`file-library-navigation-tree-heading-${paneId}`} className="file-library-navigation-section-title">{t("fileLibraryNavigationTree")}</h3>
+        <h3 id={`file-library-navigation-tree-heading-${paneId}`} className="file-library-navigation-section-title">{platform === "darwin" ? t("fileLibraryNavigationTreeMac") : t("fileLibraryNavigationTree")}</h3>
         <button type="button" className="file-library-navigation-group-toggle !min-h-7 !w-7 !justify-center !p-0" disabled={sessionLoading || !rootKey || currentPath === null || treeBusy} title={t("fileLibraryNavigationTreeLocateCurrent")} aria-label={t("fileLibraryNavigationTreeLocateCurrent")} onClick={locateCurrentFolder}>
           <LocateFixed size={14} aria-hidden="true" />
         </button>

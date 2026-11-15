@@ -1,0 +1,901 @@
+{
+  "chrome": "151.0.7922.34",
+  "mode": "vite-dev",
+  "profiler": false,
+  "cpu": 4,
+  "viewport": "1440x900",
+  "dpr": 1,
+  "runs": [
+    {
+      "id": "layout",
+      "verified": true,
+      "samples": [
+        {
+          "iteration": 1,
+          "durationMs": 2042,
+          "verified": true,
+          "frames": 35,
+          "idleFrames": 12,
+          "p50": 16.7,
+          "p95": 150,
+          "max": 599.9,
+          "dropped": 11,
+          "layout": 18,
+          "layoutMs": 89,
+          "styleMs": 85,
+          "scriptMs": 1105,
+          "taskMs": 1497,
+          "loafMax": 609,
+          "longestLoaf": {
+            "duration": 609,
+            "blocking": 540,
+            "styleAndLayout": 609,
+            "renderStart": 606,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 573,
+                "forcedStyleAndLayout": 16
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 157,
+              "blocking": 97,
+              "styleAndLayout": 156,
+              "renderStart": 123,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 114,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 6,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            },
+            {
+              "duration": 137,
+              "blocking": 85,
+              "styleAndLayout": 136,
+              "renderStart": 133,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 131,
+                  "forcedStyleAndLayout": 23
+                }
+              ]
+            },
+            {
+              "duration": 134,
+              "blocking": 83,
+              "styleAndLayout": 133,
+              "renderStart": 123,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 122,
+                  "forcedStyleAndLayout": 24
+                }
+              ]
+            },
+            {
+              "duration": 103,
+              "blocking": 48,
+              "styleAndLayout": 102,
+              "renderStart": 93,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 88,
+                  "forcedStyleAndLayout": 19
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 2,
+          "durationMs": 2021,
+          "verified": true,
+          "frames": 29,
+          "idleFrames": 13,
+          "p50": 16.7,
+          "p95": 150.1,
+          "max": 583.3,
+          "dropped": 12,
+          "layout": 18,
+          "layoutMs": 80,
+          "styleMs": 80,
+          "scriptMs": 1196,
+          "taskMs": 1568,
+          "loafMax": 590,
+          "longestLoaf": {
+            "duration": 590,
+            "blocking": 522,
+            "styleAndLayout": 590,
+            "renderStart": 587,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 555,
+                "forcedStyleAndLayout": 14
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 157,
+              "blocking": 97,
+              "styleAndLayout": 157,
+              "renderStart": 126,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 115,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 6,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            },
+            {
+              "duration": 137,
+              "blocking": 87,
+              "styleAndLayout": 137,
+              "renderStart": 133,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 132,
+                  "forcedStyleAndLayout": 19
+                }
+              ]
+            },
+            {
+              "duration": 132,
+              "blocking": 81,
+              "styleAndLayout": 131,
+              "renderStart": 123,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 122,
+                  "forcedStyleAndLayout": 23
+                }
+              ]
+            },
+            {
+              "duration": 107,
+              "blocking": 51,
+              "styleAndLayout": 107,
+              "renderStart": 96,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 90,
+                  "forcedStyleAndLayout": 20
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 3,
+          "durationMs": 2013,
+          "verified": true,
+          "frames": 27,
+          "idleFrames": 16,
+          "p50": 16.7,
+          "p95": 200,
+          "max": 566.6,
+          "dropped": 10,
+          "layout": 17,
+          "layoutMs": 84,
+          "styleMs": 84,
+          "scriptMs": 1174,
+          "taskMs": 1552,
+          "loafMax": 583,
+          "longestLoaf": {
+            "duration": 583,
+            "blocking": 512,
+            "styleAndLayout": 582,
+            "renderStart": 580,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 548,
+                "forcedStyleAndLayout": 15
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 198,
+              "blocking": 147,
+              "styleAndLayout": 197,
+              "renderStart": 189,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 188,
+                  "forcedStyleAndLayout": 44
+                }
+              ]
+            },
+            {
+              "duration": 135,
+              "blocking": 84,
+              "styleAndLayout": 134,
+              "renderStart": 126,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 125,
+                  "forcedStyleAndLayout": 26
+                }
+              ]
+            },
+            {
+              "duration": 107,
+              "blocking": 51,
+              "styleAndLayout": 107,
+              "renderStart": 95,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 90,
+                  "forcedStyleAndLayout": 20
+                }
+              ]
+            },
+            {
+              "duration": 93,
+              "blocking": 42,
+              "styleAndLayout": 93,
+              "renderStart": 82,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 80,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 4,
+          "durationMs": 2025,
+          "verified": true,
+          "frames": 28,
+          "idleFrames": 19,
+          "p50": 16.7,
+          "p95": 200,
+          "max": 566.7,
+          "dropped": 9,
+          "layout": 17,
+          "layoutMs": 82,
+          "styleMs": 80,
+          "scriptMs": 1163,
+          "taskMs": 1536,
+          "loafMax": 585,
+          "longestLoaf": {
+            "duration": 585,
+            "blocking": 510,
+            "styleAndLayout": 585,
+            "renderStart": 582,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 552,
+                "forcedStyleAndLayout": 15
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 198,
+              "blocking": 147,
+              "styleAndLayout": 198,
+              "renderStart": 189,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 188,
+                  "forcedStyleAndLayout": 44
+                }
+              ]
+            },
+            {
+              "duration": 132,
+              "blocking": 81,
+              "styleAndLayout": 131,
+              "renderStart": 123,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 121,
+                  "forcedStyleAndLayout": 24
+                }
+              ]
+            },
+            {
+              "duration": 101,
+              "blocking": 45,
+              "styleAndLayout": 100,
+              "renderStart": 93,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 87,
+                  "forcedStyleAndLayout": 18
+                }
+              ]
+            },
+            {
+              "duration": 93,
+              "blocking": 40,
+              "styleAndLayout": 91,
+              "renderStart": 76,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 72,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 5,
+          "durationMs": 1992,
+          "verified": true,
+          "frames": 29,
+          "idleFrames": 13,
+          "p50": 16.7,
+          "p95": 150,
+          "max": 566.7,
+          "dropped": 11,
+          "layout": 18,
+          "layoutMs": 80,
+          "styleMs": 83,
+          "scriptMs": 1200,
+          "taskMs": 1575,
+          "loafMax": 581,
+          "longestLoaf": {
+            "duration": 581,
+            "blocking": 511,
+            "styleAndLayout": 580,
+            "renderStart": 578,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 545,
+                "forcedStyleAndLayout": 15
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 158,
+              "blocking": 99,
+              "styleAndLayout": 158,
+              "renderStart": 123,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 114,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 6,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            },
+            {
+              "duration": 138,
+              "blocking": 87,
+              "styleAndLayout": 137,
+              "renderStart": 134,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 133,
+                  "forcedStyleAndLayout": 19
+                }
+              ]
+            },
+            {
+              "duration": 134,
+              "blocking": 83,
+              "styleAndLayout": 133,
+              "renderStart": 124,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 122,
+                  "forcedStyleAndLayout": 23
+                }
+              ]
+            },
+            {
+              "duration": 101,
+              "blocking": 45,
+              "styleAndLayout": 101,
+              "renderStart": 91,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 85,
+                  "forcedStyleAndLayout": 18
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        }
+      ],
+      "summary": {
+        "p95Median": 150.1,
+        "p95Worst": 200,
+        "loafMaxMedian": 585,
+        "loafMaxWorst": 609,
+        "layoutMsAverage": 83,
+        "styleMsAverage": 82,
+        "scriptMsAverage": 1168
+      }
+    },
+    {
+      "id": "rail",
+      "verified": true,
+      "samples": [
+        {
+          "iteration": 1,
+          "durationMs": 1364,
+          "verified": true,
+          "frames": 30,
+          "idleFrames": 26,
+          "p50": 16.7,
+          "p95": 50.1,
+          "max": 83.3,
+          "dropped": 14,
+          "layout": 35,
+          "layoutMs": 141,
+          "styleMs": 87,
+          "scriptMs": 376,
+          "taskMs": 957,
+          "loafMax": 106,
+          "longestLoaf": {
+            "duration": 106,
+            "blocking": 47,
+            "styleAndLayout": 105,
+            "renderStart": 103,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 83,
+                "forcedStyleAndLayout": 45
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 75,
+              "blocking": 20,
+              "styleAndLayout": 75,
+              "renderStart": 73,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 57,
+                  "forcedStyleAndLayout": 24
+                }
+              ]
+            },
+            {
+              "duration": 61,
+              "blocking": 6,
+              "styleAndLayout": 61,
+              "renderStart": 58,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 44,
+                  "forcedStyleAndLayout": 11
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 2,
+          "durationMs": 1428,
+          "verified": true,
+          "frames": 30,
+          "idleFrames": 31,
+          "p50": 16.8,
+          "p95": 50,
+          "max": 83.3,
+          "dropped": 14,
+          "layout": 35,
+          "layoutMs": 138,
+          "styleMs": 80,
+          "scriptMs": 386,
+          "taskMs": 957,
+          "loafMax": 100,
+          "longestLoaf": {
+            "duration": 100,
+            "blocking": 44,
+            "styleAndLayout": 100,
+            "renderStart": 97,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 76,
+                "forcedStyleAndLayout": 40
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 74,
+              "blocking": 20,
+              "styleAndLayout": 74,
+              "renderStart": 72,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 57,
+                  "forcedStyleAndLayout": 22
+                }
+              ]
+            },
+            {
+              "duration": 61,
+              "blocking": 5,
+              "styleAndLayout": 61,
+              "renderStart": 59,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 45,
+                  "forcedStyleAndLayout": 10
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 3,
+          "durationMs": 1370,
+          "verified": true,
+          "frames": 30,
+          "idleFrames": 26,
+          "p50": 16.8,
+          "p95": 50,
+          "max": 100,
+          "dropped": 14,
+          "layout": 36,
+          "layoutMs": 142,
+          "styleMs": 88,
+          "scriptMs": 397,
+          "taskMs": 978,
+          "loafMax": 115,
+          "longestLoaf": {
+            "duration": 115,
+            "blocking": 47,
+            "styleAndLayout": 115,
+            "renderStart": 113,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 90,
+                "forcedStyleAndLayout": 47
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 73,
+              "blocking": 10,
+              "styleAndLayout": 73,
+              "renderStart": 71,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 55,
+                  "forcedStyleAndLayout": 22
+                }
+              ]
+            },
+            {
+              "duration": 64,
+              "blocking": 9,
+              "styleAndLayout": 64,
+              "renderStart": 62,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 47,
+                  "forcedStyleAndLayout": 10
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 4,
+          "durationMs": 1365,
+          "verified": true,
+          "frames": 30,
+          "idleFrames": 25,
+          "p50": 16.8,
+          "p95": 66.7,
+          "max": 83.3,
+          "dropped": 14,
+          "layout": 35,
+          "layoutMs": 140,
+          "styleMs": 86,
+          "scriptMs": 386,
+          "taskMs": 967,
+          "loafMax": 103,
+          "longestLoaf": {
+            "duration": 103,
+            "blocking": 46,
+            "styleAndLayout": 103,
+            "renderStart": 101,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 79,
+                "forcedStyleAndLayout": 41
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 80,
+              "blocking": 26,
+              "styleAndLayout": 80,
+              "renderStart": 78,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 62,
+                  "forcedStyleAndLayout": 25
+                }
+              ]
+            },
+            {
+              "duration": 60,
+              "blocking": 6,
+              "styleAndLayout": 60,
+              "renderStart": 59,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 44,
+                  "forcedStyleAndLayout": 10
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        },
+        {
+          "iteration": 5,
+          "durationMs": 1347,
+          "verified": true,
+          "frames": 30,
+          "idleFrames": 26,
+          "p50": 16.8,
+          "p95": 50,
+          "max": 99.9,
+          "dropped": 14,
+          "layout": 36,
+          "layoutMs": 142,
+          "styleMs": 88,
+          "scriptMs": 383,
+          "taskMs": 963,
+          "loafMax": 117,
+          "longestLoaf": {
+            "duration": 117,
+            "blocking": 60,
+            "styleAndLayout": 116,
+            "renderStart": 114,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 91,
+                "forcedStyleAndLayout": 48
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 73,
+              "blocking": 18,
+              "styleAndLayout": 73,
+              "renderStart": 71,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 55,
+                  "forcedStyleAndLayout": 21
+                }
+              ]
+            },
+            {
+              "duration": 60,
+              "blocking": 5,
+              "styleAndLayout": 60,
+              "renderStart": 58,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5217/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 45,
+                  "forcedStyleAndLayout": 10
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 0,
+            "top": [],
+            "note": "run with --profile for CPU attribution"
+          }
+        }
+      ],
+      "summary": {
+        "p95Median": 50,
+        "p95Worst": 66.7,
+        "loafMaxMedian": 106,
+        "loafMaxWorst": 117,
+        "layoutMsAverage": 141,
+        "styleMsAverage": 86,
+        "scriptMsAverage": 386
+      }
+    }
+  ]
+}

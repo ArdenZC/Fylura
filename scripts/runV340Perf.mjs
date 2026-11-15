@@ -51,7 +51,15 @@ const INSTRUMENT = `(() => {
         window.__perf.loaf.push({
           duration: Math.round(entry.duration),
           styleAndLayout: entry.styleAndLayoutStart ? Math.round(entry.styleAndLayoutStart - entry.startTime) : 0,
-          blocking: Math.round(entry.blockingDuration || 0)
+          renderStart: entry.renderStart ? Math.round(entry.renderStart - entry.startTime) : 0,
+          blocking: Math.round(entry.blockingDuration || 0),
+          scripts: (entry.scripts || []).map((script) => ({
+            name: script.sourceFunctionName || script.invoker || "(anonymous)",
+            invoker: script.invoker || "",
+            url: script.sourceURL || "",
+            duration: Math.round(script.duration),
+            forcedStyleAndLayout: Math.round(script.forcedStyleAndLayoutDuration || 0)
+          })).sort((left, right) => right.duration - left.duration).slice(0, 6)
         });
       }
     }).observe({ type: "long-animation-frame", buffered: false });
@@ -349,6 +357,7 @@ for (const rate of rates) {
         scriptMs: Math.round(((after.ScriptDuration || 0) - (before.ScriptDuration || 0)) * 1000),
         loafCount: loaf.length,
         loafMax: loaf.length ? Math.max(...loaf.map((entry) => entry.duration)) : 0,
+        longestLoaf: loaf.length ? [...loaf].sort((left, right) => right.duration - left.duration)[0] : null,
         loafStyleMs: loaf.length ? Math.round(loaf.reduce((sum, entry) => sum + entry.styleAndLayout, 0) / loaf.length) : 0
       };
       run.scenarios.push(result);

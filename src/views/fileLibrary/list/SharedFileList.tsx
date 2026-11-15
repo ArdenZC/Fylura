@@ -13,6 +13,7 @@ import type {
   LibraryPresentationEntry,
   PresentationEntry
 } from "../presentation/contracts";
+import { fileKindToken } from "../presentation/fileKind";
 import type { PresentationInteractionProjection, PresentationSelectionIntent } from "./interactionContracts";
 import { selectionIntentFromModifiers } from "./interactionAdapters";
 import { resolvePresentationContextMenuTarget } from "./contextMenuTarget";
@@ -789,24 +790,6 @@ function SelectAllCheckbox({
       onChange={(event) => onChange(event.currentTarget.checked)}
     />
   );
-}
-
-const FILE_KIND_BY_EXTENSION: Record<string, string> = {
-  pdf: "pdf",
-  doc: "doc", docx: "doc", rtf: "doc", txt: "doc", md: "doc", key: "deck",
-  xls: "sheet", xlsx: "sheet", csv: "sheet", numbers: "sheet",
-  ppt: "deck", pptx: "deck",
-  png: "img", jpg: "img", jpeg: "img", gif: "img", webp: "img", heic: "img", svg: "img",
-  mp4: "video", mov: "video", mkv: "video", avi: "video", webm: "video",
-  mp3: "audio", wav: "audio", flac: "audio", aac: "audio", m4a: "audio",
-  js: "code", ts: "code", tsx: "code", jsx: "code", json: "code", py: "code", rs: "code", css: "code", html: "code",
-  zip: "zip", gz: "zip", tar: "zip", "7z": "zip", rar: "zip", dmg: "zip"
-};
-
-export function fileKindToken(entry: PresentationEntry, isDirectory: boolean) {
-  if (isDirectory) return "folder";
-  const extension = (entry.extension ?? "").toLocaleLowerCase();
-  return FILE_KIND_BY_EXTENSION[extension] ?? "file";
 }
 
 function materializationLabel(

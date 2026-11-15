@@ -1,7 +1,10 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { Folder, LoaderCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { FileText, Folder, LoaderCircle } from "lucide-react";
 import type { Translator } from "../../../types/ui";
+import type { Language } from "../../../i18n";
 import type { BrowsePresentationEntry } from "../presentation/contracts";
+import { fileKindToken } from "../presentation/fileKind";
+import { formatBytes, formatDate } from "../../../utils/format";
 import type { BrowseInteractionProjection } from "../list/interactionContracts";
 import type { BrowseBreadcrumb, BrowseSourceOwner } from "./browseSourceOwner";
 import { cn } from "../../../utils/tw";
@@ -29,11 +32,13 @@ export function BrowseColumnView({
   source,
   interaction,
   t,
+  language,
   cachedColumns,
   showHidden,
   onActivate,
   onNavigateCrumb,
   onPreview,
+  onPreviewOpen,
   onContextMenu,
   onOpenContextMenu,
   onEscape
@@ -41,6 +46,7 @@ export function BrowseColumnView({
   source: BrowseSourceOwner;
   interaction: BrowseInteractionProjection;
   t: Translator;
+  language: Language;
   cachedColumns: ReadonlyMap<string, readonly BrowsePresentationEntry[]>;
   showHidden: boolean;
   /** `ancestor` is the column the entry was activated from, or null when the
@@ -48,10 +54,13 @@ export function BrowseColumnView({
   onActivate: (entry: BrowsePresentationEntry, ancestor: BrowseBreadcrumb | null) => void;
   onNavigateCrumb: (index: number) => void;
   onPreview: (entry: BrowsePresentationEntry, trigger: HTMLElement, event: KeyboardEvent<HTMLElement>) => boolean | void;
+  /** Opens the shared Quick Preview surface from the Finder preview column. */
+  onPreviewOpen: (entry: BrowsePresentationEntry, trigger: HTMLElement) => void;
   onContextMenu: (event: MouseEvent<HTMLElement>, entry: BrowsePresentationEntry) => void;
   onOpenContextMenu: (entry: BrowsePresentationEntry, index: number) => void;
   onEscape?: () => boolean;
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const columns = source.breadcrumbs.map((crumb, index) => {
     const isCurrent = index === source.breadcrumbs.length - 1;
     const cached = isCurrent ? source.entries : cachedColumns.get(crumb.pathRef.id) ?? null;
@@ -60,12 +69,35 @@ export function BrowseColumnView({
       : showHidden ? cached : cached.filter((entry) => !entry.isHidden);
     return { crumb, index, isCurrent, entries, rawCount: cached?.length ?? 0 };
   });
+  const currentColumn = columns.at(-1);
+  const selectedFiles = currentColumn?.entries?.filter((entry) =>
+    entry.entryKind === "file" && source.selectedIds.has(entry.entryRef.entryId)) ?? [];
+  // Finder only shows the preview column for a single selected file. A folder
+  // selection or a multi-selection keeps the columns alone; the Inspector
+  // still owns the full selection summary.
+  const previewEntry = selectedFiles.length === 1 ? selectedFiles[0] : null;
+  const locationLabel = source.breadcrumbs.length > 1
+    ? source.breadcrumbs.slice(1).map((crumb) => crumb.label).join(" / ")
+    : source.breadcrumbs.at(-1)?.label ?? "";
+  const lastCrumbKey = source.breadcrumbs.at(-1)?.pathRef.id ?? "";
+
+  useEffect(() => {
+    // Finder scrolls the new current column into view; an unchanged stack keeps
+    // whatever horizontal position the user chose.
+    const frame = requestAnimationFrame(() => {
+      const node = scrollRef.current;
+      if (node) node.scrollLeft = node.scrollWidth;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [source.breadcrumbs.length, lastCrumbKey, previewEntry?.renderKey]);
 
   return (
     <div
+      ref={scrollRef}
       className="browse-columns"
       data-browse-columns="true"
       data-browse-column-count={columns.length}
+      data-browse-column-preview={previewEntry ? "true" : "false"}
       aria-label={t("browseColumnViewLabel")}
     >
       {columns.map(({ crumb, index, isCurrent, entries, rawCount }) => (
@@ -76,6 +108,7 @@ export function BrowseColumnView({
           isCurrent={isCurrent}
           entries={entries}
           rawCount={rawCount}
+          trailPathRefId={columns[index + 1]?.crumb.pathRef.id ?? null}
           selectedIds={source.selectedIds}
           focusedId={source.focusedId}
           interaction={interaction}
@@ -90,6 +123,39 @@ export function BrowseColumnView({
           onEscape={onEscape}
         />
       ))}
+      {previewEntry ? (
+        <aside className="browse-column-preview" aria-label={t("browseColumnPreviewLabel")} data-browse-column-preview-panel="true">
+          <span className="browse-column-preview-icon" aria-hidden="true" data-file-kind={fileKindToken(previewEntry, false)}>
+            <FileText size={58} strokeWidth={1.25} />
+          </span>
+          <h4 title={previewEntry.displayName}>{previewEntry.displayName}</h4>
+          <p className="browse-column-preview-kind">
+            {previewEntry.typeHint ?? previewEntry.extension ?? t("browseFile")}
+            {previewEntry.size === undefined ? "" : ` · ${formatBytes(previewEntry.size)}`}
+          </p>
+          <dl>
+            <div>
+              <dt>{t("fileLibraryContextModified")}</dt>
+              <dd>{previewEntry.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(previewEntry.modifiedAt), language)}</dd>
+            </div>
+            <div>
+              <dt>{t("fileLibraryContextSize")}</dt>
+              <dd>{previewEntry.size === undefined ? t("browseUnknownValue") : formatBytes(previewEntry.size)}</dd>
+            </div>
+            <div>
+              <dt>{t("browseColumnPreviewLocation")}</dt>
+              <dd title={locationLabel}>{locationLabel}</dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            className="browse-column-preview-open"
+            onClick={(event) => onPreviewOpen(previewEntry, event.currentTarget)}
+          >
+            {t("browseColumnPreviewOpen")}
+          </button>
+        </aside>
+      ) : null}
       <span className="sr-only" aria-live="polite">
         {source.breadcrumbs.at(-1)?.label ?? ""}
       </span>
@@ -103,6 +169,7 @@ function BrowseColumn({
   isCurrent,
   entries,
   rawCount,
+  trailPathRefId,
   selectedIds,
   focusedId,
   interaction,
@@ -122,6 +189,8 @@ function BrowseColumn({
   entries: readonly BrowsePresentationEntry[] | null;
   /** Entries before the hidden-file filter, used to explain an empty column. */
   rawCount: number;
+  /** The folder this column navigated into; Finder keeps that row selected. */
+  trailPathRefId: string | null;
   selectedIds: ReadonlySet<string>;
   focusedId: string | null;
   interaction: BrowseInteractionProjection;
@@ -252,8 +321,9 @@ function BrowseColumn({
                 && selectedIds.has(entry.entryRef.entryId);
               const focused = isCurrent && entry.entryRef.entryId === focusedId;
               const folder = entry.entryKind === "directory";
+              const trail = !isCurrent && trailPathRefId !== null && entry.pathRef?.id === trailPathRefId;
               const shared = {
-                className: cn("browse-column-row", selected && "is-selected", focused && "is-focused"),
+                className: cn("browse-column-row", selected && "is-selected", focused && "is-focused", trail && "is-trail"),
                 title: entry.displayName,
                 "data-column-row-index": entryIndex,
                 "data-browse-entry-id": isCurrent && entry.source === "browse" ? entry.entryRef.entryId : undefined,
@@ -272,6 +342,9 @@ function BrowseColumn({
                       title={t("browseColumnAncestorFileHint")}
                       onDoubleClick={undefined}
                     >
+                      <span className="browse-column-icon" data-file-kind={fileKindToken(entry, false)} aria-hidden="true">
+                        <FileText size={16} />
+                      </span>
                       <span className="browse-column-name" title={entry.displayName}>{entry.displayName}</span>
                     </span>
                   </li>
@@ -285,6 +358,7 @@ function BrowseColumn({
                     {...shared}
                     role={isCurrent ? "option" : undefined}
                     aria-selected={isCurrent ? selected : undefined}
+                    aria-current={trail ? "true" : undefined}
                     aria-label={`${entry.displayName}, ${folder ? t("browseFolder") : t("browseFile")}`}
                     onClick={() => {
                       if (folder) {
@@ -299,7 +373,9 @@ function BrowseColumn({
                       if (isCurrent) onContextMenu(event, entry);
                     }}
                   >
-                    {folder ? <Folder size={14} aria-hidden="true" className="browse-column-icon" /> : null}
+                    <span className="browse-column-icon" data-file-kind={fileKindToken(entry, folder)} aria-hidden="true">
+                      {folder ? <Folder size={16} /> : <FileText size={16} />}
+                    </span>
                     <span className="browse-column-name" title={entry.displayName}>{entry.displayName}</span>
                     {folder ? <span className="browse-column-chevron" aria-hidden="true">›</span> : null}
                   </button>

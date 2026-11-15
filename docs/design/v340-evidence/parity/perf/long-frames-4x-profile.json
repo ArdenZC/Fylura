@@ -1,0 +1,1711 @@
+{
+  "chrome": "151.0.7922.34",
+  "mode": "vite-dev",
+  "profiler": true,
+  "cpu": 4,
+  "viewport": "1440x900",
+  "dpr": 1,
+  "runs": [
+    {
+      "id": "layout",
+      "verified": true,
+      "samples": [
+        {
+          "iteration": 1,
+          "durationMs": 2114,
+          "verified": true,
+          "frames": 35,
+          "idleFrames": 10,
+          "p50": 16.7,
+          "p95": 199.9,
+          "max": 649.9,
+          "dropped": 9,
+          "layout": 17,
+          "layoutMs": 91,
+          "styleMs": 85,
+          "scriptMs": 1239,
+          "taskMs": 2275,
+          "loafMax": 666,
+          "longestLoaf": {
+            "duration": 666,
+            "blocking": 597,
+            "styleAndLayout": 665,
+            "renderStart": 662,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 629,
+                "forcedStyleAndLayout": 14
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 579,
+              "blocking": 0,
+              "styleAndLayout": 579,
+              "renderStart": 578,
+              "scripts": []
+            },
+            {
+              "duration": 187,
+              "blocking": 124,
+              "styleAndLayout": 187,
+              "renderStart": 149,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 135,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 6,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            },
+            {
+              "duration": 155,
+              "blocking": 104,
+              "styleAndLayout": 154,
+              "renderStart": 150,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 149,
+                  "forcedStyleAndLayout": 23
+                }
+              ]
+            },
+            {
+              "duration": 141,
+              "blocking": 90,
+              "styleAndLayout": 140,
+              "renderStart": 131,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 130,
+                  "forcedStyleAndLayout": 24
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2689,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 817.5
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 491.3
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 341.7
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 189.7
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 87.5
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:434",
+                "selfMs": 66.3
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 31.8
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 30.8
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 26.7
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 22.2
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 17.3
+              },
+              {
+                "frame": "invoke @ http://127.0.0.1:5473/node_modules/.vite/deps/core-CP6vdcl6.js?v=9bce390c:207",
+                "selfMs": 16.6
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/node_modules/.vite/deps/lucide-react.js?v=9bce390c:63",
+                "selfMs": 16.1
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 15.8
+              },
+              {
+                "frame": "getTaskName @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:64",
+                "selfMs": 14.9
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/node_modules/.vite/deps/lucide-react.js?v=9bce390c:42",
+                "selfMs": 12.9
+              },
+              {
+                "frame": "setAttribute @ native:0",
+                "selfMs": 12.4
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 12.3
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 2,
+          "durationMs": 2251,
+          "verified": true,
+          "frames": 25,
+          "idleFrames": 25,
+          "p50": 16.7,
+          "p95": 200,
+          "max": 616.6,
+          "dropped": 9,
+          "layout": 20,
+          "layoutMs": 93,
+          "styleMs": 87,
+          "scriptMs": 1286,
+          "taskMs": 2335,
+          "loafMax": 637,
+          "longestLoaf": {
+            "duration": 637,
+            "blocking": 570,
+            "styleAndLayout": 636,
+            "renderStart": 633,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 602,
+                "forcedStyleAndLayout": 14
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 577,
+              "blocking": 0,
+              "styleAndLayout": 577,
+              "renderStart": 576,
+              "scripts": []
+            },
+            {
+              "duration": 171,
+              "blocking": 117,
+              "styleAndLayout": 169,
+              "renderStart": 161,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 156,
+                  "forcedStyleAndLayout": 22
+                }
+              ]
+            },
+            {
+              "duration": 141,
+              "blocking": 90,
+              "styleAndLayout": 140,
+              "renderStart": 129,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 128,
+                  "forcedStyleAndLayout": 25
+                }
+              ]
+            },
+            {
+              "duration": 138,
+              "blocking": 83,
+              "styleAndLayout": 138,
+              "renderStart": 107,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 102,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2824,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 848
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 560
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 362.7
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 216.2
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 94.5
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:434",
+                "selfMs": 55.9
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 26
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 25.1
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 19.5
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 19.4
+              },
+              {
+                "frame": "invoke @ http://127.0.0.1:5473/node_modules/.vite/deps/core-CP6vdcl6.js?v=9bce390c:207",
+                "selfMs": 18
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 14.3
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 13.6
+              },
+              {
+                "frame": "updateProperties @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:9926",
+                "selfMs": 13.6
+              },
+              {
+                "frame": "(garbage collector) @ native:0",
+                "selfMs": 13.4
+              },
+              {
+                "frame": "getTaskName @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:64",
+                "selfMs": 12.2
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 11.8
+              },
+              {
+                "frame": "updateLayout @ http://127.0.0.1:5473/src/views/fileLibrary/FileLibraryWorkspace.tsx:96",
+                "selfMs": 10.9
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 3,
+          "durationMs": 2251,
+          "verified": true,
+          "frames": 25,
+          "idleFrames": 20,
+          "p50": 16.7,
+          "p95": 166.7,
+          "max": 716.6,
+          "dropped": 9,
+          "layout": 20,
+          "layoutMs": 96,
+          "styleMs": 93,
+          "scriptMs": 1364,
+          "taskMs": 2453,
+          "loafMax": 736,
+          "longestLoaf": {
+            "duration": 736,
+            "blocking": 663,
+            "styleAndLayout": 735,
+            "renderStart": 732,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 688,
+                "forcedStyleAndLayout": 17
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 581,
+              "blocking": 0,
+              "styleAndLayout": 581,
+              "renderStart": 581,
+              "scripts": []
+            },
+            {
+              "duration": 155,
+              "blocking": 101,
+              "styleAndLayout": 152,
+              "renderStart": 143,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 138,
+                  "forcedStyleAndLayout": 20
+                }
+              ]
+            },
+            {
+              "duration": 147,
+              "blocking": 96,
+              "styleAndLayout": 146,
+              "renderStart": 136,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 135,
+                  "forcedStyleAndLayout": 27
+                }
+              ]
+            },
+            {
+              "duration": 133,
+              "blocking": 82,
+              "styleAndLayout": 132,
+              "renderStart": 103,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 102,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2831,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 869
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 453.7
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 350.3
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 214.5
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 104.4
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:434",
+                "selfMs": 56.4
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 33.3
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 31.1
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 29.6
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 27.3
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 22.5
+              },
+              {
+                "frame": "invoke @ http://127.0.0.1:5473/node_modules/.vite/deps/core-CP6vdcl6.js?v=9bce390c:207",
+                "selfMs": 21.3
+              },
+              {
+                "frame": "getTaskName @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:64",
+                "selfMs": 16.2
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/node_modules/.vite/deps/lucide-react.js?v=9bce390c:63",
+                "selfMs": 15.3
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 14.6
+              },
+              {
+                "frame": "runWithFiberInDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:847",
+                "selfMs": 14.5
+              },
+              {
+                "frame": "(garbage collector) @ native:0",
+                "selfMs": 13.7
+              },
+              {
+                "frame": "updateLayout @ http://127.0.0.1:5473/src/views/fileLibrary/FileLibraryWorkspace.tsx:96",
+                "selfMs": 13.4
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 4,
+          "durationMs": 2150,
+          "verified": true,
+          "frames": 31,
+          "idleFrames": 16,
+          "p50": 16.7,
+          "p95": 233.2,
+          "max": 616.6,
+          "dropped": 10,
+          "layout": 20,
+          "layoutMs": 98,
+          "styleMs": 86,
+          "scriptMs": 1278,
+          "taskMs": 2336,
+          "loafMax": 642,
+          "longestLoaf": {
+            "duration": 642,
+            "blocking": 573,
+            "styleAndLayout": 641,
+            "renderStart": 638,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 606,
+                "forcedStyleAndLayout": 15
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 583,
+              "blocking": 0,
+              "styleAndLayout": 583,
+              "renderStart": 582,
+              "scripts": []
+            },
+            {
+              "duration": 218,
+              "blocking": 145,
+              "styleAndLayout": 216,
+              "renderStart": 207,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 184,
+                  "forcedStyleAndLayout": 25
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 13,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            },
+            {
+              "duration": 143,
+              "blocking": 92,
+              "styleAndLayout": 141,
+              "renderStart": 132,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 131,
+                  "forcedStyleAndLayout": 26
+                }
+              ]
+            },
+            {
+              "duration": 142,
+              "blocking": 90,
+              "styleAndLayout": 141,
+              "renderStart": 109,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 107,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2732,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 843.6
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 463.2
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 350.8
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 182
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 97.6
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:434",
+                "selfMs": 61.5
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 34.2
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 28.9
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 28.7
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 28.7
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/node_modules/.vite/deps/lucide-react.js?v=9bce390c:42",
+                "selfMs": 17.8
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 17.4
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/node_modules/.vite/deps/lucide-react.js?v=9bce390c:63",
+                "selfMs": 16.5
+              },
+              {
+                "frame": "invoke @ http://127.0.0.1:5473/node_modules/.vite/deps/core-CP6vdcl6.js?v=9bce390c:207",
+                "selfMs": 16.2
+              },
+              {
+                "frame": "(garbage collector) @ native:0",
+                "selfMs": 16
+              },
+              {
+                "frame": "now @ native:0",
+                "selfMs": 13.4
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 12.7
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 12.2
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 5,
+          "durationMs": 2154,
+          "verified": true,
+          "frames": 27,
+          "idleFrames": 20,
+          "p50": 16.7,
+          "p95": 166.7,
+          "max": 616.6,
+          "dropped": 10,
+          "layout": 20,
+          "layoutMs": 95,
+          "styleMs": 90,
+          "scriptMs": 1277,
+          "taskMs": 2362,
+          "loafMax": 636,
+          "longestLoaf": {
+            "duration": 636,
+            "blocking": 568,
+            "styleAndLayout": 634,
+            "renderStart": 632,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 600,
+                "forcedStyleAndLayout": 15
+              }
+            ]
+          },
+          "otherLoaf": [
+            {
+              "duration": 603,
+              "blocking": 0,
+              "styleAndLayout": 603,
+              "renderStart": 603,
+              "scripts": []
+            },
+            {
+              "duration": 157,
+              "blocking": 102,
+              "styleAndLayout": 154,
+              "renderStart": 147,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 142,
+                  "forcedStyleAndLayout": 22
+                }
+              ]
+            },
+            {
+              "duration": 143,
+              "blocking": 93,
+              "styleAndLayout": 142,
+              "renderStart": 134,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 133,
+                  "forcedStyleAndLayout": 26
+                }
+              ]
+            },
+            {
+              "duration": 142,
+              "blocking": 87,
+              "styleAndLayout": 141,
+              "renderStart": 109,
+              "scripts": [
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 104,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2756,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 868.3
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 470.4
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 360.2
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 200.4
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 95.6
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:434",
+                "selfMs": 56.5
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 30.7
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 25.2
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 21.1
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/node_modules/.vite/deps/lucide-react.js?v=9bce390c:63",
+                "selfMs": 20
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 16.8
+              },
+              {
+                "frame": "invoke @ http://127.0.0.1:5473/node_modules/.vite/deps/core-CP6vdcl6.js?v=9bce390c:207",
+                "selfMs": 16.7
+              },
+              {
+                "frame": "(garbage collector) @ native:0",
+                "selfMs": 16
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 14.9
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/node_modules/.vite/deps/lucide-react.js?v=9bce390c:42",
+                "selfMs": 13.1
+              },
+              {
+                "frame": "setAttribute @ native:0",
+                "selfMs": 12.6
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 12.6
+              },
+              {
+                "frame": "appendChild @ native:0",
+                "selfMs": 12.4
+              }
+            ]
+          }
+        }
+      ],
+      "summary": {
+        "p95Median": 199.9,
+        "p95Worst": 233.2,
+        "loafMaxMedian": 642,
+        "loafMaxWorst": 736,
+        "layoutMsAverage": 95,
+        "styleMsAverage": 88,
+        "scriptMsAverage": 1289
+      }
+    },
+    {
+      "id": "rail",
+      "verified": true,
+      "samples": [
+        {
+          "iteration": 1,
+          "durationMs": 1441,
+          "verified": true,
+          "frames": 26,
+          "idleFrames": 32,
+          "p50": 33.3,
+          "p95": 66.6,
+          "max": 100.1,
+          "dropped": 15,
+          "layout": 33,
+          "layoutMs": 133,
+          "styleMs": 89,
+          "scriptMs": 467,
+          "taskMs": 1660,
+          "loafMax": 586,
+          "longestLoaf": {
+            "duration": 586,
+            "blocking": 0,
+            "styleAndLayout": 586,
+            "renderStart": 586,
+            "scripts": []
+          },
+          "otherLoaf": [
+            {
+              "duration": 112,
+              "blocking": 53,
+              "styleAndLayout": 112,
+              "renderStart": 109,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 88,
+                  "forcedStyleAndLayout": 44
+                }
+              ]
+            },
+            {
+              "duration": 81,
+              "blocking": 26,
+              "styleAndLayout": 81,
+              "renderStart": 79,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 64,
+                  "forcedStyleAndLayout": 25
+                }
+              ]
+            },
+            {
+              "duration": 67,
+              "blocking": 13,
+              "styleAndLayout": 67,
+              "renderStart": 65,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 51,
+                  "forcedStyleAndLayout": 12
+                }
+              ]
+            },
+            {
+              "duration": 55,
+              "blocking": 0,
+              "styleAndLayout": 52,
+              "renderStart": 41,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 28,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 11,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "FrameRequestCallback",
+                  "invoker": "FrameRequestCallback",
+                  "url": "",
+                  "duration": 6,
+                  "forcedStyleAndLayout": 5
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2026,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 920.3
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 415.5
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 127.1
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 112
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 87.5
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 48.7
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 43.5
+              },
+              {
+                "frame": "prepareFreshStack @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:8138",
+                "selfMs": 16.5
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 9
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 6.9
+              },
+              {
+                "frame": "FileLibraryWorkbench @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:75",
+                "selfMs": 5.6
+              },
+              {
+                "frame": "(garbage collector) @ native:0",
+                "selfMs": 5.2
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 5.1
+              },
+              {
+                "frame": "loop @ native:4",
+                "selfMs": 4.9
+              },
+              {
+                "frame": "elementsFromPoint @ native:0",
+                "selfMs": 4.9
+              },
+              {
+                "frame": "runWithFiberInDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:847",
+                "selfMs": 4.9
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 4.8
+              },
+              {
+                "frame": "getTaskName @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:64",
+                "selfMs": 4.5
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 2,
+          "durationMs": 1415,
+          "verified": true,
+          "frames": 25,
+          "idleFrames": 33,
+          "p50": 33.2,
+          "p95": 66.8,
+          "max": 99.9,
+          "dropped": 14,
+          "layout": 32,
+          "layoutMs": 133,
+          "styleMs": 86,
+          "scriptMs": 471,
+          "taskMs": 1669,
+          "loafMax": 601,
+          "longestLoaf": {
+            "duration": 601,
+            "blocking": 0,
+            "styleAndLayout": 601,
+            "renderStart": 601,
+            "scripts": []
+          },
+          "otherLoaf": [
+            {
+              "duration": 113,
+              "blocking": 47,
+              "styleAndLayout": 113,
+              "renderStart": 110,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 89,
+                  "forcedStyleAndLayout": 43
+                }
+              ]
+            },
+            {
+              "duration": 82,
+              "blocking": 28,
+              "styleAndLayout": 82,
+              "renderStart": 80,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 64,
+                  "forcedStyleAndLayout": 25
+                }
+              ]
+            },
+            {
+              "duration": 68,
+              "blocking": 13,
+              "styleAndLayout": 68,
+              "renderStart": 67,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 51,
+                  "forcedStyleAndLayout": 12
+                }
+              ]
+            },
+            {
+              "duration": 54,
+              "blocking": 0,
+              "styleAndLayout": 51,
+              "renderStart": 40,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 27,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 11,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2013,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 937.3
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 391.2
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 122.6
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 110.6
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 83.3
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 44.9
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 41.3
+              },
+              {
+                "frame": "prepareFreshStack @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:8138",
+                "selfMs": 21.7
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 14.1
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 5.6
+              },
+              {
+                "frame": "jsxDEVImpl @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:148",
+                "selfMs": 5.6
+              },
+              {
+                "frame": "beginWork @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:6081",
+                "selfMs": 5.5
+              },
+              {
+                "frame": "FileLibraryWorkbench @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:75",
+                "selfMs": 5.5
+              },
+              {
+                "frame": "runWithFiberInDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:847",
+                "selfMs": 5.3
+              },
+              {
+                "frame": "now @ native:0",
+                "selfMs": 5.3
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 5.1
+              },
+              {
+                "frame": "(anonymous) @ native:0",
+                "selfMs": 5
+              },
+              {
+                "frame": "loop @ native:4",
+                "selfMs": 5
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 3,
+          "durationMs": 1423,
+          "verified": true,
+          "frames": 25,
+          "idleFrames": 33,
+          "p50": 33.3,
+          "p95": 66.7,
+          "max": 83.3,
+          "dropped": 15,
+          "layout": 32,
+          "layoutMs": 130,
+          "styleMs": 87,
+          "scriptMs": 467,
+          "taskMs": 1643,
+          "loafMax": 577,
+          "longestLoaf": {
+            "duration": 577,
+            "blocking": 0,
+            "styleAndLayout": 577,
+            "renderStart": 576,
+            "scripts": []
+          },
+          "otherLoaf": [
+            {
+              "duration": 112,
+              "blocking": 43,
+              "styleAndLayout": 112,
+              "renderStart": 109,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 87,
+                  "forcedStyleAndLayout": 44
+                }
+              ]
+            },
+            {
+              "duration": 88,
+              "blocking": 32,
+              "styleAndLayout": 88,
+              "renderStart": 85,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 66,
+                  "forcedStyleAndLayout": 25
+                }
+              ]
+            },
+            {
+              "duration": 63,
+              "blocking": 9,
+              "styleAndLayout": 63,
+              "renderStart": 61,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 46,
+                  "forcedStyleAndLayout": 10
+                }
+              ]
+            },
+            {
+              "duration": 54,
+              "blocking": 0,
+              "styleAndLayout": 50,
+              "renderStart": 40,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 27,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 11,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "FrameRequestCallback",
+                  "invoker": "FrameRequestCallback",
+                  "url": "",
+                  "duration": 5,
+                  "forcedStyleAndLayout": 5
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 1999,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 916.6
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 406.6
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 125
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 111
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 82.4
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 46.8
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 42.1
+              },
+              {
+                "frame": "prepareFreshStack @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:8138",
+                "selfMs": 16.8
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 11.9
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 7.2
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 6.6
+              },
+              {
+                "frame": "now @ native:0",
+                "selfMs": 6.5
+              },
+              {
+                "frame": "elementsFromPoint @ native:0",
+                "selfMs": 6.1
+              },
+              {
+                "frame": "(garbage collector) @ native:0",
+                "selfMs": 5.5
+              },
+              {
+                "frame": "commitMutationEffectsOnFiber @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:7235",
+                "selfMs": 5.3
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 5
+              },
+              {
+                "frame": "(anonymous) @ native:0",
+                "selfMs": 4.9
+              },
+              {
+                "frame": "runWithFiberInDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:847",
+                "selfMs": 4.8
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 4,
+          "durationMs": 1477,
+          "verified": true,
+          "frames": 28,
+          "idleFrames": 33,
+          "p50": 33.2,
+          "p95": 83.4,
+          "max": 116.6,
+          "dropped": 14,
+          "layout": 36,
+          "layoutMs": 148,
+          "styleMs": 100,
+          "scriptMs": 504,
+          "taskMs": 1760,
+          "loafMax": 586,
+          "longestLoaf": {
+            "duration": 586,
+            "blocking": 0,
+            "styleAndLayout": 585,
+            "renderStart": 585,
+            "scripts": []
+          },
+          "otherLoaf": [
+            {
+              "duration": 130,
+              "blocking": 73,
+              "styleAndLayout": 130,
+              "renderStart": 127,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 102,
+                  "forcedStyleAndLayout": 54
+                }
+              ]
+            },
+            {
+              "duration": 100,
+              "blocking": 43,
+              "styleAndLayout": 100,
+              "renderStart": 97,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 77,
+                  "forcedStyleAndLayout": 29
+                }
+              ]
+            },
+            {
+              "duration": 67,
+              "blocking": 13,
+              "styleAndLayout": 67,
+              "renderStart": 64,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 50,
+                  "forcedStyleAndLayout": 12
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2062,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 970.7
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 340.6
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 140.7
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 122.2
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 98.2
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 46.7
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 45.5
+              },
+              {
+                "frame": "prepareFreshStack @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:8138",
+                "selfMs": 15.9
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 11.6
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 8.4
+              },
+              {
+                "frame": "validateProperty @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:1875",
+                "selfMs": 7.2
+              },
+              {
+                "frame": "elementsFromPoint @ native:0",
+                "selfMs": 6.8
+              },
+              {
+                "frame": "(garbage collector) @ native:0",
+                "selfMs": 6.8
+              },
+              {
+                "frame": "(anonymous) @ native:0",
+                "selfMs": 6.2
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 6.1
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 5.4
+              },
+              {
+                "frame": "updateProperties @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:9926",
+                "selfMs": 5.3
+              },
+              {
+                "frame": "measure @ native:0",
+                "selfMs": 5.2
+              }
+            ]
+          }
+        },
+        {
+          "iteration": 5,
+          "durationMs": 1423,
+          "verified": true,
+          "frames": 26,
+          "idleFrames": 33,
+          "p50": 33.3,
+          "p95": 66.7,
+          "max": 100.1,
+          "dropped": 15,
+          "layout": 32,
+          "layoutMs": 134,
+          "styleMs": 87,
+          "scriptMs": 444,
+          "taskMs": 1633,
+          "loafMax": 591,
+          "longestLoaf": {
+            "duration": 591,
+            "blocking": 0,
+            "styleAndLayout": 590,
+            "renderStart": 590,
+            "scripts": []
+          },
+          "otherLoaf": [
+            {
+              "duration": 115,
+              "blocking": 60,
+              "styleAndLayout": 115,
+              "renderStart": 113,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 91,
+                  "forcedStyleAndLayout": 47
+                }
+              ]
+            },
+            {
+              "duration": 78,
+              "blocking": 23,
+              "styleAndLayout": 78,
+              "renderStart": 76,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 60,
+                  "forcedStyleAndLayout": 23
+                }
+              ]
+            },
+            {
+              "duration": 68,
+              "blocking": 14,
+              "styleAndLayout": 68,
+              "renderStart": 65,
+              "scripts": [
+                {
+                  "name": "dispatchDiscreteEvent",
+                  "invoker": "DIV#root.onclick",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 49,
+                  "forcedStyleAndLayout": 11
+                }
+              ]
+            },
+            {
+              "duration": 53,
+              "blocking": 0,
+              "styleAndLayout": 49,
+              "renderStart": 40,
+              "scripts": [
+                {
+                  "name": "import.then",
+                  "invoker": "import.then",
+                  "url": "http://127.0.0.1:5473/src/api/core.ts",
+                  "duration": 27,
+                  "forcedStyleAndLayout": 0
+                },
+                {
+                  "name": "performWorkUntilDeadline",
+                  "invoker": "MessagePort.onmessage",
+                  "url": "http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                  "duration": 11,
+                  "forcedStyleAndLayout": 0
+                }
+              ]
+            }
+          ],
+          "profile": {
+            "sampledMs": 2014,
+            "top": [
+              {
+                "frame": "(program) @ native:0",
+                "selfMs": 932
+              },
+              {
+                "frame": "(idle) @ native:0",
+                "selfMs": 425.1
+              },
+              {
+                "frame": "getAnimations @ native:0",
+                "selfMs": 125.4
+              },
+              {
+                "frame": "exports.jsxDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:191",
+                "selfMs": 108.6
+              },
+              {
+                "frame": "(anonymous) @ http://127.0.0.1:5473/src/views/fileLibrary/workbench/FileLibraryWorkbench.tsx:455",
+                "selfMs": 85.1
+              },
+              {
+                "frame": "exports.createElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:591",
+                "selfMs": 44.9
+              },
+              {
+                "frame": "run @ native:0",
+                "selfMs": 43
+              },
+              {
+                "frame": "prepareFreshStack @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:8138",
+                "selfMs": 16
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=9bce390c:104",
+                "selfMs": 12.1
+              },
+              {
+                "frame": "ReactElement @ http://127.0.0.1:5473/node_modules/.vite/deps/react.js?v=9bce390c:132",
+                "selfMs": 7.1
+              },
+              {
+                "frame": "now @ native:0",
+                "selfMs": 6.1
+              },
+              {
+                "frame": "react_stack_bottom_frame @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:12862",
+                "selfMs": 6
+              },
+              {
+                "frame": "validatePropertiesInDevelopment @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:9494",
+                "selfMs": 5.6
+              },
+              {
+                "frame": "createTask @ native:0",
+                "selfMs": 5.6
+              },
+              {
+                "frame": "runWithFiberInDEV @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:847",
+                "selfMs": 5.1
+              },
+              {
+                "frame": "elementsFromPoint @ native:0",
+                "selfMs": 4.9
+              },
+              {
+                "frame": "commitUpdate @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:10558",
+                "selfMs": 4.8
+              },
+              {
+                "frame": "createWorkInProgress @ http://127.0.0.1:5473/node_modules/.vite/deps/react-dom_client.js?v=9bce390c:2728",
+                "selfMs": 4.5
+              }
+            ]
+          }
+        }
+      ],
+      "summary": {
+        "p95Median": 66.7,
+        "p95Worst": 83.4,
+        "loafMaxMedian": 586,
+        "loafMaxWorst": 601,
+        "layoutMsAverage": 136,
+        "styleMsAverage": 90,
+        "scriptMsAverage": 471
+      }
+    }
+  ]
+}

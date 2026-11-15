@@ -2786,6 +2786,7 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Organiz
   if (summary.count > (source.kind === "one_off" ? 100 : 10_000)) throw new Error("organization_plan_too_large");
   const timestamp = Math.floor(Date.now() / 1000);
   const presentationOnly = new URLSearchParams(globalThis.location?.search ?? "").has("pm01-organize");
+  const presentationRich = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-organize") === "rich";
   const id = `${presentationOnly ? "browser-presentation-organization-plan" : "browser-organization-plan"}-${automationRunId ?? Date.now()}`;
   const plan: OrganizationPlan = {
     id,
@@ -2818,17 +2819,22 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Organiz
   mockOrganizationItems.set(id, sourceFiles.sort((left, right) => left.id.localeCompare(right.id)).map((file, ordinal) => {
     // This is a deterministic display fixture selected by the browser URL. It
     // intentionally never reads files.suggested_* or claims AI authority.
-    const state = "is_dir" in file && file.is_dir ? "blocked" : presentationOnly ? mockOrganizationPresentationState() : "needs-analysis";
+    const state = "is_dir" in file && file.is_dir ? "blocked" : presentationOnly ? mockOrganizationPresentationState(ordinal) : "needs-analysis";
     const actionable = state === "ready" || state === "review";
     const blocked = state === "blocked";
     const validity: OrganizationPlanItem["validity"] = blocked ? "blocked" : state === "needs-analysis" ? "needs_analysis" : state === "review" ? "needs_review" : "ready";
     const proposalKind: OrganizationPlanItem["proposalKind"] = blocked ? "blocked" : actionable ? "move" : "keep";
     const confidence = state === "ready" ? 0.94 : state === "review" ? 0.68 : 0;
     const requiresConfirmation = state === "review";
-    const proposedTargetDirectory = actionable ? `${file.directory.replace(/[\\/]$/, "")}/Presentation fixture` : file.directory;
+    // `rich` mirrors the prototype's three target groups (Brand/Assets/Notes)
+    // while every item remains a presentation record with no execution right.
+    const targetGroup = presentationRich ? mockOrganizationTargetGroup(file.file_type) : "Presentation fixture";
+    const proposedTargetDirectory = actionable ? `C:/Users/Zen/Documents/Workspace/${targetGroup}` : file.directory;
     const proposedTargetPath = actionable ? `${proposedTargetDirectory}/${file.name}` : file.path;
     const previewId = actionable ? `browser-presentation-only-preview-${file.id}` : null;
-    const blockingCode = blocked ? "browser_presentation_fixture_blocked" : null;
+    const blockingCode = blocked
+      ? "browser_presentation_fixture_blocked"
+      : presentationRich && ordinal === 2 ? "target_collision" : null;
     const semanticExplanation = actionable ? {
       assessmentFingerprint: `browser-presentation-only:${file.id}`,
       reason: "Browser presentation fixture only; no current backend SemanticAssessmentV1 is present."
@@ -2888,9 +2894,19 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Organiz
   return plan;
 }
 
-function mockOrganizationPresentationState(): "needs-analysis" | "ready" | "review" | "blocked" {
+function mockOrganizationPresentationState(ordinal = 0): "needs-analysis" | "ready" | "review" | "blocked" {
   const value = new URLSearchParams(globalThis.location?.search ?? "").get("pm01-organize");
+  // `rich` is the complete-review fixture: five ready, two requiring a
+  // decision and one blocked, so the plan shows all three review outcomes.
+  if (value === "rich") return ordinal === 6 ? "blocked" : ordinal === 2 || ordinal === 5 ? "review" : "ready";
   return value === "ready" || value === "review" || value === "blocked" ? value : "needs-analysis";
+}
+
+function mockOrganizationTargetGroup(fileType: string | null | undefined) {
+  if (fileType === "Image") return "Assets";
+  if (fileType === "Code") return "Notes";
+  if (fileType === "ArchivePackage" || fileType === "Installer") return "Archive";
+  return "Brand";
 }
 
 function queryMockOrganizationItems(request?: { planId?: string; cursor?: string | null; pageSize?: number }) {

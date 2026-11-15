@@ -30,6 +30,9 @@ export function ContextPanel({
 }) {
   const { layout, paneOverlay } = useContextPanelPresentation();
   const usePaneOverlay = paneOverlay && layout !== "large";
+  // A single medium window has enough room for the prototype's inline 260px
+  // inspector; only compact windows and multi-pane overlays use the sheet.
+  const inline = layout === "large" || (layout === "medium" && !paneOverlay);
   if (!open || projection.kind === "none") return null;
 
   const title = contextTitle(projection);
@@ -37,7 +40,7 @@ export function ContextPanel({
   const closeLabel = contextCloseLabel(projection);
   const closePanel = () => {
     onClose();
-    if (layout === "large" || usePaneOverlay) restoreFileLibraryFocus(restoreFocus);
+    if (inline || usePaneOverlay) restoreFileLibraryFocus(restoreFocus);
   };
 
   const content = (
@@ -50,7 +53,7 @@ export function ContextPanel({
     </div>
   );
 
-  if (layout === "large" || usePaneOverlay) {
+  if (inline) {
     return (
       <aside
         className={cn(

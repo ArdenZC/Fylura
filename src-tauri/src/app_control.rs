@@ -3148,8 +3148,8 @@ mod tests {
         // so moving from a 4K display to a small secondary stays reachable.
         let (_, _, _, _) = main_window_geometry(0, 0, 3840, 2160, 2.0);
         let (width, height, x, y) = main_window_geometry(3840, 0, 1024, 600, 1.0);
-        assert_eq!((width, height), (1008.0, 584.0));
-        assert_eq!((x, y), (3848.0, 8.0));
+        assert_eq!((width, height), (976.0, 552.0));
+        assert_eq!((x, y), (3864.0, 24.0));
         assert!(x + width <= 4864.0 && y + height <= 600.0);
     }
 

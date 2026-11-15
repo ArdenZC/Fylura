@@ -8,6 +8,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  memo,
   useSyncExternalStore,
   type ComponentType,
   type MouseEvent as ReactMouseEvent,
@@ -858,6 +859,8 @@ export function FileLibraryWorkbench({
               <PaneHost
                 key={pane.id}
                 pane={pane}
+                panePath={pane.path}
+                panePathTargetKey={pane.pathTargetKey}
                 Pane={Pane}
                 visible={visible}
                 retained={workspaceReady}
@@ -904,8 +907,18 @@ export function FileLibraryWorkbench({
     </div>
   );
 }
-function PaneHost({
+/**
+ * PaneHost renders a full Files workspace (tree, list, status bar). The
+ * workbench re-renders on every pane-count/focus change; without memoisation a
+ * 1→4 switch re-rendered all four workspaces in one React commit (~520ms at
+ * 4× CPU). The comparator keeps pane identity and visible/focus/drop state,
+ * while ignoring per-render pointer wrappers whose captured pane/tab ids are
+ * stable and whose mutable inputs are compared explicitly.
+ */
+const PaneHost = memo(function PaneHost({
   pane,
+  panePath,
+  panePathTargetKey,
   Pane,
   mutationEpoch,
   restoreError,
@@ -923,6 +936,10 @@ function PaneHost({
   | "registerPreview"
 > & {
   pane: WorkbenchPane;
+  /** Primitive snapshot: the pane object is mutated in place by the model, so
+   * comparing `pane.path` during memoisation would always see the new value. */
+  panePath: string;
+  panePathTargetKey: string | null;
   Pane: ComponentType;
   mutationEpoch: number;
   restoreError: string;
@@ -982,8 +999,8 @@ function PaneHost({
     projection: pane.projection,
     scope,
     setScope,
-    routingHint: pane.path,
-    pathTargetKey: pane.pathTargetKey,
+    routingHint: panePath,
+    pathTargetKey: panePathTargetKey,
     updateLocation,
     registerPreview,
   };
@@ -1024,4 +1041,28 @@ function PaneHost({
       </PaneContext.Provider>
     </div>
   );
-}
+}, (previous, next) => {
+  // Per-render wrappers (`activate`, `onPointerDown`, ...) close over this
+  // pane's stable tab/pane ids; every mutable input they read is compared
+  // below, so their identity changes must not invalidate the whole workspace.
+  return previous.pane.id === next.pane.id
+    && previous.panePath === next.panePath
+    && previous.panePathTargetKey === next.panePathTargetKey
+    && previous.pane.projection === next.pane.projection
+    && previous.pane.controller === next.pane.controller
+    && previous.Pane === next.Pane
+    && previous.mutationEpoch === next.mutationEpoch
+    && previous.restoreError === next.restoreError
+    && previous.retained === next.retained
+    && previous.visible === next.visible
+    && previous.focused === next.focused
+    && previous.wideMultiPane === next.wideMultiPane
+    && previous.targetPaneId === next.targetPaneId
+    && previous.internalDrop === next.internalDrop
+    && previous.externalDrop === next.externalDrop
+    && previous.onPointerMove === next.onPointerMove
+    && previous.onPointerUp === next.onPointerUp
+    && previous.onPointerCancel === next.onPointerCancel
+    && previous.onLostPointerCapture === next.onLostPointerCapture
+    && previous.onClickCapture === next.onClickCapture;
+});

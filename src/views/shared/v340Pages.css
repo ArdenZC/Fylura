@@ -517,6 +517,207 @@
   background: var(--zc-surface-hover);
 }
 
+/* Group summary rows carry the prototype's source → target line: two real
+ * sample files, their source folder and the proposed name. The full item list
+ * stays in the group review panel. */
+.organize-group-samples {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 4px 6px;
+  border-radius: var(--zc-radius-row);
+  background: var(--zc-surface-subtle);
+  list-style: none;
+}
+
+.organize-group-samples li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--zc-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.organize-group-samples svg {
+  flex: none;
+  color: var(--zc-text-tertiary);
+}
+
+.organize-group-sample-name {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--zc-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organize-group-sample-source {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organize-group-sample-arrow {
+  flex: none;
+  color: var(--zc-text-tertiary);
+}
+
+.organize-group-sample-target {
+  min-width: 0;
+  max-width: 38%;
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------- plan boundary strip */
+
+/* The plan immediately follows the KPI band. Provider/scope/workflow detail
+ * stays complete but folded; the summary states the real blocked count and
+ * which operations are held back, so the groups are not pushed off-screen. */
+.v340-organize-safety {
+  flex: none;
+  border-radius: var(--zc-radius-row);
+  background: var(--zc-surface);
+  box-shadow: var(--zc-inset-ring, 0 0 0 1px var(--zc-divider));
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+}
+
+.v340-organize-safety > summary {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--zc-radius-row);
+  padding: 0 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.v340-organize-safety > summary::-webkit-details-marker {
+  display: none;
+}
+
+.v340-organize-safety > summary:hover {
+  background: var(--zc-surface-hover);
+}
+
+.v340-organize-safety > summary:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+.v340-organize-safety[data-tone="warning"] > summary > svg {
+  color: var(--zc-warning-text);
+}
+
+.v340-organize-safety[data-tone="info"] > summary > svg {
+  color: var(--zc-primary);
+}
+
+.v340-organize-safety-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--zc-text-primary);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v340-organize-safety-meta {
+  flex: none;
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.v340-organize-safety-chevron {
+  flex: none;
+  color: var(--zc-text-tertiary);
+  transition: transform 120ms var(--zc-ease-standard);
+}
+
+.v340-organize-safety[open] .v340-organize-safety-chevron {
+  transform: rotate(90deg);
+}
+
+.v340-organize-safety-body {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--zc-divider);
+  padding: 10px;
+}
+
+.v340-organize-safety-copy {
+  margin: 0;
+  color: var(--zc-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.v340-organize-safety-copy.is-warning {
+  color: var(--zc-warning-text);
+}
+
+.v340-organize-safety-boundary {
+  border-top: 1px solid var(--zc-divider);
+  padding-top: 8px;
+}
+
+.v340-organize-safety-boundary dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 11.5px;
+}
+
+.v340-organize-safety-boundary dl div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.v340-organize-safety-boundary dt {
+  color: var(--zc-text-tertiary);
+}
+
+.v340-organize-safety-boundary dd {
+  margin: 0;
+  color: var(--zc-text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .v340-organize-safety-boundary dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .v340-organize-safety-meta {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .v340-organize-safety {
+    border: 1px solid CanvasText;
+  }
+}
+
 /* --------------------------------------------------- forced colors */
 
 /* Rings are shadows and disappear in forced-colors mode; every surface states

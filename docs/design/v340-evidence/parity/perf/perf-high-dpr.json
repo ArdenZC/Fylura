@@ -14,15 +14,15 @@
         "duration": 260,
         "state": "running"
       },
-      "frames": 109,
+      "frames": 111,
       "p50": 16.7,
       "p95": 16.8,
-      "dropped": 5,
-      "layout": 101,
-      "layoutMs": 39,
-      "styleMs": 32,
-      "loafCount": 2,
-      "loafMax": 82
+      "dropped": 3,
+      "layout": 98,
+      "layoutMs": 36,
+      "styleMs": 31,
+      "loafCount": 1,
+      "loafMax": 56
     },
     {
       "cpu": 4,
@@ -33,15 +33,15 @@
         "duration": 260,
         "state": "running"
       },
-      "frames": 99,
+      "frames": 96,
       "p50": 16.7,
-      "p95": 249.9,
-      "dropped": 20,
-      "layout": 102,
-      "layoutMs": 240,
-      "styleMs": 169,
-      "loafCount": 18,
-      "loafMax": 558
+      "p95": 133.3,
+      "dropped": 15,
+      "layout": 104,
+      "layoutMs": 255,
+      "styleMs": 179,
+      "loafCount": 16,
+      "loafMax": 366
     }
   ]
 }

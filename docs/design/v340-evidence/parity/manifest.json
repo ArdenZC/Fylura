@@ -1,191 +1,569 @@
 {
   "chrome": "151.0.7922.34",
+  "capturedAt": "2026-11-15T14:46:12.993Z",
+  "rule": "proto and prod must share viewport, DPR, theme, platform; physical PNG dimensions are asserted equal",
+  "dprNote": "DPR1 mac-columns-dpr1 is a separate control and is never mixed into Retina evidence",
   "pairs": [
     {
       "scenario": "files",
+      "label": "Files · list + Inspector",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-files-light-1440x900.webp",
-      "prod": "prod-files-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-files-light-1440x900@1x.webp",
+      "prod": "prod-files-light-1440x900@1x.webp"
     },
     {
       "scenario": "overview",
+      "label": "Overview",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-overview-light-1440x900.webp",
-      "prod": "prod-overview-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-overview-light-1440x900@1x.webp",
+      "prod": "prod-overview-light-1440x900@1x.webp"
     },
     {
-      "scenario": "organize",
+      "scenario": "organize-plan",
+      "label": "Organize · 8-item plan / AI ready",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-organize-light-1440x900.webp",
-      "prod": "prod-organize-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-organize-plan-light-1440x900@1x.webp",
+      "prod": "prod-organize-plan-light-1440x900@1x.webp"
     },
     {
       "scenario": "cleanup",
+      "label": "Cleanup · findings",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-cleanup-light-1440x900.webp",
-      "prod": "prod-cleanup-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-cleanup-light-1440x900@1x.webp",
+      "prod": "prod-cleanup-light-1440x900@1x.webp"
     },
     {
       "scenario": "history",
+      "label": "History / Restore",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-history-light-1440x900.webp",
-      "prod": "prod-history-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-history-light-1440x900@1x.webp",
+      "prod": "prod-history-light-1440x900@1x.webp"
     },
     {
       "scenario": "settings",
+      "label": "Settings",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-settings-light-1440x900.webp",
-      "prod": "prod-settings-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-settings-light-1440x900@1x.webp",
+      "prod": "prod-settings-light-1440x900@1x.webp"
     },
     {
       "scenario": "panes4",
+      "label": "Files · 4 panes / 4 folders",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-panes4-light-1440x900.webp",
-      "prod": "prod-panes4-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-panes4-light-1440x900@1x.webp",
+      "prod": "prod-panes4-light-1440x900@1x.webp"
     },
     {
       "scenario": "menu",
+      "label": "Files · pane layout menu",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-menu-light-1440x900.webp",
-      "prod": "prod-menu-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-menu-light-1440x900@1x.webp",
+      "prod": "prod-menu-light-1440x900@1x.webp"
     },
     {
       "scenario": "search",
+      "label": "Global Search",
       "theme": "light",
-      "viewport": "1440x900",
-      "proto": "proto-search-light-1440x900.webp",
-      "prod": "prod-search-light-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-search-light-1440x900@1x.webp",
+      "prod": "prod-search-light-1440x900@1x.webp"
     },
     {
       "scenario": "files",
+      "label": "Files · list + Inspector",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-files-dark-1440x900.webp",
-      "prod": "prod-files-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-files-dark-1440x900@1x.webp",
+      "prod": "prod-files-dark-1440x900@1x.webp"
     },
     {
       "scenario": "overview",
+      "label": "Overview",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-overview-dark-1440x900.webp",
-      "prod": "prod-overview-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-overview-dark-1440x900@1x.webp",
+      "prod": "prod-overview-dark-1440x900@1x.webp"
     },
     {
-      "scenario": "organize",
+      "scenario": "organize-plan",
+      "label": "Organize · 8-item plan / AI ready",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-organize-dark-1440x900.webp",
-      "prod": "prod-organize-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-organize-plan-dark-1440x900@1x.webp",
+      "prod": "prod-organize-plan-dark-1440x900@1x.webp"
     },
     {
       "scenario": "cleanup",
+      "label": "Cleanup · findings",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-cleanup-dark-1440x900.webp",
-      "prod": "prod-cleanup-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-cleanup-dark-1440x900@1x.webp",
+      "prod": "prod-cleanup-dark-1440x900@1x.webp"
     },
     {
       "scenario": "history",
+      "label": "History / Restore",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-history-dark-1440x900.webp",
-      "prod": "prod-history-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-history-dark-1440x900@1x.webp",
+      "prod": "prod-history-dark-1440x900@1x.webp"
     },
     {
       "scenario": "settings",
+      "label": "Settings",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-settings-dark-1440x900.webp",
-      "prod": "prod-settings-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-settings-dark-1440x900@1x.webp",
+      "prod": "prod-settings-dark-1440x900@1x.webp"
     },
     {
       "scenario": "panes4",
+      "label": "Files · 4 panes / 4 folders",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-panes4-dark-1440x900.webp",
-      "prod": "prod-panes4-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-panes4-dark-1440x900@1x.webp",
+      "prod": "prod-panes4-dark-1440x900@1x.webp"
     },
     {
       "scenario": "menu",
+      "label": "Files · pane layout menu",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-menu-dark-1440x900.webp",
-      "prod": "prod-menu-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-menu-dark-1440x900@1x.webp",
+      "prod": "prod-menu-dark-1440x900@1x.webp"
     },
     {
       "scenario": "search",
+      "label": "Global Search",
       "theme": "dark",
-      "viewport": "1440x900",
-      "proto": "proto-search-dark-1440x900.webp",
-      "prod": "prod-search-dark-1440x900.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-search-dark-1440x900@1x.webp",
+      "prod": "prod-search-dark-1440x900@1x.webp"
     },
     {
       "scenario": "files",
+      "label": "Files · list + Inspector",
       "theme": "light",
-      "viewport": "1080x740",
-      "proto": "proto-files-light-1080x740.webp",
-      "prod": "prod-files-light-1080x740.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 1080,
+        "height": 740
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1080,
+        "height": 740
+      },
+      "proto": "proto-files-light-1080x740@1x.webp",
+      "prod": "prod-files-light-1080x740@1x.webp"
     },
     {
       "scenario": "files",
+      "label": "Files · list + Inspector",
       "theme": "light",
-      "viewport": "850x680",
-      "proto": "proto-files-light-850x680.webp",
-      "prod": "prod-files-light-850x680.webp"
+      "platform": "Win32",
+      "viewport": {
+        "width": 850,
+        "height": 680
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 850,
+        "height": 680
+      },
+      "proto": "proto-files-light-850x680@1x.webp",
+      "prod": "prod-files-light-850x680@1x.webp"
     },
     {
-      "scenario": "mac-files",
+      "scenario": "mac-columns-1440",
+      "label": "Finder Columns · 3 levels + file preview",
       "theme": "light",
-      "viewport": "1440x900",
-      "dpr": 2,
       "platform": "MacIntel",
-      "proto": "proto-mac-files-light-1440x900.webp",
-      "prod": "prod-mac-files-light-1440x900.webp"
-    },
-    {
-      "scenario": "mac-columns",
-      "theme": "light",
-      "viewport": "1440x900",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
       "dpr": 2,
-      "platform": "MacIntel",
-      "proto": "proto-mac-columns-light-1440x900.webp",
-      "prod": "prod-mac-columns-light-1440x900.webp"
+      "physical": {
+        "width": 2880,
+        "height": 1800
+      },
+      "proto": "proto-mac-columns-1440-light-1440x900@2x.webp",
+      "prod": "prod-mac-columns-1440-light-1440x900@2x.webp"
     },
     {
-      "scenario": "mac-files-air13",
-      "theme": "light",
-      "viewport": "1280x832",
-      "dpr": 2,
-      "platform": "MacIntel",
-      "proto": "proto-mac-files-air13-light-1280x832.webp",
-      "prod": "prod-mac-files-air13-light-1280x832.webp"
-    },
-    {
-      "scenario": "mac-files",
+      "scenario": "mac-columns-1440",
+      "label": "Finder Columns · 3 levels + file preview",
       "theme": "dark",
-      "viewport": "1440x900",
-      "dpr": 2,
       "platform": "MacIntel",
-      "proto": "proto-mac-files-dark-1440x900.webp",
-      "prod": "prod-mac-files-dark-1440x900.webp"
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 2880,
+        "height": 1800
+      },
+      "proto": "proto-mac-columns-1440-dark-1440x900@2x.webp",
+      "prod": "prod-mac-columns-1440-dark-1440x900@2x.webp"
     },
     {
-      "scenario": "mac-columns",
-      "theme": "dark",
-      "viewport": "1440x900",
-      "dpr": 2,
+      "scenario": "mac-columns-air13",
+      "label": "Finder Columns · Air 13",
+      "theme": "light",
       "platform": "MacIntel",
-      "proto": "proto-mac-columns-dark-1440x900.webp",
-      "prod": "prod-mac-columns-dark-1440x900.webp"
+      "viewport": {
+        "width": 1280,
+        "height": 832
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 2560,
+        "height": 1664
+      },
+      "proto": "proto-mac-columns-air13-light-1280x832@2x.webp",
+      "prod": "prod-mac-columns-air13-light-1280x832@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-air13",
+      "label": "Finder Columns · Air 13",
+      "theme": "dark",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 1280,
+        "height": 832
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 2560,
+        "height": 1664
+      },
+      "proto": "proto-mac-columns-air13-dark-1280x832@2x.webp",
+      "prod": "prod-mac-columns-air13-dark-1280x832@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-pro14",
+      "label": "Finder Columns · Pro 14",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 1512,
+        "height": 982
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 3024,
+        "height": 1964
+      },
+      "proto": "proto-mac-columns-pro14-light-1512x982@2x.webp",
+      "prod": "prod-mac-columns-pro14-light-1512x982@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-pro16",
+      "label": "Finder Columns · Pro 16",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 1728,
+        "height": 1117
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 3456,
+        "height": 2234
+      },
+      "proto": "proto-mac-columns-pro16-light-1728x1117@2x.webp",
+      "prod": "prod-mac-columns-pro16-light-1728x1117@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-5k",
+      "label": "Finder Columns · 5K",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 2560,
+        "height": 1440
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 5120,
+        "height": 2880
+      },
+      "proto": "proto-mac-columns-5k-light-2560x1440@2x.webp",
+      "prod": "prod-mac-columns-5k-light-2560x1440@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-min",
+      "label": "Finder Columns · minimum window",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 980,
+        "height": 680
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 1960,
+        "height": 1360
+      },
+      "proto": "proto-mac-columns-min-light-980x680@2x.webp",
+      "prod": "prod-mac-columns-min-light-980x680@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-dpr1",
+      "label": "Finder Columns · DPR1 control (not Retina evidence)",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-mac-columns-dpr1-light-1440x900@1x.webp",
+      "prod": "prod-mac-columns-dpr1-light-1440x900@1x.webp"
+    },
+    {
+      "scenario": "organize-unavailable",
+      "label": "Organize · AI unavailable (state A)",
+      "theme": "light",
+      "platform": "Win32",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "dpr": 1,
+      "physical": {
+        "width": 1440,
+        "height": 900
+      },
+      "proto": "proto-organize-unavailable-light-1440x900@1x.webp",
+      "prod": "prod-organize-unavailable-light-1440x900@1x.webp"
+    },
+    {
+      "scenario": "mac-panes4",
+      "label": "Finder Columns · 4 panes (production-only)",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 1512,
+        "height": 982
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 3024,
+        "height": 1964
+      },
+      "proto": null,
+      "prod": "prod-mac-panes4-light-1512x982@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-deep-980",
+      "label": "Finder Columns · 4 levels / min window (production-only)",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 980,
+        "height": 680
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 1960,
+        "height": 1360
+      },
+      "proto": null,
+      "prod": "prod-mac-columns-deep-980-light-980x680@2x.webp"
+    },
+    {
+      "scenario": "mac-columns-deep-pro14",
+      "label": "Finder Columns · 4 levels / horizontal scroll (production-only)",
+      "theme": "light",
+      "platform": "MacIntel",
+      "viewport": {
+        "width": 1512,
+        "height": 982
+      },
+      "dpr": 2,
+      "physical": {
+        "width": 3024,
+        "height": 1964
+      },
+      "proto": null,
+      "prod": "prod-mac-columns-deep-pro14-light-1512x982@2x.webp"
     }
-  ],
-  "note": "Committed images are WebP (quality 0.9) derivatives of the PNG capture; captureV340Parity.mjs writes PNG and extracts the prototype from the committed ZIP."
+  ]
 }

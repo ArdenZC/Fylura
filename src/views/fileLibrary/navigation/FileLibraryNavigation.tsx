@@ -146,6 +146,10 @@ export function FileLibraryNavigation({
   useEffect(() => {
     setTreeNavigationError(null);
   }, [currentTargetKey, pane?.routingHint, treeLocation?.ref]);
+  const volumesLabel = platform === "darwin" ? t("filesMountedVolumesMac") : t("filesMountedVolumes");
+  const locationsLabel = platform === "darwin"
+    ? t("fileLibraryNavigationLocationsMac")
+    : state.mode === "library" ? t("fileLibraryNavigationLibraryLocations") : t("fileLibraryNavigationLocations");
   const navigation = (
     <nav
       className="file-library-navigation-panel"
@@ -172,9 +176,9 @@ export function FileLibraryNavigation({
         </div>
       </section> : null}
 
-      {state.mode === "browse" ? <section className="file-library-navigation-section" aria-label={t("filesMountedVolumes")}>
+      {state.mode === "browse" ? <section className="file-library-navigation-section" aria-label={volumesLabel}>
         <div className="file-library-navigation-section-heading">
-          <h3 className="file-library-navigation-section-title">{t("filesMountedVolumes")}</h3>
+          <h3 className="file-library-navigation-section-title">{volumesLabel}</h3>
           <button type="button" aria-label={t("filesRefreshVolumes")} disabled={mounted.loading} onClick={() => void mounted.refresh(true)}>↻</button>
         </div>
         {mounted.failed ? <p role="status" className="file-library-navigation-muted">{t("filesVolumesUnavailable")}</p> : null}
@@ -217,7 +221,7 @@ export function FileLibraryNavigation({
 
       <section className="file-library-navigation-section" aria-labelledby={pane ? `file-library-navigation-locations-heading-${pane.id}` : "file-library-navigation-locations-heading"}>
         <div className="file-library-navigation-section-heading">
-          <h3 id={pane ? `file-library-navigation-locations-heading-${pane.id}` : "file-library-navigation-locations-heading"} className="file-library-navigation-section-title">{state.mode === "library" ? t("fileLibraryNavigationLibraryLocations") : t("fileLibraryNavigationLocations")}</h3>
+          <h3 id={pane ? `file-library-navigation-locations-heading-${pane.id}` : "file-library-navigation-locations-heading"} className="file-library-navigation-section-title">{locationsLabel}</h3>
           <MapPin size={15} aria-hidden="true" />
         </div>
         {locationsLoading && locations.length === 0 ? <p className="file-library-navigation-muted" role="status">{t("fileLibraryNavigationLocationsLoading")}</p> : null}

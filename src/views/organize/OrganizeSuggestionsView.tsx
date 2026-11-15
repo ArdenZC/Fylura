@@ -2,7 +2,7 @@ import { requestOrganizationHistoryBatch, useOrganizationOperationProgress } fro
 import { OneOffOrganizeConsent } from "./OneOffOrganizeConsent";
 import { useOneOffOrganizeTask } from "./useOneOffOrganizeTask";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, ChevronRight, CircleMinus, Edit3, History, ListRestart, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, X } from "lucide-react";
+import { Check, ChevronRight, CircleMinus, Edit3, FileText, History, ListRestart, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, ShieldAlert, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
 import { useCommandContext, useI18nContext, useNavigationContext } from "../../contexts/AppContexts";
@@ -30,7 +30,7 @@ import {
 } from "../shared/ui";
 import { AIReadinessNotice, organizationPlanReadiness } from "../shared/AIReadinessNotice";
 
-const GROUP_ROW_HEIGHT = 194;
+const GROUP_ROW_HEIGHT = 220;
 const GROUP_PAGE_SIZE = 100;
 
 export function organizationExecutionBatchSummary(executableCount: number, executionBatchLimit: number) {
@@ -219,6 +219,18 @@ export function OrganizeSuggestionsView() {
     pendingReview: plan.summary.pendingReview,
     blocked: plan.summary.blocked
   } : null);
+  const aiProviderReady = aiReadiness?.provider.state === "ready";
+  const organizePlanReadinessState = organizationPlanReadiness(plan);
+  const organizeBlockedCount = effectiveSummary?.blocked ?? 0;
+  const organizeReviewCount = effectiveSummary?.pendingReview ?? 0;
+  const organizeSafetyWarning = Boolean(plan && (!aiProviderReady || organizeBlockedCount > 0));
+  const organizeSafetySummary = !plan
+    ? ""
+    : !aiProviderReady
+      ? t("organizeSafetyProviderBlocked")
+      : organizeBlockedCount > 0
+        ? replaceCopy(t("organizeSafetyBlocked"), { count: organizeBlockedCount })
+        : t("organizeSafetyReady");
   const organizeWorkflowCurrent = executionResult || executionConfirmation || isExecutionInFlight
     ? 3
     : dryRun
@@ -602,9 +614,9 @@ export function OrganizeSuggestionsView() {
 
   return (
     <div className={cn(pageFrame, "gap-3") }>
-      <AIReadinessNotice
+      {!plan ? <AIReadinessNotice
         feature="organize"
-        sourceMode={!plan || plan.sourceKind === "one_off" ? "one_off" : "managed"}
+        sourceMode="one_off"
         readiness={aiReadiness}
         loading={aiReadinessLoading}
         error={aiReadinessError}
@@ -612,7 +624,7 @@ export function OrganizeSuggestionsView() {
         t={t}
         setView={setView}
         onRetry={() => void refreshAiReadiness().catch(() => undefined)}
-      />
+      /> : null}
       {oneOff.error ? <NoticeBanner tone="error" title={t("organizeOneOffFailed")}>{oneOff.error}</NoticeBanner> : null}
       {oneOff.reading ? <div role="status">{t("organizeOneOffReading")} <Button variant="ghost" onClick={oneOff.cancel}>{t("fmCancel")}</Button></div> : null}
       {plan?.sourceKind === "one_off" && needsAnalysisCount > 0 ? <OneOffOrganizeConsent consent={oneOff.consent} busy={isMutating} providerReady={canGenerateSemanticProposals} onConsent={oneOff.setConsent} onAnalyze={() => void handleAnalyzeMissing()} t={t} /> : null}
@@ -722,29 +734,59 @@ export function OrganizeSuggestionsView() {
             />
           </section>
 
-          {plan.sourceKind !== "one_off" ? <WorkflowSteps
-            label={t("organizeWorkflowLabel")}
-            className="shrink-0"
-            steps={[
-              { label: t("organizeWorkflowSuggestion"), detail: replaceCopy(t("organizeWorkflowPlanDetail"), { count: plan.materializedCount }), state: "done", stateLabel: t("workflowStateDone") },
-              { label: t("organizeWorkflowReview"), detail: t("organizeWorkflowReviewDetail"), state: organizeReviewWorkflowState, stateLabel: workflowStateLabel(organizeReviewWorkflowState, t) },
-              { label: t("organizeWorkflowDryRun"), detail: t("organizeWorkflowDryRunDetail"), state: organizeDryRunWorkflowState, stateLabel: workflowStateLabel(organizeDryRunWorkflowState, t) },
-              { label: t("organizeWorkflowConfirm"), detail: t("organizeWorkflowConfirmDetail"), state: organizeConfirmWorkflowState, stateLabel: workflowStateLabel(organizeConfirmWorkflowState, t) }
-            ]}
-          /> : null}
-          {plan.sourceKind !== "one_off" ? <NoticeBanner tone="info" title={t("organizeWorkflowBoundaryTitle")}>
-            {t("organizeWorkflowBoundaryDesc")}
-          </NoticeBanner> : null}
-          {plan.sourceKind !== "one_off" && effectiveSummary?.blocked ? (
-            <NoticeBanner tone="warning" title={replaceCopy(t("organizeBlockedSummary"), { count: effectiveSummary.blocked })}>
-              {t("organizePreviewUnavailableDesc")}
-            </NoticeBanner>
-          ) : null}
+          {/* One collapsible boundary strip: the plan, its groups and the KPI
+           * band stay above the fold. The full provider/scope/workflow
+           * explanation is still one keystroke away and never removed. */}
+          <details className="v340-organize-safety" data-organize-safety data-tone={organizeSafetyWarning ? "warning" : "info"} data-ai-provider-state={aiReadiness?.provider.state ?? "unavailable"}>
+            <summary>
+              <ShieldAlert size={14} aria-hidden="true" />
+              <span className="v340-organize-safety-text">{organizeSafetySummary}</span>
+              <span className="v340-organize-safety-meta">
+                {t("organizeSafetyMeta")
+                  .replace("{blocked}", String(organizeBlockedCount))
+                  .replace("{review}", String(organizeReviewCount))}
+              </span>
+              <ChevronRight className="v340-organize-safety-chevron" size={14} aria-hidden="true" />
+            </summary>
+            <div className="v340-organize-safety-body">
+              <AIReadinessNotice
+                feature="organize"
+                sourceMode={plan.sourceKind === "one_off" ? "one_off" : "managed"}
+                readiness={aiReadiness}
+                loading={aiReadinessLoading}
+                error={aiReadinessError}
+                planReadiness={organizePlanReadinessState}
+                t={t}
+                setView={setView}
+                onRetry={() => void refreshAiReadiness().catch(() => undefined)}
+              />
+              {plan.sourceKind !== "one_off" ? <WorkflowSteps
+                label={t("organizeWorkflowLabel")}
+                className="shrink-0"
+                steps={[
+                  { label: t("organizeWorkflowSuggestion"), detail: replaceCopy(t("organizeWorkflowPlanDetail"), { count: plan.materializedCount }), state: "done", stateLabel: t("workflowStateDone") },
+                  { label: t("organizeWorkflowReview"), detail: t("organizeWorkflowReviewDetail"), state: organizeReviewWorkflowState, stateLabel: workflowStateLabel(organizeReviewWorkflowState, t) },
+                  { label: t("organizeWorkflowDryRun"), detail: t("organizeWorkflowDryRunDetail"), state: organizeDryRunWorkflowState, stateLabel: workflowStateLabel(organizeDryRunWorkflowState, t) },
+                  { label: t("organizeWorkflowConfirm"), detail: t("organizeWorkflowConfirmDetail"), state: organizeConfirmWorkflowState, stateLabel: workflowStateLabel(organizeConfirmWorkflowState, t) }
+                ]}
+              /> : null}
+              <p className="v340-organize-safety-copy">{t("organizeWorkflowBoundaryDesc")}</p>
+              {organizeBlockedCount > 0 ? <p className="v340-organize-safety-copy is-warning">{t("organizePreviewUnavailableDesc")}</p> : null}
+              <div className="v340-organize-safety-boundary" data-organize-execution-boundary>
+                <dl>
+                  <div><dt>{t("organizePlanMetricFiles")}</dt><dd>{plan.materializedCount.toLocaleString()}</dd></div>
+                  <div><dt>{t("organizePlanMetricAccepted")}</dt><dd>{(plan.summary.accepted + plan.summary.edited).toLocaleString()}</dd></div>
+                  <div><dt>{t("organizePlanMetricReview")}</dt><dd>{(effectiveSummary?.pendingReview ?? 0).toLocaleString()}</dd></div>
+                  <div><dt>{t("organizePlanMetricBlocked")}</dt><dd>{(effectiveSummary?.blocked ?? 0).toLocaleString()}</dd></div>
+                </dl>
+              </div>
+            </div>
+          </details>
           {planListState === "failed" ? <NoticeBanner tone="warning" title={t("organizePlanListFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void loadPlans().catch(() => undefined)}>{t("organizePlanListRetry")}</Button>}>{t("organizePlanListFailedDesc")}</NoticeBanner> : null}
           {error ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void openPlan(plan.id).catch(() => undefined)}>{t("organizePlanRefresh")}</Button>}>{t("organizeLoadFailedDesc")}</NoticeBanner> : null}
           {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={reviewActionNeedsRefresh ? <Button variant="secondary" size="compact" onClick={() => { setReviewActionError(null); setReviewActionNeedsRefresh(false); void handleRefreshPlan().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button> : <Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
 
-          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)]" data-organize-plan-shell>
+          <div className="grid min-h-0 flex-1 gap-3" data-organize-plan-shell>
             <div className="grid min-h-0 gap-3">
               <SegmentedControl
                 value={activeTab}
@@ -789,13 +831,24 @@ export function OrganizeSuggestionsView() {
                               <span>{t("organizeGroupFiles").replace("{count}", group.itemCount.toLocaleString())}</span>
                               <span>{t("organizeGroupBytes").replace("{size}", formatBytes(group.totalBytes))}</span>
                               <span>{riskLabel(group.riskLevel, t)}</span>
+                              {group.reviewReasonCounts.length ? <span className="text-[var(--zc-warning-text)]">{groupReason(group, t)}</span> : null}
                               {group.acceptedCount ? <span>{t("organizeGroupAccepted").replace("{count}", group.acceptedCount.toLocaleString())}</span> : null}
                               {group.excludedCount ? <span>{t("organizeGroupExcluded").replace("{count}", group.excludedCount.toLocaleString())}</span> : null}
                               {group.staleCount || group.conflictCount ? <span className="text-[var(--zc-warning-text)]">{t("organizeGroupIssues").replace("{stale}", group.staleCount.toLocaleString()).replace("{conflicts}", group.conflictCount.toLocaleString())}</span> : null}
                             </div>
+                            {group.sampleItems.length ? <ul className="organize-group-samples" aria-label={t("organizeGroupFiles").replace("{count}", String(group.itemCount))}>
+                              {group.sampleItems.slice(0, 2).map((sample) => (
+                                <li key={sample.itemId} title={`${sample.sourcePath} → ${group.targetDirectory ?? t("organizeGroupNoDestination")}`}>
+                                  <FileText size={12} aria-hidden="true" />
+                                  <span className="organize-group-sample-name">{sample.sourceName}</span>
+                                  <span className="organize-group-sample-source">{sample.sourcePath.slice(0, sample.sourcePath.lastIndexOf("/"))}</span>
+                                  <span className="organize-group-sample-arrow" aria-hidden="true">→</span>
+                                  <span className="organize-group-sample-target">{group.targetDirectory ?? sample.proposedName}</span>
+                                </li>
+                              ))}
+                            </ul> : null}
                             {group.sampleItems[0]?.reason ? <p className="truncate text-xs text-[var(--zc-text-secondary)]" title={group.sampleItems[0].reason}>{group.sampleItems[0].reason}</p> : null}
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="min-w-0 truncate text-xs text-[var(--zc-text-tertiary)]">{groupReason(group, t)}</span>
                               <div className="flex shrink-0 flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
                                 {group.groupActions.canAcceptAll ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted").catch(() => undefined)}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
                                 {group.groupActions.canKeepAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept").catch(() => undefined)}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
@@ -812,18 +865,7 @@ export function OrganizeSuggestionsView() {
                 ) : null}
               </section>
             </div>
-            <aside className="v340-panel v340-panel-quiet grid content-start gap-3 p-4" data-organize-execution-boundary>
-              <div>
-                <h2 className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("organizeWorkflowBoundaryTitle")}</h2>
-                <p className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{t("organizeWorkflowBoundaryDesc")}</p>
-              </div>
-              <dl className="grid gap-2 border-t border-[var(--zc-divider)] pt-3 text-sm">
-                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricFiles")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-text-primary)]">{plan.materializedCount.toLocaleString()}</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricAccepted")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-success-text)]">{(plan.summary.accepted + plan.summary.edited).toLocaleString()}</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricReview")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-warning-text)]">{(effectiveSummary?.pendingReview ?? 0).toLocaleString()}</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-[var(--zc-text-secondary)]">{t("organizePlanMetricBlocked")}</dt><dd className="font-semibold tabular-nums text-[var(--zc-danger-text)]">{(effectiveSummary?.blocked ?? 0).toLocaleString()}</dd></div>
-              </dl>
-            </aside>
+
           </div>
 
           <footer className="v340-action-bar shrink-0" data-organize-review-action>

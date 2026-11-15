@@ -23,6 +23,49 @@ if (includeFolderMoveFixture) {
   files.set("C:/U3/Left/MoveFolder/nested/payload.txt", { id: "move-folder-payload", version: 1, size: 22, modified: 1 });
   files.set("C:/U3/Left/MoveFolder/empty", { id: "move-folder-empty", version: 1, directory: true });
 }
+// Finder-style evidence tree: three real Browse levels (Finder > Documents >
+// Workspace) so Columns can be compared at the same ancestor depth as the
+// macOS prototype. Presentation fixture only — no simulated executor.
+const includeFinderFixture = typeof window !== "undefined"
+  && new URLSearchParams(window.location.search).has("finder-fixture");
+if (includeFinderFixture) {
+  const seed = (path: string, options: { directory?: boolean; size?: number; modified?: number } = {}) => {
+    files.set(path, { id: `finder-${path.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, version: 1, ...options });
+  };
+  for (const name of ["Documents", "Desktop", "Downloads", "Assets", "src", "Teaching"]) {
+    seed(`C:/U3/Finder/${name}`, { directory: true });
+  }
+  for (const name of ["Workspace", "Archive", "Brand", "Finance", "Notes", "Planning"]) {
+    seed(`C:/U3/Finder/Documents/${name}`, { directory: true });
+  }
+  for (const name of ["Brand guidelines.pdf", "cover-hero.png", "品牌语气说明.md"]) {
+    seed(`C:/U3/Finder/Documents/Brand/${name}`, { size: 420_000, modified: 1_762_000_000 });
+  }
+  for (const name of ["budget-2026.xlsx", "报价单-Q3.pdf"]) {
+    seed(`C:/U3/Finder/Documents/Finance/${name}`, { size: 96_000, modified: 1_762_100_000 });
+  }
+  for (const name of ["course-plan-uml.docx", "dataset-structure.csv", "week-06.key"]) {
+    seed(`C:/U3/Finder/Documents/Archive/${name}`, { size: 180_000, modified: 1_762_200_000 });
+  }
+  for (const name of ["project-notes.md", "release-checklist.pdf", "standup-notes.md"]) {
+    seed(`C:/U3/Finder/Documents/Workspace/${name}`, { size: 32_000, modified: 1_762_300_000 });
+  }
+  seed("C:/U3/Finder/Documents/Workspace/Assets", { directory: true });
+  for (const name of ["brand-mark.svg", "poster.png"]) {
+    seed(`C:/U3/Finder/Documents/Workspace/Assets/${name}`, { size: 120_000, modified: 1_762_350_000 });
+  }
+  for (const name of [
+    "assets-2025.zip",
+    "Design tokens v2.pdf",
+    "launch-cover.png",
+    "pricing-draft.xlsx",
+    "Q4-roadmap.key",
+    "2026 年第四季度设计系统交付清单与验收记录（最终版）.pdf",
+    "非常长的文件名称用于验证 Finder 列视图中的截断与预览布局-2026.pdf"
+  ]) {
+    seed(`C:/U3/Finder/Documents/Workspace/${name}`, { size: 880_000, modified: 1_762_400_000 });
+  }
+}
 files.set("C:/U3/Left/Case.txt", { id: "case-left", version: 1, size: 1, modified: 1 });
 files.set("C:/U3/Right/case.txt", { id: "case-right", version: 1, size: 1, modified: 1 });
 for (const [name, directory] of [["invoice.txt", false], ["notes.txt", false], ["holiday.jpg", false], ["Subfolder", true]] as const) {

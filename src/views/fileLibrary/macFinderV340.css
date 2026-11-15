@@ -1,0 +1,157 @@
+/*
+ * macOS Finder presentation for the Files workspace (v3.40 §0.2/§5.4).
+ *
+ * The Windows layout stays untouched; only [data-platform="darwin"] changes
+ * the chrome grammar. Tabs, 1–4 panes, transfers and selection identity are
+ * unchanged — this file only restyles surfaces that already exist.
+ */
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-panel {
+  gap: 14px;
+  padding: 10px 8px 12px;
+  background: color-mix(in srgb, var(--zc-canvas) 55%, transparent);
+}
+
+/* Finder source lists have no column heading; the app shell already names the
+ * page, and the groups below carry their own 11px labels. */
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-header {
+  display: none;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-section-title,
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-location-group-title {
+  padding: 0 8px;
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-item {
+  height: 27px;
+  min-height: 27px;
+  border-radius: 6px;
+  padding: 0 8px;
+  color: var(--zc-text-primary);
+  font-size: 12.5px;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-item svg {
+  width: 16px;
+  height: 16px;
+  color: var(--zc-text-tertiary);
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-item:hover {
+  background: var(--zc-surface-hover);
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-item.is-active {
+  background: var(--zc-primary);
+  color: #fff;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-item.is-active svg {
+  color: #fff;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-navigation-footnote {
+  display: none;
+}
+
+/* Finder toolbar: 42px, icon-only history and view segments. The visible
+ * labels remain as aria-labels, so keyboard and screen-reader behaviour is
+ * unchanged. */
+.file-library-workspace[data-platform="darwin"] .file-library-command-bar {
+  position: relative;
+  height: 42px;
+  gap: 6px;
+  border-bottom: 1px solid var(--zc-divider);
+  background: var(--zc-surface);
+  padding: 0 10px;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-history-controls {
+  gap: 1px;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-command-button {
+  width: 28px;
+  min-width: 28px;
+  height: 26px;
+  min-height: 26px;
+  justify-content: center;
+  border-radius: 6px;
+  padding: 0;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-command-button > span {
+  display: none;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-command-target {
+  position: absolute;
+  left: 50%;
+  max-width: 280px;
+  transform: translateX(-50%);
+  color: var(--zc-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+@media (max-width: 1160px) {
+  .file-library-workspace[data-platform="darwin"] .file-library-command-target {
+    display: none;
+  }
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-view-switch {
+  gap: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--zc-text-primary) 6%, transparent);
+  padding: 1px;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-view-switch .file-library-command-button {
+  width: 28px;
+  min-width: 28px;
+  height: 24px;
+  min-height: 24px;
+  border-radius: 6px;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-view-switch .file-library-command-button[aria-pressed="true"] {
+  background: var(--zc-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+
+/* Finder content is flush under the toolbar; the window edge is the panel. */
+.file-library-workspace[data-platform="darwin"] .file-library-content-slot {
+  padding: 0;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-content-slot .browse-results-panel {
+  gap: 0;
+}
+
+.file-library-workspace[data-platform="darwin"] .browse-columns {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* The Finder preview column replaces the Inspector in Columns mode; opening
+ * the Inspector would otherwise show the same facts twice. */
+.file-library-workspace[data-platform="darwin"][data-context-open="true"] .browse-column-preview {
+  display: none;
+}
+
+/* Finder selection is the system blue in both themes. */
+.file-library-workspace[data-platform="darwin"] .file-library-device-row {
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.file-library-workspace[data-platform="darwin"] .file-library-device-name b {
+  font-size: 12.5px;
+}

@@ -17,7 +17,7 @@ function entry(
   id: string,
   name: string,
   kind: "file" | "directory" = "file",
-  extra: { isHidden?: boolean } = {}
+  extra: { isHidden?: boolean; pathRefId?: string } = {}
 ): BrowsePresentationEntry {
   return {
     source: "browse",
@@ -25,7 +25,7 @@ function entry(
     entryKind: kind,
     displayName: name,
     entryRef: { kind: "ephemeral", browseSessionId: "s1", entryId: id },
-    pathRef: kind === "directory" ? { id: `path-${id}` } : undefined,
+    pathRef: kind === "directory" ? { id: extra.pathRefId ?? `path-${id}` } : undefined,
     isHidden: extra.isHidden
   };
 }
@@ -81,11 +81,13 @@ function renderView({
   cached,
   showHidden = false,
   interaction,
+  selectedIds = new Set<string>(),
   loadedCount = current.length,
   knownCount = null,
   onActivate = vi.fn(),
   onNavigateCrumb = vi.fn(),
   onPreview = vi.fn(),
+  onPreviewOpen = vi.fn(),
   onContextMenu = vi.fn(),
   onOpenContextMenu = vi.fn()
 }: {
@@ -93,18 +95,20 @@ function renderView({
   cached?: readonly BrowsePresentationEntry[];
   showHidden?: boolean;
   interaction: BrowseInteractionProjection;
+  selectedIds?: ReadonlySet<string>;
   loadedCount?: number;
   knownCount?: number | null;
   onActivate?: Mock<(entry: BrowsePresentationEntry, ancestor: BrowseBreadcrumb | null) => void>;
   onNavigateCrumb?: Mock<(index: number) => void>;
   onPreview?: Mock<(entry: BrowsePresentationEntry) => void>;
+  onPreviewOpen?: Mock<(entry: BrowsePresentationEntry, trigger: HTMLElement) => void>;
   onContextMenu?: Mock<(event: unknown, entry: BrowsePresentationEntry) => void>;
   onOpenContextMenu?: Mock<(entry: BrowsePresentationEntry, index: number) => void>;
 }) {
   const source = {
     breadcrumbs: [rootCrumb, childCrumb],
     entries: current,
-    selectedIds: new Set<string>(),
+    selectedIds,
     focusedId: null,
     loadedCount,
     knownCount
@@ -117,16 +121,18 @@ function renderView({
       source,
       interaction,
       t,
+      language: "zh",
       cachedColumns,
       showHidden,
       onActivate,
       onNavigateCrumb,
       onPreview,
+      onPreviewOpen,
       onContextMenu,
       onOpenContextMenu
     }));
   });
-  return { source, onActivate, onNavigateCrumb, onPreview, onContextMenu, onOpenContextMenu };
+  return { source, onActivate, onNavigateCrumb, onPreview, onPreviewOpen, onContextMenu, onOpenContextMenu };
 }
 
 function keydown(element: Element, key: string, init: KeyboardEventInit = {}) {
@@ -261,5 +267,45 @@ describe("Browse column view interaction", () => {
     });
     expect(select).toHaveBeenCalledWith(file, 1, "replace");
     expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the Finder preview column for one selected file and opens Quick Preview", () => {
+    const file = entry("c1", "assets-2025.zip");
+    const current = [file];
+    const { onPreviewOpen } = renderView({
+      current,
+      interaction: makeInteraction(current),
+      selectedIds: new Set(["c1"])
+    });
+    expect(container.querySelector("[data-browse-column-preview-panel]")).not.toBeNull();
+    expect(container.querySelector('[data-column-row-index="0"]')?.className).toContain("is-selected");
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".browse-column-preview-open")?.click();
+    });
+    expect(onPreviewOpen).toHaveBeenCalledTimes(1);
+    expect(onPreviewOpen.mock.calls[0][0]).toBe(file);
+  });
+
+  it("keeps the preview column closed for a multi-file selection", () => {
+    const current = [entry("c1", "one.txt"), entry("c2", "two.txt")];
+    renderView({
+      current,
+      interaction: makeInteraction(current),
+      selectedIds: new Set(["c1", "c2"])
+    });
+    expect(container.querySelector("[data-browse-column-preview-panel]")).toBeNull();
+  });
+
+  it("marks the ancestor folder that leads to the current column as the trail", () => {
+    const folder = entry("parent", "Documents", "directory", { pathRefId: "child" });
+    const file = entry("c2", "report.pdf");
+    renderView({
+      current: [file],
+      cached: [folder],
+      interaction: makeInteraction([file])
+    });
+    const trail = container.querySelector(".browse-column-row.is-trail");
+    expect(trail).not.toBeNull();
+    expect(trail?.textContent).toContain("Documents");
   });
 });

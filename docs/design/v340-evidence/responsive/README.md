@@ -9,7 +9,7 @@
 
 - **144 / 144 PASS**，0 overflow / overlap / clipping。
 - Chromium `151.0.7922.34`，DPR 1 / 1.25 / 1.5 / 2 / 2.5。
-- 原始数据：`responsive.json`；代表性截图：本目录 4 张 PNG。
+- 原始数据：`responsive.json`；代表性截图：本目录 4 张 WebP（质量 0.9）。
 
 | 显示 | 用例 | 说明 |
 |---|---:|---|

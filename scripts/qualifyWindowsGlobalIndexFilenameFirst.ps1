@@ -447,8 +447,8 @@ try {
         candidateDatabaseBytes = Get-Average $candidateRows.ToArray() 'result.databaseBytesWithWal'
         baselinePeakDatabaseAndWalBytes = Get-Average $baselineRows.ToArray() 'result.peakDatabaseBytesWithWal'
         candidatePeakDatabaseAndWalBytes = Get-Average $candidateRows.ToArray() 'result.peakDatabaseBytesWithWal'
-        baselineTransientCatalogBytes = Get-Average $baselineRows.ToArray() 'result.transientCatalogAllocatedBytes'
-        candidateTransientCatalogBytes = Get-Average $candidateRows.ToArray() 'result.transientCatalogAllocatedBytes'
+        baselineTransientCatalogEstimatedBytes = Get-AverageWhenAvailable $baselineRows.ToArray() 'result.transientCatalogEstimatedBytes'
+        candidateTransientCatalogEstimatedBytes = Get-AverageWhenAvailable $candidateRows.ToArray() 'result.transientCatalogEstimatedBytes'
     }
     $baselineDbstatAvailable = $baselineRows.Count -gt 0 -and @($baselineRows | Where-Object { -not $_.result.databaseFootprintAfterIndex.dbstatAvailable }).Count -eq 0
     $candidateDbstatAvailable = $candidateRows.Count -gt 0 -and @($candidateRows | Where-Object { -not $_.result.databaseFootprintAfterIndex.dbstatAvailable }).Count -eq 0

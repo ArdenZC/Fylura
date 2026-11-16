@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory = $true)][string]$EvidencePath,
     [int]$FileCount = 100000,
     [int]$Repetitions = 3,
-    [ValidateSet(512, 1024, 2048, 4096, 8192)][int]$CandidatePersistBatch = 8192
+    [ValidateSet(512, 1024, 2048, 4096, 8192)][int]$CandidatePersistBatch = 4096
 )
 
 $ErrorActionPreference = 'Stop'
@@ -550,7 +550,7 @@ try {
         baselineWalCheckpointUs = Get-Average $baselineRows.ToArray() 'stages.writer.wal_checkpoint_us'
         candidateWalCheckpointUs = Get-Average $candidateRows.ToArray() 'stages.writer.wal_checkpoint_us'
         sourceStatsTiming = "entry_count and source facts remain row-triggered so concurrent file changes stay exact; their cost is included in entry_upsert_us."
-        ftsTiming = "Production FTS triggers stay enabled for existing sources and incremental changes. A fresh source defers only its own FTS inserts into restartable 8192-row transactions; no global FTS rebuild is run."
+        ftsTiming = "Production FTS triggers stay enabled for existing sources and incremental changes. A fresh source defers only its own FTS inserts into restartable batches of at most 8192 rows, combined with bounded entry transactions during initial persistence; no global FTS rebuild is run."
     }
     $allCandidateFirstSearchTargetsMet = @($candidateRows | Where-Object {
         [double]$_.result.firstSearchableUs -gt $searchReadyTargetMicroseconds

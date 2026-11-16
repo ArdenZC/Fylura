@@ -146,7 +146,7 @@ describe("Global Index performance workflow routing", () => {
     expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)");
     expect(workflow).toContain("same Release binary and same task-owned NTFS data; baseline maintains FTS in synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists $env:FILENAME_FIRST_PERSIST_BATCH_SIZE-row transactions");
     expect(workflow).toContain("Existing-source and incremental FTS triggers stay enabled; no global rebuild runs.");
-    expect(workflow).toContain("fills only its new-source FTS in restartable 8192-row batches");
+    expect(workflow).toContain("fills only its new-source FTS in restartable batches of at most 8192 rows");
     expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
     expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");

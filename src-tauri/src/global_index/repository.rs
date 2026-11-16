@@ -1275,6 +1275,35 @@ impl Database {
         self.upsert_global_entries_batch_inner(entries, Some(owner))
     }
 
+    pub(crate) fn begin_initial_global_source_fts_bulk_build_owned_timed(
+        &self,
+        owner: &SourceOperationOwner,
+    ) -> Result<(bool, GlobalIndexBatchTiming), DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
+        let connection_started = Instant::now();
+        let mut conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
+        let started = begin_initial_global_source_fts_bulk_build(&mut conn, owner, &mut timing)?;
+        timing.sqlite_transaction =
+            timing.transaction_acquisition + timing.commit + timing.fts_bulk_build;
+        Ok((started, timing))
+    }
+
+    pub(crate) fn finish_initial_global_source_fts_bulk_build_owned_timed(
+        &self,
+        owner: &SourceOperationOwner,
+    ) -> Result<GlobalIndexBatchTiming, DbError> {
+        let mut timing = GlobalIndexBatchTiming::default();
+        let connection_started = Instant::now();
+        let mut conn = self.conn()?;
+        timing.connection_acquisition = connection_started.elapsed();
+        let started = Instant::now();
+        continue_fts_bulk_build(&mut conn, &owner.volume_id, Some(owner), &mut timing)?;
+        timing.fts_bulk_build = started.elapsed();
+        timing.sqlite_transaction = timing.fts_bulk_build;
+        Ok(timing)
+    }
+
     /// Persist a completed filename-first MFT catalogue in bounded shared-DB
     /// transactions. Existing sources keep trigger-maintained FTS; a new empty
     /// source uses its durable rowid cursor to populate FTS in bounded chunks.
@@ -1327,7 +1356,7 @@ impl Database {
         let mut conn = self.conn()?;
         timing.connection_acquisition = connection_started.elapsed();
         let fts_bulk_build_active =
-            begin_transient_mft_fts_bulk_build(&mut conn, owner, &mut timing)?;
+            begin_initial_global_source_fts_bulk_build(&mut conn, owner, &mut timing)?;
         let previous_journal_size_limit =
             conn.query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))?;
         conn.pragma_update(None, "journal_size_limit", INITIAL_MFT_WAL_SIZE_LIMIT_BYTES)?;
@@ -1520,9 +1549,8 @@ impl Database {
                    AND (platform!='windows' OR scope_authorization_state='authorized')
                  ORDER BY id",
             )?;
-            statement
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
         };
         for volume_id in pending_sources {
             let mut conn = self.conn()?;
@@ -2870,7 +2898,7 @@ fn map_global_volume(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVolume> 
     })
 }
 
-fn begin_transient_mft_fts_bulk_build(
+fn begin_initial_global_source_fts_bulk_build(
     conn: &mut Connection,
     owner: &SourceOperationOwner,
     timing: &mut GlobalIndexBatchTiming,

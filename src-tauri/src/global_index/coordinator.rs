@@ -482,6 +482,7 @@ struct DatabaseIndexSink {
     owners: HashMap<String, SourceOperationOwner>,
     operation_context: HashMap<String, SourceOperationContext>,
     deferred_initial_sources: HashSet<String>,
+    initial_fts_bulk_sources: HashSet<String>,
     fallback_initial_sources: HashSet<String>,
     write_timings: HashMap<String, SourceWriteTimings>,
 }
@@ -580,6 +581,7 @@ pub(crate) fn database_sink_for_qualification(db: Database) -> impl GlobalIndexS
         owners: HashMap::new(),
         operation_context: HashMap::new(),
         deferred_initial_sources: HashSet::new(),
+        initial_fts_bulk_sources: HashSet::new(),
         fallback_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     }
@@ -638,6 +640,20 @@ impl DatabaseIndexSink {
                         SourceOperationKind::Initial | SourceOperationKind::Rebuild
                     ) && context.provider == PROVIDER_WINDOWS_MFT_USN
                 })
+    }
+
+    fn should_defer_initial_spotlight_fts(&self, volume_id: &str) -> bool {
+        self.operation_context
+            .get(volume_id)
+            .is_some_and(|context| {
+                matches!(
+                    context.kind,
+                    SourceOperationKind::Initial | SourceOperationKind::Rebuild
+                ) && context
+                    .provider
+                    .split('+')
+                    .any(|provider| provider == PROVIDER_MACOS_SPOTLIGHT)
+            })
     }
 
     fn flush_deferred_initial_mft(
@@ -891,6 +907,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
             self.owners.remove(volume_id);
             self.operation_context.remove(volume_id);
             self.deferred_initial_sources.remove(volume_id);
+            self.initial_fts_bulk_sources.remove(volume_id);
             self.fallback_initial_sources.remove(volume_id);
             self.write_timings.remove(volume_id);
             self.db.forget_local_global_index_operation(&owner);
@@ -913,6 +930,19 @@ impl GlobalIndexSink for DatabaseIndexSink {
             )));
         };
         let finalize_started = Instant::now();
+        // This method is the terminal boundary after a provider stream has
+        // stopped, including a successfully collected but partial Spotlight
+        // result set (whose source status still tells the UI it is incomplete).
+        if self.initial_fts_bulk_sources.contains(volume_id) {
+            let timing = self
+                .db
+                .finish_initial_global_source_fts_bulk_build_owned_timed(&owner)
+                .map_err(Self::map_owned_write_error)?;
+            self.write_timings
+                .entry(volume_id.to_owned())
+                .or_default()
+                .record_persisted(timing);
+        }
         let completed = self.db.finish_global_index_operation(
             &owner,
             status,
@@ -925,6 +955,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
         self.owners.remove(volume_id);
         self.operation_context.remove(volume_id);
         self.deferred_initial_sources.remove(volume_id);
+        self.initial_fts_bulk_sources.remove(volume_id);
         self.fallback_initial_sources.remove(volume_id);
         self.db
             .filename_search
@@ -1044,6 +1075,21 @@ impl GlobalIndexSink for DatabaseIndexSink {
                 .or_default()
                 .record(timing);
             return Ok(written);
+        }
+        if self.should_defer_initial_spotlight_fts(&volume_id)
+            && !self.initial_fts_bulk_sources.contains(&volume_id)
+        {
+            let (started, timing) = self
+                .db
+                .begin_initial_global_source_fts_bulk_build_owned_timed(&owner)
+                .map_err(Self::map_owned_write_error)?;
+            self.write_timings
+                .entry(volume_id.clone())
+                .or_default()
+                .record_persisted(timing);
+            if started {
+                self.initial_fts_bulk_sources.insert(volume_id.clone());
+            }
         }
         let (written, timing) = self
             .db
@@ -1375,6 +1421,7 @@ fn run_index_cycle_with_topology(
         owners: HashMap::new(),
         operation_context: HashMap::new(),
         deferred_initial_sources: HashSet::new(),
+        initial_fts_bulk_sources: HashSet::new(),
         fallback_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     };
@@ -2444,6 +2491,140 @@ mod tests {
     }
 
     #[test]
+    fn spotlight_initial_batches_bulk_build_fts_and_keep_incremental_search_exact() {
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("open isolated Spotlight writer database");
+        let root = path.0.with_extension("spotlight-fixture");
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.id = format!("gv_spotlight_{}", std::process::id());
+        volume.platform = "macos".into();
+        volume.stable_volume_id = "macos:test-computer".into();
+        volume.mount_path = root.to_string_lossy().into_owned();
+        volume.filesystem_type = "apfs".into();
+        volume.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_REQUIRED.into();
+        volume.provider = format!("{PROVIDER_MACOS_SPOTLIGHT}+{PROVIDER_MACOS_FSEVENTS_RECONCILE}");
+        volume.index_status = INDEX_STATUS_DISCOVERED.into();
+        db.upsert_global_volume(&volume)
+            .expect("seed local-computer Spotlight source");
+
+        let make_entry = |inode: u64, name: &str| GlobalEntryInput {
+            volume_id: volume.id.clone(),
+            platform_file_id: format!("mac:1:{inode}"),
+            parent_platform_file_id: "mac:1:root".into(),
+            name: name.into(),
+            path: root.join(name).to_string_lossy().into_owned(),
+            extension: "txt".into(),
+            is_directory: false,
+            size: 16,
+            created_at_fs: Some(1),
+            modified_at_fs: Some(2),
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_MACOS_SPOTLIGHT.into(),
+            last_seen_at: 3,
+        };
+        let original = make_entry(1001, "spotlight-bulk-original-unique.txt");
+        let second = make_entry(1002, "spotlight-bulk-second-unique.txt");
+        let mut sink = DatabaseIndexSink {
+            db: db.clone(),
+            owners: HashMap::new(),
+            operation_context: HashMap::new(),
+            deferred_initial_sources: HashSet::new(),
+            initial_fts_bulk_sources: HashSet::new(),
+            fallback_initial_sources: HashSet::new(),
+            write_timings: HashMap::new(),
+        };
+        sink.admit_source_operation(
+            &volume,
+            "spotlight-bulk-initial",
+            SourceOperationKind::Initial,
+            SourceOperationRoute::Coordinator,
+        )
+        .expect("claim the new Spotlight source");
+        assert_eq!(
+            sink.write_batch(std::slice::from_ref(&original)).unwrap(),
+            1
+        );
+        assert_eq!(sink.write_batch(std::slice::from_ref(&second)).unwrap(), 1);
+
+        let during_build = db
+            .search_global_entries_snapshot("spotlight-bulk", 20, 0)
+            .expect("read while the FTS build is pending");
+        assert!(during_build.results.is_empty());
+        assert!(!during_build.index_status.collection_complete);
+        let conn = db.conn().expect("inspect pending source FTS state");
+        let (bulk_build, indexed_rows): (bool, i64) = conn
+            .query_row(
+                "SELECT fts_bulk_build,
+                        (SELECT count(*) FROM global_entries_fts f
+                         JOIN global_entries e ON e.rowid=f.rowid WHERE e.volume_id=?1)
+                 FROM global_volumes WHERE id=?1",
+                [&volume.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read pending FTS facts");
+        assert!(bulk_build);
+        assert_eq!(indexed_rows, 0, "initial FTS must be deferred as a batch");
+        drop(conn);
+
+        sink.finish_source_operation(
+            &volume.id,
+            INDEX_STATUS_READY,
+            None,
+            Some(unix_now()),
+            None,
+            false,
+        )
+        .expect("complete the source only after FTS is ready");
+        let first_search = db
+            .search_global_entries_snapshot("spotlight-bulk", 20, 0)
+            .expect("search after the initial Spotlight write");
+        assert!(first_search.index_status.collection_complete);
+        assert_eq!(first_search.results.len(), 2);
+
+        let updated = make_entry(1001, "spotlight-bulk-renamed-unique.txt");
+        sink.admit_source_operation(
+            &db.get_global_volume(&volume.id).unwrap().unwrap(),
+            "spotlight-bulk-incremental",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Coordinator,
+        )
+        .expect("claim an incremental Spotlight update");
+        assert_eq!(sink.write_batch(std::slice::from_ref(&updated)).unwrap(), 1);
+        sink.finish_source_operation(
+            &volume.id,
+            INDEX_STATUS_READY,
+            None,
+            None,
+            Some(unix_now()),
+            false,
+        )
+        .expect("finish incremental Spotlight update");
+        assert!(db
+            .search_global_entries_snapshot("original-unique", 20, 0)
+            .unwrap()
+            .results
+            .is_empty());
+        assert_eq!(
+            db.search_global_entries_snapshot("renamed-unique", 20, 0)
+                .unwrap()
+                .results
+                .len(),
+            1
+        );
+        drop(sink);
+        drop(db);
+
+        let restored = Database::open(&path.0).expect("reopen Spotlight writer database");
+        let restored_search = restored
+            .search_global_entries_snapshot("renamed-unique", 20, 0)
+            .expect("search after reopening the completed source");
+        assert!(restored_search.index_status.collection_complete);
+        assert_eq!(restored_search.results.len(), 1);
+    }
+
+    #[test]
     fn m1_r3_bounded_provider_search_preserves_coverage_and_persistence() {
         // Exercise the existing provider protocol only within owned files. Never
         // discover host volumes: Windows production discovery is volume-wide.
@@ -2475,6 +2656,7 @@ mod tests {
             owners: HashMap::new(),
             operation_context: HashMap::new(),
             deferred_initial_sources: HashSet::new(),
+            initial_fts_bulk_sources: HashSet::new(),
             fallback_initial_sources: HashSet::new(),
             write_timings: HashMap::new(),
         };

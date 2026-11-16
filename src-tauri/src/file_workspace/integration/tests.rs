@@ -458,9 +458,8 @@ fn transfer_execution_advances_directory_selection_using_journaled_successes() {
     runtime.dispose();
 }
 
-#[cfg(target_os = "linux")]
 #[test]
-fn system_trash_preview_fails_closed_and_preserves_source_on_unsupported_platform() {
+fn system_trash_preview_fails_closed_and_preserves_source_without_safe_binding() {
     use crate::file_ops::manual_transfer::{
         CaptureRequest, TransferAction, TransferPreviewRequest,
     };
@@ -487,9 +486,14 @@ fn system_trash_preview_fails_closed_and_preserves_source_on_unsupported_platfor
         keep_both: Vec::new(),
         skip: Vec::new(),
     });
+    let expected_error = if cfg!(any(target_os = "windows", target_os = "macos")) {
+        "system_trash_source_binding_unsupported"
+    } else {
+        "unsupported_platform_linux"
+    };
     match preview {
-        Err(error) => assert_eq!(error, "unsupported_platform_linux"),
-        Ok(_) => panic!("unsupported platform must fail closed"),
+        Err(error) => assert_eq!(error, expected_error),
+        Ok(_) => panic!("system trash must fail closed"),
     }
     assert!(source.exists());
     runtime.dispose();

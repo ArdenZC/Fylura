@@ -10,6 +10,7 @@ use super::{
     BrowseEntryRef, BrowseEnumerationRef, BrowsePathRef, LocationRef, MaterializationState,
 };
 use crate::fs_safety::{capture_browse_identity, PhysicalFileIdentity, PhysicalIdentityError};
+use notify::{event::ModifyKind, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, DirEntry, ReadDir};
@@ -20,8 +21,23 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use uuid::Uuid;
 
+#[cfg(test)]
+thread_local! {
+    static SELECTION_DIRECTORY_ENUMERATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn selection_directory_enumeration_count() -> usize {
+    SELECTION_DIRECTORY_ENUMERATIONS.with(std::cell::Cell::get)
+}
+
 const MAX_ID_LENGTH: usize = 256;
 const MAX_QUERY_TEXT_LENGTH: usize = 4096;
+// A complete 100,000-entry selection can legitimately remove every selected
+// child in batches. Leave headroom for duplicate native notifications while
+// still bounding a noisy or overflowed watcher; overflow invalidates the
+// snapshot instead of accepting an incomplete change history.
+const MAX_PENDING_SELECTION_EVENTS: usize = MAX_DIRECTORY_SELECTION_ENTRIES + 4096;
 /// Maximum number of raw directory entries inspected by one backend page call.
 ///
 /// This is deliberately independent from the number of matching entries
@@ -318,11 +334,218 @@ struct BrowseSelectionSnapshot {
     path_ref_id: String,
     path: PathBuf,
     directory_identity: PhysicalFileIdentity,
+    change_monitor: Arc<SelectionChangeMonitor>,
     query: BrowseQuerySpecV1,
     include_hidden: bool,
     entries: Arc<Vec<BrowseSelectionEntry>>,
-    attempted: Arc<HashSet<PathBuf>>,
-    removed: Arc<HashSet<PathBuf>>,
+    path_order: Arc<Vec<usize>>,
+    attempted: Arc<Mutex<HashSet<PathBuf>>>,
+    removed: Arc<Mutex<HashSet<PathBuf>>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SelectionNamespaceChangeKind {
+    Create,
+    Remove,
+    Rename,
+    PathChange,
+    Unknown,
+}
+
+#[derive(Debug)]
+struct SelectionNamespaceChange {
+    kind: SelectionNamespaceChangeKind,
+    paths: Vec<PathBuf>,
+}
+
+struct SelectionChangeMonitor {
+    _watcher: Mutex<RecommendedWatcher>,
+    changes: Arc<Mutex<Vec<SelectionNamespaceChange>>>,
+    unavailable: Arc<std::sync::atomic::AtomicBool>,
+    wake: Arc<std::sync::Condvar>,
+    safe_trash_root_creation_pending: std::sync::atomic::AtomicBool,
+}
+
+impl std::fmt::Debug for SelectionChangeMonitor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SelectionChangeMonitor")
+            .finish_non_exhaustive()
+    }
+}
+
+impl SelectionChangeMonitor {
+    fn watch(path: &Path) -> Result<Self, BrowseError> {
+        let changes = Arc::new(Mutex::new(Vec::new()));
+        let unavailable = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let wake = Arc::new(std::sync::Condvar::new());
+        let callback_changes = Arc::clone(&changes);
+        let callback_unavailable = Arc::clone(&unavailable);
+        let callback_wake = Arc::clone(&wake);
+        let mut watcher =
+            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                let event = match event {
+                    Ok(event) => event,
+                    Err(_) => {
+                        callback_unavailable.store(true, Ordering::Release);
+                        return;
+                    }
+                };
+                let kind = match event.kind {
+                    EventKind::Create(_) => SelectionNamespaceChangeKind::Create,
+                    EventKind::Remove(_) => SelectionNamespaceChangeKind::Remove,
+                    EventKind::Modify(ModifyKind::Name(_)) => SelectionNamespaceChangeKind::Rename,
+                    EventKind::Any => SelectionNamespaceChangeKind::PathChange,
+                    EventKind::Modify(_) => SelectionNamespaceChangeKind::PathChange,
+                    EventKind::Other => SelectionNamespaceChangeKind::Unknown,
+                    _ => return,
+                };
+                if event.paths.is_empty() {
+                    callback_unavailable.store(true, Ordering::Release);
+                    return;
+                }
+                match callback_changes.lock() {
+                    Ok(mut changes) if changes.len() < MAX_PENDING_SELECTION_EVENTS => changes
+                        .push(SelectionNamespaceChange {
+                            kind,
+                            paths: event.paths,
+                        }),
+                    Ok(_) => callback_unavailable.store(true, Ordering::Release),
+                    Err(_) => callback_unavailable.store(true, Ordering::Release),
+                }
+                callback_wake.notify_all();
+            })
+            .map_err(|_| BrowseError::SelectionSnapshotIncomplete)?;
+        watcher
+            .watch(path, RecursiveMode::NonRecursive)
+            .map_err(|_| BrowseError::SelectionSnapshotIncomplete)?;
+        let safe_trash_root_creation_pending = matches!(
+            fs::symlink_metadata(path.join(".zen-canvas-trash")),
+            Err(ref error) if error.kind() == io::ErrorKind::NotFound
+        );
+        Ok(Self {
+            _watcher: Mutex::new(watcher),
+            changes,
+            unavailable,
+            wake,
+            safe_trash_root_creation_pending: std::sync::atomic::AtomicBool::new(
+                safe_trash_root_creation_pending,
+            ),
+        })
+    }
+
+    /// Namespace events are reconciled against the only changes authorized by
+    /// successful journal results. Any uncorrelated event or watcher failure
+    /// invalidates this session's snapshot instead of silently changing its
+    /// selected set.
+    fn reconcile(
+        &self,
+        directory: &Path,
+        allowed_removals: &HashSet<PathBuf>,
+        allow_safe_trash_root_creation: bool,
+    ) -> Result<HashSet<PathBuf>, BrowseError> {
+        if self.unavailable.load(Ordering::Acquire) {
+            return Err(BrowseError::SelectionSnapshotStale);
+        }
+        let changes = std::mem::take(
+            &mut *self
+                .changes
+                .lock()
+                .map_err(|_| BrowseError::SelectionSnapshotStale)?,
+        );
+        let mut observed_removals = HashSet::new();
+        for change in changes {
+            for path in change.paths {
+                if path == directory {
+                    return Err(BrowseError::SelectionSnapshotStale);
+                }
+                if path.parent() != Some(directory) {
+                    continue;
+                }
+                if matches!(change.kind, SelectionNamespaceChangeKind::Create)
+                    && path == directory.join(".zen-canvas-trash")
+                    && allow_safe_trash_root_creation
+                    && !allowed_removals.is_empty()
+                    && self
+                        .safe_trash_root_creation_pending
+                        .load(Ordering::Acquire)
+                    && fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_dir())
+                {
+                    self.safe_trash_root_creation_pending
+                        .store(false, Ordering::Release);
+                    continue;
+                }
+                match change.kind {
+                    SelectionNamespaceChangeKind::Remove | SelectionNamespaceChangeKind::Rename
+                        if allowed_removals.contains(&path) && path_is_missing(&path) =>
+                    {
+                        observed_removals.insert(path);
+                    }
+                    SelectionNamespaceChangeKind::PathChange
+                        if allowed_removals.contains(&path) && path_is_missing(&path) =>
+                    {
+                        observed_removals.insert(path);
+                    }
+                    SelectionNamespaceChangeKind::Create
+                    | SelectionNamespaceChangeKind::Remove
+                    | SelectionNamespaceChangeKind::Rename
+                    | SelectionNamespaceChangeKind::PathChange
+                    | SelectionNamespaceChangeKind::Unknown => {
+                        return Err(BrowseError::SelectionSnapshotStale);
+                    }
+                }
+            }
+        }
+        Ok(observed_removals)
+    }
+
+    fn reconcile_until_quiet(
+        &self,
+        directory: &Path,
+        allowed_removals: &HashSet<PathBuf>,
+        required_removals: &HashSet<PathBuf>,
+        allow_safe_trash_root_creation: bool,
+    ) -> Result<(), BrowseError> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        let mut observed_removals = HashSet::new();
+        loop {
+            observed_removals.extend(self.reconcile(
+                directory,
+                allowed_removals,
+                allow_safe_trash_root_creation,
+            )?);
+            let all_removals_observed = observed_removals.is_superset(required_removals);
+            let changes = self
+                .changes
+                .lock()
+                .map_err(|_| BrowseError::SelectionSnapshotStale)?;
+            if all_removals_observed && changes.is_empty() {
+                let (changes, result) = self
+                    .wake
+                    .wait_timeout(changes, std::time::Duration::from_millis(20))
+                    .map_err(|_| BrowseError::SelectionSnapshotStale)?;
+                if result.timed_out() && changes.is_empty() {
+                    return Ok(());
+                }
+            } else {
+                let (changes, _) = self
+                    .wake
+                    .wait_timeout(changes, std::time::Duration::from_millis(10))
+                    .map_err(|_| BrowseError::SelectionSnapshotStale)?;
+                drop(changes);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(BrowseError::SelectionSnapshotStale);
+            }
+        }
+    }
+}
+
+fn path_is_missing(path: &Path) -> bool {
+    matches!(
+        fs::symlink_metadata(path),
+        Err(ref error) if error.kind() == io::ErrorKind::NotFound
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -338,6 +561,7 @@ pub(crate) struct BrowseSelectionCompletion {
     pub(crate) path: PathBuf,
     pub(crate) identity: PhysicalFileIdentity,
     pub(crate) removed: bool,
+    pub(crate) creates_safe_trash_root: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -500,6 +724,7 @@ impl BrowseService {
             StoredPath {
                 path: directory.path,
                 pinned: true,
+                identity: root_identity.clone(),
             },
         );
         sessions.insert(
@@ -874,46 +1099,57 @@ impl BrowseService {
     ) -> Result<BrowseSelectionSnapshotInfo, BrowseError> {
         self.verify_session_root(session_id)?;
         let query = query.normalized()?;
-        let path = {
+        let (path, expected_directory_identity) = {
             let sessions = self
                 .sessions
                 .lock()
                 .map_err(|_| BrowseError::StateUnavailable)?;
-            sessions
+            let stored = sessions
                 .get(session_id)
                 .ok_or(BrowseError::SessionNotFound)?
                 .paths
                 .get(&path_ref.id)
-                .ok_or(BrowseError::InvalidPathRef)?
-                .path
-                .clone()
+                .ok_or(BrowseError::InvalidPathRef)?;
+            (
+                stored.path.clone(),
+                stored
+                    .identity
+                    .clone()
+                    .ok_or(BrowseError::DirectoryUnavailable)?,
+            )
         };
         validate_directory_path(&path)?;
+        let change_monitor = Arc::new(SelectionChangeMonitor::watch(&path)?);
         let directory_identity =
             capture_browse_identity(&path).map_err(map_browse_identity_error)?;
+        if !same_directory_object(&expected_directory_identity, &directory_identity) {
+            return Err(BrowseError::SelectionSnapshotStale);
+        }
         let entries = read_selection_directory(&path, &query, include_hidden)?;
         let after_directory_identity =
             capture_browse_identity(&path).map_err(map_browse_identity_error)?;
-        if !same_directory_object(&directory_identity, &after_directory_identity) {
+        if !same_directory_state(&directory_identity, &after_directory_identity)
+            || change_monitor
+                .reconcile(&path, &HashSet::new(), false)
+                .is_err()
+        {
             return Err(BrowseError::SelectionSnapshotStale);
         }
-        // Re-read once at admission so a snapshot cannot be published from a
-        // directory that changed while its first identity pass was running.
-        let verification = read_selection_directory(&path, &query, include_hidden)?;
-        if !selection_entries_equal(&entries, &verification) {
-            return Err(BrowseError::SelectionSnapshotStale);
-        }
+        let mut path_order = (0..entries.len()).collect::<Vec<_>>();
+        path_order.sort_unstable_by(|left, right| entries[*left].path.cmp(&entries[*right].path));
 
         let snapshot = BrowseSelectionSnapshot {
             id: opaque_id(),
             path_ref_id: path_ref.id.clone(),
             path,
             directory_identity,
+            change_monitor,
             query,
             include_hidden,
             entries: Arc::new(entries),
-            attempted: Arc::new(HashSet::new()),
-            removed: Arc::new(HashSet::new()),
+            path_order: Arc::new(path_order),
+            attempted: Arc::new(Mutex::new(HashSet::new())),
+            removed: Arc::new(Mutex::new(HashSet::new())),
         };
         let info = BrowseSelectionSnapshotInfo {
             snapshot_id: snapshot.id.clone(),
@@ -997,27 +1233,27 @@ impl BrowseService {
             }
             (snapshot, excluded_paths)
         };
-        let mut excluded = Vec::with_capacity(excluded_paths.len());
-        for path in excluded_paths {
-            let identity = capture_browse_identity(&path).map_err(map_browse_identity_error)?;
-            if identity.platform_volume_id.is_none() || identity.platform_file_id.is_none() {
-                return Err(BrowseError::SelectionSnapshotIncomplete);
-            }
-            excluded.push((path, identity));
-        }
-        let current_directory_identity =
-            capture_browse_identity(&snapshot.path).map_err(map_browse_identity_error)?;
-        let current_entries =
-            read_selection_directory(&snapshot.path, &snapshot.query, snapshot.include_hidden)?;
-        let expected_entries = snapshot
-            .entries
-            .iter()
-            .filter(|entry| !snapshot.removed.contains(&entry.path))
-            .cloned()
-            .collect::<Vec<_>>();
-        if !same_directory_object(&snapshot.directory_identity, &current_directory_identity)
-            || !selection_entries_equal(&expected_entries, &current_entries)
+        let excluded = excluded_paths.into_iter().collect::<HashSet<_>>();
+        let removed = snapshot
+            .removed
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        if snapshot
+            .change_monitor
+            .reconcile(&snapshot.path, &removed, false)
+            .is_err()
         {
+            self.invalidate_selection_snapshot(session_id, snapshot_id)?;
+            return Err(BrowseError::SelectionSnapshotStale);
+        }
+        let current_directory_identity = match capture_browse_identity(&snapshot.path) {
+            Ok(identity) => identity,
+            Err(_) => {
+                self.invalidate_selection_snapshot(session_id, snapshot_id)?;
+                return Err(BrowseError::SelectionSnapshotStale);
+            }
+        };
+        if !same_directory_state(&snapshot.directory_identity, &current_directory_identity) {
             let mut sessions = self
                 .sessions
                 .lock()
@@ -1041,16 +1277,45 @@ impl BrowseService {
         if offset > end || offset > snapshot.entries.len() {
             return Err(BrowseError::InvalidRequest);
         }
-        Ok(snapshot.entries[offset..end]
-            .iter()
-            .filter(|entry| {
-                !snapshot.attempted.contains(&entry.path)
-                    && !excluded
-                        .iter()
-                        .any(|(path, identity)| path == &entry.path && identity == &entry.identity)
-            })
-            .cloned()
-            .collect())
+        let attempted = snapshot
+            .attempted
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let mut page = Vec::new();
+        for entry in &snapshot.entries[offset..end] {
+            if attempted.contains(&entry.path) || excluded.contains(&entry.path) {
+                continue;
+            }
+            let identity_matches =
+                capture_browse_identity(&entry.path).is_ok_and(|current| current == entry.identity);
+            if !identity_matches {
+                self.invalidate_selection_snapshot(session_id, snapshot_id)?;
+                return Err(BrowseError::SelectionSnapshotStale);
+            }
+            page.push(entry.clone());
+        }
+        Ok(page)
+    }
+
+    fn invalidate_selection_snapshot(
+        &self,
+        session_id: &str,
+        snapshot_id: &str,
+    ) -> Result<(), BrowseError> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        if let Some(session) = sessions.get_mut(session_id) {
+            if session
+                .selection_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.id == snapshot_id)
+            {
+                session.selection_snapshot = None;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn complete_selection_snapshot_batch(
@@ -1077,56 +1342,96 @@ impl BrowseService {
                 .cloned()
                 .ok_or(BrowseError::SelectionSnapshotNotFound)?
         };
-        let mut attempted = (*snapshot.attempted).clone();
-        let mut removed = (*snapshot.removed).clone();
         let mut seen = HashSet::new();
         for completion in completed {
             if !seen.insert(completion.path.clone()) {
                 return Err(BrowseError::InvalidRequest);
             }
-            let Some(entry) = snapshot.entries.iter().find(|entry| {
-                entry.path == completion.path && entry.identity == completion.identity
-            }) else {
+            let entry = snapshot
+                .path_order
+                .binary_search_by(|index| snapshot.entries[*index].path.cmp(&completion.path))
+                .ok()
+                .map(|position| &snapshot.entries[snapshot.path_order[position]])
+                .filter(|entry| entry.identity == completion.identity);
+            let Some(entry) = entry else {
                 return Err(BrowseError::InvalidEntryRef);
             };
             if entry.path.parent() != Some(snapshot.path.as_path()) {
                 return Err(BrowseError::InvalidEntryRef);
             }
-            attempted.insert(entry.path.clone());
+        }
+
+        let mut attempted = snapshot
+            .attempted
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let mut removed = snapshot
+            .removed
+            .lock()
+            .map_err(|_| BrowseError::StateUnavailable)?;
+        let required_removals = completed
+            .iter()
+            .filter(|completion| completion.removed)
+            .map(|completion| completion.path.clone())
+            .collect::<HashSet<_>>();
+        let allow_safe_trash_root_creation = completed
+            .iter()
+            .any(|completion| completion.creates_safe_trash_root);
+        for completion in completed {
+            attempted.insert(completion.path.clone());
             if completion.removed {
-                removed.insert(entry.path.clone());
+                removed.insert(completion.path.clone());
             }
         }
 
-        // Only journaled successful moves/deletes may shrink the expected
-        // directory view. Re-read the whole filtered view before advancing so
-        // additions and replacements still invalidate the snapshot.
-        let current_directory_identity =
-            capture_browse_identity(&snapshot.path).map_err(map_browse_identity_error)?;
-        let current_entries =
-            read_selection_directory(&snapshot.path, &snapshot.query, snapshot.include_hidden)?;
-        let expected_entries = snapshot
-            .entries
-            .iter()
-            .filter(|entry| !removed.contains(&entry.path))
-            .cloned()
-            .collect::<Vec<_>>();
-        if !same_directory_object(&snapshot.directory_identity, &current_directory_identity)
-            || !selection_entries_equal(&expected_entries, &current_entries)
-        {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .map_err(|_| BrowseError::StateUnavailable)?;
-            if let Some(session) = sessions.get_mut(session_id) {
-                if session
-                    .selection_snapshot
-                    .as_ref()
-                    .is_some_and(|current| current.id == snapshot.id)
-                {
-                    session.selection_snapshot = None;
+        // Check only the affected entries and reconcile native namespace
+        // notifications. Full directory enumeration belongs to snapshot
+        // admission and must not recur after every transfer batch.
+        for completion in completed {
+            let current = capture_browse_identity(&completion.path);
+            if completion.removed {
+                if !matches!(current, Err(PhysicalIdentityError::Missing)) {
+                    self.invalidate_selection_snapshot(session_id, snapshot_id)?;
+                    return Err(BrowseError::SelectionSnapshotStale);
+                }
+            } else {
+                if !current.is_ok_and(|identity| identity == completion.identity) {
+                    self.invalidate_selection_snapshot(session_id, snapshot_id)?;
+                    return Err(BrowseError::SelectionSnapshotStale);
                 }
             }
+        }
+        let notifications = if required_removals.is_empty() {
+            snapshot
+                .change_monitor
+                .reconcile(&snapshot.path, &removed, allow_safe_trash_root_creation)
+                .map(|_| ())
+        } else {
+            snapshot.change_monitor.reconcile_until_quiet(
+                &snapshot.path,
+                &removed,
+                &required_removals,
+                allow_safe_trash_root_creation,
+            )
+        };
+        if notifications.is_err() {
+            self.invalidate_selection_snapshot(session_id, snapshot_id)?;
+            return Err(BrowseError::SelectionSnapshotStale);
+        }
+        let current_directory_identity = match capture_browse_identity(&snapshot.path) {
+            Ok(identity) => identity,
+            Err(_) => {
+                self.invalidate_selection_snapshot(session_id, snapshot_id)?;
+                return Err(BrowseError::SelectionSnapshotStale);
+            }
+        };
+        let directory_state_matches = if required_removals.is_empty() {
+            same_directory_state(&snapshot.directory_identity, &current_directory_identity)
+        } else {
+            same_directory_object(&snapshot.directory_identity, &current_directory_identity)
+        };
+        if !directory_state_matches {
+            self.invalidate_selection_snapshot(session_id, snapshot_id)?;
             return Err(BrowseError::SelectionSnapshotStale);
         }
 
@@ -1144,8 +1449,13 @@ impl BrowseService {
         else {
             return Err(BrowseError::SelectionSnapshotNotFound);
         };
-        current.attempted = Arc::new(attempted);
-        current.removed = Arc::new(removed);
+        current.directory_identity = current_directory_identity;
+        if allow_safe_trash_root_creation {
+            snapshot
+                .change_monitor
+                .safe_trash_root_creation_pending
+                .store(false, Ordering::Release);
+        }
         Ok(())
     }
 
@@ -1491,6 +1801,7 @@ impl BrowseService {
                 Some(register_path(
                     session,
                     pending.path.clone(),
+                    pending.directory_identity.clone(),
                     self.limits.max_path_refs,
                 )?)
             } else {
@@ -1637,6 +1948,7 @@ struct BrowseSessionState {
 struct StoredPath {
     path: PathBuf,
     pinned: bool,
+    identity: Option<PhysicalFileIdentity>,
 }
 
 #[derive(Debug)]
@@ -1838,6 +2150,7 @@ struct PendingEntry {
     created_at: Option<i64>,
     is_hidden: bool,
     materialization: MaterializationState,
+    directory_identity: Option<PhysicalFileIdentity>,
 }
 
 fn read_entries(
@@ -1920,6 +2233,8 @@ fn read_selection_directory(
     query: &BrowseQuerySpecV1,
     include_hidden: bool,
 ) -> Result<Vec<BrowseSelectionEntry>, BrowseError> {
+    #[cfg(test)]
+    SELECTION_DIRECTORY_ENUMERATIONS.with(|count| count.set(count.get() + 1));
     validate_directory_path(path)?;
     let read_dir = fs::read_dir(path).map_err(map_directory_error)?;
     let enumeration = EnumerationState::new_with_query(
@@ -1972,6 +2287,13 @@ fn same_directory_object(left: &PhysicalFileIdentity, right: &PhysicalFileIdenti
     left.physical_key.is_some()
         && left.physical_key == right.physical_key
         && left.created_ns == right.created_ns
+}
+
+fn same_directory_state(left: &PhysicalFileIdentity, right: &PhysicalFileIdentity) -> bool {
+    same_directory_object(left, right)
+        && left.modified_ns.is_some()
+        && left.modified_ns == right.modified_ns
+        && left.size == right.size
 }
 
 fn selection_entries_equal(left: &[BrowseSelectionEntry], right: &[BrowseSelectionEntry]) -> bool {
@@ -2053,6 +2375,11 @@ fn read_entry(entry: DirEntry) -> Result<PendingEntry, BrowseError> {
     };
 
     let name = entry.file_name().to_string_lossy().into_owned();
+    let directory_identity = if kind == BrowseEntryKind::Directory {
+        capture_browse_identity(&path).ok()
+    } else {
+        None
+    };
     Ok(PendingEntry {
         materialization: super::source_availability::from_metadata(&path, &metadata),
         is_hidden: is_hidden_entry(&name, &metadata),
@@ -2067,6 +2394,7 @@ fn read_entry(entry: DirEntry) -> Result<PendingEntry, BrowseError> {
         created_at: filesystem_time_seconds(&metadata, true),
         path,
         kind,
+        directory_identity,
     })
 }
 
@@ -2115,6 +2443,7 @@ fn ensure_not_cancelled(enumeration: &EnumerationState) -> Result<(), BrowseErro
 fn register_path(
     session: &mut BrowseSessionState,
     path: PathBuf,
+    identity: Option<PhysicalFileIdentity>,
     max_path_refs: usize,
 ) -> Result<BrowsePathRef, BrowseError> {
     if session.paths.len() >= max_path_refs {
@@ -2126,6 +2455,7 @@ fn register_path(
         StoredPath {
             path,
             pinned: false,
+            identity,
         },
     );
     Ok(path_ref)
@@ -3428,6 +3758,42 @@ mod tests {
     }
 
     #[test]
+    fn directory_selection_rejects_replaced_child_path_ref() {
+        let fixture = Fixture::new();
+        let folder = fixture.root.join("folder");
+        fs::create_dir(&folder).expect("folder");
+        fs::write(folder.join("original.txt"), b"original").expect("original child");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let page = service
+            .start_enumeration(
+                &session.session_id,
+                "child-path-ref",
+                &session.root_path_ref,
+                8,
+            )
+            .expect("root page");
+        let child_path_ref = page.entries[0]
+            .path_ref
+            .clone()
+            .expect("directory path ref");
+
+        fs::rename(&folder, fixture.root.join("old-folder")).expect("move original folder");
+        fs::create_dir(&folder).expect("replacement folder");
+        fs::write(folder.join("replacement.txt"), b"replacement").expect("replacement child");
+
+        assert!(matches!(
+            service.create_selection_snapshot(
+                &session.session_id,
+                &child_path_ref,
+                BrowseQuerySpecV1::default(),
+                false,
+            ),
+            Err(BrowseError::SelectionSnapshotStale)
+        ));
+    }
+
+    #[test]
     fn directory_selection_snapshot_pages_more_than_one_transfer_batch() {
         let fixture = Fixture::new();
         create_fixture_files(&fixture, 1001);
@@ -3466,6 +3832,7 @@ mod tests {
 
     #[test]
     fn directory_selection_snapshot_advances_after_identity_checked_move_batches() {
+        SELECTION_DIRECTORY_ENUMERATIONS.with(|count| count.set(0));
         let fixture = Fixture::new();
         create_fixture_files(&fixture, 1001);
         let service = service(BrowseLimits::default());
@@ -3478,16 +3845,21 @@ mod tests {
                 false,
             )
             .expect("selection snapshot");
+        assert_eq!(selection_directory_enumeration_count(), 1);
         let first = service
             .selection_snapshot_page(&session.session_id, &snapshot.snapshot_id, 0, 1000, &[])
             .expect("first page");
+        assert_eq!(selection_directory_enumeration_count(), 1);
         let moved = first[0].clone();
-        let moved_out = fixture
+        let trash_target = fixture
             .root
-            .parent()
-            .expect("fixture parent")
-            .join(format!("fylura-selection-moved-out-{}.txt", Uuid::new_v4()));
-        fs::rename(&moved.path, &moved_out).expect("move selected item");
+            .join(".zen-canvas-trash")
+            .join("operations")
+            .join("test")
+            .join(&moved.name);
+        fs::create_dir_all(trash_target.parent().expect("trash target parent"))
+            .expect("create safe trash parent");
+        fs::rename(&moved.path, &trash_target).expect("move selected item into safe trash");
         service
             .complete_selection_snapshot_batch(
                 &session.session_id,
@@ -3496,9 +3868,11 @@ mod tests {
                     path: moved.path,
                     identity: moved.identity,
                     removed: true,
+                    creates_safe_trash_root: true,
                 }],
             )
             .expect("accept verified operation result");
+        assert_eq!(selection_directory_enumeration_count(), 1);
 
         assert_eq!(
             service
@@ -3513,7 +3887,215 @@ mod tests {
                 .len(),
             1
         );
-        fs::remove_file(moved_out).expect("remove moved fixture");
+        assert_eq!(selection_directory_enumeration_count(), 1);
+        fs::remove_file(trash_target).expect("remove moved fixture");
+    }
+
+    #[test]
+    fn directory_selection_rejects_external_namespace_change_during_batch() {
+        let fixture = Fixture::new();
+        create_fixture_files(&fixture, 2);
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let snapshot = service
+            .create_selection_snapshot(
+                &session.session_id,
+                &session.root_path_ref,
+                BrowseQuerySpecV1::default(),
+                false,
+            )
+            .expect("selection snapshot");
+        let selected = service
+            .selection_snapshot_page(&session.session_id, &snapshot.snapshot_id, 0, 1000, &[])
+            .expect("selected entries");
+        let moved = selected[0].clone();
+        let moved_out = fixture
+            .root
+            .parent()
+            .expect("fixture parent")
+            .join(format!("fylura-selection-moved-out-{}.txt", Uuid::new_v4()));
+        fs::rename(&moved.path, &moved_out).expect("move selected item");
+        fs::write(
+            fixture.root.join("external-addition.txt"),
+            b"outside selection",
+        )
+        .expect("add concurrent entry");
+        thread::sleep(std::time::Duration::from_millis(50));
+
+        assert!(matches!(
+            service.complete_selection_snapshot_batch(
+                &session.session_id,
+                &snapshot.snapshot_id,
+                &[BrowseSelectionCompletion {
+                    path: moved.path,
+                    identity: moved.identity,
+                    removed: true,
+                    creates_safe_trash_root: false,
+                }],
+            ),
+            Err(BrowseError::SelectionSnapshotStale)
+        ));
+        assert!(fixture.root.join("external-addition.txt").is_file());
+        fs::remove_file(moved_out).expect("cleanup moved fixture");
+    }
+
+    #[test]
+    fn directory_selection_rejects_unrelated_safe_trash_root_creation() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("selected.txt"), b"selected").expect("selected file");
+        let service = service(BrowseLimits::default());
+        let session = service.start_session(fixture.directory()).expect("session");
+        let snapshot = service
+            .create_selection_snapshot(
+                &session.session_id,
+                &session.root_path_ref,
+                BrowseQuerySpecV1::default(),
+                false,
+            )
+            .expect("selection snapshot");
+        fs::create_dir(fixture.root.join(".zen-canvas-trash"))
+            .expect("create unrelated safe trash root");
+        thread::sleep(std::time::Duration::from_millis(50));
+
+        assert!(matches!(
+            service.selection_snapshot_page(
+                &session.session_id,
+                &snapshot.snapshot_id,
+                0,
+                1000,
+                &[],
+            ),
+            Err(BrowseError::SelectionSnapshotStale)
+        ));
+    }
+
+    /// Run once per process with FYLURA_SELECTION_BENCH_SIZE and
+    /// FYLURA_SELECTION_BENCH_ROOT set. The source tree is prepared outside
+    /// the timed section so baseline and candidate use the same files.
+    #[test]
+    #[ignore = "paired Release benchmark; run with a prepared fixture"]
+    fn directory_selection_release_benchmark() {
+        let count = std::env::var("FYLURA_SELECTION_BENCH_SIZE")
+            .expect("benchmark size")
+            .parse::<usize>()
+            .expect("numeric benchmark size");
+        let root =
+            PathBuf::from(std::env::var_os("FYLURA_SELECTION_BENCH_ROOT").expect("benchmark root"));
+        let source = root.join("source");
+        let destination = root.join("destination");
+        assert_eq!(
+            fs::read_dir(&source).expect("source entries").count(),
+            count
+        );
+        fs::create_dir_all(&destination).expect("destination directory");
+        SELECTION_DIRECTORY_ENUMERATIONS.with(|value| value.set(0));
+
+        let service = service(BrowseLimits::default());
+        let directory = BackendResolvedDirectory::from_backend_path(source.clone())
+            .expect("benchmark source directory");
+        let session = service.start_session(directory).expect("benchmark session");
+        let total_started = std::time::Instant::now();
+        let selection_started = std::time::Instant::now();
+        let snapshot = service
+            .create_selection_snapshot(
+                &session.session_id,
+                &session.root_path_ref,
+                BrowseQuerySpecV1::default(),
+                false,
+            )
+            .expect("benchmark selection snapshot");
+        let selection_ms = selection_started.elapsed().as_millis();
+        assert_eq!(snapshot.count, count);
+
+        let mut first_batch_ms = None;
+        let mut extraction_ms = Vec::new();
+        let mut validation_ms = Vec::new();
+        let mut processed = 0usize;
+        let mut failures = 0usize;
+        for offset in (0..count).step_by(1000) {
+            let batch_started = std::time::Instant::now();
+            let entries = match service.selection_snapshot_page(
+                &session.session_id,
+                &snapshot.snapshot_id,
+                offset,
+                1000,
+                &[],
+            ) {
+                Ok(entries) => entries,
+                Err(_) => {
+                    failures += count - processed;
+                    break;
+                }
+            };
+            extraction_ms.push(batch_started.elapsed().as_millis());
+            if first_batch_ms.is_none() {
+                first_batch_ms = Some(total_started.elapsed().as_millis());
+            }
+            let mut completed = Vec::with_capacity(entries.len());
+            for entry in entries {
+                if fs::copy(&entry.path, destination.join(&entry.name)).is_err() {
+                    failures += 1;
+                    continue;
+                }
+                processed += 1;
+                completed.push(BrowseSelectionCompletion {
+                    path: entry.path,
+                    identity: entry.identity,
+                    removed: false,
+                    creates_safe_trash_root: false,
+                });
+            }
+            if !completed.is_empty() {
+                let validation_started = std::time::Instant::now();
+                if service
+                    .complete_selection_snapshot_batch(
+                        &session.session_id,
+                        &snapshot.snapshot_id,
+                        &completed,
+                    )
+                    .is_err()
+                {
+                    failures += completed.len();
+                }
+                validation_ms.push(validation_started.elapsed().as_millis());
+            }
+        }
+        let total_ms = total_started.elapsed().as_millis();
+        let peak_rss_kb = fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| {
+                status.lines().find_map(|line| {
+                    line.strip_prefix("VmHWM:")
+                        .and_then(|value| value.split_whitespace().next())
+                        .and_then(|value| value.parse::<u64>().ok())
+                })
+            });
+        let average = |samples: &[u128]| {
+            if samples.is_empty() {
+                0
+            } else {
+                samples.iter().sum::<u128>() / samples.len() as u128
+            }
+        };
+        let maximum = |samples: &[u128]| samples.iter().copied().max().unwrap_or_default();
+        println!(
+            "selection_benchmark size={count} selection_ms={selection_ms} first_batch_ms={} extraction_batch_avg_ms={} extraction_batch_max_ms={} extraction_batch_ms={extraction_ms:?} validation_batch_avg_ms={} validation_batch_max_ms={} validation_batch_ms={validation_ms:?} total_ms={total_ms} enumerations={} peak_rss_kb={peak_rss_kb:?} failures={failures} processed={processed}",
+            first_batch_ms.unwrap_or_default(),
+            average(&extraction_ms),
+            maximum(&extraction_ms),
+            average(&validation_ms),
+            maximum(&validation_ms),
+            selection_directory_enumeration_count(),
+        );
+        assert_eq!(processed + failures, count);
+        assert_eq!(failures, 0);
+        assert_eq!(processed, count);
+        assert_eq!(
+            fs::read_dir(&destination)
+                .expect("destination entries")
+                .count(),
+            count
+        );
     }
 
     #[test]
@@ -3546,6 +4128,7 @@ mod tests {
                     path,
                     identity: entry.identity,
                     removed: true,
+                    creates_safe_trash_root: false,
                 }],
             ),
             Err(BrowseError::SelectionSnapshotStale)

@@ -1165,6 +1165,10 @@ export function FileManagementToolbar() {
     });
   }
   function trashSelection(action: "trash" | "system_trash" = settings.deleteDestination === "system_trash" ? "system_trash" : "trash") {
+    if (action === "system_trash") {
+      setError(t("errorSystemTrashSourceBindingUnsupported"));
+      return;
+    }
     if (useFileManagementStore.getState().transferActive) { setError(t("fmTransferBusy")); return; }
     void run(async () => {
       const source = currentSurface();

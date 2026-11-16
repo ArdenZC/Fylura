@@ -963,6 +963,12 @@ impl FileWorkspaceRuntime {
         request: TransferPreviewRequest,
     ) -> Result<TransferPreview, String> {
         self.ensure_live()?;
+        if request.action == TransferAction::SystemTrash {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            return Err("system_trash_source_binding_unsupported".into());
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            return Err("unsupported_platform_linux".into());
+        }
         if matches!(
             request.action,
             TransferAction::CreateDirectory | TransferAction::CreateFile
@@ -2322,6 +2328,18 @@ pub(crate) fn complete_browse_selection_batch(
                     "move" | "move_to_trash" | "move_to_system_trash"
                 )
         });
+        let safe_trash_root = Path::new(&source.ticket.path)
+            .parent()
+            .map(|parent| parent.join(".zen-canvas-trash"));
+        let creates_safe_trash_root = logs.iter().any(|log| {
+            transfer_target_key(Path::new(&log.path_before))
+                == transfer_target_key(Path::new(&source.ticket.path))
+                && log.status == "success"
+                && log.operation_type == "move_to_trash"
+                && safe_trash_root
+                    .as_ref()
+                    .is_some_and(|root| Path::new(&log.path_after).starts_with(root))
+        });
         groups
             .entry((origin.session_id.clone(), origin.snapshot_id.clone()))
             .or_default()
@@ -2329,6 +2347,7 @@ pub(crate) fn complete_browse_selection_batch(
                 path: origin.path.clone(),
                 identity: origin.identity.clone(),
                 removed: successful_removal,
+                creates_safe_trash_root,
             });
     }
     for ((session_id, snapshot_id), completed) in groups {

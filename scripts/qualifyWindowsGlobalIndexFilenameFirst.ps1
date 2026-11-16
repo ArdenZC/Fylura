@@ -359,7 +359,27 @@ try {
                 throw "$side initial run indexed too few active entries: $($run.result.databaseActiveEntries) < $FileCount"
             }
             $run | Add-Member -NotePropertyName repetition -NotePropertyValue $repetition
-            if ($side -eq 'baseline') { $baselineRows.Add($run) } else { $candidateRows.Add($run) }
+            if ($side -eq 'baseline') {
+                $baselineRows.Add($run)
+                $script:evidence.baseline = $baselineRows.ToArray()
+            } else {
+                $candidateRows.Add($run)
+                $script:evidence.candidate = $candidateRows.ToArray()
+            }
+            $sample = [ordered]@{
+                side = $side
+                repetition = $repetition
+                firstSearchableUs = $run.result.firstSearchableUs
+                transientCatalogReadyUs = $run.result.transientCatalogReadyUs
+                durableFilenameIndexUs = $run.result.durableFilenameIndexUs
+                fullIndexUs = $run.result.fullIndexUs
+                peakWorkingSetBytes = $run.peakWorkingSetBytes
+                peakPrivateBytes = $run.peakPrivateBytes
+                writerStages = $run.stages.writer
+                mftStages = $run.stages.mft
+                result = $run.result
+            }
+            Write-Output ("FILENAME_FIRST_SAMPLE " + ($sample | ConvertTo-Json -Depth 12 -Compress))
             $lastProfiles[$side] = $profile
             $lastSourceIds[$side] = $prepared.targetSourceId
             New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null

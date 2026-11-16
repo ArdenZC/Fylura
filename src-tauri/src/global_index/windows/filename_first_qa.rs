@@ -1,6 +1,7 @@
 //! Task-owned native MFT qualification for the disposable filename-first path.
 //! The caller supplies an isolated profile and a task-created NTFS fixture.
 
+use super::mft::{open_volume, query_journal};
 use super::DirectWindowsGlobalIndexProvider;
 use crate::db::{Database, InsertFileRequest};
 use crate::global_index::coordinator::{GlobalIndexProvider, GlobalIndexSink};
@@ -14,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
+use windows_sys::Win32::Foundation::CloseHandle;
 
 fn verify_task_profile(profile: &Path, source_id: &str) -> Result<Database, Box<dyn Error>> {
     let task = profile.parent().ok_or("missing task profile boundary")?;
@@ -139,8 +141,10 @@ pub fn run_initial(
             let journal_result = concurrent_writer_db.conn().and_then(|connection| {
                 connection
                     .execute(
-                        "UPDATE global_volumes SET journal_cursor=?2 WHERE id=?1",
-                        rusqlite::params![concurrent_writer_source, index.to_string()],
+                        "UPDATE global_volumes
+                         SET journal_id=journal_id, journal_cursor=journal_cursor, updated_at=updated_at
+                         WHERE id=?1",
+                        [&concurrent_writer_source],
                     )
                     .map(|_| ())
                     .map_err(Into::into)
@@ -332,6 +336,34 @@ pub fn run_initial(
     }
     let durable_filename_index_us = durable_filename_index_us
         .ok_or("complete task fixture was not visible through durable FTS")?;
+    let indexed_source = db
+        .get_global_volume(source_id)?
+        .ok_or("authorized source disappeared after indexing")?;
+    let saved_journal_id = indexed_source
+        .journal_id
+        .as_deref()
+        .and_then(|value| value.parse::<u64>().ok());
+    let saved_journal_cursor = indexed_source
+        .journal_cursor
+        .as_deref()
+        .and_then(|value| value.parse::<i64>().ok());
+    let journal_handle = open_volume(&indexed_source.mount_path)?;
+    let current_journal = query_journal(journal_handle);
+    unsafe { CloseHandle(journal_handle) };
+    let current_journal = current_journal?;
+    let journal_checkpoint_valid = saved_journal_id == Some(current_journal.UsnJournalID)
+        && saved_journal_cursor.is_some_and(|cursor| {
+            cursor >= current_journal.FirstUsn && cursor <= current_journal.NextUsn
+        });
+    if !journal_checkpoint_valid {
+        return Err(format!(
+            "initial indexing did not preserve a usable USN checkpoint: saved_journal_id={saved_journal_id:?} current_journal_id={} saved_cursor={saved_journal_cursor:?} available={}..={}",
+            current_journal.UsnJournalID,
+            current_journal.FirstUsn,
+            current_journal.NextUsn,
+        )
+        .into());
+    }
     if filename_first
         && (transient_catalog_ready_us.is_none()
             || transient_fixture_file_entries != Some(expected_fixture_file_count)
@@ -506,6 +538,9 @@ pub fn run_initial(
         "restartedCompleteCoverageSearchVisible": restarted_complete_coverage_visible,
         "indexComplete": final_status.collection_complete,
         "sourceIndexStatus": source_status.index_status,
+        "savedJournalId": saved_journal_id,
+        "savedJournalCursor": saved_journal_cursor,
+        "journalCheckpointValid": journal_checkpoint_valid,
         "coverageUndetermined": source_coverage.undetermined,
         "coveragePending": source_coverage.pending,
         "undeterminedEntries": undetermined_entries,

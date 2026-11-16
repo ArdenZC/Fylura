@@ -200,8 +200,22 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
     let parent_path_match = db
         .search_global_entries_snapshot("global", 20, 0)
         .expect("query a transient parent-path fragment through the on-demand path scan");
-    assert_eq!(parent_path_match.results.len(), 1);
-    assert_eq!(parent_path_match.results[0].path, included.path);
+    assert_eq!(parent_path_match.results.len(), 4);
+    for expected_path in [
+        &included.path,
+        &chinese.path,
+        &case_upper.path,
+        &case_lower.path,
+    ] {
+        assert!(parent_path_match
+            .results
+            .iter()
+            .any(|result| &result.path == expected_path));
+    }
+    assert!(!parent_path_match
+        .results
+        .iter()
+        .any(|result| result.path == excluded.path));
     let nested_path_match = db
         .search_global_entries_snapshot(r"global\transient-report-budget", 20, 0)
         .expect("query a path fragment spanning a directory and filename");

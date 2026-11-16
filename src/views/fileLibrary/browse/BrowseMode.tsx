@@ -392,13 +392,6 @@ export function BrowseMode() {
       }
     },
     {
-      label: t("fmSystemDelete"),
-      action: () => {
-        closeContextMenu("dialog-handoff");
-        requestAnimationFrame(() => useFileManagementStore.getState().requestAction("system_trash"));
-      }
-    },
-    {
       label: t("fileLibraryContextOpen"),
       action: () => {
         closeContextMenu("action");

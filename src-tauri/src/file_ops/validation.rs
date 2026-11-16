@@ -474,40 +474,24 @@ pub(crate) fn move_to_system_trash_with_safety(
     }
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
-        ensure_general_file_operation_allowed(&source)?;
-        if cancel_flag.is_some_and(|flag| flag.load(Ordering::Acquire)) {
-            return Err(FileMutationError::Atomic(
-                crate::fs_safety::AtomicMoveError::Cancelled,
-            ));
-        }
-        if let Some(expected) = expected_identity {
-            let actual = crate::fs_safety::capture_identity(&source, cancel_flag)
-                .map_err(|error| FileMutationError::Validation(error.to_string()))?;
-            if !crate::fs_safety::identity_matches(expected, &actual) {
-                return Err(FileMutationError::Validation(
-                    "operation_preview_stale".into(),
-                ));
-            }
-        }
-        trash::delete(&source).map_err(|error| {
-            FileMutationError::Validation(format!("system_trash_failed: {error}"))
-        })?;
-        if let Some(observer) = phase_observer {
-            observer(crate::fs_safety::FileOperationEvent::Phase(
-                "target_committed".to_string(),
-            ))
-            .map_err(FileMutationError::Atomic)?;
-        }
-        Ok(FileOperationResult {
-            operation: "move_to_system_trash".into(),
-            source_path: normalize_path(&source),
-            target_path: if cfg!(target_os = "windows") {
-                "System Recycle Bin".into()
-            } else {
-                "System Trash".into()
-            },
-        })
+        let _ = (
+            source_path,
+            app_data_dir,
+            expected_identity,
+            cancel_flag,
+            phase_observer,
+        );
+        // `trash::delete` resolves and deletes by pathname on both supported
+        // platforms. Its Windows implementation creates an IShellItem from a
+        // path before IFileOperation::DeleteItem; macOS creates an NSURL from
+        // a path before NSFileManager::trashItemAtURL. Neither API accepts the
+        // verified source handle or file ID, so a same-path replacement can
+        // race the verification. Keep this action blocked until a native
+        // object-bound implementation is available; Safe Trash remains the
+        // supported recoverable destination.
+        Err(FileMutationError::Validation(
+            "system_trash_source_binding_unsupported".into(),
+        ))
     }
 }
 
@@ -1211,5 +1195,81 @@ mod unsupported_system_trash_tests {
             "preserve me"
         );
         std::fs::remove_file(path).expect("cleanup fixture");
+    }
+}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+mod system_trash_binding_tests {
+    use super::move_to_system_trash_with_safety;
+    use crate::fs_safety::capture_identity;
+    use crate::ids::new_job_id;
+    use std::fs;
+
+    #[test]
+    fn system_trash_refuses_real_source_and_same_path_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "fylura-system-trash-binding-{}",
+            new_job_id("test")
+        ));
+        fs::create_dir(&root).expect("create fixture root");
+
+        let file = root.join("file.txt");
+        fs::write(&file, b"verified file").expect("write file");
+        let file_identity = capture_identity(&file, None).expect("capture file identity");
+        let file_error = move_to_system_trash_with_safety(
+            file.to_string_lossy().into_owned(),
+            None,
+            Some(&file_identity),
+            None,
+            None,
+        )
+        .expect_err("file system-trash action must fail closed");
+        assert!(file_error
+            .to_string()
+            .contains("system_trash_source_binding_unsupported"));
+        assert_eq!(fs::read(&file).expect("file remains"), b"verified file");
+
+        let directory = root.join("directory");
+        fs::create_dir(&directory).expect("create directory");
+        fs::write(directory.join("child.txt"), b"verified directory").expect("write child");
+        let directory_identity =
+            capture_identity(&directory, None).expect("capture directory identity");
+        let directory_error = move_to_system_trash_with_safety(
+            directory.to_string_lossy().into_owned(),
+            None,
+            Some(&directory_identity),
+            None,
+            None,
+        )
+        .expect_err("directory system-trash action must fail closed");
+        assert!(directory_error
+            .to_string()
+            .contains("system_trash_source_binding_unsupported"));
+        assert_eq!(
+            fs::read(directory.join("child.txt")).expect("directory child remains"),
+            b"verified directory"
+        );
+
+        let replaced = root.join("replaced.txt");
+        fs::write(&replaced, b"previewed object").expect("write previewed source");
+        let expected = capture_identity(&replaced, None).expect("capture source identity");
+        fs::remove_file(&replaced).expect("replace source path");
+        fs::write(&replaced, b"replacement object").expect("write replacement source");
+        let replacement_error = move_to_system_trash_with_safety(
+            replaced.to_string_lossy().into_owned(),
+            None,
+            Some(&expected),
+            None,
+            None,
+        )
+        .expect_err("same-path replacement must fail closed");
+        assert!(replacement_error
+            .to_string()
+            .contains("system_trash_source_binding_unsupported"));
+        assert_eq!(
+            fs::read(&replaced).expect("replacement remains"),
+            b"replacement object"
+        );
+        fs::remove_dir_all(root).expect("cleanup fixture");
     }
 }

@@ -21,6 +21,13 @@ import {
 } from "../src/hooks/useAppSettings";
 
 describe("app settings helpers", () => {
+  it("preserves an explicitly chosen system trash default when the operation is unavailable", () => {
+    expect(mergeAppSettings(
+      { ...DEFAULT_APP_SETTINGS, deleteDestination: "system_trash" },
+      {}
+    ).deleteDestination).toBe("system_trash");
+  });
+
   it("sends the caller's expected revision without silently overwriting a conflict", async () => {
     const latest = { settings: { ...DEFAULT_APP_SETTINGS, searchHotkey: "Ctrl+K" }, revision: 7 };
     const saveSettings = vi.fn()

@@ -963,6 +963,12 @@ impl FileWorkspaceRuntime {
         request: TransferPreviewRequest,
     ) -> Result<TransferPreview, String> {
         self.ensure_live()?;
+        if request.action == TransferAction::SystemTrash {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            return Err("system_trash_source_binding_unsupported".into());
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            return Err("unsupported_platform_linux".into());
+        }
         if matches!(
             request.action,
             TransferAction::CreateDirectory | TransferAction::CreateFile
@@ -2308,20 +2314,45 @@ pub(crate) fn complete_browse_selection_batch(
     sources: &[Source],
     logs: &[OperationLogDto],
 ) {
+    let mut successful_removals = HashSet::with_capacity(logs.len());
+    let mut safe_trash_root_creations = HashSet::new();
+    let mut source_retirement_root_creations = HashSet::new();
+    for log in logs.iter().filter(|log| log.status == "success") {
+        let log_source = Path::new(&log.path_before);
+        let key = transfer_target_key(log_source);
+        if matches!(
+            log.operation_type.as_str(),
+            "move" | "move_to_trash" | "move_to_system_trash"
+        ) {
+            successful_removals.insert(key.clone());
+        }
+        if log.operation_type == "move_to_trash"
+            && log_source
+                .parent()
+                .map(|parent| parent.join(".zen-canvas-trash"))
+                .is_some_and(|root| Path::new(&log.path_after).starts_with(root))
+        {
+            safe_trash_root_creations.insert(key.clone());
+        }
+        if cfg!(target_os = "macos")
+            && matches!(
+                log.operation_type.as_str(),
+                "move" | "move_to_trash" | "move_to_system_trash"
+            )
+        {
+            source_retirement_root_creations.insert(key);
+        }
+    }
+
     let mut groups = HashMap::<(String, String), Vec<BrowseSelectionCompletion>>::new();
     for source in sources {
         let Some(origin) = &source.browse_selection else {
             continue;
         };
-        let successful_removal = logs.iter().any(|log| {
-            transfer_target_key(Path::new(&log.path_before))
-                == transfer_target_key(Path::new(&source.ticket.path))
-                && log.status == "success"
-                && matches!(
-                    log.operation_type.as_str(),
-                    "move" | "move_to_trash" | "move_to_system_trash"
-                )
-        });
+        let key = transfer_target_key(Path::new(&source.ticket.path));
+        let successful_removal = successful_removals.contains(&key);
+        let creates_safe_trash_root = safe_trash_root_creations.contains(&key);
+        let creates_source_retirement_root = source_retirement_root_creations.contains(&key);
         groups
             .entry((origin.session_id.clone(), origin.snapshot_id.clone()))
             .or_default()
@@ -2329,6 +2360,8 @@ pub(crate) fn complete_browse_selection_batch(
                 path: origin.path.clone(),
                 identity: origin.identity.clone(),
                 removed: successful_removal,
+                creates_safe_trash_root,
+                creates_source_retirement_root,
             });
     }
     for ((session_id, snapshot_id), completed) in groups {

@@ -4,6 +4,7 @@ import type { Density, ThemeMode } from "../../../types/ui";
 import type { Translator } from "../../../types/ui";
 import { ShieldCheck } from "lucide-react";
 import { quietText } from "../../shared/ui";
+import { buttonSecondary } from "../../../utils/tw";
 import {
   SettingsControlGroup,
   SettingsInlineMessage,
@@ -109,17 +110,27 @@ export function GeneralSettingsSection({
           checked={launchAtLogin}
           onChange={onLaunchAtLogin}
         />
-        <SettingsSelect
-          id="settings-delete-destination"
+        <SettingsRow
           label={t("settingsDeleteDestination")}
           description={t("settingsDeleteDestinationDesc")}
-          value={deleteDestination}
-          options={[
-            { value: "fylura_trash" as const, label: t("settingsFyluraTrash") },
-            { value: "system_trash" as const, label: t("settingsSystemTrash") }
-          ]}
-          onChange={onDeleteDestination}
-        />
+        >
+          {deleteDestination === "system_trash" ? (
+            <div className="flex flex-col items-start gap-2">
+              <span>{t("settingsSystemTrashUnavailable")}</span>
+              <button className={buttonSecondary} type="button" onClick={() => onDeleteDestination("fylura_trash")}>
+                {t("settingsUseFyluraTrash")}
+              </button>
+            </div>
+          ) : (
+            <span>{t("settingsFyluraTrash")}</span>
+          )}
+        </SettingsRow>
+        <SettingsInlineMessage tone="warning">
+          <div className="zc-settings-ai-notice">
+            <ShieldCheck size={15} aria-hidden="true" />
+            <p>{t("errorSystemTrashSourceBindingUnsupported")}</p>
+          </div>
+        </SettingsInlineMessage>
       </SettingsControlGroup>
 
       <SettingsControlGroup className="zc-settings-ai-group" title={t("settingsAIPrivacy")}>

@@ -714,13 +714,15 @@ describe("File Library manual management workflow", () => {
     expect(document.querySelector("[aria-modal=true]")).toBeNull();
   });
 
-  it("uses the configured system trash destination for Delete", async () => {
+  it("blocks Delete when the configured system trash cannot bind the verified source", async () => {
     mocks.defaultDeleteDestination = "system_trash";
     await render();
     await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true })); });
     await settle();
-    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({ action: "system_trash" }));
-    expect(api.executeTransfer).toHaveBeenCalledOnce();
+    expect(api.previewTransfer).not.toHaveBeenCalled();
+    expect(api.executeTransfer).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(t("errorSystemTrashSourceBindingUnsupported"));
+    expect(mocks.defaultDeleteDestination).toBe("system_trash");
   });
 
   it("binds cross-pane Copy to the source selection and auto-executes for the captured target", async () => {

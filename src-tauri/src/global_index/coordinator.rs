@@ -2628,13 +2628,30 @@ mod tests {
             false,
         )
         .expect("finish incremental Spotlight update");
+        let conn = db
+            .conn()
+            .expect("inspect incremental Spotlight FTS postings");
+        let (old_postings, new_postings): (i64, i64) = conn
+            .query_row(
+                "SELECT
+                    (SELECT count(*) FROM global_entries_fts
+                     WHERE global_entries_fts MATCH 'original'),
+                    (SELECT count(*) FROM global_entries_fts
+                     WHERE global_entries_fts MATCH 'renamed')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read FTS postings after the rename");
+        assert_eq!(old_postings, 0, "old filename postings must be removed");
+        assert_eq!(new_postings, 1, "new filename postings must be inserted");
+        drop(conn);
         assert!(db
-            .search_global_entries_snapshot("original-unique", 20, 0)
+            .search_global_entries_snapshot("original", 20, 0)
             .unwrap()
             .results
             .is_empty());
         assert_eq!(
-            db.search_global_entries_snapshot("renamed-unique", 20, 0)
+            db.search_global_entries_snapshot("renamed", 20, 0)
                 .unwrap()
                 .results
                 .len(),
@@ -2645,7 +2662,7 @@ mod tests {
 
         let restored = Database::open(&path.0).expect("reopen Spotlight writer database");
         let restored_search = restored
-            .search_global_entries_snapshot("renamed-unique", 20, 0)
+            .search_global_entries_snapshot("renamed", 20, 0)
             .expect("search after reopening the completed source");
         assert!(restored_search.index_status.collection_complete);
         assert_eq!(restored_search.results.len(), 1);

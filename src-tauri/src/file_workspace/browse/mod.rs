@@ -443,7 +443,7 @@ impl SelectionChangeMonitor {
         directory: &Path,
         allowed_removals: &HashSet<PathBuf>,
         allow_safe_trash_root_creation: bool,
-    ) -> Result<HashSet<PathBuf>, BrowseError> {
+    ) -> Result<(HashSet<PathBuf>, bool), BrowseError> {
         if self.unavailable.load(Ordering::Acquire) {
             return Err(BrowseError::SelectionSnapshotStale);
         }
@@ -454,10 +454,16 @@ impl SelectionChangeMonitor {
                 .map_err(|_| BrowseError::SelectionSnapshotStale)?,
         );
         let mut observed_removals = HashSet::new();
+        let mut directory_changed = false;
         for change in changes {
             for path in change.paths {
                 if path == directory {
-                    return Err(BrowseError::SelectionSnapshotStale);
+                    // Native Windows and macOS watchers can report the parent
+                    // directory as well as the changed child. Defer this
+                    // signal until the child paths in the notification batch
+                    // have been reconciled against journal-authorized moves.
+                    directory_changed = true;
+                    continue;
                 }
                 if path.parent() != Some(directory) {
                     continue;
@@ -496,7 +502,7 @@ impl SelectionChangeMonitor {
                 }
             }
         }
-        Ok(observed_removals)
+        Ok((observed_removals, directory_changed))
     }
 
     fn reconcile_until_quiet(
@@ -508,12 +514,12 @@ impl SelectionChangeMonitor {
     ) -> Result<(), BrowseError> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
         let mut observed_removals = HashSet::new();
+        let mut directory_changed = false;
         loop {
-            observed_removals.extend(self.reconcile(
-                directory,
-                allowed_removals,
-                allow_safe_trash_root_creation,
-            )?);
+            let (batch_removals, batch_directory_changed) =
+                self.reconcile(directory, allowed_removals, allow_safe_trash_root_creation)?;
+            observed_removals.extend(batch_removals);
+            directory_changed |= batch_directory_changed;
             let all_removals_observed = observed_removals.is_superset(required_removals);
             let changes = self
                 .changes
@@ -525,6 +531,9 @@ impl SelectionChangeMonitor {
                     .wait_timeout(changes, std::time::Duration::from_millis(20))
                     .map_err(|_| BrowseError::SelectionSnapshotStale)?;
                 if result.timed_out() && changes.is_empty() {
+                    if directory_changed && observed_removals.is_empty() {
+                        return Err(BrowseError::SelectionSnapshotStale);
+                    }
                     return Ok(());
                 }
             } else {
@@ -1119,19 +1128,22 @@ impl BrowseService {
             )
         };
         validate_directory_path(&path)?;
-        let change_monitor = Arc::new(SelectionChangeMonitor::watch(&path)?);
         let directory_identity =
             capture_browse_identity(&path).map_err(map_browse_identity_error)?;
         if !same_directory_object(&expected_directory_identity, &directory_identity) {
             return Err(BrowseError::SelectionSnapshotStale);
         }
         let entries = read_selection_directory(&path, &query, include_hidden)?;
+        // Install the watcher after the baseline enumeration. Native watcher
+        // backends may deliver delayed pre-subscription parent-directory
+        // events; the before/after directory identity check closes this short
+        // gap while avoiding false invalidation of a stable snapshot.
+        let change_monitor = Arc::new(SelectionChangeMonitor::watch(&path)?);
         let after_directory_identity =
             capture_browse_identity(&path).map_err(map_browse_identity_error)?;
+        let initial_changes = change_monitor.reconcile(&path, &HashSet::new(), false);
         if !same_directory_state(&directory_identity, &after_directory_identity)
-            || change_monitor
-                .reconcile(&path, &HashSet::new(), false)
-                .is_err()
+            || initial_changes.is_err()
         {
             return Err(BrowseError::SelectionSnapshotStale);
         }

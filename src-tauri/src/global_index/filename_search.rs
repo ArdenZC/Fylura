@@ -63,7 +63,12 @@ const MAX_OVERLAY_ROWIDS: usize = 16_384;
 const MAX_OVERLAY_BATCHES: usize = 8_192;
 const MAX_ROWIDS_PER_TRANSACTION: usize = MAX_OVERLAY_ROWIDS;
 const REBUILD_RETRY_DELAY: Duration = Duration::from_secs(3);
-pub(crate) const MAX_TRANSIENT_CATALOG_BYTES: usize = 512 * 1024 * 1024;
+// A 100k real NTFS fixture estimated 57.4 MB for the catalog, projecting to
+// roughly 548 MiB at 1M entries. Keep the catalog below 600 MiB so the rest of
+// the process retains headroom under the 768 MiB working-set target. If the
+// estimate crosses this budget, abandon the disposable projection and finish
+// through bounded SQLite batches instead of risking unbounded growth.
+pub(crate) const MAX_TRANSIENT_CATALOG_BYTES: usize = 600 * 1024 * 1024;
 const INVALID_TRANSIENT_STRING_ID: u32 = u32::MAX;
 
 const FILENAME_INDEX_BUILD_SQL: &str =

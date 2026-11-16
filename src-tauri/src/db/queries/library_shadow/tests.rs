@@ -930,9 +930,9 @@ fn main_bytes(f: &Fixture) -> (Vec<u8>, Option<Vec<u8>>) {
 }
 
 #[test]
-fn schema41_through_schema47_build_verify_query_and_qualify_without_main_writes() {
+fn schema41_through_schema50_build_verify_query_and_qualify_without_main_writes() {
     let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
-    for version in [41, 42, 43, 44, 45, 46, 47] {
+    for version in 41..=50 {
         let f = fixture();
         let conn = f.db.conn().unwrap();
         assert_eq!(

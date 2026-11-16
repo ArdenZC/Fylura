@@ -1018,9 +1018,9 @@ fn assert_capture_rejected_without_main_write(f: &Fixture, reason: &str) {
 }
 
 #[test]
-fn schema40_and_schema48_sources_are_rejected_before_shadow_build() {
+fn schema40_and_future_schema50_sources_are_rejected_before_shadow_build() {
     let _test = TEST.lock().unwrap_or_else(|e| e.into_inner());
-    for version in [40, 48] {
+    for version in [40, 50] {
         let f = fixture();
         let conn = f.db.conn().unwrap();
         crate::db::schema_global_generations::drop_for_test(&conn);

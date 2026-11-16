@@ -444,7 +444,17 @@ fn transfer_execution_advances_directory_selection_using_journaled_successes() {
             .count(),
         1000
     );
-    assert_eq!(fs::read_dir(&source).expect("source entries").count(), 1);
+    let remaining_fixture_files = fs::read_dir(&source)
+        .expect("source entries")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("file-") && name.ends_with(".txt")
+        })
+        .count();
+    assert_eq!(remaining_fixture_files, 1);
+    assert!(source.join("file-1000.txt").is_file());
     runtime.dispose();
 }
 

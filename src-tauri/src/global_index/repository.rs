@@ -1586,7 +1586,24 @@ impl Database {
                 "passive WAL checkpoint after filename indexing failed: {error}"
             ),
         }
-        let (processed_entries, has_eligible_pending_work) = write_result?;
+        let (processed_entries, has_eligible_pending_work) = match write_result {
+            Ok(result) => result,
+            Err(error) => {
+                if let Err(restore_error) = restore_cache_size {
+                    log::warn!(
+                        target: "global_index::repository",
+                        "failed to restore SQLite writer cache after initial index error: {restore_error}"
+                    );
+                }
+                if let Err(restore_error) = restore_journal_size_limit {
+                    log::warn!(
+                        target: "global_index::repository",
+                        "failed to restore SQLite journal size limit after initial index error: {restore_error}"
+                    );
+                }
+                return Err(error);
+            }
+        };
         restore_cache_size?;
         restore_journal_size_limit?;
         debug_assert_eq!(processed_entries, entry_count);

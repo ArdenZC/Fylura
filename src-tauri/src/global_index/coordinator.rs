@@ -679,7 +679,7 @@ impl DatabaseIndexSink {
                 )
             })?
         };
-        let batch_size = initial_mft_persist_batch_size();
+        let batch_size = initial_mft_persist_batch_size(entry_count);
 
         // Finish non-search metadata before taking shared-database writer
         // locks. The bounded UPSERT then persists each row only once.
@@ -769,7 +769,7 @@ impl DatabaseIndexSink {
                     "transient_catalog_lost_during_memory_fallback".into(),
                 )
             })?;
-        let batch_size = initial_mft_persist_batch_size();
+        let batch_size = initial_mft_persist_batch_size(entry_count);
         let mut offset = 0usize;
         while offset < entry_count {
             let mut batch = self
@@ -818,12 +818,25 @@ impl DatabaseIndexSink {
     }
 }
 
-fn initial_mft_persist_batch_size() -> usize {
-    std::env::var("ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH")
+fn initial_mft_persist_batch_size(entry_count: usize) -> usize {
+    let override_size = std::env::var("ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH")
         .ok()
-        .and_then(|value| value.parse::<usize>().ok())
+        .and_then(|value| value.parse::<usize>().ok());
+    initial_mft_persist_batch_size_for_count(entry_count, override_size)
+}
+
+fn initial_mft_persist_batch_size_for_count(
+    entry_count: usize,
+    override_size: Option<usize>,
+) -> usize {
+    override_size
         .filter(|value| matches!(value, 512 | 1024 | 2048 | 4096 | 8192))
-        .unwrap_or(8192)
+        // Paired Windows NTFS runs showed a 4k batch reduced normal Files
+        // operation latency and SQLITE_BUSY errors for 100k sources, while
+        // 8k materially improved 1M persistence throughput (commit time
+        // 69s versus 150s at 4k). Use the smaller batch for typical sources
+        // and retain the higher-throughput batch for large baselines.
+        .unwrap_or(if entry_count < 250_000 { 4_096 } else { 8_192 })
 }
 
 fn enrich_initial_mft_metadata(entries: &mut [GlobalEntryInput]) {
@@ -2024,6 +2037,24 @@ mod tests {
     use std::time::Instant;
 
     static TEST_DATABASE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn initial_mft_persist_batch_scales_with_source_size_and_honors_override() {
+        assert_eq!(initial_mft_persist_batch_size_for_count(100_000, None), 4_096);
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(1_000_000, None),
+            8_192
+        );
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(1_000_000, Some(4_096)),
+            4_096
+        );
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(100_000, Some(128)),
+            4_096,
+            "unsupported overrides use the source-size default"
+        );
+    }
 
     #[test]
     fn database_and_service_busy_keep_distinct_index_statuses() {

@@ -577,6 +577,151 @@ fn new_source_transient_persistence_builds_fts_and_source_facts_in_batches() {
 }
 
 #[test]
+fn transient_persistence_sqlite_full_restores_connection_and_recovers_on_reopen() {
+    const ENTRY_COUNT: usize = 16_384;
+    let (db, path) = open_candidate_database();
+    let volume = add_volume(&db, "gv_disk_full", r"D:\DiskFull");
+    let owner = db
+        .claim_global_index_operation(
+            &volume,
+            "disk-full-initial-operation",
+            crate::global_index::SourceOperationKind::Initial,
+            crate::global_index::SourceOperationRoute::Service,
+        )
+        .expect("claim disk-full fixture operation")
+        .expect("disk-full fixture source has no active owner");
+    let inputs: Vec<_> = (0..ENTRY_COUNT)
+        .map(|index| {
+            let name = format!("disk-full-recovery-{index:05}.txt");
+            let path = format!(r"D:\DiskFull\{name}");
+            fixture_entry(
+                "gv_disk_full",
+                &path,
+                &name,
+                "txt",
+                Some(index as i64),
+                false,
+            )
+        })
+        .collect();
+    let policy_revision = crate::global_index::coverage::load_policy(&db.conn().unwrap())
+        .expect("load current Scope revision")
+        .revision;
+    db.filename_search
+        .begin_transient_catalog("gv_disk_full", &owner.operation_id);
+    db.filename_search
+        .append_transient_catalog(
+            "gv_disk_full",
+            &owner.operation_id,
+            policy_revision,
+            &inputs,
+            &vec![Decision::Include; ENTRY_COUNT],
+        )
+        .expect("stage transient filenames before simulating a full database");
+    let (entry_count, retained_revision) = db
+        .filename_search
+        .complete_transient_catalog("gv_disk_full", &owner.operation_id)
+        .expect("complete transient catalog");
+
+    let (page_count, previous_max_page_count, previous_cache_size, previous_journal_size_limit) = {
+        let connection = db.conn().expect("read SQLite defaults before failure");
+        let page_count = connection
+            .query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))
+            .expect("read current SQLite page count");
+        let previous_max_page_count = connection
+            .query_row("PRAGMA max_page_count", [], |row| row.get::<_, i64>(0))
+            .expect("read current SQLite page limit");
+        let previous_cache_size = connection
+            .query_row("PRAGMA cache_size", [], |row| row.get::<_, i64>(0))
+            .expect("read current SQLite cache size");
+        let previous_journal_size_limit = connection
+            .query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))
+            .expect("read current SQLite journal limit");
+        (
+            page_count,
+            previous_max_page_count,
+            previous_cache_size,
+            previous_journal_size_limit,
+        )
+    };
+    db.for_each_test_connection(|connection| {
+        connection.pragma_update(None, "max_page_count", page_count)?;
+        let constrained_max_page_count =
+            connection.query_row("PRAGMA max_page_count", [], |row| row.get::<_, i64>(0))?;
+        assert_eq!(constrained_max_page_count, page_count);
+        Ok(())
+    })
+    .expect("constrain every pooled SQLite connection to the current database size");
+
+    let error = db
+        .upsert_transient_mft_catalog_bulk_owned_timed(
+            "gv_disk_full",
+            &owner.operation_id,
+            entry_count,
+            8_192,
+            retained_revision.expect("Scope revision remains stable"),
+            &owner,
+        )
+        .expect_err("bounded insert must hit SQLITE_FULL");
+    assert!(matches!(
+        error,
+        crate::db::DbError::Sqlite(rusqlite::Error::SqliteFailure(ref code, _))
+            if code.code == rusqlite::ErrorCode::DiskFull
+    ));
+
+    db.for_each_test_connection(|connection| {
+        let (cache_size, journal_size_limit): (i64, i64) = connection.query_row(
+            "SELECT (SELECT cache_size FROM pragma_cache_size),
+                    (SELECT journal_size_limit FROM pragma_journal_size_limit)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(cache_size, previous_cache_size);
+        assert_eq!(journal_size_limit, previous_journal_size_limit);
+        let (active_rows, fts_bulk_build): (i64, bool) = connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM global_entries WHERE volume_id='gv_disk_full'),
+                        fts_bulk_build
+                 FROM global_volumes WHERE id='gv_disk_full'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("failed batch left no partial durable rows");
+        assert_eq!(active_rows, 0);
+        assert!(fts_bulk_build, "pending FTS state is durable for recovery");
+        connection.pragma_update(None, "max_page_count", previous_max_page_count)?;
+        let restored_page_limit = connection
+            .query_row("PRAGMA max_page_count", [], |row| row.get::<_, i64>(0))
+            .expect("verify restored test database page limit");
+        assert!(restored_page_limit >= page_count);
+        Ok(())
+    })
+    .expect("inspect and restore all pooled connections after failure");
+
+    drop(db);
+    let reopened = Database::open(&path).expect("reopen and recover after SQLITE_FULL");
+    let (active_rows, fts_bulk_build, fts_bulk_cursor): (i64, bool, i64) = reopened
+        .conn()
+        .expect("inspect recovered source")
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM global_entries WHERE volume_id='gv_disk_full'),
+                    fts_bulk_build, fts_bulk_cursor
+             FROM global_volumes WHERE id='gv_disk_full'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read recovered FTS state");
+    assert_eq!(active_rows, 0);
+    assert!(!fts_bulk_build);
+    assert_eq!(fts_bulk_cursor, 0);
+    let incomplete = reopened
+        .search_global_entries_snapshot("disk-full-recovery", 10, 0)
+        .expect("search incomplete source after recovery");
+    assert!(incomplete.results.is_empty());
+    assert!(!incomplete.index_status.collection_complete);
+}
+
+#[test]
 fn pending_new_source_fts_build_recovers_on_database_reopen() {
     let (db, path) = open_candidate_database();
     let baseline = fixture_entry(

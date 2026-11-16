@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory = $true)][string]$EvidencePath,
     [int]$FileCount = 100000,
     [int]$Repetitions = 3,
-    [ValidateSet(512, 1024, 2048, 4096, 8192)][int]$CandidatePersistBatch = 8192
+    [ValidateSet('auto', '512', '1024', '2048', '4096', '8192')][string]$CandidatePersistBatch = 'auto'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -150,7 +150,11 @@ function Invoke-Probe(
     foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
     $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
     $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = $FilenameFirstMode
-    $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = [string]$script:candidatePersistBatch
+    if ($script:candidatePersistBatch -eq 'auto') {
+        $startInfo.Environment.Remove('ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH') | Out-Null
+    } else {
+        $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = $script:candidatePersistBatch
+    }
     $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'
     $startInfo.Environment['ZC_GLOBAL_INDEX_QA_TRACE'] = $TracePath
 

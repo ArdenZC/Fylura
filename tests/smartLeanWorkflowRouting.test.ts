@@ -136,7 +136,8 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')");
     expect(workflow).toContain("filename_file_count:");
     expect(workflow).toContain("filename_persist_batch_size:");
-    expect(workflow).toContain("options: ['512', '1024', '2048', '4096', '8192']");
+    expect(workflow).toContain("options: ['auto', '512', '1024', '2048', '4096', '8192']");
+    expect(workflow).toContain('default: \'auto\'');
     expect(workflow).toContain("inputs.filename_file_count != '1000000'");
   });
 
@@ -144,13 +145,15 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("Build one Release QA executable for both feature modes");
     expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
     expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)");
-    expect(workflow).toContain("same Release binary and same task-owned NTFS data; baseline maintains FTS in synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists $env:FILENAME_FIRST_PERSIST_BATCH_SIZE-row transactions");
+    expect(workflow).toContain("same Release binary and same task-owned NTFS data; baseline maintains FTS in synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists with $env:FILENAME_FIRST_PERSIST_BATCH_SIZE transaction sizing");
+    expect(workflow).toContain('Production auto sizing uses 4096 rows below 250k entries and 8192 rows at or above 250k.');
     expect(workflow).toContain("Existing-source and incremental FTS triggers stay enabled; no global rebuild runs.");
     expect(workflow).toContain("fills only its new-source FTS in restartable batches of at most 8192 rows");
     expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
     expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
-    expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = [string]$script:candidatePersistBatch");
+    expect(filenameFirstQualification).toContain("$script:candidatePersistBatch -eq 'auto'");
+    expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = $script:candidatePersistBatch");
     expect(filenameFirstQualification).toContain("$searchReadyTargetSeconds = if ($FileCount -ge 1000000) { 20 } else { 10 }");
     expect(filenameFirstQualification).toContain("$script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $durableTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet");
     expect(filenameFirstQualification).toContain("$script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady");

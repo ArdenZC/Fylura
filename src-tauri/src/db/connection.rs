@@ -219,6 +219,22 @@ impl Database {
     }
 
     #[cfg(test)]
+    pub(crate) fn for_each_test_connection(
+        &self,
+        mut action: impl FnMut(&Connection) -> rusqlite::Result<()>,
+    ) -> Result<(), DbError> {
+        let pool_size = self.pool.max_size();
+        let mut connections = Vec::with_capacity(pool_size as usize);
+        for _ in 0..pool_size {
+            connections.push(self.conn()?);
+        }
+        for connection in &connections {
+            action(connection)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_test_busy_handler_for_all_connections(
         &self,
         handler: fn(i32) -> bool,

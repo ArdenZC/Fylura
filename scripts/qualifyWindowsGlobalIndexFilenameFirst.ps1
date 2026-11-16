@@ -29,6 +29,9 @@ $candidateProbeExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Candidat
 $BaselineRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $BaselineRoot).Path)
 $CandidateRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CandidateRoot).Path)
 $EvidencePath = [IO.Path]::GetFullPath($EvidencePath)
+$performanceTargetSeconds = if ($FileCount -ge 1000000) { 60 } else { 10 }
+$performanceTargetMicroseconds = $performanceTargetSeconds * 1000000
+$vhdMaximumMiB = if ($FileCount -ge 1000000) { 16384 } else { 4096 }
 $evidenceDirectory = Split-Path -Parent $EvidencePath
 $traceDirectory = Join-Path $evidenceDirectory 'traces'
 $script:evidence = [ordered]@{
@@ -45,10 +48,11 @@ $script:evidence = [ordered]@{
     candidate = @()
     incremental = $null
     averages = $null
-    firstSearchTargetSeconds = 10
-    fullIndexTargetSeconds = 10
-    completeFilenameSearchTargetSeconds = 10
-    durableFtsBackgroundTargetSeconds = 10
+    firstSearchTargetSeconds = $performanceTargetSeconds
+    fullIndexTargetSeconds = $performanceTargetSeconds
+    completeFilenameSearchTargetSeconds = $performanceTargetSeconds
+    durableFtsBackgroundTargetSeconds = $performanceTargetSeconds
+    vhdMaximumMiB = $vhdMaximumMiB
     firstSearchTargetMet = $null
     fullIndexTargetMet = $null
     completeFilenameSearchTargetMet = $null
@@ -100,7 +104,7 @@ function New-TaskVolume {
     # still be detached and removed safely by the finally block.
     Set-Content -LiteralPath $vhdOwnerMarker -Value $vhdPath -NoNewline
     [void](Invoke-DiskPart 'create-attach-format' @(
-        "create vdisk file=`"$vhdPath`" maximum=4096 type=expandable",
+        "create vdisk file=`"$vhdPath`" maximum=$vhdMaximumMiB type=expandable",
         "select vdisk file=`"$vhdPath`"",
         'attach vdisk',
         'create partition primary',
@@ -221,7 +225,7 @@ function Get-Average([object[]]$Rows, [string]$Property) {
 }
 
 try {
-    if ($FileCount -lt 100000) { throw 'native filename-first benchmark requires at least 100,000 files' }
+    if ($FileCount -notin @(100000, 1000000)) { throw 'native filename-first benchmark supports 100,000 or 1,000,000 files' }
     if ($Repetitions -lt 1 -or $Repetitions -gt 5) { throw 'repetitions must be between 1 and 5' }
     if (-not $ExpectedBaselineSha -or -not $ExpectedCandidateSha) { throw 'expected source SHAs are required' }
     foreach ($exe in @($baselineProbeExe, $candidateProbeExe)) {
@@ -438,20 +442,20 @@ try {
         ftsTiming = 'Baseline uses synchronous FTS triggers; candidate initial persistence rebuilds FTS once in the atomic bulk transaction before restoring triggers.'
     }
     $allCandidateFirstSearchTargetsMet = @($candidateRows | Where-Object {
-        [double]$_.result.firstSearchableUs -gt 10000000
+        [double]$_.result.firstSearchableUs -gt $performanceTargetMicroseconds
     }).Count -eq 0
-    $script:evidence.firstSearchTargetMet = $candidateFirst -le 10000000 -and $allCandidateFirstSearchTargetsMet
+    $script:evidence.firstSearchTargetMet = $candidateFirst -le $performanceTargetMicroseconds -and $allCandidateFirstSearchTargetsMet
     $allCandidateCollectionsComplete = @($candidateRows | Where-Object { -not $_.result.indexComplete }).Count -eq 0
     $allCandidateCompleteCatalogsReady = @($candidateRows | Where-Object {
         $null -eq $_.result.transientCatalogReadyUs -or
-        [double]$_.result.transientCatalogReadyUs -gt 10000000 -or
+        [double]$_.result.transientCatalogReadyUs -gt $performanceTargetMicroseconds -or
         [long]$_.result.transientFixtureFileEntries -ne $FileCount -or
         -not $_.result.completeTransientSearchVisible -or
         -not $_.result.completeTransientSearchBeforeDurableFts -or
         $_.result.collectionCompleteWhenTransientReady
     }).Count -eq 0
     $allCandidateDurableFilenameTargetsMet = @($candidateRows | Where-Object {
-        [double]$_.result.durableFilenameIndexUs -gt 10000000 -or
+        [double]$_.result.durableFilenameIndexUs -gt $performanceTargetMicroseconds -or
         [long]$_.result.fixtureFileEntries -ne $FileCount -or
         -not $_.result.ftsIntegrityVerified -or
         -not $_.result.restartedSearchVisible -or
@@ -462,24 +466,24 @@ try {
         candidate = @($candidateRows | ForEach-Object { $_.result.indexComplete })
     }
     $candidateCompleteFilenameSearchable = Get-Average $candidateRows.ToArray() 'result.transientCatalogReadyUs'
-    $script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le 10000000 -and $allCandidateCompleteCatalogsReady
-    $script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le 10000000 -and $allCandidateDurableFilenameTargetsMet
+    $script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $performanceTargetMicroseconds -and $allCandidateCompleteCatalogsReady
+    $script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $performanceTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet
     $script:evidence.fixtureFilenameIndexTargetMet = $script:evidence.completeFilenameSearchTargetMet
-    $script:evidence.fullIndexTargetMet = $candidateFull -le 10000000 -and $allCandidateCollectionsComplete
+    $script:evidence.fullIndexTargetMet = $candidateFull -le $performanceTargetMicroseconds -and $allCandidateCollectionsComplete
     $script:evidence.fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet
     $targetFailures = @()
     if (-not $script:evidence.firstSearchTargetMet) {
-        $targetFailures += 'first searchable result exceeded the 10-second target'
+        $targetFailures += "first searchable result exceeded the $performanceTargetSeconds-second target"
     }
     if (-not $script:evidence.completeFilenameSearchTargetMet) {
-        $targetFailures += 'complete transient filename catalogue exceeded 10 seconds or failed fixture-count/search/progress checks'
+        $targetFailures += "complete transient filename catalogue exceeded $performanceTargetSeconds seconds or failed fixture-count/search/progress checks"
     }
     if ($targetFailures.Count -gt 0) {
         $script:evidence.status = 'PERFORMANCE_TARGET_MISSED'
         $failure = $targetFailures -join '; '
         $script:evidence.failure = $failure
     } elseif (-not $script:evidence.durableFilenameIndexTargetMet) {
-        $script:evidence.status = 'SEARCH_READY_TARGET_MET_BACKGROUND_FTS_OVER_10S'
+        $script:evidence.status = "SEARCH_READY_TARGET_MET_BACKGROUND_FTS_OVER_${performanceTargetSeconds}S"
     } else {
         $script:evidence.status = 'PASS'
     }

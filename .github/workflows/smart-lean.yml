@@ -44,7 +44,7 @@ on:
       filename_persist_batch_size:
         description: Candidate bounded SQLite transaction size for the real NTFS pair
         type: choice
-        default: '2048'
+        default: '4096'
         options: ['512', '1024', '2048', '4096', '8192']
       run_trigger_matrix:
         description: Re-run the synthetic 25k FTS/source-stat attribution matrix
@@ -354,7 +354,7 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       FILENAME_FIRST_FILE_COUNT: ${{ inputs.filename_file_count || '100000' }}
       FILENAME_FIRST_REPETITIONS: ${{ inputs.filename_file_count == '1000000' && '1' || '3' }}
-      FILENAME_FIRST_PERSIST_BATCH_SIZE: ${{ inputs.filename_persist_batch_size || '2048' }}
+      FILENAME_FIRST_PERSIST_BATCH_SIZE: ${{ inputs.filename_persist_batch_size || '4096' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

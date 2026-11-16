@@ -471,10 +471,10 @@ impl FilenameSearchManager {
                     let index_usize = catalog_entries.len();
                     let index =
                         u32::try_from(index_usize).map_err(|_| "transient_catalog_entry_limit")?;
-                    if by_id.contains_key(&id_hash) {
-                        by_id_collisions.insert(id, index);
+                    if let std::collections::hash_map::Entry::Vacant(entry) = by_id.entry(id_hash) {
+                        entry.insert(index);
                     } else {
-                        by_id.insert(id_hash, index);
+                        by_id_collisions.insert(id, index);
                     }
                     catalog_entries.push(value);
                     if catalog_entries[index_usize].visible {

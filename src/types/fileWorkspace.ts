@@ -272,6 +272,7 @@ export interface BrowseEntry {
   size?: number;
   modifiedAt?: number;
   createdAt?: number;
+  isHidden?: boolean;
   materialization: MaterializationState;
 }
 

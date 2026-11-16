@@ -39,6 +39,8 @@ function operationSourceLabel(log: OperationLog | undefined, t: Translator) {
   if (log.operation_type === "replace") return t("operationReplace");
   if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
   if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
+  if (log.operation_type === "create_directory") return t("operationCreateDirectory");
+  if (log.operation_type === "create_file") return t("operationCreateFile");
   return t("historyOperationSourceUnknown");
 }
 
@@ -127,7 +129,7 @@ export function HistoryBatchList({
   return (
     <div
       ref={listRef ?? internalListRef}
-      className="grid gap-1 pr-1"
+      className="v340-timeline grid pr-1"
       role="listbox"
       tabIndex={0}
       aria-label={t("historyBatches")}

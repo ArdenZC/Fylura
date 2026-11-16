@@ -119,8 +119,13 @@ async function openAndCloseKeyboardMenu(page, surfaceSelector, expectedLabel) {
   assert(menuTitle === targetTitle, `${expectedLabel} targeted ${menuTitle ?? "<empty>"}, expected ${targetTitle}`);
   await page.keyboard.press("Escape");
   await menu.waitFor({ state: "detached" });
-  await page.waitForTimeout(50);
-  const restored = await page.evaluate((selector) => document.activeElement?.matches(selector) === true, surfaceSelector);
+  // Focus restoration is scheduled on the next frame; wait for the condition
+  // instead of assuming a fixed delay (dpr=2 runners can exceed 50ms).
+  const restored = await page.waitForFunction(
+    (selector) => document.activeElement?.matches(selector) === true,
+    surfaceSelector,
+    { timeout: 2000 }
+  ).then(() => true, () => false);
   assert(restored, `${expectedLabel} did not restore focus to its list/grid surface`);
 }
 
@@ -134,8 +139,11 @@ async function openAndClosePointerMenu(page, surfaceSelector, expectedLabel) {
   assert(await menu.getByRole("menuitem").count() > 0, `${expectedLabel} did not expose a menuitem`);
   await page.keyboard.press("Escape");
   await menu.waitFor({ state: "detached" });
-  await page.waitForTimeout(50);
-  const restored = await page.evaluate((selector) => document.activeElement?.matches(selector) === true, surfaceSelector);
+  const restored = await page.waitForFunction(
+    (selector) => document.activeElement?.matches(selector) === true,
+    surfaceSelector,
+    { timeout: 2000 }
+  ).then(() => true, () => false);
   assert(restored, `${expectedLabel} did not restore focus to its list/grid surface`);
 }
 
@@ -147,8 +155,11 @@ async function openAndDismissMenuToSearch(page, surfaceSelector, search, expecte
   await menu.waitFor({ state: "visible" });
   await search.click();
   await menu.waitFor({ state: "detached" });
-  await page.waitForTimeout(50);
-  const restored = await page.evaluate(() => document.activeElement?.matches('[data-file-library-command-search="true"] [data-file-library-local-search="true"]') === true);
+  const restored = await page.waitForFunction(
+    () => document.activeElement?.matches('[data-file-library-command-search="true"] [data-file-library-local-search="true"]') === true,
+    undefined,
+    { timeout: 2000 }
+  ).then(() => true, () => false);
   assert(restored, `${expectedLabel} outside-pointer dismissal stole focus from Search`);
 }
 

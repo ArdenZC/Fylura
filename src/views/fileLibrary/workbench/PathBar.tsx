@@ -190,6 +190,9 @@ export function PathBar() {
           <ArrowRight size={15} />
         </button>
         {pane && <div id={`wb-crumbs-${pane.id}`} className="wb-crumbs" hidden={editing || state.mode !== "browse"} />}
+        {!editing && !pane?.routingHint && (
+          <span className="wb-crumbs-empty">{t("fileLibraryNoFolderOpen")}</span>
+        )}
         {editing ? (
           <form
             className="wb-path-edit"

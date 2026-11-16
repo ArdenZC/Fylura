@@ -17,6 +17,7 @@ import type { PresentationInteractionProjection, PresentationSelectionIntent } f
 import { selectionIntentFromModifiers } from "./interactionAdapters";
 import { resolvePresentationContextMenuTarget } from "./contextMenuTarget";
 import { releaseThumbnailBlobUrl } from "./thumbnailBlobUrl";
+import { useBrowseMarqueeSelection } from "./useBrowseMarqueeSelection";
 import "./sharedFileGrid.css";
 
 const CELL_MIN_WIDTH = 144;
@@ -72,6 +73,13 @@ export function thumbnailVariantForCell(width: number, devicePixelRatio: number)
   return "large";
 }
 
+/** Cells actually backed by the logical row count; a partial last row must not
+ * render ghost tiles after the final entry. */
+export function gridCellsInRow(rowIndex: number, columns: number, rowCount: number) {
+  const rowStart = rowIndex * Math.max(1, columns);
+  return Math.min(Math.max(1, columns), Math.max(0, rowCount - rowStart));
+}
+
 function columnsForWidth(width: number) {
   if (width <= 0) return 1;
   const columns = Math.floor((width + GRID_GAP) / (CELL_MIN_WIDTH + GRID_GAP));
@@ -92,7 +100,11 @@ export function SharedFileGrid({
   onPreview,
   onContextMenu,
   onOpenContextMenu,
-  onEscape
+  onEscape,
+  onBackgroundContextMenu,
+  onNavigateUp,
+  onRefresh,
+  onTypeToSelect
 }: {
   interaction: PresentationInteractionProjection;
   language: Language;
@@ -108,10 +120,16 @@ export function SharedFileGrid({
   onContextMenu?: (event: MouseEvent<HTMLDivElement>, entry: PresentationEntry, index: number) => void;
   onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
   onEscape?: () => boolean;
+  onBackgroundContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
+  onNavigateUp?: () => void;
+  onRefresh?: () => void;
+  onTypeToSelect?: (text: string) => void;
 }) {
   const pane = usePane();
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const marquee = useBrowseMarqueeSelection(gridRef, interaction);
   const loadMoreInFlightRef = useRef(false);
+  const typeAheadRef = useRef({ text: "", time: 0 });
   const [width, setWidth] = useState(0);
   const columns = columnsForWidth(width);
   const cellWidth = width > 0
@@ -179,9 +197,37 @@ export function SharedFileGrid({
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
+    if ((event.altKey && event.key === "ArrowUp") || event.key === "Backspace") {
+      if (onNavigateUp) {
+        event.preventDefault();
+        onNavigateUp();
+      }
+      return;
+    }
+    if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r")) {
+      if (onRefresh) {
+        event.preventDefault();
+        onRefresh();
+      }
+      return;
+    }
+    if (interaction.source === "browse" && !event.nativeEvent.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.length === 1 && !/\s/u.test(event.key)) {
+      const now = Date.now();
+      const prefix = now - typeAheadRef.current.time < 700 ? typeAheadRef.current.text + event.key : event.key;
+      typeAheadRef.current = { text: prefix, time: now };
+      onTypeToSelect?.(prefix);
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
       interaction.actions.selectAll();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") {
+      if (interaction.actions.invertSelection) {
+        event.preventDefault();
+        interaction.actions.invertSelection();
+      }
       return;
     }
     if (event.key === "Escape") {
@@ -250,7 +296,20 @@ export function SharedFileGrid({
         data-file-library-grid-has-more={interaction.hasMore ? "true" : "false"}
         data-browse-grid={interaction.source === "browse" ? "true" : undefined}
         onKeyDown={handleKeyDown}
+        onPointerDown={marquee.onPointerDown}
+        onPointerMove={marquee.onPointerMove}
+        onPointerUp={marquee.onPointerUp}
+        onPointerCancel={marquee.onPointerCancel}
+        onContextMenu={(event) => {
+          if (!(event.target instanceof Element) || !event.target.closest("[data-file-entry-kind]")) onBackgroundContextMenu?.(event);
+        }}
       >
+        {marquee.rectangle ? <div className="file-selection-marquee" aria-hidden="true" style={{
+          left: marquee.rectangle.left,
+          top: marquee.rectangle.top,
+          width: marquee.rectangle.right - marquee.rectangle.left,
+          height: marquee.rectangle.bottom - marquee.rectangle.top
+        }} /> : null}
         {interaction.rowCount === 0 ? (
           <div className="shared-file-grid-empty">{emptyLabel ?? t("browseUnknownValue")}</div>
         ) : (
@@ -266,7 +325,7 @@ export function SharedFileGrid({
                   gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`
                 }}
               >
-                {Array.from({ length: columns }, (_, columnIndex) => {
+                {Array.from({ length: gridCellsInRow(virtualRow.index, columns, interaction.rowCount) }, (_, columnIndex) => {
                   const index = virtualRow.index * columns + columnIndex;
                   const entry = index < interaction.rowCount ? interaction.entryAt(index) : undefined;
                   return entry === undefined ? (

@@ -252,7 +252,7 @@ describe("W2-07 Context Panel projection and visibility contracts", () => {
     expect(libraryMode).not.toContain("InspectorLayout");
     expect(libraryMode).toContain("ContextPanel");
     expect(browseMode).toContain("ContextPanel");
-    expect(panel).not.toContain("displayPath");
+    expect(panel).toContain('selected.displayPath ? <BrowseFact label={t("fileLibraryContextPath")} value={selected.displayPath} /> : null');
     expect(panel).not.toContain("Preview Core");
   });
 });

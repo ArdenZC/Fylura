@@ -425,6 +425,15 @@ export function historyTime(value: string | number | null | undefined) {
   return timeValue(value);
 }
 
+/** Returns one user operation for Ctrl/Cmd+Z, retaining backend order on ties. */
+export function latestUndoBatch(logs: readonly OperationLog[]) {
+  const latest = [...logs].sort((a, b) => historyTime(b.created_at) - historyTime(a.created_at))[0];
+  if (!latest) return [];
+  return latest.batch_id
+    ? logs.filter((log) => log.batch_id === latest.batch_id)
+    : [latest];
+}
+
 export function resolveHistoryBatchExecutionState(logs: readonly OperationLog[]): HistoryExecutionState {
   if (!logs.length) return "unavailable";
   const pending = logs.filter((log) => log.status === "pending").length;

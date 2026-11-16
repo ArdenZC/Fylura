@@ -2,10 +2,11 @@ import { FileLibraryWorkbench } from "./workbench/FileLibraryWorkbench";
 import { PathBar } from "./workbench/PathBar";
 import { usePane, usePaneQuerySelector } from "./workbench/PaneContext";
 import { usePreviewExperience } from "./preview/PreviewExperienceProvider";
-import { ArrowLeft, ArrowRight, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, SlidersHorizontal } from "lucide-react";
-import { lazy, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { ArrowLeft, ArrowRight, ChevronRight, Columns3, Grid2X2, List, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, SlidersHorizontal } from "lucide-react";
+import { lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useChromeContext, useI18nContext } from "../../contexts/AppContexts";
 import type { WorkspaceViewMode } from "../../fileWorkspace";
+import { playViewSwap } from "../../utils/motion";
 import { useFileLibraryExperience } from "./FileLibraryExperienceProvider";
 import { isManagedLibraryBrowserFixture, type FileLibraryMode } from "./fileLibraryExperience";
 import { ContextPanelPresentationProvider } from "./context/contextPanelPresentation";
@@ -22,6 +23,8 @@ import {
 } from "./fileLibraryCommandBarSurface";
 import { FileManagementToolbar } from "./management/FileManagementToolbar";
 import "./fileLibraryWorkspace.css";
+import "./fileLibraryV340.css";
+import "./macFinderV340.css";
 
 const LibraryMode = lazy(() => import("./library/LibraryMode").then((module) => ({ default: module.LibraryMode })));
 const BrowseMode = lazy(() => import("./browse/BrowseMode").then((module) => ({ default: module.BrowseMode })));
@@ -33,6 +36,34 @@ export const layoutForWidth = (width: number): FileLibraryLayout => {
   if (width >= 820) return "medium";
   return "compact";
 };
+
+const LIBRARY_TREE_PREFERENCE_KEY = "fylura:file-tree-open";
+const LIBRARY_TREE_WIDTH_KEY = "fylura:file-tree-width";
+const TREE_WIDTH_DEFAULT = 196;
+const TREE_WIDTH_MIN = 168;
+const TREE_WIDTH_MAX = 340;
+
+export function clampTreeWidth(width: number) {
+  if (!Number.isFinite(width)) return TREE_WIDTH_DEFAULT;
+  return Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_MIN, Math.round(width)));
+}
+
+function readTreeWidthPreference() {
+  try {
+    const stored = Number(window.localStorage.getItem(LIBRARY_TREE_WIDTH_KEY));
+    return stored > 0 ? clampTreeWidth(stored) : TREE_WIDTH_DEFAULT;
+  } catch {
+    return TREE_WIDTH_DEFAULT;
+  }
+}
+
+function readTreeOpenPreference() {
+  try {
+    return window.localStorage.getItem(LIBRARY_TREE_PREFERENCE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
 
 export function FileLibraryWorkspace({ active = true }: { active?: boolean }) { return <FileLibraryWorkbench Pane={FileLibraryPane} active={active}/>; }
 
@@ -46,6 +77,8 @@ function FileLibraryPane() {
   const navigationToggleRef = useRef<HTMLButtonElement | null>(null);
   const [layout, setLayout] = useState<FileLibraryLayout>("compact");
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [treeOpen, setTreeOpen] = useState(readTreeOpenPreference);
+  const [treeWidth, setTreeWidth] = useState(readTreeWidthPreference);
   const [commandBarSurface, setCommandBarSurface] = useState<FileLibraryCommandBarSurface | null>(null);
 
   const registerSurface = useCallback((surface: FileLibraryCommandBarSurface) => {
@@ -60,7 +93,10 @@ function FileLibraryPane() {
     setCommandBarSurface((current) => current?.owner === owner ? null : current);
   }, []);
 
-  useEffect(() => {
+  // Measured before paint: the first frame must already know whether the tree
+  // is an inline column or a drawer, otherwise the toggle briefly reports the
+  // wrong state and can be clicked into the wrong branch.
+  useLayoutEffect(() => {
     const element = workspaceRef.current;
     if (!element) return;
 
@@ -75,17 +111,64 @@ function FileLibraryPane() {
 
   const history = state.workspace.session;
   const contextOpen = history.presentation.contextOpen === true;
-  const viewMode = history.presentation.viewMode ?? "list";
+  const viewMode = history.presentation.viewMode
+    ?? (state.mode === "browse" && platform === "darwin" ? "columns" : "list");
   const targetLabel = state.mode === "library"
     ? t("fileLibraryModeLibrary")
     : state.workspace.browse?.location.displayName ?? t("fileLibraryNoFolderOpen");
 
+  // Finder-style columns are a browsing mode, not a per-folder preference:
+  // after navigating into a folder the new history entry starts empty, so the
+  // pane re-applies the mode the user last chose.
+  const columnModeSticky = useRef(false);
+  const previousViewModeRef = useRef(viewMode);
+  const changeViewMode = useCallback((nextViewMode: WorkspaceViewMode) => {
+    if (nextViewMode === controller.getState().workspace.session.presentation.viewMode) return;
+    columnModeSticky.current = nextViewMode === "columns";
+    controller.setViewMode(nextViewMode);
+  }, [controller]);
+  useLayoutEffect(() => {
+    if (previousViewModeRef.current === viewMode) return;
+    previousViewModeRef.current = viewMode;
+    playViewSwap(workspaceRef.current?.querySelector(".file-library-content-slot"));
+  }, [viewMode]);
+  useEffect(() => {
+    if (columnModeSticky.current && viewMode !== "columns") controller.setViewMode("columns");
+  }, [controller, viewMode]);
+
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
+  /**
+   * The directory tree has two presentations: an inline 196px column on wide
+   * layouts and a drawer below that. They keep separate state so resizing does
+   * not silently open a drawer, and the inline column's choice is remembered.
+   */
+  const treeInline = layout === "large" && treeOpen;
+  const navigationVisible = layout === "large" ? treeOpen : navigationOpen;
   const toggleNavigation = useCallback(() => {
+    if (layout === "large") {
+      setTreeOpen((open) => {
+        const next = !open;
+        try { window.localStorage.setItem(LIBRARY_TREE_PREFERENCE_KEY, String(next)); } catch { /* optional preference */ }
+        return next;
+      });
+      return;
+    }
     const nextOpen = !navigationOpen;
-    if (nextOpen && layout !== "large" && contextOpen) controller.setContextOpen(false);
+    // Drawer presentation may only own one overlay: opening the tree gives the
+    // inspector back to the layout rather than stacking two overlays.
+    if (nextOpen && contextOpen) controller.setContextOpen(false);
     setNavigationOpen(nextOpen);
   }, [contextOpen, controller, layout, navigationOpen]);
+  /** Live width during a drag: state only, so pointer moves stay cheap. */
+  const previewTreeWidth = useCallback((width: number) => {
+    setTreeWidth(clampTreeWidth(width));
+  }, []);
+  /** Committed width: the release, the keyboard step or the reset. */
+  const commitTreeWidth = useCallback((width: number) => {
+    const next = clampTreeWidth(width);
+    setTreeWidth(next);
+    try { window.localStorage.setItem(LIBRARY_TREE_WIDTH_KEY, String(next)); } catch { /* optional preference */ }
+  }, []);
   const toggleContext = useCallback(() => {
     const nextOpen = !contextOpen;
     if (nextOpen && layout !== "large") setNavigationOpen(false);
@@ -127,10 +210,13 @@ function FileLibraryPane() {
             ref={workspaceRef}
             className="file-library-workspace"
             data-layout={layout}
+            data-platform={platform}
             data-mode={state.mode}
             data-detached-browse={state.detachedBrowse ? "true" : "false"}
             data-context-open={contextOpen ? "true" : "false"}
-            data-file-library-navigation-open={navigationOpen ? "true" : "false"}
+            data-file-library-navigation-open={navigationVisible ? "true" : "false"}
+            data-tree-inline={treeInline ? "true" : "false"}
+            style={layout === "large" ? { "--file-tree-width": `${treeWidth}px` } as React.CSSProperties : undefined}
           >
             <div className="file-library-location-row">
             <PathBar />
@@ -144,7 +230,7 @@ function FileLibraryPane() {
               canGoForward={history.historyIndex >= 0 && history.historyIndex < history.history.length - 1}
               onBack={() => void controller.back()}
               onForward={() => void controller.forward()}
-              navigationOpen={navigationOpen}
+              navigationOpen={navigationVisible}
               onNavigationToggle={toggleNavigation}
               navigationToggleRef={navigationToggleRef}
               localSearch={commandBarSurface?.search}
@@ -152,7 +238,8 @@ function FileLibraryPane() {
               contextOpen={contextOpen}
               onContextToggle={toggleContext}
               viewMode={viewMode}
-              onViewModeChange={(nextViewMode) => controller.setViewMode(nextViewMode)}
+              onViewModeChange={changeViewMode}
+              platform={platform}
               t={t}
             />
             </div>
@@ -167,9 +254,10 @@ function FileLibraryPane() {
                   id={pane ? `file-library-navigation-slot-${pane.id}` : "file-library-navigation-slot"}
                   className="file-library-navigation-slot"
                   data-workspace-slot="navigation"
-                  aria-hidden={!navigationOpen}
+                  aria-hidden={!navigationVisible}
+                  inert={!navigationVisible ? true : undefined}
                 >
-                  {navigationOpen && (pane?.visible ?? true) ? (
+                  {(layout === "large" || navigationVisible) && (pane?.visible ?? true) ? (
                     <FileLibraryNavigation
                       controller={controller}
                       state={state}
@@ -179,7 +267,26 @@ function FileLibraryPane() {
                       onClose={closeNavigation}
                     />
                   ) : null}
+                  {treeInline ? (
+                    <TreeResizeHandle
+                      width={treeWidth}
+                      onPreview={previewTreeWidth}
+                      onCommit={commitTreeWidth}
+                      label={t("fileLibraryTreeResize")}
+                    />
+                  ) : null}
                 </aside>
+                {layout === "large" && !treeOpen ? (
+                  <button
+                    type="button"
+                    className="file-library-tree-handle"
+                    onClick={toggleNavigation}
+                    aria-label={t("fileLibraryNavigationOpen")}
+                    title={t("fileLibraryNavigationOpen")}
+                  >
+                    <ChevronRight size={12} aria-hidden="true" />
+                  </button>
+                ) : null}
 
                 <main className="file-library-content-slot" data-workspace-slot="content">
                   {state.mode === "library"
@@ -187,11 +294,6 @@ function FileLibraryPane() {
                     : <BrowseMode />}
                 </main>
 
-                <aside
-                  className="file-library-context-slot"
-                  data-workspace-slot="context"
-                  aria-hidden="true"
-                />
               </div>
             </ContextPanelPresentationProvider>
           </div>
@@ -201,6 +303,85 @@ function FileLibraryPane() {
         </PreviewExperienceProvider>
       </FileLibraryCommandBarSurfaceProvider>
     </LibraryNavigationSurfaceProvider>
+  );
+}
+
+/**
+ * Pointer-captured column resizer. Dragging updates the width live, releasing
+ * commits it to the stored preference; keyboard and double-click provide the
+ * same reach without a pointer.
+ */
+function TreeResizeHandle({
+  width,
+  onPreview,
+  onCommit,
+  label
+}: {
+  width: number;
+  onPreview: (width: number) => void;
+  onCommit: (width: number) => void;
+  label: string;
+}) {
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  // The last previewed width also lives in a ref so a pointerup that arrives in
+  // the same task as the final pointermove still commits the newest value.
+  const latest = useRef(width);
+  latest.current = width;
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuenow={width}
+      aria-valuemin={TREE_WIDTH_MIN}
+      aria-valuemax={TREE_WIDTH_MAX}
+      tabIndex={0}
+      className="file-library-tree-resizer"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = { x: event.clientX, width };
+      }}
+      onPointerMove={(event) => {
+        if (!drag.current) return;
+        const next = drag.current.width + (event.clientX - drag.current.x);
+        latest.current = next;
+        onPreview(next);
+      }}
+      onPointerUp={(event) => {
+        if (!drag.current) return;
+        const committed = latest.current;
+        endDrag(event);
+        onCommit(committed);
+      }}
+      // A cancelled gesture (Escape, OS interruption) must not keep the
+      // previewed width: restore the width the drag started from.
+      onPointerCancel={(event) => {
+        if (!drag.current) return;
+        const original = drag.current.width;
+        endDrag(event);
+        onPreview(original);
+      }}
+      onLostPointerCapture={() => {
+        if (!drag.current) return;
+        const original = drag.current.width;
+        drag.current = null;
+        onPreview(original);
+      }}
+      onDoubleClick={() => onCommit(TREE_WIDTH_DEFAULT)}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 24 : 8;
+        if (event.key === "ArrowLeft") { event.preventDefault(); onCommit(width - step); }
+        else if (event.key === "ArrowRight") { event.preventDefault(); onCommit(width + step); }
+        else if (event.key === "Home") { event.preventDefault(); onCommit(TREE_WIDTH_DEFAULT); }
+      }}
+    />
   );
 }
 
@@ -235,6 +416,9 @@ type WorkspaceCommandBarProps = {
   sourceActions?: ReactNode;
   viewMode?: WorkspaceViewMode;
   onViewModeChange?: (viewMode: WorkspaceViewMode) => void;
+  /** Passed in rather than read from context so the bar stays renderable in
+   * isolation; the column mode is a macOS browsing form. */
+  platform?: string;
   contextOpen?: boolean;
   onContextToggle?: () => void;
   t: ReturnType<typeof useI18nContext>["t"];
@@ -262,6 +446,7 @@ export function WorkspaceCommandBar({
   sourceActions,
   viewMode = "list",
   onViewModeChange,
+  platform,
   contextOpen = false,
   onContextToggle = () => undefined,
   t
@@ -347,6 +532,21 @@ export function WorkspaceCommandBar({
           <Grid2X2 size={15} aria-hidden="true" />
           <span>{t("fileLibraryViewGrid")}</span>
         </button>
+        {/* Finder-style columns are a macOS browsing form, not a replacement
+         * for independent panes: the pane keeps its own navigation stack. */}
+        {platform === "darwin" ? (
+          <button
+            className="file-library-command-button"
+            type="button"
+            aria-label={t("fileLibraryViewColumns")}
+            aria-pressed={viewMode === "columns"}
+            data-file-library-view="columns"
+            onClick={() => onViewModeChange?.("columns")}
+          >
+            <Columns3 size={15} aria-hidden="true" />
+            <span>{t("fileLibraryViewColumns")}</span>
+          </button>
+        ) : null}
       </div>
 
       <button

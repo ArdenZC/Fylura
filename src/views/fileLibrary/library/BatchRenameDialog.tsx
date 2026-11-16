@@ -22,7 +22,14 @@ type Props = {
   files: Pick<FileLibrarySummary, "id" | "name">[];
   t: Translator;
   onClose: () => void;
-  onPreview: (previews: OperationPreview[]) => void;
+  onPreview?: (previews: OperationPreview[]) => void;
+  onContinue?: (rows: { fileId: string; name: string; preview: OperationPreview }[]) => void;
+  getPreview?: (fileId: string, newName: string) => Promise<OperationPreview>;
+  getPreviews?: (rows: { fileId: string; name: string }[]) => Promise<{
+    previews: Record<string, OperationPreview>;
+    errors?: Record<string, string>;
+  }>;
+  previewMatches?: (preview: OperationPreview | undefined, fileId: string, newName: string) => boolean;
   restoreFocus: () => HTMLElement | null;
 };
 
@@ -44,7 +51,7 @@ function validationKey(error: "empty" | "unsafe" | "unchanged"): BatchRenameErro
   return "libraryBatchRenameNameUnchanged";
 }
 
-export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }: Props) {
+export function BatchRenameDialog({ files, t, onClose, onPreview, onContinue, getPreview, getPreviews, previewMatches, restoreFocus }: Props) {
   const triggerRef = useRef<HTMLInputElement | null>(null);
   const alive = useRef(true);
   const requestEpoch = useRef(0);
@@ -130,9 +137,14 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
   const previewRows = readyRows.map((row) => ({ fileId: row.file.id, name: row.name, hasLocalError: Boolean(row.localError) }));
   const executableCount = readyRows.filter((row) => !row.localError
     && !previewErrors[row.file.id]
-    && isCurrentExecutableBatchRenamePreview(previews[row.file.id], row.file.id, row.name)).length;
+    && (previewMatches?.(previews[row.file.id], row.file.id, row.name)
+      ?? isCurrentExecutableBatchRenamePreview(previews[row.file.id], row.file.id, row.name))).length;
   const executablePreviews = collectExecutableBatchRenamePreviews(previewRows, skippedIds, previews, previewErrors);
-  const canContinue = executablePreviews !== null;
+  const customReady = readyRows.length > 0 && readyRows.every((row) => !row.localError
+    && !previewErrors[row.file.id]
+    && (previewMatches?.(previews[row.file.id], row.file.id, row.name)
+      ?? isCurrentExecutableBatchRenamePreview(previews[row.file.id], row.file.id, row.name)));
+  const canContinue = onContinue ? customReady : executablePreviews !== null;
 
   function invalidatePreviews() {
     requestEpoch.current++;
@@ -183,6 +195,11 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
     setPreviewProgress({ processed: 0, total: readyRows.length });
     const nextPreviews: Record<string, OperationPreview> = {};
     const nextErrors: Record<string, string> = {};
+    const validRows = readyRows.filter((row) => {
+      if (!row.localError) return true;
+      nextErrors[row.file.id] = t(row.localError);
+      return false;
+    });
     let processed = 0;
     const markProcessed = () => {
       processed++;
@@ -190,32 +207,50 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
         setPreviewProgress({ processed, total: readyRows.length });
       }
     };
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < readyRows.length && alive.current && requestEpoch.current === epoch) {
-        const row = readyRows[cursor++];
-        if (!row) continue;
-        if (row.localError) {
-          nextErrors[row.file.id] = t(row.localError);
-          markProcessed();
-          continue;
-        }
-        try {
-          nextPreviews[row.file.id] = await tauriApi.getManualRenameOperationPreview(row.file.id, row.name);
-        } catch (failure) {
-          nextErrors[row.file.id] = describePreviewError(failure);
-        }
-        markProcessed();
-      }
-    };
     try {
-      await Promise.all(Array.from({ length: Math.min(PREVIEW_CONCURRENCY, readyRows.length) }, () => worker()));
+      if (getPreviews) {
+        if (validRows.length > 0) {
+          const batch = await getPreviews(validRows.map((row) => ({ fileId: row.file.id, name: row.name })));
+          for (const row of validRows) {
+            const preview = batch.previews[row.file.id];
+            if (preview) nextPreviews[row.file.id] = preview;
+            else nextErrors[row.file.id] = batch.errors?.[row.file.id]
+              ? describePreviewError(batch.errors[row.file.id])
+              : localizedStableError(new Error("transfer_preview_incomplete"), t);
+          }
+        }
+        processed = readyRows.length;
+        if (alive.current && requestEpoch.current === epoch) setPreviewProgress({ processed, total: readyRows.length });
+      } else {
+        let cursor = 0;
+        const worker = async () => {
+          while (cursor < readyRows.length && alive.current && requestEpoch.current === epoch) {
+            const row = readyRows[cursor++];
+            if (!row) continue;
+            if (row.localError) { markProcessed(); continue; }
+            try {
+              nextPreviews[row.file.id] = await (getPreview ?? tauriApi.getManualRenameOperationPreview.bind(tauriApi))(row.file.id, row.name);
+            } catch (failure) {
+              nextErrors[row.file.id] = describePreviewError(failure);
+            }
+            markProcessed();
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(PREVIEW_CONCURRENCY, readyRows.length) }, () => worker()));
+      }
       if (alive.current && requestEpoch.current === epoch) {
         setPreviews(nextPreviews);
         setPreviewErrors(nextErrors);
       }
     } catch (failure) {
-      if (alive.current && requestEpoch.current === epoch) setError(localizedStableError(failure, t));
+      if (alive.current && requestEpoch.current === epoch) {
+        if (getPreviews) {
+          const message = describePreviewError(failure);
+          validRows.forEach((row) => { nextErrors[row.file.id] = message; });
+          setPreviews(nextPreviews);
+          setPreviewErrors(nextErrors);
+        } else setError(localizedStableError(failure, t));
+      }
     } finally {
       if (alive.current && requestEpoch.current === epoch) {
         setPreviewProgress(null);
@@ -234,8 +269,8 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
       for (let ordinal = 2; ordinal <= 101; ordinal++) {
         if (!alive.current || requestEpoch.current !== epoch) return;
         const candidate = keepBothCandidate(initialName, ordinal);
-        const preview = await tauriApi.getManualRenameOperationPreview(fileId, candidate);
-        if (isCurrentExecutableBatchRenamePreview(preview, fileId, candidate)) {
+        const preview = await (getPreview ?? tauriApi.getManualRenameOperationPreview.bind(tauriApi))(fileId, candidate);
+        if (previewMatches?.(preview, fileId, candidate) ?? isCurrentExecutableBatchRenamePreview(preview, fileId, candidate)) {
           if (alive.current && requestEpoch.current === epoch) {
             setOverrides((current) => ({ ...current, [fileId]: candidate }));
             setPreviews((current) => ({ ...current, [fileId]: preview }));
@@ -256,9 +291,14 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
   }
 
   function continueToOperationPreview() {
-    if (busy || executablePreviews === null) return;
+    if (busy || !canContinue) return;
     requestEpoch.current++;
-    onPreview(executablePreviews);
+    if (onContinue) {
+      const rows = readyRows.map((row) => ({ fileId: row.file.id, name: row.name, preview: previews[row.file.id]! }));
+      onContinue(rows);
+    } else if (executablePreviews !== null) {
+      onPreview?.(executablePreviews);
+    }
   }
 
   function handleModeChange(event: ChangeEvent<HTMLSelectElement>) {
@@ -271,7 +311,8 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
     if (previewErrors[fileId]) return previewErrors[fileId];
     const preview = previews[fileId];
     if (!preview) return t("libraryBatchRenameNotPreviewed");
-    if (!isCurrentExecutableBatchRenamePreview(preview, fileId, rows.find((row) => row.file.id === fileId)?.name ?? "")) return t("libraryBatchRenameBlocked");
+    if (!(previewMatches?.(preview, fileId, rows.find((row) => row.file.id === fileId)?.name ?? "")
+      ?? isCurrentExecutableBatchRenamePreview(preview, fileId, rows.find((row) => row.file.id === fileId)?.name ?? ""))) return t("libraryBatchRenameBlocked");
     return t("libraryBatchRenameReady");
   };
 
@@ -314,7 +355,8 @@ export function BatchRenameDialog({ files, t, onClose, onPreview, restoreFocus }
             {rows.map((row) => {
               const preview = previews[row.file.id];
               const rowError = previewErrors[row.file.id];
-              const isBlocked = Boolean(preview && !isCurrentExecutableBatchRenamePreview(preview, row.file.id, row.name));
+              const isBlocked = Boolean(preview && !(previewMatches?.(preview, row.file.id, row.name)
+                ?? isCurrentExecutableBatchRenamePreview(preview, row.file.id, row.name)));
               return <li key={row.file.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(160px,0.8fr)_auto] items-center gap-2 px-3 py-2" data-batch-rename-status={skippedIds.has(row.file.id) ? "skipped" : isBlocked ? "blocked" : preview ? "ready" : "pending"}>
                 <span className="min-w-0 break-all text-sm" title={row.file.name}>{row.file.name}</span>
                 <input className={inputSurface} value={row.name} disabled={busy} aria-label={`${t("libraryBatchRenameTarget")}: ${row.file.name}`} aria-invalid={Boolean(row.localError || rowError || isBlocked)} onChange={(event) => setRowName(row.file.id, event.target.value)}/>

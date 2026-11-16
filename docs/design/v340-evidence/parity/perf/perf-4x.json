@@ -1,0 +1,940 @@
+{
+  "chrome": "151.0.7922.34",
+  "viewport": "1440x900",
+  "dpr": 1,
+  "platform": "Win32 mock",
+  "fixture": "browser-mock=1 (managed mock root)",
+  "runs": [
+    {
+      "cpu": 1,
+      "scenarios": [
+        {
+          "id": "page",
+          "name": "页面切换",
+          "durationMs": 3410,
+          "verified": true,
+          "animation": {
+            "id": "zc-page-in",
+            "duration": 220,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "opacity": "1",
+            "transform": "none"
+          },
+          "frames": 142,
+          "idleFrames": 58,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 61,
+          "recalc": 214,
+          "layoutMs": 49,
+          "styleMs": 42,
+          "scriptMs": 306,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "rail",
+          "name": "侧栏收展",
+          "durationMs": 2080,
+          "verified": true,
+          "animation": {
+            "property": "opacity, padding, border-radius",
+            "duration": "0.14s, 0.2s, 0.2s",
+            "easing": "cubic-bezier(0.2, 0, 0, 1), cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.32, 0.72, 0, 1)"
+          },
+          "closing": null,
+          "final": {
+            "widths": [
+              82.65625,
+              7.84375,
+              189.484375,
+              82.640625,
+              7.84375,
+              189.484375
+            ],
+            "finalWidth": 216
+          },
+          "frames": 75,
+          "idleFrames": 46,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 92,
+          "recalc": 102,
+          "layoutMs": 56,
+          "styleMs": 28,
+          "scriptMs": 177,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "menu",
+          "name": "菜单弹出",
+          "durationMs": 1087,
+          "verified": true,
+          "animation": {
+            "id": "zc-menu-in",
+            "duration": 240,
+            "state": "running"
+          },
+          "closing": {
+            "id": "zc-menu-out",
+            "duration": 130,
+            "state": "running"
+          },
+          "final": {
+            "menuCount": 0
+          },
+          "frames": 60,
+          "idleFrames": 1,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 11,
+          "recalc": 93,
+          "layoutMs": 4,
+          "styleMs": 12,
+          "scriptMs": 30,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "sheet",
+          "name": "确认层",
+          "durationMs": 901,
+          "verified": true,
+          "animation": {
+            "id": "zc-dialog-card-in",
+            "duration": "0.24s"
+          },
+          "closing": null,
+          "final": {
+            "realDialog": 0,
+            "ghost": 0
+          },
+          "frames": 32,
+          "idleFrames": 12,
+          "p50": 16.7,
+          "p95": 49.9,
+          "max": 49.9,
+          "dropped": 4,
+          "layout": 29,
+          "recalc": 77,
+          "layoutMs": 16,
+          "styleMs": 30,
+          "scriptMs": 39,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "tree",
+          "name": "目录树折叠",
+          "durationMs": 1971,
+          "verified": true,
+          "animation": {
+            "property": "grid-template-rows, opacity",
+            "duration": "0.2s, 0.15s",
+            "easing": "cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.2, 0, 0, 1)"
+          },
+          "closing": null,
+          "final": {
+            "beforeHeight": 64,
+            "finalHeight": 64,
+            "mid": [
+              {
+                "open": "false",
+                "height": 8
+              }
+            ]
+          },
+          "frames": 73,
+          "idleFrames": 41,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.7,
+          "dropped": 0,
+          "layout": 92,
+          "recalc": 107,
+          "layoutMs": 41,
+          "styleMs": 10,
+          "scriptMs": 38,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "view",
+          "name": "列表↔网格",
+          "durationMs": 3512,
+          "verified": true,
+          "animation": {
+            "id": "zc-view-swap",
+            "duration": 240,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "list": 1,
+            "grid": 0
+          },
+          "frames": 150,
+          "idleFrames": 56,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 60,
+          "recalc": 250,
+          "layoutMs": 26,
+          "styleMs": 44,
+          "scriptMs": 196,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "layout",
+          "name": "窗格布局切换",
+          "durationMs": 3029,
+          "verified": true,
+          "animation": {
+            "id": "zc-pane-in",
+            "duration": 260,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "counts": [
+              "2",
+              "4",
+              "3",
+              "1"
+            ]
+          },
+          "frames": 112,
+          "idleFrames": 63,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 33.3,
+          "dropped": 2,
+          "layout": 98,
+          "recalc": 207,
+          "layoutMs": 38,
+          "styleMs": 32,
+          "scriptMs": 313,
+          "loafCount": 1,
+          "loafMax": 62,
+          "longestLoaf": {
+            "duration": 62,
+            "styleAndLayout": 62,
+            "renderStart": 61,
+            "blocking": 8,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 56,
+                "forcedStyleAndLayout": 1
+              }
+            ]
+          },
+          "loafStyleMs": 62
+        }
+      ]
+    },
+    {
+      "cpu": 4,
+      "scenarios": [
+        {
+          "id": "page",
+          "name": "页面切换",
+          "durationMs": 4951,
+          "verified": true,
+          "animation": {
+            "id": "zc-page-in",
+            "duration": 220,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "opacity": "1",
+            "transform": "none"
+          },
+          "frames": 137,
+          "idleFrames": 62,
+          "p50": 16.7,
+          "p95": 116.7,
+          "max": 200,
+          "dropped": 19,
+          "layout": 67,
+          "recalc": 192,
+          "layoutMs": 305,
+          "styleMs": 209,
+          "scriptMs": 1945,
+          "loafCount": 13,
+          "loafMax": 223,
+          "longestLoaf": {
+            "duration": 223,
+            "styleAndLayout": 222,
+            "renderStart": 221,
+            "blocking": 165,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 200,
+                "forcedStyleAndLayout": 19
+              }
+            ]
+          },
+          "loafStyleMs": 136
+        },
+        {
+          "id": "rail",
+          "name": "侧栏收展",
+          "durationMs": 2581,
+          "verified": true,
+          "animation": {
+            "property": "opacity, padding, border-radius",
+            "duration": "0.14s, 0.2s, 0.2s",
+            "easing": "cubic-bezier(0.2, 0, 0, 1), cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.32, 0.72, 0, 1)"
+          },
+          "closing": null,
+          "final": {
+            "widths": [
+              97.5625,
+              14.15625,
+              189.4375,
+              97.578125,
+              7.84375,
+              189.453125
+            ],
+            "finalWidth": 216
+          },
+          "frames": 57,
+          "idleFrames": 54,
+          "p50": 16.7,
+          "p95": 49.9,
+          "max": 83.3,
+          "dropped": 22,
+          "layout": 71,
+          "recalc": 79,
+          "layoutMs": 267,
+          "styleMs": 154,
+          "scriptMs": 805,
+          "loafCount": 6,
+          "loafMax": 102,
+          "longestLoaf": {
+            "duration": 102,
+            "styleAndLayout": 102,
+            "renderStart": 100,
+            "blocking": 44,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 79,
+                "forcedStyleAndLayout": 41
+              }
+            ]
+          },
+          "loafStyleMs": 73
+        },
+        {
+          "id": "menu",
+          "name": "菜单弹出",
+          "durationMs": 1320,
+          "verified": true,
+          "animation": {
+            "id": "zc-menu-in",
+            "duration": 240,
+            "state": "running"
+          },
+          "closing": {
+            "id": "zc-menu-out",
+            "duration": 130,
+            "state": "running"
+          },
+          "final": {
+            "menuCount": 0
+          },
+          "frames": 68,
+          "idleFrames": 7,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 33.4,
+          "dropped": 1,
+          "layout": 16,
+          "recalc": 100,
+          "layoutMs": 38,
+          "styleMs": 72,
+          "scriptMs": 186,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "sheet",
+          "name": "确认层",
+          "durationMs": 1403,
+          "verified": true,
+          "animation": {
+            "id": "zc-dialog-card-in",
+            "duration": "0.24s"
+          },
+          "closing": null,
+          "final": {
+            "realDialog": 0,
+            "ghost": 0
+          },
+          "frames": 36,
+          "idleFrames": 12,
+          "p50": 16.7,
+          "p95": 83.3,
+          "max": 150,
+          "dropped": 12,
+          "layout": 30,
+          "recalc": 79,
+          "layoutMs": 103,
+          "styleMs": 187,
+          "scriptMs": 253,
+          "loafCount": 6,
+          "loafMax": 170,
+          "longestLoaf": {
+            "duration": 170,
+            "styleAndLayout": 169,
+            "renderStart": 135,
+            "blocking": 114,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 80,
+                "forcedStyleAndLayout": 37
+              },
+              {
+                "name": "FrameRequestCallback",
+                "invoker": "FrameRequestCallback",
+                "url": "http://127.0.0.1:5363/src/components/modal/ModalPortal.tsx",
+                "duration": 26,
+                "forcedStyleAndLayout": 18
+              }
+            ]
+          },
+          "loafStyleMs": 93
+        },
+        {
+          "id": "tree",
+          "name": "目录树折叠",
+          "durationMs": 2366,
+          "verified": true,
+          "animation": {
+            "property": "grid-template-rows, opacity",
+            "duration": "0.2s, 0.15s",
+            "easing": "cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.2, 0, 0, 1)"
+          },
+          "closing": null,
+          "final": {
+            "beforeHeight": 64,
+            "finalHeight": 64,
+            "mid": [
+              {
+                "open": "false",
+                "height": 8
+              }
+            ]
+          },
+          "frames": 76,
+          "idleFrames": 58,
+          "p50": 16.7,
+          "p95": 16.8,
+          "max": 33.4,
+          "dropped": 3,
+          "layout": 93,
+          "recalc": 108,
+          "layoutMs": 224,
+          "styleMs": 50,
+          "scriptMs": 225,
+          "loafCount": 1,
+          "loafMax": 60,
+          "longestLoaf": {
+            "duration": 60,
+            "styleAndLayout": 60,
+            "renderStart": 58,
+            "blocking": 4,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 17,
+                "forcedStyleAndLayout": 0
+              },
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onfocusin",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 13,
+                "forcedStyleAndLayout": 0
+              }
+            ]
+          },
+          "loafStyleMs": 60
+        },
+        {
+          "id": "view",
+          "name": "列表↔网格",
+          "durationMs": 5045,
+          "verified": true,
+          "animation": {
+            "id": "zc-view-swap",
+            "duration": 240,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "list": 1,
+            "grid": 0
+          },
+          "frames": 157,
+          "idleFrames": 72,
+          "p50": 16.7,
+          "p95": 100,
+          "max": 166.7,
+          "dropped": 14,
+          "layout": 62,
+          "recalc": 239,
+          "layoutMs": 168,
+          "styleMs": 251,
+          "scriptMs": 1342,
+          "loafCount": 10,
+          "loafMax": 191,
+          "longestLoaf": {
+            "duration": 191,
+            "styleAndLayout": 191,
+            "renderStart": 190,
+            "blocking": 132,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 155,
+                "forcedStyleAndLayout": 16
+              }
+            ]
+          },
+          "loafStyleMs": 145
+        },
+        {
+          "id": "layout",
+          "name": "窗格布局切换",
+          "durationMs": 4765,
+          "verified": true,
+          "animation": {
+            "id": "zc-pane-in",
+            "duration": 260,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "counts": [
+              "2",
+              "4",
+              "3",
+              "1"
+            ]
+          },
+          "frames": 98,
+          "idleFrames": 64,
+          "p50": 16.7,
+          "p95": 116.6,
+          "max": 350,
+          "dropped": 15,
+          "layout": 104,
+          "recalc": 191,
+          "layoutMs": 239,
+          "styleMs": 173,
+          "scriptMs": 2138,
+          "loafCount": 16,
+          "loafMax": 371,
+          "longestLoaf": {
+            "duration": 371,
+            "styleAndLayout": 371,
+            "renderStart": 368,
+            "blocking": 309,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 345,
+                "forcedStyleAndLayout": 6
+              }
+            ]
+          },
+          "loafStyleMs": 142
+        }
+      ]
+    }
+  ],
+  "cpu": 4,
+  "scenarios": [
+    {
+      "id": "page",
+      "name": "页面切换",
+      "durationMs": 4951,
+      "verified": true,
+      "animation": {
+        "id": "zc-page-in",
+        "duration": 220,
+        "state": "running"
+      },
+      "closing": null,
+      "final": {
+        "opacity": "1",
+        "transform": "none"
+      },
+      "frames": 137,
+      "idleFrames": 62,
+      "p50": 16.7,
+      "p95": 116.7,
+      "max": 200,
+      "dropped": 19,
+      "layout": 67,
+      "recalc": 192,
+      "layoutMs": 305,
+      "styleMs": 209,
+      "scriptMs": 1945,
+      "loafCount": 13,
+      "loafMax": 223,
+      "longestLoaf": {
+        "duration": 223,
+        "styleAndLayout": 222,
+        "renderStart": 221,
+        "blocking": 165,
+        "scripts": [
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onclick",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 200,
+            "forcedStyleAndLayout": 19
+          }
+        ]
+      },
+      "loafStyleMs": 136
+    },
+    {
+      "id": "rail",
+      "name": "侧栏收展",
+      "durationMs": 2581,
+      "verified": true,
+      "animation": {
+        "property": "opacity, padding, border-radius",
+        "duration": "0.14s, 0.2s, 0.2s",
+        "easing": "cubic-bezier(0.2, 0, 0, 1), cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.32, 0.72, 0, 1)"
+      },
+      "closing": null,
+      "final": {
+        "widths": [
+          97.5625,
+          14.15625,
+          189.4375,
+          97.578125,
+          7.84375,
+          189.453125
+        ],
+        "finalWidth": 216
+      },
+      "frames": 57,
+      "idleFrames": 54,
+      "p50": 16.7,
+      "p95": 49.9,
+      "max": 83.3,
+      "dropped": 22,
+      "layout": 71,
+      "recalc": 79,
+      "layoutMs": 267,
+      "styleMs": 154,
+      "scriptMs": 805,
+      "loafCount": 6,
+      "loafMax": 102,
+      "longestLoaf": {
+        "duration": 102,
+        "styleAndLayout": 102,
+        "renderStart": 100,
+        "blocking": 44,
+        "scripts": [
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onclick",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 79,
+            "forcedStyleAndLayout": 41
+          }
+        ]
+      },
+      "loafStyleMs": 73
+    },
+    {
+      "id": "menu",
+      "name": "菜单弹出",
+      "durationMs": 1320,
+      "verified": true,
+      "animation": {
+        "id": "zc-menu-in",
+        "duration": 240,
+        "state": "running"
+      },
+      "closing": {
+        "id": "zc-menu-out",
+        "duration": 130,
+        "state": "running"
+      },
+      "final": {
+        "menuCount": 0
+      },
+      "frames": 68,
+      "idleFrames": 7,
+      "p50": 16.7,
+      "p95": 16.7,
+      "max": 33.4,
+      "dropped": 1,
+      "layout": 16,
+      "recalc": 100,
+      "layoutMs": 38,
+      "styleMs": 72,
+      "scriptMs": 186,
+      "loafCount": 0,
+      "loafMax": 0,
+      "longestLoaf": null,
+      "loafStyleMs": 0
+    },
+    {
+      "id": "sheet",
+      "name": "确认层",
+      "durationMs": 1403,
+      "verified": true,
+      "animation": {
+        "id": "zc-dialog-card-in",
+        "duration": "0.24s"
+      },
+      "closing": null,
+      "final": {
+        "realDialog": 0,
+        "ghost": 0
+      },
+      "frames": 36,
+      "idleFrames": 12,
+      "p50": 16.7,
+      "p95": 83.3,
+      "max": 150,
+      "dropped": 12,
+      "layout": 30,
+      "recalc": 79,
+      "layoutMs": 103,
+      "styleMs": 187,
+      "scriptMs": 253,
+      "loafCount": 6,
+      "loafMax": 170,
+      "longestLoaf": {
+        "duration": 170,
+        "styleAndLayout": 169,
+        "renderStart": 135,
+        "blocking": 114,
+        "scripts": [
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onclick",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 80,
+            "forcedStyleAndLayout": 37
+          },
+          {
+            "name": "FrameRequestCallback",
+            "invoker": "FrameRequestCallback",
+            "url": "http://127.0.0.1:5363/src/components/modal/ModalPortal.tsx",
+            "duration": 26,
+            "forcedStyleAndLayout": 18
+          }
+        ]
+      },
+      "loafStyleMs": 93
+    },
+    {
+      "id": "tree",
+      "name": "目录树折叠",
+      "durationMs": 2366,
+      "verified": true,
+      "animation": {
+        "property": "grid-template-rows, opacity",
+        "duration": "0.2s, 0.15s",
+        "easing": "cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.2, 0, 0, 1)"
+      },
+      "closing": null,
+      "final": {
+        "beforeHeight": 64,
+        "finalHeight": 64,
+        "mid": [
+          {
+            "open": "false",
+            "height": 8
+          }
+        ]
+      },
+      "frames": 76,
+      "idleFrames": 58,
+      "p50": 16.7,
+      "p95": 16.8,
+      "max": 33.4,
+      "dropped": 3,
+      "layout": 93,
+      "recalc": 108,
+      "layoutMs": 224,
+      "styleMs": 50,
+      "scriptMs": 225,
+      "loafCount": 1,
+      "loafMax": 60,
+      "longestLoaf": {
+        "duration": 60,
+        "styleAndLayout": 60,
+        "renderStart": 58,
+        "blocking": 4,
+        "scripts": [
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onclick",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 17,
+            "forcedStyleAndLayout": 0
+          },
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onfocusin",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 13,
+            "forcedStyleAndLayout": 0
+          }
+        ]
+      },
+      "loafStyleMs": 60
+    },
+    {
+      "id": "view",
+      "name": "列表↔网格",
+      "durationMs": 5045,
+      "verified": true,
+      "animation": {
+        "id": "zc-view-swap",
+        "duration": 240,
+        "state": "running"
+      },
+      "closing": null,
+      "final": {
+        "list": 1,
+        "grid": 0
+      },
+      "frames": 157,
+      "idleFrames": 72,
+      "p50": 16.7,
+      "p95": 100,
+      "max": 166.7,
+      "dropped": 14,
+      "layout": 62,
+      "recalc": 239,
+      "layoutMs": 168,
+      "styleMs": 251,
+      "scriptMs": 1342,
+      "loafCount": 10,
+      "loafMax": 191,
+      "longestLoaf": {
+        "duration": 191,
+        "styleAndLayout": 191,
+        "renderStart": 190,
+        "blocking": 132,
+        "scripts": [
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onclick",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 155,
+            "forcedStyleAndLayout": 16
+          }
+        ]
+      },
+      "loafStyleMs": 145
+    },
+    {
+      "id": "layout",
+      "name": "窗格布局切换",
+      "durationMs": 4765,
+      "verified": true,
+      "animation": {
+        "id": "zc-pane-in",
+        "duration": 260,
+        "state": "running"
+      },
+      "closing": null,
+      "final": {
+        "counts": [
+          "2",
+          "4",
+          "3",
+          "1"
+        ]
+      },
+      "frames": 98,
+      "idleFrames": 64,
+      "p50": 16.7,
+      "p95": 116.6,
+      "max": 350,
+      "dropped": 15,
+      "layout": 104,
+      "recalc": 191,
+      "layoutMs": 239,
+      "styleMs": 173,
+      "scriptMs": 2138,
+      "loafCount": 16,
+      "loafMax": 371,
+      "longestLoaf": {
+        "duration": 371,
+        "styleAndLayout": 371,
+        "renderStart": 368,
+        "blocking": 309,
+        "scripts": [
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onclick",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 345,
+            "forcedStyleAndLayout": 6
+          }
+        ]
+      },
+      "loafStyleMs": 142
+    }
+  ]
+}

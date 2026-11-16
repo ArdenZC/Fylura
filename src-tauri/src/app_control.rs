@@ -31,14 +31,76 @@ const SEARCH_WINDOW_LABEL: &str = "search";
 #[cfg(feature = "desktop-runtime")]
 const MAIN_WINDOW_CLOSE_REQUESTED_EVENT: &str = "main-window-close-requested";
 const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
-#[cfg(feature = "desktop-runtime")]
+#[allow(dead_code)]
 const MAIN_WINDOW_WIDTH: f64 = 1280.0;
-#[cfg(feature = "desktop-runtime")]
+#[allow(dead_code)]
 const MAIN_WINDOW_HEIGHT: f64 = 860.0;
-#[cfg(feature = "desktop-runtime")]
+#[allow(dead_code)]
 const MAIN_WINDOW_MIN_WIDTH: f64 = 980.0;
-#[cfg(feature = "desktop-runtime")]
+#[allow(dead_code)]
 const MAIN_WINDOW_MIN_HEIGHT: f64 = 680.0;
+/// Pick a first-launch window that always fits the monitor's work area.
+///
+/// A fixed 1280×860 is taller than a 13" MacBook Air work area (~1280×775
+/// logical after the menu bar and Dock), so the bottom of the window was off
+/// screen. Keep the designed size when it fits, otherwise shrink to the work
+/// area minus a 48px breathing margin and centre it. The documented minimum
+/// (980×680) is honoured whenever the work area can contain it.
+///
+/// Extreme work areas (split-screen strips, 800×600 VMs, projectors) cannot
+/// contain 980×680. In that case the window shrinks below the documented
+/// minimum instead of hanging off-screen, keeping an 8px margin and a 320×240
+/// hard floor. `main_window_min_size` lowers the OS minimum to the same floor
+/// so the window manager does not clamp it back up.
+#[allow(dead_code)]
+fn main_window_geometry(
+    work_x: i32,
+    work_y: i32,
+    work_width: u32,
+    work_height: u32,
+    scale_factor: f64,
+) -> (f64, f64, f64, f64) {
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let logical_width = work_width as f64 / scale;
+    let logical_height = work_height as f64 / scale;
+    let margin = 48.0;
+    let available_width = (logical_width - 16.0).max(1.0);
+    let available_height = (logical_height - 16.0).max(1.0);
+    let width = MAIN_WINDOW_WIDTH
+        .min((logical_width - margin).max(240.0))
+        .min(available_width);
+    let height = MAIN_WINDOW_HEIGHT
+        .min((logical_height - margin).max(180.0))
+        .min(available_height);
+    // Centre, but never push the frame outside the work area when it is
+    // narrower/shorter than the floor.
+    let x = work_x as f64 / scale + ((logical_width - width) / 2.0).max(0.0);
+    let y = work_y as f64 / scale + ((logical_height - height) / 2.0).max(0.0);
+    (width.max(1.0), height.max(1.0), x, y)
+}
+
+/// Minimum inner size for the current monitor. Below 980×680 logical the OS
+/// minimum must follow the work area, otherwise the initial size is clamped
+/// back up and the user cannot reach the bottom or right edge.
+#[allow(dead_code)]
+fn main_window_min_size(work_width: u32, work_height: u32, scale_factor: f64) -> (f64, f64) {
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let logical_width = work_width as f64 / scale;
+    let logical_height = work_height as f64 / scale;
+    (
+        MAIN_WINDOW_MIN_WIDTH.min((logical_width - 48.0).max(200.0)),
+        MAIN_WINDOW_MIN_HEIGHT.min((logical_height - 48.0).max(150.0)),
+    )
+}
+
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_WINDOW_WIDTH: f64 = 820.0;
 #[cfg(feature = "desktop-runtime")]
@@ -1095,10 +1157,47 @@ fn ensure_main_window_locked<R: Runtime>(
     };
     let url = main_window_restore_url(generation, last_view);
     lifecycle.record_creation_start(generation);
+    // Prefer the display under the pointer (laptop + external monitor), then
+    // fall back to the primary display.
+    let initial_monitor = app
+        .cursor_position()
+        .ok()
+        .and_then(|point| app.monitor_from_point(point.x, point.y).ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let (
+        initial_width,
+        initial_height,
+        initial_x,
+        initial_y,
+        initial_min_width,
+        initial_min_height,
+    ) = initial_monitor
+        .map(|monitor| {
+            let work = monitor.work_area();
+            let (width, height, x, y) = main_window_geometry(
+                work.position.x,
+                work.position.y,
+                work.size.width,
+                work.size.height,
+                monitor.scale_factor(),
+            );
+            let (min_width, min_height) =
+                main_window_min_size(work.size.width, work.size.height, monitor.scale_factor());
+            (width, height, x, y, min_width, min_height)
+        })
+        .unwrap_or((
+            MAIN_WINDOW_WIDTH,
+            MAIN_WINDOW_HEIGHT,
+            0.0,
+            0.0,
+            MAIN_WINDOW_MIN_WIDTH,
+            MAIN_WINDOW_MIN_HEIGHT,
+        ));
     let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App(url.into()))
         .title("Fylura")
-        .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
-        .min_inner_size(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
+        .inner_size(initial_width, initial_height)
+        .position(initial_x, initial_y)
+        .min_inner_size(initial_min_width, initial_min_height)
         .transparent(true)
         .decorations(false)
         .visible(false);
@@ -2964,6 +3063,103 @@ mod tests {
         );
         assert_eq!(result.unwrap_err(), "search_window_session_stale");
         assert_eq!(search.get().phase, SearchWindowPhase::VisibleCollapsed);
+    }
+
+    #[test]
+    fn first_launch_window_fits_a_thirteen_inch_macbook_work_area() {
+        // 2560×1664 at 2×, work area after menu bar + Dock ≈ 1280×747.
+        let (width, height, x, y) = main_window_geometry(0, 25, 2560, 1494, 2.0);
+        assert_eq!((width, height), (1232.0, 699.0));
+        assert!(x >= 0.0 && y >= 12.5);
+        assert!(x + width <= 1280.0 && y + height <= 759.5);
+    }
+
+    #[test]
+    fn first_launch_window_keeps_the_design_size_on_large_retina_screens() {
+        let (width, height, x, y) = main_window_geometry(0, 0, 3456, 2234, 2.0);
+        assert_eq!((width, height), (1280.0, 860.0));
+        assert_eq!(x, (1728.0 - 1280.0) / 2.0);
+        assert_eq!(y, (1117.0 - 860.0) / 2.0);
+    }
+
+    #[test]
+    fn first_launch_window_centres_on_4k_at_250_percent() {
+        let (width, height, x, y) = main_window_geometry(0, 0, 3840, 2160, 2.5);
+        assert_eq!((width, height), (1280.0, 816.0));
+        assert!(x >= 0.0 && y >= 0.0);
+        assert!(x + width <= 1536.0 && y + height <= 864.0);
+    }
+
+    #[test]
+    fn first_launch_window_centres_inside_a_secondary_display_work_area() {
+        let (width, height, x, y) = main_window_geometry(2560, 120, 2560, 1320, 1.0);
+        assert_eq!((width, height), (1280.0, 860.0));
+        assert!(x >= 2560.0 && x + width <= 5120.0);
+        assert!(y >= 120.0 && y + height <= 1440.0);
+    }
+
+    #[test]
+    fn first_launch_window_respects_the_documented_minimum_on_small_work_areas() {
+        let (width, height, _, _) = main_window_geometry(0, 0, 1366, 728, 1.0);
+        assert_eq!((width, height), (1280.0, 680.0));
+    }
+
+    #[test]
+    fn first_launch_window_shrinks_below_the_documented_minimum_when_the_work_area_is_smaller() {
+        // A 900×620 split-screen strip cannot contain 980×680. The window
+        // takes the work area minus the 16px safety ring instead of clipping.
+        let (width, height, x, y) = main_window_geometry(0, 0, 900, 620, 1.0);
+        assert_eq!((width, height), (852.0, 572.0));
+        assert_eq!((x, y), (24.0, 24.0));
+        let (min_width, min_height) = main_window_min_size(900, 620, 1.0);
+        assert_eq!((min_width, min_height), (852.0, 572.0));
+    }
+
+    #[test]
+    fn first_launch_window_fits_a_narrow_vertical_strip() {
+        let (width, height, x, y) = main_window_geometry(0, 0, 700, 1000, 1.0);
+        assert_eq!((width, height), (652.0, 860.0));
+        assert_eq!(x, 24.0);
+        assert!(x + width <= 700.0 && y + height <= 1000.0);
+    }
+
+    #[test]
+    fn first_launch_window_stays_inside_a_negative_secondary_origin() {
+        let (width, height, x, y) = main_window_geometry(-1920, -200, 1920, 1080, 1.0);
+        assert_eq!((width, height), (1280.0, 860.0));
+        assert!(x >= -1920.0 && x + width <= 0.0);
+        assert!(y >= -200.0 && y + height <= 880.0);
+    }
+
+    #[test]
+    fn first_launch_window_handles_a_scaled_secondary_display() {
+        // 2560×1440 at 2× is a 1280×720 logical work area; the 860px design
+        // height must shrink, and the OS minimum follows it.
+        let (width, height, x, y) = main_window_geometry(-2560, 0, 2560, 1440, 2.0);
+        assert_eq!((width, height), (1232.0, 672.0));
+        assert_eq!((x, y), (-1256.0, 24.0));
+        let (min_width, min_height) = main_window_min_size(2560, 1440, 2.0);
+        assert_eq!((min_width, min_height), (980.0, 672.0));
+    }
+
+    #[test]
+    fn relaunch_after_a_display_change_uses_the_current_work_area() {
+        // Geometry is derived on every launch; no stale saved rect is reused,
+        // so moving from a 4K display to a small secondary stays reachable.
+        let (_, _, _, _) = main_window_geometry(0, 0, 3840, 2160, 2.0);
+        let (width, height, x, y) = main_window_geometry(3840, 0, 1024, 600, 1.0);
+        assert_eq!((width, height), (976.0, 552.0));
+        assert_eq!((x, y), (3864.0, 24.0));
+        assert!(x + width <= 4864.0 && y + height <= 600.0);
+    }
+
+    #[test]
+    fn first_launch_window_keeps_a_hard_floor_on_a_tiny_work_area() {
+        let (width, height, x, y) = main_window_geometry(0, 0, 300, 200, 1.0);
+        assert_eq!((width, height), (252.0, 180.0));
+        assert_eq!((x, y), (24.0, 10.0));
+        let (min_width, min_height) = main_window_min_size(300, 200, 1.0);
+        assert_eq!((min_width, min_height), (252.0, 152.0));
     }
 
     #[test]

@@ -10,7 +10,6 @@ import {
   SettingsSelect,
   SettingsRow,
   SettingsSection,
-  SettingsSegmentedControl,
   SettingsSwitch
 } from "../components/SettingsPrimitives";
 
@@ -80,18 +79,18 @@ export function GeneralSettingsSection({
       </SettingsControlGroup>
 
       <SettingsControlGroup className="zc-settings-window-group" title={t("settingsWindowBehavior")} description={t("settingsWindowBehaviorDesc")}>
-        <SettingsRow label={t("closeBehavior")} description={t("closeBehaviorDesc")}>
-          <SettingsSegmentedControl
-            value={closeBehavior}
-            ariaLabel={t("closeBehavior")}
-            options={[
-              { value: "ask", label: t("askEveryTime") },
-              { value: "minimize", label: t("minimizeToTray") },
-              { value: "quit", label: t("quitApp") }
-            ]}
-            onChange={onCloseBehavior}
-          />
-        </SettingsRow>
+        <SettingsSelect
+          id="settings-close-behavior"
+          label={t("closeBehavior")}
+          description={t("closeBehaviorDesc")}
+          value={closeBehavior}
+          options={[
+            { value: "ask" as const, label: t("askEveryTime") },
+            { value: "minimize" as const, label: t("minimizeToTray") },
+            { value: "quit" as const, label: t("quitApp") }
+          ]}
+          onChange={onCloseBehavior}
+        />
       </SettingsControlGroup>
 
       <SettingsControlGroup className="zc-settings-workspace-group" title={t("settingsFilesWorkspace")} description={t("settingsScanRootsDesc")}>

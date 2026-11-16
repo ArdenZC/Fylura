@@ -625,6 +625,7 @@ fn main() {
             fylura_tauri::file_ops::cancel_macos_thumbnail,
             fylura_tauri::file_workspace::integration::commands::file_workspace_system_clipboard,
             fylura_tauri::file_workspace::integration::commands::file_workspace_eject_volume,
+            fylura_tauri::file_workspace::integration::commands::file_workspace_native_drag_out,
             fylura_tauri::file_workspace::integration::commands::file_workspace_transfer_capture,
             fylura_tauri::file_workspace::integration::commands::file_workspace_transfer_preview,
             fylura_tauri::file_workspace::integration::commands::file_workspace_transfer_execute,

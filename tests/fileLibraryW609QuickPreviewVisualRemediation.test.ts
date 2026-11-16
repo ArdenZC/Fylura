@@ -35,15 +35,23 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(styles).toContain('[data-density="compact"] .zc-quick-preview-card');
     expect(styles).toContain("background: var(--zc-surface-overlay);");
     expect(styles).toContain("box-shadow: var(--zc-shadow-float);");
-    expect(styles).toContain("grid-template-columns: 84px minmax(0, 1fr) 112px;");
+    expect(styles).toContain("grid-template-columns: minmax(0, 1fr) auto auto;");
+    // The card owns its density because the floating host is portaled outside
+    // the app root that carries data-density.
+    expect(surface).toContain("data-density={density}");
+    expect(styles).toContain(".zc-quick-preview-identity-icon");
+    // The card's first track must match the header's real height, otherwise the
+    // 52px header overflows its 44px row and covers the content.
+    expect(styles).toContain("grid-template-rows: 52px minmax(0, 1fr);");
+    expect(styles).toContain('[data-density="compact"] .zc-quick-preview-card {\n  grid-template-rows: 38px minmax(0, 1fr);');
     expect(styles).toContain("grid-template-columns: minmax(0, 1fr) 240px;");
     expect(surface).toContain("data-preview-content-mode={state.phase === \"content\"");
     expect(styles).toContain("height: 100%;");
     expect(styles).toContain("background: var(--zc-preview-canvas);");
     expect(styles).toContain('.zc-quick-preview-card > [data-preview-state-announcement="true"]');
     expect(styles).toContain("position: absolute;");
-    expect(tokens).toContain("--zc-preview-canvas: #eef0f2;");
-    expect(tokens).toContain("--zc-preview-canvas: #181b1f;");
+    expect(tokens).toContain("--zc-preview-canvas: #eaf1f9;");
+    expect(tokens).toContain("--zc-preview-canvas: #151a20;");
     const documentModeRule = styles.match(/\.zc-quick-preview-content\[data-preview-content-mode="safe_html"\]\s*\{([^}]*)\}/u)?.[1] ?? "";
     expect(documentModeRule).toContain("display: block;");
     expect(documentModeRule).toContain("padding: 34px 40px;");
@@ -59,9 +67,16 @@ describe("W6-09 Quick Preview visual remediation contracts", () => {
     expect(styles).toMatch(/\.zc-preview-image-stage\s*\{[\s\S]*?background: transparent;/u);
     expect(content).toContain('data-preview-progress="true"');
     expect(content).toContain('data-preview-image-failed="true"');
+    // v3.40 reserves glass for the shell tier (titlebar / sidebar / main /
+    // floating overlays). The preview surface itself never stacks glass or a
+    // second blur on top of a card.
     expect(styles).not.toContain("--zc-glass-");
     expect(styles).not.toContain("backdrop-filter");
-    expect(tokens).not.toContain("--zc-glass-");
+    for (const shellGlass of ["--zc-glass-titlebar:", "--zc-glass-sidebar:", "--zc-glass-main:", "--zc-glass-float:"]) {
+      expect(tokens).toContain(shellGlass);
+    }
+    expect(tokens).not.toContain("--zc-glass-card");
+    expect(tokens).not.toContain("--zc-glass-row");
     expect(styles).toContain("place-items: center;");
     expect(styles).toContain("forced-colors");
   });

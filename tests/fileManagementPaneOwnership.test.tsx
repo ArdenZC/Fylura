@@ -35,6 +35,8 @@ it.each([
   { name: "single-pane folder", single: true, samePane: true, valid: true, stale: false, shift: false },
   { name: "dual-pane peer folder", single: false, samePane: false, valid: true, stale: false, shift: false },
   { name: "dual-pane source folder with Shift", single: false, samePane: true, valid: true, stale: false, shift: true },
+  { name: "directory tree opaque destination", single: false, samePane: false, valid: true, stale: false, shift: false, targetKind: "browse-path" },
+  { name: "saved favorite destination", single: false, samePane: false, valid: true, stale: false, shift: false, targetKind: "saved-place" },
   { name: "folder without opaque ref", single: false, samePane: false, valid: false, stale: false, shift: false },
   { name: "changed source selection", single: true, samePane: true, valid: true, stale: true, shift: false },
   { name: "changed target directory", single: false, samePane: false, valid: true, stale: false, shift: false, staleTarget: true },
@@ -62,6 +64,7 @@ it.each([
   const focus = vi.fn();
   let handlers!: ReturnType<typeof useWorkbenchDrag>;
   let sourcePaneElement!: HTMLElement, peerPaneElement!: HTMLElement, sourceRow!: HTMLElement, folderRow!: HTMLElement;
+  const targetKind = "targetKind" in scenario ? scenario.targetKind : "folder";
   const sourcePane = { id: "source", path: "E:/Source", controller: { getState: () => ({ mode: "browse" }) } } as unknown as WorkbenchPane;
   const targetPane = { id: "target", path: "E:/Target", controller: { getState: () => ({ mode: "browse" }) } } as unknown as WorkbenchPane;
   const panes = "from" in scenario
@@ -72,8 +75,15 @@ it.each([
   function Owner() {
     const workbenchRef = useRef<HTMLDivElement>(null);
     handlers = useWorkbenchDrag({ workbenchRef, model, wide: !single, active: true, locked: false, focus, t: makeTranslator("en") });
-    const folder = <div ref={(el) => { if (el) folderRow = el; }} data-file-entry-kind="directory"
-      data-browse-session-id={valid ? samePane ? "session" : "peer-session" : undefined} data-browse-entry-id={valid ? "folder" : undefined}>folder</div>;
+    const folder = targetKind === "browse-path"
+      ? <div ref={(el) => { if (el) folderRow = el; }} data-file-drop-target-kind="browse-path"
+        data-file-drop-target-session-id="peer-session" data-file-drop-target-path-ref="tree-ref"
+        data-file-drop-target-path="E:/Target/Tree">folder</div>
+      : targetKind === "saved-place"
+        ? <div ref={(el) => { if (el) folderRow = el; }} data-file-drop-target-kind="saved-place"
+          data-file-drop-place-id="favorite-id" data-file-drop-path="E:/Favorite" data-file-drop-label="Favorite">favorite</div>
+        : <div ref={(el) => { if (el) folderRow = el; }} data-file-entry-kind="directory"
+          data-browse-session-id={valid ? samePane ? "session" : "peer-session" : undefined} data-browse-entry-id={valid ? "folder" : undefined}>folder</div>;
     return <div ref={workbenchRef} onPointerMove={handlers.onPointerMove} onPointerUp={handlers.onPointerUp}
       onPointerCancel={handlers.onPointerCancel} onLostPointerCapture={handlers.onLostPointerCapture} onClickCapture={handlers.onClickCapture}>
       <div ref={(el) => { if (el) sourcePaneElement = el; }} data-pane-id="source"
@@ -107,10 +117,14 @@ it.each([
   if (stale) source.refs = [{ kind: "ephemeral", browseSessionId: "session", entryId: "changed" }];
   await act(async () => { sourceRow.dispatchEvent(pointerEvent("pointerup", 200)); await Promise.resolve(); await Promise.resolve(); });
   if (valid && !stale && !("staleTarget" in scenario) && !("cancelled" in scenario)) {
-    const paneId = samePane ? "source" : "target";
+    const paneId = targetKind === "saved-place" || samePane ? "source" : "target";
     expect(focus).toHaveBeenCalledWith("tab", paneId);
-    expect(useFileManagementStore.getState().pendingTransfer).toMatchObject({ paneId, sourcePaneId: "source", tickets: [ticket], action: shift ? "move" : "copy", destination: "",
-      destinationEntry: { kind: "ephemeral", browseSessionId: samePane ? "session" : "peer-session", entryId: "folder" } });
+    const expectedTarget = targetKind === "browse-path"
+      ? { destination: "E:/Target/Tree", destinationBrowse: { sessionId: "peer-session", pathRef: { id: "tree-ref" } } }
+      : targetKind === "saved-place"
+        ? { destination: "E:/Favorite", destinationSavedPlace: { id: "favorite-id", routingHint: "E:/Favorite" } }
+        : { destination: "", destinationEntry: { kind: "ephemeral", browseSessionId: samePane ? "session" : "peer-session", entryId: "folder" } };
+    expect(useFileManagementStore.getState().pendingTransfer).toMatchObject({ paneId, sourcePaneId: "source", tickets: [ticket], action: shift ? "move" : "copy", ...expectedTarget });
     expect(capture).not.toHaveBeenCalledWith({ releaseIds: ["ticket"] });
   } else {
     expect(focus).not.toHaveBeenCalled(); expect(useFileManagementStore.getState().pendingTransfer).toBeNull();

@@ -194,7 +194,8 @@ describe("V4.3 PR10 status language and section contracts", () => {
     const settings = read("src/views/settings/SettingsView.tsx");
 
     expect(overviewSections).toContain("OverviewSystemCoverage");
-    expect(overviewSections).toContain("MetricStrip");
+    // Coverage is a fact panel in the v3.40 page grammar, not a metric strip.
+    expect(overviewSections).toContain("v340-fact-list");
     expect(scanner).toContain("getGlobalIndexStatus");
     expect(scanner).toContain("listManagedScopes");
     expect(scanner).toContain("getActiveAnalysisRun");

@@ -10,6 +10,7 @@ import {
 import {
   fileManagementApi,
   type TransferAction,
+  type TransferBrowseDestination,
   type TransferTicket,
 } from "../../../api/fileManagementApi";
 import { transferDestinationContextKey, transferSourceContextKey, useFileManagementStore } from "../management/fileManagementStore";
@@ -34,6 +35,7 @@ interface PointerSession extends WorkbenchPointerSession {
   captureRequest: WorkbenchPointerCaptureRequest;
   ticketsReleased?: boolean;
   handedOff?: boolean;
+  nativeDragOutStarted?: boolean;
 }
 
 export interface InternalDropFeedback {
@@ -46,6 +48,8 @@ type PointerPaneTarget =
   | { kind: "same-pane" }
   | { kind: "target-pane"; pane: WorkbenchPane }
   | { kind: "folder"; pane: WorkbenchPane; destinationEntry: BrowseEntryRef; label: string }
+  | { kind: "browse-path"; pane: WorkbenchPane; destinationBrowse: TransferBrowseDestination; destination: string; label: string }
+  | { kind: "saved-place"; pane: WorkbenchPane; destinationSavedPlace: { id: string; routingHint: string }; destination: string; label: string }
   | { kind: "unsupported" };
 
 function hasActiveModal() {
@@ -65,6 +69,29 @@ function resolvePointerPaneTarget(
 ): PointerPaneTarget {
   if (!workbench || !workspaceActive || hasActiveModal()) return { kind: "unsupported" };
   const element = document.elementFromPoint(x, y);
+  if (!element) return { kind: "unsupported" };
+  const snapshot = model.getSnapshot();
+  const tab = snapshot.tabs.find((item) => item.id === session.tabId);
+  if (!tab || snapshot.activeTabId !== session.tabId) return { kind: "unsupported" };
+  const savedPlaceTarget = element.closest<HTMLElement>('[data-file-drop-target-kind="saved-place"]');
+  const placeId = savedPlaceTarget?.dataset.fileDropPlaceId;
+  const placePath = savedPlaceTarget?.dataset.fileDropPath;
+  if (savedPlaceTarget && placeId && placePath) {
+    const pane = tab.panes.find((item) => item.id === session.sourcePaneId);
+    const paneElement = workbench.querySelector<HTMLElement>(`[data-pane-id="${session.sourcePaneId}"]`);
+    const surface = useFileManagementStore.getState().surfaces[session.sourcePaneId]?.read();
+    if (!pane || !paneElement || paneElement.hidden || paneElement.getClientRects().length === 0 ||
+        pane.controller.getState().mode !== "browse" || surface?.visible !== true ||
+        !workbenchPointerDestinationIsCurrent(session, pane.id, pane.path, transferDestinationContextKey(surface), true))
+      return { kind: "unsupported" };
+    return {
+      kind: "saved-place",
+      pane,
+      destinationSavedPlace: { id: placeId, routingHint: placePath },
+      destination: placePath,
+      label: savedPlaceTarget.dataset.fileDropLabel ?? placePath.split(/[\\/]/).filter(Boolean).at(-1) ?? placePath,
+    };
+  }
   const paneElement = element?.closest<HTMLElement>("[data-pane-id]");
   if (!element || !paneElement || !workbench.contains(paneElement)) return { kind: "unsupported" };
   const targetPaneId = paneElement.dataset.paneId ?? null;
@@ -74,9 +101,6 @@ function resolvePointerPaneTarget(
     targetPaneId,
   );
   if (disposition === "unsupported") return { kind: "unsupported" };
-  const snapshot = model.getSnapshot();
-  const tab = snapshot.tabs.find((item) => item.id === session.tabId);
-  if (!tab || snapshot.activeTabId !== session.tabId) return { kind: "unsupported" };
   const pane = tab.panes.find((item) => item.id === targetPaneId);
   if (
     !pane ||
@@ -88,6 +112,19 @@ function resolvePointerPaneTarget(
       transferDestinationContextKey(useFileManagementStore.getState().surfaces[pane.id]?.read()),
       useFileManagementStore.getState().surfaces[pane.id]?.read()?.visible === true)
   ) return { kind: "unsupported" };
+  const treeTarget = element.closest<HTMLElement>('[data-file-drop-target-kind="browse-path"]');
+  const treeSessionId = treeTarget?.dataset.fileDropTargetSessionId;
+  const treePathId = treeTarget?.dataset.fileDropTargetPathRef;
+  const treePath = treeTarget?.dataset.fileDropTargetPath;
+  if (treeTarget && treeSessionId && treePathId && treePath) {
+    return {
+      kind: "browse-path",
+      pane,
+      destinationBrowse: { sessionId: treeSessionId, pathRef: { id: treePathId } },
+      destination: treePath,
+      label: treePath.split(/[\\/]/).filter(Boolean).at(-1) ?? treePath,
+    };
+  }
   const content = element.closest<HTMLElement>('[data-workspace-slot="content"]');
   if (!content || !paneElement.contains(content)) return { kind: "unsupported" };
   if (element.closest("button,input,select,textarea,a,[role=button],[role=menuitem],[role=dialog]")) return { kind: "unsupported" };
@@ -108,6 +145,7 @@ export function useWorkbenchDrag({
   wide,
   active,
   locked,
+  nativeDragOut = false,
   focus,
   t,
 }: {
@@ -116,6 +154,7 @@ export function useWorkbenchDrag({
   wide: boolean;
   active: boolean;
   locked: boolean;
+  nativeDragOut?: boolean;
   focus: (tabId: string, paneId: string) => void;
   t: Translator;
 }) {
@@ -170,6 +209,40 @@ export function useWorkbenchDrag({
       modalOpen: hasActiveModal(),
     });
   }, [active, locked, model, workbenchRef]);
+
+  const startNativeDragOut = useCallback(async (session: PointerSession) => {
+    if (!nativeDragOut || !session.tickets || session.nativeDragOutStarted || session.handedOff) return;
+    session.nativeDragOutStarted = true;
+    let tickets: TransferTicket[] = [];
+    try {
+      tickets = await session.tickets;
+      if (registry.current.current?.token !== session.token || !isCurrent(session) || !tickets.length) {
+        if (registry.current.current?.token === session.token) cancelSession(session.token);
+        return;
+      }
+      const finished = registry.current.finish(session.pointerId, session.token) as PointerSession | null;
+      if (!finished) return;
+      finished.ended = true;
+      finished.handedOff = true;
+      finished.observer?.disconnect();
+      setFeedback(null);
+      try {
+        if (finished.sourceElement.hasPointerCapture(finished.pointerId))
+          finished.sourceElement.releasePointerCapture(finished.pointerId);
+      } catch {
+        // Native drag has taken over; browser pointer capture may already be gone.
+      }
+      await fileManagementApi.nativeDragOut({ ticketIds: tickets.map((ticket) => ticket.id) });
+    } catch (cause) {
+      if (registry.current.current?.token === session.token) cancelSession(session.token);
+      useAppStore.getState().showError(String(cause));
+    } finally {
+      if (tickets.length && !session.ticketsReleased) {
+        session.ticketsReleased = true;
+        await release(tickets).catch(() => undefined);
+      }
+    }
+  }, [cancelSession, isCurrent, nativeDragOut, release]);
 
   const onPointerDown = useCallback((
     event: ReactPointerEvent<HTMLDivElement>,
@@ -272,6 +345,10 @@ export function useWorkbenchDrag({
         useAppStore.getState().showError(String(cause));
       });
     }
+    if (nativeDragOut && (event.clientX < -8 || event.clientY < -48 || event.clientX > window.innerWidth + 8 || event.clientY > window.innerHeight + 8)) {
+      void startNativeDragOut(session);
+      return;
+    }
     const target = resolvePointerPaneTarget(
       event.clientX,
       event.clientY,
@@ -281,11 +358,11 @@ export function useWorkbenchDrag({
       wide,
       active,
     );
-    const next = target.kind === "target-pane" || target.kind === "folder"
+    const next = target.kind === "target-pane" || target.kind === "folder" || target.kind === "browse-path" || target.kind === "saved-place"
       ? {
           paneId: target.pane.id,
           action: (event.shiftKey ? "move" : "copy") as TransferAction,
-          label: target.kind === "folder" ? target.label : target.pane.path.split(/[\\/]/).filter(Boolean).at(-1) ?? target.pane.path,
+          label: target.kind === "folder" || target.kind === "browse-path" || target.kind === "saved-place" ? target.label : target.pane.path.split(/[\\/]/).filter(Boolean).at(-1) ?? target.pane.path,
         }
       : null;
     setFeedback((current) =>
@@ -293,15 +370,19 @@ export function useWorkbenchDrag({
         ? current
         : next,
     );
-  }, [active, cancelSession, isCurrent, model, t, wide, workbenchRef]);
+  }, [active, cancelSession, isCurrent, model, nativeDragOut, startNativeDragOut, t, wide, workbenchRef]);
 
   const completeDrop = useCallback(async (
     session: PointerSession,
-    target: Extract<PointerPaneTarget, { kind: "target-pane" | "folder" }>,
+    target: Extract<PointerPaneTarget, { kind: "target-pane" | "folder" | "browse-path" | "saved-place" }>,
     action: TransferAction,
   ) => {
     const targetPane = target.pane;
     const destinationEntry = target.kind === "folder" ? target.destinationEntry : undefined;
+    const destinationBrowse = target.kind === "browse-path" ? target.destinationBrowse : undefined;
+    const destinationSavedPlace = target.kind === "saved-place" ? target.destinationSavedPlace : undefined;
+    const destination = target.kind === "browse-path" ? target.destination : undefined;
+    const savedPlaceDestination = target.kind === "saved-place" ? target.destination : undefined;
     let tickets: TransferTicket[] = [];
     try {
       if (!session.tickets) throw Error(t("wbUnsupportedDrop"));
@@ -329,11 +410,13 @@ export function useWorkbenchDrag({
           paneId: targetPane.id,
           sourcePaneId: session.sourcePaneId,
           sourceContextKey: session.sourceSignature,
-          destinationContextKey: transferDestinationContextKey(useFileManagementStore.getState().surfaces[targetPane.id]?.read(), destinationEntry) ?? undefined,
+          destinationContextKey: destinationSavedPlace ? JSON.stringify({ savedPlace: destinationSavedPlace }) : transferDestinationContextKey(useFileManagementStore.getState().surfaces[targetPane.id]?.read(), destinationEntry, destinationBrowse) ?? undefined,
           destinationEntry,
+          destinationBrowse,
+          destinationSavedPlace,
           tickets,
           action,
-          destination: destinationEntry ? "" : session.destinations[targetPane.id].path,
+          destination: destinationEntry ? "" : savedPlaceDestination ?? destination ?? session.destinations[targetPane.id].path,
         },
       });
       finished.handedOff = true;
@@ -347,6 +430,10 @@ export function useWorkbenchDrag({
   const onPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const session = registry.current.current as PointerSession | null;
     if (!session || session.pointerId !== event.pointerId) return;
+    if (session.nativeDragOutStarted) {
+      event.preventDefault();
+      return;
+    }
     if (!session.moved) {
       cancelSession(session.token);
       return;
@@ -373,7 +460,7 @@ export function useWorkbenchDrag({
       cancelSession(session.token);
       return;
     }
-    if (target.kind !== "target-pane" && target.kind !== "folder") {
+    if (target.kind !== "target-pane" && target.kind !== "folder" && target.kind !== "browse-path" && target.kind !== "saved-place") {
       cancelSession(session.token);
       if (!hasActiveModal()) useAppStore.getState().showError(t("wbUnsupportedDrop"));
       return;
@@ -383,12 +470,12 @@ export function useWorkbenchDrag({
 
   const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const session = registry.current.current;
-    if (session?.pointerId === event.pointerId) cancelSession(session.token);
+    if (session?.pointerId === event.pointerId && !(session as PointerSession).nativeDragOutStarted) cancelSession(session.token);
   }, [cancelSession]);
 
   const onLostPointerCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const session = registry.current.current;
-    if (session?.pointerId === event.pointerId && !session.ended)
+    if (session?.pointerId === event.pointerId && !session.ended && !(session as PointerSession).nativeDragOutStarted)
       cancelSession(session.token);
   }, [cancelSession]);
 

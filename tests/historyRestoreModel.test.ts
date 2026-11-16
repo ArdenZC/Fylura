@@ -12,6 +12,7 @@ import {
   restoreIntentMatchesResolution,
   restoreEligibility,
   reconcileRestorableOperationSelection,
+  latestUndoBatch,
   selectionForOperationBatch
 } from "../src/views/history/historyModel";
 
@@ -109,6 +110,15 @@ describe("history restore truth model", () => {
   it("derives a restorable batch state from the aggregate, not the first log", () => {
     expect(resolveHistoryBatchState([log("first"), log("second")])).toBe("restorable");
     expect(resolveHistoryBatchState([log("first"), log("failed", { status: "failed", can_restore: false })])).toBe("partial");
+  });
+
+  it("uses only the latest operation batch for one-step undo", () => {
+    const older = log("older", { batch_id: "older", created_at: "1710000000000" });
+    const latest = log("latest", { batch_id: "latest", created_at: "1710000001000" });
+    const latestSecond = log("latest-second", { batch_id: "latest", created_at: "1710000001000", can_restore: false });
+    expect(latestUndoBatch([older, latest, latestSecond]).map((item) => item.id)).toEqual(["latest", "latest-second"]);
+    const nonRestorable = log("latest-unsafe", { batch_id: "unsafe", created_at: "1710000002000", can_restore: false });
+    expect(latestUndoBatch([older, latest, nonRestorable]).map((item) => item.id)).toEqual(["latest-unsafe"]);
   });
 
   it("keeps pending and explicit no-op states distinct from generic skipped work", () => {

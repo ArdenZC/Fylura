@@ -31,6 +31,7 @@ interface PresentationEntryMetadata {
   size?: number;
   modifiedAt?: number;
   createdAt?: number;
+  isHidden?: boolean;
   materialization?: MaterializationState;
 }
 
@@ -48,6 +49,8 @@ export interface BrowsePresentationEntry extends PresentationEntryMetadata {
   entryRef: BrowsePresentationEntryRef;
   /** Opaque folder-navigation reference; never a filesystem path. */
   pathRef?: BrowsePathRef;
+  /** Presentation only; never accepted by a resolver. */
+  displayPath?: string;
 }
 
 export type PresentationEntry = LibraryPresentationEntry | BrowsePresentationEntry;

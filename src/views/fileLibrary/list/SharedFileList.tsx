@@ -1,6 +1,7 @@
 import { usePane } from "../workbench/PaneContext";
-import { AlertTriangle, FileText, Folder, FolderOpen } from "lucide-react";
-import { memo, useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
+import { useAppStore } from "../../../store/useAppStore";
+import { AlertTriangle, Check, FileText, Folder, FolderOpen } from "lucide-react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { BrowseSortSpec } from "../../../types/fileWorkspace";
 import type { Language } from "../../../i18n";
@@ -12,14 +13,90 @@ import type {
   LibraryPresentationEntry,
   PresentationEntry
 } from "../presentation/contracts";
+import { fileKindToken } from "../presentation/fileKind";
 import type { PresentationInteractionProjection, PresentationSelectionIntent } from "./interactionContracts";
 import { selectionIntentFromModifiers } from "./interactionAdapters";
 import { resolvePresentationContextMenuTarget } from "./contextMenuTarget";
+import { useBrowseMarqueeSelection } from "./useBrowseMarqueeSelection";
 import "./sharedFileList.css";
 
-const ROW_HEIGHT = 44;
+/** v3.40 row ladder: 46 standard, 36 compact (DESIGN-SPEC §2.3). */
+const ROW_HEIGHT_DEFAULT = 46;
+const ROW_HEIGHT_COMPACT = 36;
+const CHECKBOX_COLUMN_WIDTH = 22;
 const OVERSCAN = 8;
 const LOAD_MORE_THRESHOLD = 4;
+// v3.40 list columns: name / type / modified / size. Creation time lives in
+// the Inspector, not as a fifth table column (DESIGN-SPEC §5.2).
+const LIST_COLUMN_MIN_WIDTHS = [180, 80, 100, 80] as const;
+/** Below this container width the decorative type column is dropped. */
+const TYPE_COLUMN_MIN_CONTAINER = 540;
+/** Below this width the modified time gives way to the name and size. */
+const MODIFIED_COLUMN_MIN_CONTAINER = 620;
+/** Below this width only the name survives. */
+const SIZE_COLUMN_MIN_CONTAINER = 360;
+
+function readListColumnWidths() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem("fylura.files.listColumnWidths") ?? "null");
+    if (Array.isArray(parsed) && parsed.length === LIST_COLUMN_MIN_WIDTHS.length && parsed.every((value, index) => Number.isFinite(value) && value >= LIST_COLUMN_MIN_WIDTHS[index]! && value <= 1200)) {
+      return parsed as number[];
+    }
+    // Migrate the previous five-column snapshot (name/type/created/modified/size).
+    if (Array.isArray(parsed) && parsed.length === 5) {
+      const migrated = [parsed[0], parsed[1], parsed[3], parsed[4]];
+      if (migrated.every((value, index) => Number.isFinite(value) && value >= LIST_COLUMN_MIN_WIDTHS[index]! && value <= 1200)) {
+        return migrated as number[];
+      }
+    }
+  } catch { /* Use the default list geometry when storage is unavailable. */ }
+  return [290, 96, 118, 78];
+}
+
+/**
+ * Whether every currently loaded row is selected.
+ *
+ * Counts alone are not enough: a whole-query selection can exclude rows that
+ * are still loaded, and a loaded page can be larger than the source's reported
+ * selection. The answer comes from the source's membership predicate.
+ */
+export function loadedSelectionState(interaction: PresentationInteractionProjection) {
+  let selected = 0;
+  for (let index = 0; index < interaction.loadedRowCount; index += 1) {
+    if (interaction.source === "browse") {
+      const entry = interaction.entryAt(index);
+      if (entry !== undefined && interaction.isSelected(entry)) selected += 1;
+    } else {
+      const entry = interaction.entryAt(index);
+      if (entry !== undefined && interaction.isSelected(entry)) selected += 1;
+    }
+  }
+  const all = interaction.loadedRowCount > 0 && selected === interaction.loadedRowCount;
+  return { selected, all, some: selected > 0 && !all };
+}
+
+export function listRowHeight(density: string | undefined) {
+  return density === "compact" ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_DEFAULT;
+}
+
+/** Which optional columns fit the current container. Tracks and cells are
+ * dropped together so a hidden column never leaves an empty rail behind. */
+export function listColumnSet(containerWidth: number) {
+  const fits = (minimum: number) => containerWidth <= 0 || containerWidth >= minimum;
+  const showType = fits(TYPE_COLUMN_MIN_CONTAINER);
+  // Narrow panes keep the two columns a file browser is actually read for:
+  // the name and the size. Modified time is the first to go.
+  const showModified = fits(MODIFIED_COLUMN_MIN_CONTAINER);
+  const showSize = fits(SIZE_COLUMN_MIN_CONTAINER);
+  return { showType, showModified, showSize };
+}
+
+/** Name floor: narrower panes give the name less room before it truncates. */
+export function listNameMinWidth(containerWidth: number) {
+  if (containerWidth > 0 && containerWidth < 360) return 120;
+  if (containerWidth > 0 && containerWidth < 620) return 150;
+  return LIST_COLUMN_MIN_WIDTHS[0];
+}
 
 export type ListLoadMoreDecision =
   | { kind: "none" }
@@ -72,6 +149,10 @@ export function SharedFileList({
   onContextMenu,
   onOpenContextMenu,
   onEscape,
+  onBackgroundContextMenu,
+  onNavigateUp,
+  onRefresh,
+  onTypeToSelect,
   sort,
   onSort
 }: {
@@ -93,18 +174,66 @@ export function SharedFileList({
   ) => void;
   onOpenContextMenu?: (entry: PresentationEntry, index: number) => void;
   onEscape?: () => boolean;
+  onBackgroundContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
+  onNavigateUp?: () => void;
+  onRefresh?: () => void;
+  onTypeToSelect?: (text: string) => void;
   sort?: BrowseSortSpec;
   onSort?: (field: BrowseSortSpec["field"]) => void;
 }) {
   const pane = usePane();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<{ index: number; startX: number; initialWidth: number } | null>(null);
+  const [columnWidths, setColumnWidths] = useState(readListColumnWidths);
+  const columnWidthsRef = useRef(columnWidths);
+  columnWidthsRef.current = columnWidths;
+  const marquee = useBrowseMarqueeSelection(scrollRef, interaction);
   const loadMoreInFlightRef = useRef(false);
+  const typeAheadRef = useRef({ text: "", time: 0 });
+  const density = useAppStore((state) => state.density);
+  const rowHeight = listRowHeight(density);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
   const rowVirtualizer = useVirtualizer({
     count: interaction.rowCount,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: OVERSCAN
   });
+
+  // A density change alters every row's height, so the virtualiser must
+  // re-measure instead of keeping the previous estimate.
+  useEffect(() => {
+    rowVirtualizer.measure();
+  }, [rowHeight, rowVirtualizer]);
+
+  useEffect(() => {
+    const element = shellRef.current;
+    if (!element) return;
+    // Only the column thresholds and the name floor depend on width. Updating
+    // state on every pixel re-rendered every row during the 200ms sidebar
+    // transition; crossing a breakpoint is the only change that matters.
+    const measure = () => {
+      const width = element.clientWidth;
+      setContainerWidth((current) => {
+        if (current === width) return current;
+        const currentColumns = listColumnSet(current);
+        const nextColumns = listColumnSet(width);
+        if (currentColumns.showType === nextColumns.showType
+          && currentColumns.showModified === nextColumns.showModified
+          && currentColumns.showSize === nextColumns.showSize
+          && listNameMinWidth(current) === listNameMinWidth(width)) {
+          return current;
+        }
+        return width;
+      });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const virtualItems = rowVirtualizer.getVirtualItems();
   const lastVisibleIndex = virtualItems.at(-1)?.index ?? -1;
   const focusedIsMounted = interaction.focusedIndex >= 0
@@ -150,9 +279,38 @@ export function SharedFileList({
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
 
+    if ((event.altKey && event.key === "ArrowUp") || event.key === "Backspace") {
+      if (onNavigateUp) {
+        event.preventDefault();
+        onNavigateUp();
+      }
+      return;
+    }
+    if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r")) {
+      if (onRefresh) {
+        event.preventDefault();
+        onRefresh();
+      }
+      return;
+    }
+    if (interaction.source === "browse" && !event.nativeEvent.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.length === 1 && !/\s/u.test(event.key)) {
+      const now = Date.now();
+      const prefix = now - typeAheadRef.current.time < 700 ? typeAheadRef.current.text + event.key : event.key;
+      typeAheadRef.current = { text: prefix, time: now };
+      onTypeToSelect?.(prefix);
+      return;
+    }
+
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
       interaction.actions.selectAll();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") {
+      if (interaction.actions.invertSelection) {
+        event.preventDefault();
+        interaction.actions.invertSelection();
+      }
       return;
     }
     if (event.key === "Escape") {
@@ -170,7 +328,7 @@ export function SharedFileList({
     const navigationKey = ["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key);
     if (navigationKey) {
       event.preventDefault();
-      const nextIndex = nextNavigationIndex(event.key, interaction.focusedIndex, interaction.loadedRowCount, scrollRef.current);
+      const nextIndex = nextNavigationIndex(event.key, interaction.focusedIndex, interaction.loadedRowCount, scrollRef.current, rowHeight);
       const entry = interaction.entryAt(nextIndex);
       if (!entry) return;
       if (event.shiftKey) selectInteractionEntry(interaction, entry, nextIndex, "range");
@@ -200,26 +358,106 @@ export function SharedFileList({
     }
   }
 
-  const showCreated = interaction.source === "browse";
-  const columns: { field: BrowseSortSpec["field"]; label: string }[] = [
-    { field: "name", label: t("fileName") },
-    { field: "type", label: t("fileType") },
-    ...(showCreated ? [{ field: "created" as const, label: t("u3Created") }] : []),
-    { field: "modified", label: t("fileModified") },
-    { field: "size", label: t("fileSize") }
+  const { showType, showModified, showSize } = listColumnSet(containerWidth);
+  const columns: { field: BrowseSortSpec["field"]; label: string; widthIndex?: number }[] = [
+    ...(showType ? [{ field: "type" as const, label: t("fileListTypeColumn"), widthIndex: 1 }] : []),
+    ...(showModified ? [{ field: "modified" as const, label: t("fileModified"), widthIndex: 2 }] : []),
+    ...(showSize ? [{ field: "size" as const, label: t("fileSize"), widthIndex: 3 }] : [])
   ];
+  const nameMinWidth = listNameMinWidth(containerWidth);
+  const columnMinWidth = (index: number) => index === 0 ? nameMinWidth : LIST_COLUMN_MIN_WIDTHS[index]!;
+  // The name track flexes between its floor and the stored width so a narrow
+  // pane shrinks names before it overflows; the other tracks stay exact.
+  const columnsStyle = [
+    `${CHECKBOX_COLUMN_WIDTH}px`,
+    // The name column absorbs wide displays; the data columns keep their
+    // measured widths (a 5K window must not turn the size lane into 1400px).
+    `minmax(${nameMinWidth}px, 1fr)`,
+    ...columns.map((column) => `${columnWidths[column.widthIndex!]}px`)
+  ].join(" ");
+
+  // Header selection state asks the source about each loaded entry instead of
+  // comparing counts. A whole-query selection can still exclude individual
+  // files, so "N >= loaded" would wrongly tick the box for a page that has an
+  // unselected row in it.
+  const loadedSelection = useMemo(() => loadedSelectionState(interaction), [interaction]);
+  const allLoadedSelected = loadedSelection.all;
+  const someSelected = loadedSelection.some;
+  const selectAllLabel = interaction.capabilities.selectAll === "all_matching"
+    ? t("statusSelectAllMatching").replace("{count}", interaction.rowCount.toLocaleString(language))
+    : t("statusSelectAllLoaded").replace("{count}", interaction.loadedRowCount.toLocaleString(language));
+  function resizePointerDown(event: ReactPointerEvent<HTMLSpanElement>, widthIndex: number) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resizeRef.current = { index: widthIndex, startX: event.clientX, initialWidth: columnWidths[widthIndex]! };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function resizePointerMove(event: ReactPointerEvent<HTMLSpanElement>) {
+    const resize = resizeRef.current;
+    if (!resize) return;
+    const width = Math.min(1200, Math.max(columnMinWidth(resize.index), resize.initialWidth + event.clientX - resize.startX));
+    setColumnWidths((current) => current.map((value, index) => index === resize.index ? width : value));
+  }
+  function resizePointerUp() {
+    if (!resizeRef.current) return;
+    resizeRef.current = null;
+    try { window.localStorage.setItem("fylura.files.listColumnWidths", JSON.stringify(columnWidthsRef.current)); } catch { /* Width changes remain active for this session. */ }
+  }
+  function resizeByKeyboard(event: KeyboardEvent<HTMLSpanElement>, widthIndex: number) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const width = Math.min(1200, Math.max(columnMinWidth(widthIndex), columnWidths[widthIndex]! + (event.key === "ArrowRight" ? 16 : -16)));
+    setColumnWidths((current) => current.map((value, index) => index === widthIndex ? width : value));
+    const next = columnWidths.map((value, index) => index === widthIndex ? width : value);
+    try { window.localStorage.setItem("fylura.files.listColumnWidths", JSON.stringify(next)); } catch { /* Width changes remain active for this session. */ }
+  }
   return (
-    <div className={cn("shared-file-list-shell", showCreated && "has-created-column")}>
+    <div
+      ref={shellRef}
+      className={cn(
+        "shared-file-list-shell",
+        showType && "has-type-column",
+        density === "compact" && "is-compact"
+      )}
+      data-list-row-height={rowHeight}
+      style={{ "--shared-file-list-columns": columnsStyle } as CSSProperties}
+    >
       <div className="shared-file-list-header" role="group" aria-label={t("u3Sort")}>
-        {columns.map(({ field, label }) => onSort ? (
-          <button key={field} type="button" data-browse-sort-column={field}
-            className={field === "size" ? "shared-file-list-size-heading" : undefined}
-            aria-pressed={sort?.field === field}
-            aria-label={sort?.field === field ? `${label}, ${sort.direction === "asc" ? t("u3Asc") : t("u3Desc")}` : label}
-            onClick={() => onSort(field)}>
-            {label}{sort?.field === field ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
-          </button>
-        ) : <span key={field} className={field === "size" ? "shared-file-list-size-heading" : undefined}>{label}</span>)}
+        <div className="shared-file-list-header-cell shared-file-list-select-cell">
+          <SelectAllCheckbox
+            checked={allLoadedSelected}
+            indeterminate={someSelected}
+            label={selectAllLabel}
+            onChange={(next) => {
+              if (next) interaction.actions.selectAll();
+              else interaction.actions.clearSelection();
+            }}
+          />
+        </div>
+        <div className="shared-file-list-header-cell">
+          {onSort ? <button type="button" data-browse-sort-column="name"
+            aria-pressed={sort?.field === "name"}
+            aria-label={sort?.field === "name" ? `${t("fileName")}, ${sort.direction === "asc" ? t("u3Asc") : t("u3Desc")}` : t("fileName")}
+            onClick={() => onSort("name")}>
+            {t("fileName")}{sort?.field === "name" ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
+          </button> : <span>{t("fileName")}</span>}
+        </div>
+        {columns.map(({ field, label, widthIndex }, index) => (
+          <div key={field} className="shared-file-list-header-cell">
+            {onSort ? <button type="button" data-browse-sort-column={field}
+              className={field === "size" ? "shared-file-list-size-heading" : undefined}
+              aria-pressed={sort?.field === field}
+              aria-label={sort?.field === field ? `${label}, ${sort.direction === "asc" ? t("u3Asc") : t("u3Desc")}` : label}
+              onClick={() => onSort(field)}>
+              {label}{sort?.field === field ? <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span> : null}
+            </button> : <span className={field === "size" ? "shared-file-list-size-heading" : undefined}>{label}</span>}
+            {index < columns.length - 1 ? <span role="separator" aria-orientation="vertical" aria-label={`${label} column width`} aria-valuemin={LIST_COLUMN_MIN_WIDTHS[widthIndex!]} aria-valuemax={1200} aria-valuenow={columnWidths[widthIndex!]} tabIndex={0} className="shared-file-list-column-resize"
+              onPointerDown={(event) => resizePointerDown(event, widthIndex!)} onPointerMove={resizePointerMove} onPointerUp={resizePointerUp}
+              onPointerCancel={resizePointerUp} onKeyDown={(event) => resizeByKeyboard(event, widthIndex!)} /> : null}
+          </div>
+        ))}
       </div>
       <div
         ref={scrollRef}
@@ -238,7 +476,20 @@ export function SharedFileList({
         data-browse-list={interaction.source === "browse" ? "true" : undefined}
         data-browse-logical-count={interaction.source === "browse" ? interaction.rowCount : undefined}
         onKeyDown={handleKeyDown}
+        onPointerDown={marquee.onPointerDown}
+        onPointerMove={marquee.onPointerMove}
+        onPointerUp={marquee.onPointerUp}
+        onPointerCancel={marquee.onPointerCancel}
+        onContextMenu={(event) => {
+          if (!(event.target instanceof Element) || !event.target.closest("[data-file-entry-kind]")) onBackgroundContextMenu?.(event);
+        }}
       >
+        {marquee.rectangle ? <div className="file-selection-marquee" aria-hidden="true" style={{
+          left: marquee.rectangle.left,
+          top: marquee.rectangle.top,
+          width: marquee.rectangle.right - marquee.rectangle.left,
+          height: marquee.rectangle.bottom - marquee.rectangle.top
+        }} /> : null}
         {interaction.rowCount === 0 ? (
           <div className="shared-file-list-empty">{emptyLabel ?? t("browseUnknownValue")}</div>
         ) : (
@@ -252,7 +503,9 @@ export function SharedFileList({
                 <SharedFileRow
                   key={entry.renderKey}
                   entry={entry}
-                  showCreated={showCreated}
+                  showType={showType}
+                  showModified={showModified}
+                  showSize={showSize}
                   index={virtualRow.index}
                   selected={isInteractionEntrySelected(interaction, entry)}
                   focused={isInteractionEntryFocused(interaction, entry)}
@@ -261,7 +514,14 @@ export function SharedFileList({
                   style={rowStyle(virtualRow.start, virtualRow.size)}
                   onClick={(event) => {
                     scrollRef.current?.focus();
-                    selectInteractionEntry(interaction, entry, virtualRow.index, selectionIntentFromModifiers(event));
+                    const togglesOnly = event.target instanceof Element
+                      && event.target.closest("[data-row-select-toggle]") !== null;
+                    selectInteractionEntry(
+                      interaction,
+                      entry,
+                      virtualRow.index,
+                      togglesOnly ? "toggle" : selectionIntentFromModifiers(event)
+                    );
                   }}
                   onDoubleClick={(event) => {
                     event.preventDefault();
@@ -297,7 +557,9 @@ export function SharedFileList({
 
 const SharedFileRow = memo(function SharedFileRow({
   entry,
-  showCreated,
+  showType,
+  showModified,
+  showSize,
   index,
   selected,
   focused,
@@ -310,7 +572,9 @@ const SharedFileRow = memo(function SharedFileRow({
   onActivate
 }: {
   entry: PresentationEntry;
-  showCreated: boolean;
+  showType: boolean;
+  showModified: boolean;
+  showSize: boolean;
   index: number;
   selected: boolean;
   focused: boolean;
@@ -361,9 +625,14 @@ const SharedFileRow = memo(function SharedFileRow({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
+      <span className="shared-file-list-select-cell" data-row-select-toggle="true" aria-hidden="true">
+        <span className="shared-file-list-checkbox" data-checked={selected ? "true" : "false"}>
+          {selected ? <Check size={9} strokeWidth={3} /> : null}
+        </span>
+      </span>
       <span className="shared-file-list-name">
-        <span className="shared-file-list-icon" aria-hidden="true">
-          {isDirectory ? <Folder size={17} /> : <FileText size={17} />}
+        <span className="shared-file-list-icon" aria-hidden="true" data-file-kind={fileKindToken(entry, isDirectory)}>
+          {isDirectory ? <Folder size={16} /> : <FileText size={16} />}
           {missingLabel ? <AlertTriangle className="shared-file-list-warning-icon" size={13} /> : null}
         </span>
         <span className="shared-file-list-name-copy">
@@ -371,16 +640,13 @@ const SharedFileRow = memo(function SharedFileRow({
           {details ? <span className={cn(missingLabel && "shared-file-list-warning")} title={details}>{details}</span> : null}
         </span>
       </span>
-      <span className="shared-file-list-kind">{isDirectory ? kindLabel : entry.typeHint ?? entry.extension ?? kindLabel}</span>
-      {showCreated ? <time className="shared-file-list-created">
-        {entry.createdAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.createdAt), language)}
-      </time> : null}
-      <time className="shared-file-list-modified" dateTime={entry.modifiedAt === undefined ? undefined : String(entry.modifiedAt)}>
+      {showType ? <span className="shared-file-list-kind">{isDirectory ? kindLabel : entry.typeHint ?? entry.extension ?? kindLabel}</span> : null}
+      {showModified ? <time className="shared-file-list-modified" dateTime={entry.modifiedAt === undefined ? undefined : String(entry.modifiedAt)}>
         {entry.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(entry.modifiedAt), language)}
-      </time>
-      <span className="shared-file-list-size">
+      </time> : null}
+      {showSize ? <span className="shared-file-list-size">
         {entry.size === undefined ? t("browseUnknownValue") : formatBytes(entry.size)}
-      </span>
+      </span> : null}
       {entry.source === "browse" && isDirectory ? (
         <button
           className="shared-file-list-open-folder"
@@ -445,10 +711,11 @@ export function nextNavigationIndex(
   key: string,
   focusedIndex: number,
   loadedRowCount: number,
-  scrollElement: HTMLElement | null
+  scrollElement: HTMLElement | null,
+  rowHeight: number = ROW_HEIGHT_DEFAULT
 ) {
   if (loadedRowCount === 0) return -1;
-  const page = Math.max(1, Math.floor((scrollElement?.clientHeight ?? ROW_HEIGHT * 8) / ROW_HEIGHT) - 1);
+  const page = Math.max(1, Math.floor((scrollElement?.clientHeight ?? rowHeight * 8) / rowHeight) - 1);
   if (focusedIndex < 0) {
     switch (key) {
       case "ArrowDown":
@@ -490,6 +757,39 @@ function rowDomId(entry: PresentationEntry, paneId?: string) {
   return entry.source === "library"
     ? `${prefix}library-row-${entry.entryRef.fileId}`
     : `${prefix}browse-row-${entry.entryRef.entryId}`;
+}
+
+/**
+ * The checkbox is a visual affordance inside an ARIA option row. The row keeps
+ * the accessible contract (`aria-selected`) and the toggle intent, so screen
+ * readers never meet a nested interactive control.
+ */
+function SelectAllCheckbox({
+  checked,
+  indeterminate,
+  label,
+  onChange
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  label: string;
+  onChange: (next: boolean) => void;
+}) {
+  const ref = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      className="shared-file-list-select-all"
+      checked={checked}
+      aria-label={label}
+      title={label}
+      onChange={(event) => onChange(event.currentTarget.checked)}
+    />
+  );
 }
 
 function materializationLabel(

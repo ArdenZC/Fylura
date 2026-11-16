@@ -12,7 +12,7 @@
 .fm-result-trigger { max-width: 100%; }
 .fm-result-trigger span { overflow: hidden; text-overflow: ellipsis; }
 .fm-workflow input:not([type=checkbox]), .fm-workflow select, .fm-dialog input:not([type=checkbox]), .fm-dialog select { min-height: 34px; border: 1px solid var(--zc-border-strong); border-radius: var(--zc-radius-control); background: var(--zc-surface); color: var(--zc-text-primary); padding: 6px 9px; min-width: 0; max-width: 100%; font-size: 12px; }
-.fm-panel { position: absolute; z-index: 50; right: 8px; top: calc(100% + 4px); width: min(410px, calc(100% - 16px)); max-height: min(480px, calc(100dvh - 235px)); display: flex; flex-direction: column; border: 1px solid var(--zc-border-strong); border-radius: var(--zc-radius-floating); background: var(--zc-surface-overlay); box-shadow: var(--zc-shadow-menu); }
+.fm-panel { position: absolute; z-index: 50; right: 8px; top: calc(100% + 4px); width: min(410px, calc(100% - 16px)); max-height: min(480px, calc(100dvh - 235px)); display: flex; flex-direction: column; border: 1px solid var(--zc-divider); border-radius: var(--zc-radius-floating); background: var(--zc-surface-overlay); box-shadow: var(--zc-shadow-menu); }
 .fm-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--zc-divider); }
 .fm-panel-heading h2 { font-size: 13px; font-weight: 650; }
 .fm-panel-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px; }
@@ -71,10 +71,10 @@
 .fm-task-progress .fm-toolbar { justify-content: flex-end; }
 .fm-task-progress .fm-toolbar button { min-height: 26px; padding: 2px 6px; font-size: 11px; }
 .fm-task-list, .fm-task-items { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.fm-task-entry { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--zc-border); border-radius: var(--zc-radius-card); background: var(--zc-surface-raised); }
+.fm-task-entry { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--zc-divider); border-radius: var(--zc-radius-card); background: var(--zc-surface); }
 .fm-task-entry details > summary { cursor: pointer; color: var(--zc-text-secondary); font-size: 12px; }
 .fm-task-items { margin-top: 8px; }
-.fm-task-items > li { display: grid; gap: 4px; padding: 8px; border-top: 1px solid var(--zc-border); }
+.fm-task-items > li { display: grid; gap: 4px; padding: 8px; border-top: 1px solid var(--zc-divider); }
 .fm-conflict-dialog { width: min(600px, 100%); }
 .fm-conflict-all { align-items: center; }
 .fm-conflict-all > span { margin-right: auto; font-size: 12px; color: var(--zc-text-secondary); }

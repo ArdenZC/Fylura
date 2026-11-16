@@ -38,6 +38,8 @@ type BrowseInteractionSource = Pick<
   | "loadNextPage"
   | "selectEntry"
   | "selectAllLoaded"
+  | "selectIds"
+  | "invertSelection"
   | "clearSelection"
   | "setFocusedId"
 >;
@@ -136,7 +138,9 @@ export function createBrowseInteractionProjection(
       selectAll: source.selectAllLoaded,
       clearSelection: source.clearSelection,
       focus,
-      loadMore: source.loadNextPage
+      loadMore: source.loadNextPage,
+      selectIds: (ids, additive) => source.selectIds(ids, additive ? "add" : "replace"),
+      invertSelection: source.invertSelection
     }
   };
 }

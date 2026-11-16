@@ -1,5 +1,5 @@
 import { SELECTED_PREVIEW_LIMIT } from "../preview/useSelectedPreview";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { buttonSecondary } from "../../../utils/tw";
 import type { Translator } from "../../../types/ui";
 import { File, Folder, Info, X } from "lucide-react";
@@ -17,6 +17,19 @@ import {
   type ContextPanelProjection
 } from "./contextPanelProjection";
 
+/** Keeps the 980px minimum window on the modal sheet; 1024px+ splits inline. */
+function useInlineContextWidth() {
+  const [wide, setWide] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const update = () => setWide(window.innerWidth >= 1024);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return wide;
+}
+
 export function ContextPanel({
   projection,
   open,
@@ -29,7 +42,12 @@ export function ContextPanel({
   restoreFocus: () => HTMLElement | null;
 }) {
   const { layout, paneOverlay } = useContextPanelPresentation();
+  const wideEnoughForInline = useInlineContextWidth();
   const usePaneOverlay = paneOverlay && layout !== "large";
+  // A 1024px+ medium window has room for the prototype's inline 260px
+  // inspector; the 980px minimum, compact layouts and pane overlays keep the
+  // modal sheet.
+  const inline = layout === "large" || (layout === "medium" && wideEnoughForInline && !paneOverlay);
   if (!open || projection.kind === "none") return null;
 
   const title = contextTitle(projection);
@@ -37,7 +55,7 @@ export function ContextPanel({
   const closeLabel = contextCloseLabel(projection);
   const closePanel = () => {
     onClose();
-    if (layout === "large" || usePaneOverlay) restoreFileLibraryFocus(restoreFocus);
+    if (inline || usePaneOverlay) restoreFileLibraryFocus(restoreFocus);
   };
 
   const content = (
@@ -50,7 +68,7 @@ export function ContextPanel({
     </div>
   );
 
-  if (layout === "large" || usePaneOverlay) {
+  if (inline || usePaneOverlay) {
     return (
       <aside
         className={cn(
@@ -117,13 +135,16 @@ function BrowseContextContent({ projection }: { projection: BrowseContextProject
           </div>
         </div>
         <dl className="file-library-context-facts">
+          {selected.displayPath ? <BrowseFact label={t("fileLibraryContextPath")} value={selected.displayPath} /> : null}
           <BrowseFact label={t("fileLibraryContextType")} value={browsePresentationEntryLabel(selected)} />
           <BrowseFact label={t("fileLibraryContextKind")} value={selected.entryKind === "directory" ? t("browseFolder") : t("browseFile")} />
           <BrowseFact label={t("fileLibraryContextSize")} value={selected.size === undefined ? t("browseUnknownValue") : formatBytes(selected.size)} />
           <BrowseFact label={t("fileLibraryContextModified")} value={selected.modifiedAt === undefined ? t("browseUnknownValue") : formatDate(String(selected.modifiedAt), projection.language)} />
           {selected.createdAt === undefined ? null : <BrowseFact label={t("fileLibraryContextCreated")} value={formatDate(String(selected.createdAt), projection.language)} />}
+          <BrowseFact label={t("fmHiddenAttribute")} value={t(selected.isHidden ? "fmAttributeHidden" : "fmAttributeNotHidden")} />
           <BrowseFact label={t("fileLibraryContextMaterialization")} value={materializationLabel(selected.materialization, t)} />
         </dl>
+        {selected.entryKind === "directory" && projection.onPreview ? <button type="button" className={buttonSecondary} onClick={(event) => projection.onPreview?.(selected, event.currentTarget)}>{t("fmCalculateFolderSize")}</button> : null}
         <p className="file-library-context-note"><Info size={15} aria-hidden="true" />{t("fileLibraryContextBrowseSafety")}</p>
         <p className="file-library-context-note">{t("u4BrowseUnavailable")}</p>
       </section>

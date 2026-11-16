@@ -47,6 +47,7 @@ export function transferSourceContextKey(surface: ManagementSurface | undefined)
 export function transferDestinationContextKey(
   surface: ManagementSurface | undefined,
   destinationEntry?: BrowseEntryRef,
+  destinationBrowse?: TransferBrowseDestination,
 ) {
   if (!surface) return null;
   return JSON.stringify({
@@ -54,6 +55,7 @@ export function transferDestinationContextKey(
     browsePathId: surface.browse?.pathRef.id ?? null,
     routingHint: surface.routingHint ?? null,
     destinationEntry: destinationEntry ?? null,
+    destinationBrowse: destinationBrowse ?? null,
   });
 }
 
@@ -61,13 +63,15 @@ export interface PendingPaneTransfer {
   paneId: string; sourcePaneId?: string; sourceContextKey?: string;
   destinationContextKey?: string;
   tickets: TransferTicket[]; action: TransferAction; destination: string;
-  destinationEntry?: BrowseEntryRef; external?: boolean;
+  destinationEntry?: BrowseEntryRef; destinationBrowse?: TransferBrowseDestination;
+  destinationSavedPlace?: { id: string; routingHint: string }; external?: boolean;
 }
 export interface ManagementTransferIntent {
   id: string;
   tickets: TransferTicket[];
   action: TransferAction;
   newName?: string;
+  newNames?: Record<string, string>;
   origin: "selection" | "clipboard" | "basket" | "external";
   destinationDirectory: string;
   destinationBrowse?: TransferBrowseDestination;
@@ -111,7 +115,7 @@ interface ManagementState {
   transferTicketIds: string[];
   activeTransferTask: ActiveTransferTask | null;
   externalDropAction: TransferAction;
-  pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "rename" | "trash" | "create_directory" | "copy_other" | "move_other" | null;
+  pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "rename" | "trash" | "create_directory" | "create_file" | "copy_other" | "move_other" | null;
   requestAction: (action: ManagementState["pendingAction"]) => void;
 }
 /** Shared tickets, clipboard and outcomes; every source projection has an explicit pane owner. */

@@ -32,7 +32,7 @@ export function ManagedLibrarySettingsSection({
   onRemove
 }: ManagedLibrarySettingsSectionProps) {
   return (
-    <SettingsSection id="settings-managed-scopes" title={t("managedScopesTitle")} description={t("managedScopesDesc")} progressiveDisclosure>
+    <SettingsSection id="settings-managed-scopes" title={t("managedScopesTitle")} description={t("managedScopesDesc")}>
       <SettingsInlineMessage tone="info" role="status">
         <span>{policyText(aiManagementStatus?.policySummary)}</span>
       </SettingsInlineMessage>
@@ -46,7 +46,7 @@ export function ManagedLibrarySettingsSection({
       {scopes.length ? (
         <div className="grid gap-2">
           {scopes.map((scope) => (
-            <div key={scope.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
+            <div key={scope.id} data-settings-item className={cn(compactInteractiveRow(), "px-3 py-2")}>
               <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                 <div className="min-w-0 text-left">
                   <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{compactPath(scope.path, 72)}</strong>

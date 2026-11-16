@@ -379,6 +379,7 @@ describe("File Library manual management workflow", () => {
     await click(`${t("fmBasket")} (2)`);
     expect(document.querySelector("#fm-auxiliary-panel")?.getAttribute("aria-label")).toBe(t("fmBasket"));
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 160)); });
     expect(document.querySelector("#fm-auxiliary-panel")).toBeNull();
     expect(document.activeElement?.textContent).toContain(t("fmMore"));
     expect(clear).not.toHaveBeenCalled();

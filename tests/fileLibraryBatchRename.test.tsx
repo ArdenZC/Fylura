@@ -70,6 +70,20 @@ afterEach(() => {
 });
 
 describe("FL-19 batch rename handoff", () => {
+  it("uses one batch preview request for the default Files rename flow", async () => {
+    const getPreviews = vi.fn(async (rows: { fileId: string; name: string }[]) => ({
+      previews: Object.fromEntries(rows.map((row) => [row.fileId, operationPreview(row.fileId, row.name)]))
+    }));
+    await act(async () => root.render(<BatchRenameDialog files={files} t={t} onClose={vi.fn()} getPreviews={getPreviews} restoreFocus={() => null}/>));
+    await clickReview();
+    expect(getPreviews).toHaveBeenCalledOnce();
+    expect(getPreviews).toHaveBeenCalledWith([
+      { fileId: "file-a", name: "01 alpha.txt" },
+      { fileId: "file-b", name: "02 beta.txt" }
+    ]);
+    expect(button(t("libraryBatchRenameContinue")).disabled).toBe(false);
+  });
+
   it("requires explicit skip for a blocked row and hands off only executable previews", async () => {
     const good = operationPreview("file-a", "01 alpha.txt");
     const blocked = operationPreview("file-b", "02 beta.txt", { is_executable: false, blocking_reason: "manual_file_target_exists" });

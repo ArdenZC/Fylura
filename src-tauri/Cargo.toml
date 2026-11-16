@@ -97,6 +97,7 @@ fylura-preview-representation = { path = "native/preview-representation" }
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+drag = "2.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 winreg = "0.55.0"
 windows-sys = { version = "0.61.2", features = [
@@ -130,6 +131,7 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+drag = "2.1.0"
 block2 = "0.6.2"
 fsevent-sys = "4.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
@@ -167,3 +169,5 @@ tauri-build = { version = "2", features = [] }
 # Temporary dependency-only compatibility patch; see vendor/r2d2_sqlite/README.fylura.md.
 [patch.crates-io]
 r2d2_sqlite = { path = "vendor/r2d2_sqlite" }
+# Preserve NSURL directory semantics for Finder when exporting directory drags.
+drag = { path = "vendor/drag" }

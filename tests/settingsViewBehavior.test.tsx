@@ -292,6 +292,32 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function aiModeTrigger() {
+  return container.querySelector<HTMLButtonElement>("#settings-ai-mode-trigger")!;
+}
+
+async function chooseAIMode(label: string) {
+  const trigger = aiModeTrigger();
+  await act(async () => trigger.click());
+  const option = [...document.querySelectorAll<HTMLButtonElement>("[data-settings-select-option]")]
+    .find((item) => item.textContent?.includes(label));
+  if (!option) throw new Error(`AI mode option not found: ${label}`);
+  await act(async () => option.click());
+}
+
+async function chooseSettingSelect(id: string, label: string) {
+  const trigger = container.querySelector<HTMLButtonElement>(`#${id}-trigger`)!;
+  await act(async () => trigger.click());
+  const option = [...document.querySelectorAll<HTMLButtonElement>("[data-settings-select-option]")]
+    .find((item) => item.textContent?.includes(label));
+  if (!option) throw new Error(`Setting option not found: ${label}`);
+  await act(async () => option.click());
+}
+
+function aiModeValue() {
+  return container.querySelector<HTMLElement>("#settings-ai-mode-trigger [data-settings-select-value]")?.textContent;
+}
+
 describe("settings view behavior", () => {
   it.each([
     ["local", "Using a local model"],
@@ -302,9 +328,7 @@ describe("settings view behavior", () => {
     await act(async () => root.render(<SettingsView />));
     await flushEffects();
 
-    const selected = [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="AI mode"] [role="radio"]')]
-      .find((radio) => radio.textContent === label);
-    expect(selected?.getAttribute("aria-checked")).toBe("true");
+    expect(aiModeValue()).toBe(label);
     expect(window.sessionStorage.getItem(AI_SETTINGS_MODE_REQUEST_KEY)).toBeNull();
   });
 
@@ -394,9 +418,7 @@ describe("settings view behavior", () => {
     await flushEffects();
     mocks.publishAIProcessingMode.mockClear();
 
-    const cloud = [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="AI mode"] [role="radio"]')]
-      .find((radio) => radio.textContent === "Using cloud AI")!;
-    await act(async () => cloud.click());
+    await chooseAIMode("Using cloud AI");
     expect(container.querySelector("[data-ai-save-bar]")?.textContent).toContain("Current active AI mode: AI is off");
     expect(container.querySelector("[data-ai-save-bar]")?.textContent).toContain("Unsaved draft mode: Using cloud AI");
     expect(mocks.publishAIProcessingMode).not.toHaveBeenCalled();
@@ -524,20 +546,16 @@ describe("settings view behavior", () => {
   });
 
   it("disables AI-dependent controls while off and restores preserved configuration when re-enabled", async () => {
-    const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
-    const modeRadios = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
-    const off = modeRadios.find((radio) => radio.textContent === "AI is off")!;
-    const cloud = modeRadios.find((radio) => radio.textContent === "Using cloud AI")!;
     const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
     const baseUrl = container.querySelector<HTMLInputElement>("#settings-ai-base-url")!;
     const model = container.querySelector<HTMLInputElement>("#settings-ai-model")!;
 
-    await act(async () => off.click());
+    await chooseAIMode("AI is off");
 
-    expect(modeRadios.every((radio) => !radio.disabled)).toBe(true);
+    expect(aiModeTrigger().disabled).toBe(false);
     expect(container.querySelector<HTMLInputElement>("#settings-ai-cleanup")?.disabled).toBe(true);
     expect(container.querySelector<HTMLSelectElement>("#settings-ai-provider")?.disabled).toBe(true);
-    expect(container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI classification presets"]')?.getAttribute("aria-disabled")).toBe("true");
+    expect(container.querySelector<HTMLButtonElement>("#settings-ai-classification-preset-trigger")?.disabled).toBe(true);
     expect(baseUrl.disabled).toBe(true);
     expect(apiKey.disabled).toBe(true);
     expect(model.disabled).toBe(true);
@@ -550,7 +568,7 @@ describe("settings view behavior", () => {
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
     expect(save.disabled).toBe(false);
 
-    await act(async () => cloud.click());
+    await chooseAIMode("Using cloud AI");
     expect(container.querySelector<HTMLInputElement>("#settings-ai-cleanup")?.disabled).toBe(false);
     expect(baseUrl.value).toBe("https://api.deepseek.com/custom");
     expect(apiKey.value).toBe("");
@@ -587,9 +605,7 @@ describe("settings view behavior", () => {
     mocks.saveAISettings.mockRejectedValue(new Error(`backend rejected ${secret}`));
     const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
     await changeInput(apiKey, secret);
-    const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
-    const off = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "AI is off")!;
-    await act(async () => off.click());
+    await chooseAIMode("AI is off");
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
     await act(async () => save.click());
     await flushEffects();
@@ -601,7 +617,7 @@ describe("settings view behavior", () => {
     expect(alerts[0].textContent).toContain("Failed to save AI settings");
     expect(alerts[0].textContent).toContain("[redacted]");
     expect(container.textContent).not.toContain(secret);
-    expect(modeGroup.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("AI is off");
+    expect(aiModeValue()).toBe("AI is off");
     expect(container.querySelector("[data-ai-save-bar]")?.textContent).toContain("Current active AI mode: Using cloud AI");
     expect(container.querySelector("[data-ai-save-bar]")?.textContent).toContain("Unsaved draft mode: AI is off");
     expect(container.querySelector('[data-ai-settings-state="error"]')?.textContent).toBe("The last successfully saved AI settings remain active.");
@@ -620,9 +636,7 @@ describe("settings view behavior", () => {
     const saved = { ...initialAISettings(), enabled: false };
     mocks.saveAISettings.mockResolvedValue(saved);
     mocks.getAISettings.mockResolvedValue(saved);
-    const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
-    const off = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "AI is off")!;
-    await act(async () => off.click());
+    await chooseAIMode("AI is off");
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
     await act(async () => save.click());
     await flushEffects();
@@ -661,12 +675,10 @@ describe("settings view behavior", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-ai"]')?.click());
 
     await act(async () => reveal());
-    const off = [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="AI mode"] [role="radio"]')].find((radio) => radio.textContent === "AI is off")!;
-    await act(async () => off.click());
+    await chooseAIMode("AI is off");
     expect(keyType()).toBe("password");
 
-    const cloud = [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="AI mode"] [role="radio"]')].find((radio) => radio.textContent === "Using cloud AI")!;
-    await act(async () => cloud.click());
+    await chooseAIMode("Using cloud AI");
     await act(async () => reveal());
     await act(async () => details.querySelector("summary")?.click());
     expect(keyType()).toBe("password");
@@ -684,9 +696,7 @@ describe("settings view behavior", () => {
     expect(keyType()).toBe("password");
 
     await act(async () => reveal());
-    const fastPreset = [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="AI classification presets"] [role="radio"]')]
-      .find((radio) => radio.textContent === "Fast")!;
-    await act(async () => fastPreset.click());
+    await chooseSettingSelect("settings-ai-classification-preset", "Fast");
     expect(keyType()).toBe("text");
     mocks.saveAISettings.mockRejectedValueOnce(new Error("expected test failure"));
     await act(async () => save.click());

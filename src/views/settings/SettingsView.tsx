@@ -61,8 +61,6 @@ import {
   SettingsInlineMessage,
   SettingsLayout,
   SettingsRow,
-  SettingsSearch,
-  SettingsSegmentedControl,
   SettingsSelect,
   SettingsSwitch,
   SettingsTextField,
@@ -953,58 +951,40 @@ export function SettingsView() {
       inert={isLoadingSettings ? true : undefined}
       className="contents"
     >
+      <h1 className="sr-only">{t("settingsPageTitle")}</h1>
       <SettingsLayout
         sections={settingsSections}
         activeSectionId={activeSettingsSection}
         sectionLabel={t("settingsSectionsLabel")}
         onSectionChange={(sectionId, options) => focusSettingsSection(sectionId, options)}
         scrollRef={settingsScrollRef}
-        header={(
-          <SettingsSearch
-            containerRef={settingsScrollRef}
-            sections={settingsSections}
-            localeKey={language}
-            label={t("settingsSearchLabel")}
-            placeholder={t("settingsSearchPlaceholder")}
-            clearLabel={t("settingsSearchClear")}
-            noResultsLabel={t("settingsSearchNoResults")}
-            resultCountLabel={(count, query) => t("settingsSearchResultCount").replace("{count}", String(count)).replace("{query}", query)}
-            onSelect={(result) => {
-              focusSettingsSection(result.sectionId, { focusContent: false });
-              if (!result.targetId) return;
-              const focusTarget = (attempt = 0) => {
-                const target = settingsScrollRef.current?.querySelector<HTMLElement>(`#${result.targetId}`);
-                if (!target) return;
-                const disclosure = target.closest<HTMLDetailsElement>("details");
-                if (disclosure && !disclosure.open) {
-                  disclosure.querySelector<HTMLElement>("summary")?.click();
-                  if (attempt < 2) {
-                    window.requestAnimationFrame(() => focusTarget(attempt + 1));
-                    return;
-                  }
-                }
-                const targetControl = target.matches("button, input, select, textarea, [tabindex]")
-                  ? target
-                  : target.querySelector<HTMLElement>("button, input, select, textarea, [tabindex]");
-                const targetToFocus = targetControl?.matches("[data-settings-select-native]")
-                  ? targetControl.parentElement?.querySelector<HTMLElement>("[data-settings-select-trigger]")
-                  : targetControl;
-                const focusableTarget = targetToFocus?.matches(":disabled")
-                  ? target.closest<HTMLDetailsElement>("details")?.querySelector<HTMLElement>("summary")
-                    ?? target.closest<HTMLElement>("[data-settings-section-content]")?.querySelector<HTMLElement>("[data-settings-section-heading]")
-                  : targetToFocus;
-                focusableTarget?.scrollIntoView({ block: "nearest" });
-                focusableTarget?.focus({ preventScroll: true });
-              };
-              window.requestAnimationFrame(() => focusTarget());
-            }}
-          />
-        )}
+        search={{
+          label: t("settingsSearchLabel"),
+          placeholder: t("settingsSearchPlaceholder"),
+          clearLabel: t("settingsSearchClear"),
+          escHint: t("settingsSearchEscHint"),
+          title: t("settingsSearchTitle"),
+          summary: (sectionCount, itemCount) => t("settingsSectionSummary")
+            .replace("{sections}", String(sectionCount))
+            .replace("{items}", String(itemCount)),
+          resultLead: (count, sectionCount) => t("settingsSearchLead")
+            .replace("{count}", String(count))
+            .replace("{sections}", String(sectionCount)),
+          noMatch: (query) => t("settingsSearchNoMatch").replace("{query}", query),
+          suggestionsLabel: t("settingsSearchSuggestions"),
+          suggestions: [
+            t("settingsSearchSuggestIndex"),
+            t("settingsSearchSuggestHotkey"),
+            t("settingsSearchSuggestAppearance")
+          ],
+          itemCount: (count) => t("settingsSectionItemCount").replace("{count}", String(count))
+        }}
       >
-        <div className="grid gap-2">
-          <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{t("settingsDesc")}</p>
-          {settingsStatus ? <SettingsInlineMessage tone={settingsStatusTone === "warning" ? "warning" : "success"} role={settingsStatusTone === "warning" ? "alert" : "status"}>{settingsStatus}</SettingsInlineMessage> : null}
-        </div>
+        {settingsStatus ? (
+          <div data-settings-status-banner className="settings-v340-status">
+            <SettingsInlineMessage tone={settingsStatusTone === "warning" ? "warning" : "success"} role={settingsStatusTone === "warning" ? "alert" : "status"}>{settingsStatus}</SettingsInlineMessage>
+          </div>
+        ) : null}
 
         <GeneralSettingsSection
           t={t}
@@ -1123,7 +1103,7 @@ export function SettingsView() {
             >
               <div
                 data-ai-save-bar
-                className="sticky top-[53px] z-10 grid min-w-0 gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] py-3 min-[841px]:top-4 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center"
+                className="sticky top-0 z-10 grid min-w-0 gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] py-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center"
               >
                 <div className="grid min-w-0 gap-1">
                   <strong className="text-sm text-[var(--zc-text-primary)]">
@@ -1151,19 +1131,18 @@ export function SettingsView() {
                   </SettingsInlineMessage>
                 </div>
               ) : null}
-              <SettingsRow controlWidth="wide" label={t("aiModeLabel")} description={t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}>
-                <SettingsSegmentedControl
-                  value={aiUserMode(aiSettings)}
-                  ariaLabel={t("aiModeLabel")}
-                  layout="three-option-responsive"
-                  options={[
-                    { value: "off", label: t("modeAIDisabled") },
-                    { value: "local", label: t("modeAILocal") },
-                    { value: "cloud", label: t("modeAICloud") }
-                  ]}
-                  onChange={updateAIUserMode}
-                />
-              </SettingsRow>
+              <SettingsSelect
+                id="settings-ai-mode"
+                label={t("aiModeLabel")}
+                description={t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}
+                value={aiUserMode(aiSettings)}
+                options={[
+                  { value: "off" as const, label: t("modeAIDisabled") },
+                  { value: "local" as const, label: t("modeAILocal") },
+                  { value: "cloud" as const, label: t("modeAICloud") }
+                ]}
+                onChange={updateAIUserMode}
+              />
               <SettingsSwitch
                 id="settings-ai-cleanup"
                 label={t("aiCleanupEnabledLabel")}
@@ -1205,15 +1184,15 @@ export function SettingsView() {
                 ]}
                 onChange={selectUserProvider}
               />
-              <SettingsRow label={t("aiClassificationPresets")} description={t("aiClassificationPresetsDesc")}>
-                <SettingsSegmentedControl
-                  value={activeAIClassificationPreset}
-                  ariaLabel={t("aiClassificationPresets")}
-                  options={AI_CLASSIFICATION_PRESET_IDS.map((presetId) => ({ value: presetId, label: t(AI_CLASSIFICATION_LABEL_KEYS[presetId]) }))}
-                  disabled={aiDependentControlsDisabled}
-                  onChange={(presetId) => { if (presetId !== "custom") applyClassificationPreset(presetId); }}
-                />
-              </SettingsRow>
+              <SettingsSelect
+                id="settings-ai-classification-preset"
+                label={t("aiClassificationPresets")}
+                description={t("aiClassificationPresetsDesc")}
+                value={activeAIClassificationPreset}
+                options={AI_CLASSIFICATION_PRESET_IDS.map((presetId) => ({ value: presetId, label: t(AI_CLASSIFICATION_LABEL_KEYS[presetId]) }))}
+                disabled={aiDependentControlsDisabled}
+                onChange={(presetId) => { if (presetId !== "custom") applyClassificationPreset(presetId); }}
+              />
               <SettingsInlineMessage tone={aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured ? "warning" : "info"}>
                 {aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured
                   ? t("aiConfigurationIncomplete")

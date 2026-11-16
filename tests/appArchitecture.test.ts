@@ -350,9 +350,11 @@ describe("app render architecture", () => {
     expect(appShell).toContain("noDrag");
     expect(appShell).toContain("windowsControlButton");
     expect(appShell).toContain("windowsCloseButton");
-    expect(appShell).toContain("h-[38px] w-[46px]");
-    expect(appShell).toContain("h-6 w-6");
-    expect(appShell).toContain("var(--zc-window-close-hover)");
+    const shell = read("src/styles/v340-shell.css");
+    expect(shell).toContain("var(--zc-window-close-hover)");
+    expect(shell).toContain(".zc-window-controls .zc-window-control");
+    expect(shell).toContain(".zc-mac-controls button");
+    expect(appShell).toContain("data-sidebar-mode={mode}");
     expect(appShell).not.toContain("overflow-hidden rounded-lg border");
     expect(appShell).toContain("softPanel");
     expect(shellChrome).toContain("titlebarToolButton");

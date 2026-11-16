@@ -13,6 +13,7 @@ export interface TransferOrchestrationRequest {
   destinationEntry?: BrowseEntryRef;
   destinationBrowse?: TransferBrowseDestination;
   newName?: string;
+  newNames?: Record<string, string>;
   skip: string[];
   keepBoth: string[];
 }
@@ -32,6 +33,7 @@ export interface TransferOrchestrationPorts<TResult> {
     destinationEntry?: BrowseEntryRef;
     destinationBrowse?: TransferBrowseDestination;
     newName?: string;
+    newNames?: Record<string, string>;
     skip: string[];
     keepBoth: string[];
   }) => Promise<TransferPreview>;
@@ -55,8 +57,8 @@ export async function orchestrateTransfer<TResult>(
   request: TransferOrchestrationRequest,
   ports: TransferOrchestrationPorts<TResult>,
 ): Promise<TransferOrchestrationOutcome<TResult>> {
-  const createDirectory = request.action === "create_directory";
-  if ((!request.tickets.length && !createDirectory) || !ports.isCurrent()) return { kind: "stale" };
+  const createAction = request.action === "create_directory" || request.action === "create_file";
+  if ((!request.tickets.length && !createAction) || !ports.isCurrent()) return { kind: "stale" };
 
   const preview = await ports.preview({
     ticketIds: request.tickets.map((ticket) => ticket.id),
@@ -65,12 +67,13 @@ export async function orchestrateTransfer<TResult>(
     destinationEntry: request.destinationEntry,
     ...(request.destinationBrowse ? { destinationBrowse: request.destinationBrowse } : {}),
     ...(request.newName === undefined ? {} : { newName: request.newName }),
+    ...(request.newNames === undefined ? {} : { newNames: request.newNames }),
     skip: request.skip,
     keepBoth: request.keepBoth,
   });
   if (!ports.isCurrent()) return { kind: "stale" };
 
-  const expected = new Set(createDirectory ? ["create-directory"] : request.tickets.map((ticket) => ticket.id));
+  const expected = new Set(createAction ? [request.action === "create_file" ? "create-file" : "create-directory"] : request.tickets.map((ticket) => ticket.id));
   const skip = new Set(request.skip);
   const keepBoth = new Set(request.keepBoth);
   const seen = new Set<string>();

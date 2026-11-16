@@ -248,7 +248,8 @@ describe("W2-05 interaction convergence", () => {
     expect(nextNavigationIndex("Home", -1, 8, list)).toBe(0);
     expect(nextNavigationIndex("End", -1, 8, list)).toBe(7);
     expect(nextNavigationIndex("PageUp", -1, 8, list)).toBe(0);
-    expect(nextNavigationIndex("PageDown", -1, 8, list)).toBe(3);
+    // Page size follows the v3.40 46px row measured inside the mounted list.
+    expect(nextNavigationIndex("PageDown", -1, 8, list)).toBe(2);
     expect(nextNavigationIndex("ArrowUp", 0, 8, list)).toBe(0);
     expect(nextNavigationIndex("ArrowDown", 7, 8, list)).toBe(7);
     expect(nextNavigationIndex("PageUp", 0, 8, list)).toBe(0);
@@ -260,7 +261,7 @@ describe("W2-05 interaction convergence", () => {
       ["Home", "browse-0"],
       ["End", "browse-7"],
       ["PageUp", "browse-0"],
-      ["PageDown", "browse-3"]
+      ["PageDown", "browse-2"]
     ] as const) {
       setFocusedId.mockClear();
       await act(async () => {

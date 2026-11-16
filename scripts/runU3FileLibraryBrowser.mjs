@@ -7,6 +7,19 @@ import { chromium } from "playwright";
 import { createServer } from "vite";
 import { assertCheckoutEvidence } from "./ciEvidence.mjs";
 
+/** v3.40 pane controls live in one menu; these helpers keep the gates readable. */
+async function setPaneCount(page, count) {
+  const menu = page.locator('[data-pane-menu]');
+  if ((await menu.locator('.wb-pane-menu-trigger').getAttribute('aria-expanded')) !== 'true') {
+    await menu.locator('.wb-pane-menu-trigger').click();
+  }
+  await menu.getByRole('button', { name: `Pane \u00d7 ${count}`, exact: true }).click();
+}
+async function readPaneCount(page) {
+  return page.locator('[data-pane-menu] .wb-pane-menu-trigger').getAttribute('data-pane-count');
+}
+
+
 const actualCheckoutSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const actualCheckoutTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
 const sourceHead = process.env.U3_SOURCE_HEAD ?? actualCheckoutSha;
@@ -50,7 +63,7 @@ try {
   assert.equal(await left.locator("[data-browse-sort]").inputValue(), "size");
   await left.locator("[data-file-library-query-menu] > summary").click();
   checks.push("Sort remains pane/tab-local across tab activation");
-  await page.getByRole("combobox", { name: "File pane count", exact: true }).selectOption("2");
+  await setPaneCount(page, 2);
   const right = page.locator('[role="tabpanel"]:not([hidden]) [data-pane-id]').nth(1);
   await right.getByRole("button", { name: "Edit path (Ctrl/Cmd+L)", exact: true }).click();
   await right.getByRole("textbox", { name: "Folder path", exact: true }).fill("C:/U3/Right");

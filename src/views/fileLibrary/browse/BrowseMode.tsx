@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useLayoutEffect, useState } fr
 import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { BrowseSortSpec, LocationDescriptor } from "../../../types/fileWorkspace";
+import type { BrowsePresentationEntry } from "../presentation/contracts";
 import { launchBrowseEntry, revealBrowseEntry } from "../../../api/fileWorkspaceApi";
 import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
@@ -17,6 +18,8 @@ import { browsePlaceStatusLabel, useBrowsePlaces, type BrowsePlaceEntry } from "
 import { createBrowseInteractionProjection } from "../list/interactionAdapters";
 import { SharedFileGrid } from "../list/SharedFileGrid";
 import { SharedFileList } from "../list/SharedFileList";
+import { FileLibraryStatusBar } from "../status/FileLibraryStatusBar";
+import { BrowseColumnView } from "./BrowseColumnView";
 import { ContextPanel } from "../context/ContextPanel";
 import { createBrowseContextProjection } from "../context/contextPanelProjection";
 import { useRegisterFileLibraryCommandBarSurface } from "../fileLibraryCommandBarSurface";
@@ -29,6 +32,7 @@ import { isFileLibraryFocusTarget } from "../fileLibraryInteraction";
 import { useBrowseContextMenu } from "./useBrowseContextMenu";
 import { useFileManagementStore } from "../management/fileManagementStore";
 import { useBrowseManagementSurface } from "../management/useManagementSurfaces";
+import { useAppStore } from "../../../store/useAppStore";
 import "./browseMode.css";
 
 export function BrowseMode() {
@@ -39,17 +43,78 @@ export function BrowseMode() {
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
   const [revealError, setRevealError] = useState<string | null>(null);
+  const [backgroundMenu, setBackgroundMenu] = useState<{ x: number; y: number } | null>(null);
+  const [showHidden, setShowHidden] = useState(() => {
+    try { return window.localStorage.getItem("fylura.files.showHidden") === "true"; }
+    catch { return false; }
+  });
   const { platform } = useCommandContext();
   const source = useBrowseSourceOwner({ controller, state, t, platform });
   useBrowseManagementSurface(source);
   // Keep row geometry stable between the two clicks of a double-click.
   useEffect(() => setRevealError(null), [source.sessionId, source.currentPathRef?.id]);
   const { controller: previewController, state: previewState } = usePreviewExperience();
-  const interaction = useMemo(() => createBrowseInteractionProjection(source), [source]);
+  const visibleEntries = useMemo(() => showHidden ? source.entries : source.entries.filter((entry) => !entry.isHidden), [showHidden, source.entries]);
+  // Size is only summed when every selected entry is loaded and reports a
+  // size; a partial sum would misstate how much is selected.
+  // Retains the entries of folders the pane has already visited so an ancestor
+  // column can show what was actually seen. This is a presentation cache over
+  // the pane's own session, not a second enumeration or selection authority.
+  const columnCache = useRef(new Map<string, readonly BrowsePresentationEntry[]>());
+  const previousColumn = useRef<{ id: string | null; entries: readonly BrowsePresentationEntry[] }>({ id: null, entries: [] });
+  const currentPathRefId = source.currentPathRef?.id ?? null;
+  useEffect(() => {
+    const previous = previousColumn.current;
+    if (previous.id !== null && previous.id !== currentPathRefId && previous.entries.length > 0) {
+      columnCache.current.set(previous.id, previous.entries);
+    }
+    previousColumn.current = { id: currentPathRefId, entries: source.entries };
+  }, [currentPathRefId, source.entries]);
+
+  const selectedSize = useMemo(() => {
+    if (source.selectedCount === 0) return null;
+    const selected = visibleEntries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId));
+    if (selected.length !== source.selectedCount) return null;
+    if (selected.some((entry) => entry.size === undefined)) return null;
+    return selected.reduce((total, entry) => total + (entry.size ?? 0), 0);
+  }, [source.selectedCount, source.selectedIds, visibleEntries]);
+
+  const visibleCollection = useMemo(() => source.collection === null ? null : ({
+    ...source.collection,
+    provenance: {
+      ...source.collection.provenance,
+      knownCount: source.collection.provenance.completion === "complete" && source.collection.provenance.knownCount !== undefined
+        ? visibleEntries.length
+        : undefined,
+    },
+  }), [source.collection, visibleEntries.length]);
+  const interactionSource = useMemo(() => ({
+    ...source,
+    entries: visibleEntries,
+    collection: visibleCollection,
+    selectAllLoaded: () => source.selectIds(visibleEntries.map((entry) => entry.entryRef.entryId)),
+    invertSelection: () => source.selectIds(visibleEntries
+      .filter((entry) => !source.selectedIds.has(entry.entryRef.entryId))
+      .map((entry) => entry.entryRef.entryId)),
+  }), [source, visibleEntries, visibleCollection]);
+  const interaction = useMemo(() => createBrowseInteractionProjection(interactionSource), [interactionSource]);
+
+  const changeHiddenVisibility = useCallback((next: boolean) => {
+    try { window.localStorage.setItem("fylura.files.showHidden", String(next)); } catch { /* Display preference remains usable for this session. */ }
+    if (!next) {
+      const visibleSelection = source.entries
+        .filter((entry) => !entry.isHidden && source.selectedIds.has(entry.entryRef.entryId))
+        .map((entry) => entry.entryRef.entryId);
+      source.selectIds(visibleSelection);
+      if (source.entries.some((entry) => entry.isHidden && entry.entryRef.entryId === source.focusedId)) source.setFocusedId(null);
+    }
+    setShowHidden(next);
+  }, [source.entries, source.focusedId, source.selectIds, source.selectedIds, source.setFocusedId]);
   const focusedPreviewSource = useMemo(() => {
     const entry = source.entries.find((item) => item.entryRef.entryId === source.focusedId);
+    if (!showHidden && entry?.isHidden) return null;
     return previewSourceFromEntry(entry, source.collection);
-  }, [source.collection, source.entries, source.focusedId]);
+  }, [showHidden, source.collection, source.entries, source.focusedId]);
 
   const siblingNavigation = useMemo(() => {
     if (focusedPreviewSource === null) return null;
@@ -85,11 +150,12 @@ export function BrowseMode() {
   }, []);
   const {
     contextMenu,
+    contextClosing,
     closeContextMenu,
     openFocusedContextMenu,
     handleRowContextMenu
   } = useBrowseContextMenu({ source, restoreFocus: restoreBrowseFocus });
-  const viewMode = state.workspace.session.presentation.viewMode ?? "list";
+  const viewMode = state.workspace.session.presentation.viewMode ?? (platform === "darwin" ? "columns" : "list");
   const browseSearchInputRef = useRef<HTMLInputElement | null>(null);
   const browseSearch = useMemo(() => (
     <SearchField
@@ -109,6 +175,7 @@ export function BrowseMode() {
 
   const browseActions = useMemo(() => (
     <div className="flex min-h-0 flex-wrap items-center gap-1.5" data-browse-query-controls="true" data-browse-query-active={source.queryEntryKind !== "all" || !!source.query.sort}>
+      <button type="button" className="file-library-command-button min-h-9 px-2 py-1.5 text-xs" aria-pressed={showHidden} onClick={() => changeHiddenVisibility(!showHidden)}>{t(showHidden ? "fmHideHidden" : "fmShowHidden")}</button>
       <label className="sr-only" htmlFor="browse-query-kind">{t("browseFilterLabel")}</label>
       <select
         id="browse-query-kind"
@@ -141,11 +208,11 @@ export function BrowseMode() {
           ...source.query.sort, foldersFirst: event.target.checked
         })}/>{t("u3FoldersFirst")}</label>
     </div>
-  ), [source.queryEntryKind, source.setQueryEntryKind, source.query.sort, source.setSort, t]);
+  ), [source.queryEntryKind, source.setQueryEntryKind, source.query.sort, source.setSort, showHidden, t, changeHiddenVisibility]);
 
   useRegisterFileLibraryCommandBarSurface("browse", browseSearch, browseSearchInputRef, true, browseActions);
 
-  const selectedPreviewEntries = source.entries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId)).slice(0, SELECTED_PREVIEW_LIMIT);
+  const selectedPreviewEntries = visibleEntries.filter((entry) => source.selectedIds.has(entry.entryRef.entryId)).slice(0, SELECTED_PREVIEW_LIMIT);
   const previewSelected = useSelectedPreview(previewController, selectedPreviewEntries.flatMap((entry) => {
     const projected = previewSourceFromEntry(entry, source.collection);
     return projected ? [projected] : [];
@@ -153,7 +220,7 @@ export function BrowseMode() {
 
   const contextOpen = state.workspace.session.presentation.contextOpen === true;
   const contextProjection = createBrowseContextProjection({
-    entries: source.entries,
+    entries: visibleEntries,
     selectedIds: source.selectedIds,
     locationLabel: source.browse?.location.displayName ?? t("fileLibraryModeBrowse"),
     language,
@@ -212,7 +279,7 @@ export function BrowseMode() {
   const completion = source.collection?.provenance.completion ?? "pending";
   const emptyPartialQuery = source.isQueryActive
     && source.enumerationState === "partial"
-    && source.entries.length === 0;
+    && visibleEntries.length === 0;
   const emptyLabel = emptyPartialQuery
     ? t("browseEnumerationSearching")
     : t("browseEnumerationEmptyTitle");
@@ -237,6 +304,7 @@ export function BrowseMode() {
   const selectionText = source.selectedCount === 0
     ? t("browseSelectionNone")
     : t("browseSelectionLoaded").replace("{count}", String(source.selectedCount));
+
   function handleListEscape() {
     if (contextMenu) {
       closeContextMenu("escape");
@@ -262,6 +330,15 @@ export function BrowseMode() {
     void launchBrowseEntry(entry.entryRef).catch(() => setRevealError(t("browseLaunchUnavailable")));
   }
 
+  async function copyTextToClipboard(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      useAppStore.getState().showSuccess(t("fmTextCopied"));
+    } catch {
+      useAppStore.getState().showError(t("fmCopyTextUnavailable"));
+    }
+  }
+
   function sortByColumn(field: BrowseSortSpec["field"]) {
     source.setSort({ field,
       direction: source.query.sort?.field === field && source.query.sort.direction === "asc" ? "desc" : "asc",
@@ -283,6 +360,9 @@ export function BrowseMode() {
       setRevealError(null);
       void revealBrowseEntry(contextMenu.entry.entryRef).catch(() => setRevealError(t("u4RevealUnavailable")));
     } },
+    ...(contextMenu.entry.displayPath ? [{ label: t("fmCopyPath"), action: () => { const path = contextMenu.entry.displayPath; closeContextMenu("action"); if (path) void copyTextToClipboard(path); } }] : []),
+    { label: t("fmCopyName"), action: () => { const name = contextMenu.entry.displayName; closeContextMenu("action"); void copyTextToClipboard(name); } },
+    { label: t("fmProperties"), action: () => { closeContextMenu("action"); controller.setContextOpen(true); } },
     ...(["copy", "cut", "paste", "move", "basket"] as const).map((action) => ({
       label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : action === "paste" ? "fmPaste" : "fmMove"),
       action: () => { closeContextMenu(action === "paste" || action === "move" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); }
@@ -317,6 +397,26 @@ export function BrowseMode() {
       }
     }
   ];
+  const backgroundContextItems = backgroundMenu === null ? [] : [
+    { label: t("fmNewFile"), action: () => { setBackgroundMenu(null); useFileManagementStore.getState().requestAction("create_file"); } },
+    { label: t("fmNewFolder"), action: () => {
+      setBackgroundMenu(null);
+      useFileManagementStore.getState().requestAction("create_directory");
+    } },
+    { label: t("fmSelectLoaded"), action: () => { source.selectAllLoaded(); setBackgroundMenu(null); } },
+    { label: t("fmInvertSelection"), action: () => { source.invertSelection(); setBackgroundMenu(null); } },
+    { label: t("fmClearSelection"), action: () => { source.clearSelection(); setBackgroundMenu(null); } },
+    { label: t("browseRefresh"), action: () => { setBackgroundMenu(null); void source.refreshEnumeration(); } }
+  ];
+  const navigateUp = () => {
+    const parent = source.breadcrumbs.at(-2);
+    if (parent) source.navigateToBreadcrumb(parent);
+    else source.openLocationPicker();
+  };
+  const typeToSelect = (text: string) => {
+  const match = visibleEntries.find((entry) => entry.displayName.toLocaleLowerCase(language).startsWith(text.toLocaleLowerCase(language)));
+    if (match) source.selectEntry(match.entryRef.entryId, "replace");
+  };
 
   const breadcrumbNavigation = (<nav className="browse-breadcrumbs" data-browse-breadcrumbs="true" aria-label={t("browseBreadcrumbLabel")}>
           {source.breadcrumbs.length === 0
@@ -358,33 +458,6 @@ export function BrowseMode() {
       data-browse-query-empty-partial={emptyPartialQuery ? "true" : "false"}
       data-browse-sort-capability="backend-snapshot"
     >
-      <header className="browse-mode-header">
-        <div className="min-w-0">
-          <details className="browse-mode-help">
-            <summary>{t("fmBrowseHelp")}</summary>
-            <p className="browse-mode-description">{t("fileLibraryBrowseTargetDesc")} {t("u3SortLimit")}</p>
-          </details>
-        </div>
-        <div className="browse-mode-actions">
-          <button className="browse-action" type="button" onClick={source.openLocationPicker}>
-            <MapPin size={15} aria-hidden="true" />
-            {t("browseLocationsButton")}
-          </button>
-          <button
-            className="browse-action"
-            type="button"
-            disabled={source.enumerationState === "loading"
-              || source.enumerationState === "loading_more"
-              || source.changeState === "checking"
-              || source.changeState === "refreshing"}
-            aria-label={t("browseRefresh")}
-            onClick={() => void source.refreshEnumeration()}
-          >
-            <RefreshCw size={15} aria-hidden="true" />
-            {t("browseRefresh")}
-          </button>
-        </div>
-      </header>
 
       {breadcrumbHost ? createPortal(breadcrumbNavigation, breadcrumbHost) : <div className="browse-mode-toolbar">
         {breadcrumbNavigation}
@@ -406,14 +479,14 @@ export function BrowseMode() {
                 </button>
               )}
             />
-          ) : source.enumerationState === "loading" && source.entries.length === 0 ? (
+          ) : source.enumerationState === "loading" && visibleEntries.length === 0 ? (
             <StateBlock
               tone="info"
               title={t("browseEnumerationLoading")}
               description={t("fileLibraryBrowseTargetDesc")}
               primaryAction={<LoaderCircle className="animate-spin" size={18} aria-label={t("browseEnumerationLoading")} />}
             />
-          ) : source.enumerationState === "complete" && source.entries.length === 0 ? (
+          ) : viewMode !== "columns" && source.enumerationState === "complete" && visibleEntries.length === 0 ? (
             <StateBlock
               title={t("browseEnumerationEmptyTitle")}
               description={t("browseEnumerationEmptyDesc")}
@@ -426,10 +499,37 @@ export function BrowseMode() {
                 </NoticeBanner>
               ) : null}
               {revealError ? <NoticeBanner tone="warning" title={revealError} /> : null}
-              <div className="browse-results-status" role="status" aria-live="polite" data-browse-enumeration-status="true">
-                {[changeStatusText ?? statusText, selectionText].filter(Boolean).join(" · ")}
-              </div>
-              {viewMode === "grid" ? <SharedFileGrid
+              {viewMode === "columns" ? <BrowseColumnView
+                source={source}
+                interaction={interaction}
+                t={t}
+                language={language}
+                cachedColumns={columnCache.current}
+                showHidden={showHidden}
+                onActivate={(entry, ancestor) => {
+                  if (entry.entryKind === "directory" && ancestor !== null) {
+                    source.navigateInto(entry, ancestor);
+                    return;
+                  }
+                  activateEntry(entry);
+                }}
+                onNavigateCrumb={(index) => {
+                  const crumb = source.breadcrumbs[index];
+                  if (crumb) source.navigateToBreadcrumb(crumb);
+                }}
+                onPreview={(entry, trigger, event) => previewController.handleSpace(
+                  previewSourceFromEntry(entry, source.collection),
+                  trigger,
+                  event
+                )}
+                onPreviewOpen={(entry, trigger) => previewController.open(
+                  previewSourceFromEntry(entry, source.collection),
+                  trigger
+                )}
+                onContextMenu={(event, entry) => handleRowContextMenu(event, entry)}
+                onOpenContextMenu={(entry) => openFocusedContextMenu(entry)}
+                onEscape={handleListEscape}
+              /> : viewMode === "grid" ? <SharedFileGrid
                 interaction={interaction}
                 language={language}
                 t={t}
@@ -454,8 +554,12 @@ export function BrowseMode() {
                 onContextMenu={(event, entry) => {
                   if (entry.source === "browse") handleRowContextMenu(event, entry);
                 }}
-                onOpenContextMenu={openFocusedContextMenu}
+                onOpenContextMenu={() => openFocusedContextMenu()}
                 onEscape={handleListEscape}
+                onBackgroundContextMenu={(event) => { event.preventDefault(); setBackgroundMenu({ x: event.clientX, y: event.clientY }); }}
+                onNavigateUp={navigateUp}
+                onRefresh={() => void source.refreshEnumeration()}
+                onTypeToSelect={typeToSelect}
               /> : <SharedFileList
                 sort={source.query.sort}
                 onSort={sortByColumn}
@@ -482,8 +586,12 @@ export function BrowseMode() {
                 onContextMenu={(event, entry) => {
                   if (entry.source === "browse") handleRowContextMenu(event, entry);
                 }}
-                onOpenContextMenu={openFocusedContextMenu}
+                onOpenContextMenu={() => openFocusedContextMenu()}
                 onEscape={handleListEscape}
+                onBackgroundContextMenu={(event) => { event.preventDefault(); setBackgroundMenu({ x: event.clientX, y: event.clientY }); }}
+                onNavigateUp={navigateUp}
+                onRefresh={() => void source.refreshEnumeration()}
+                onTypeToSelect={typeToSelect}
               />}
             </section>
           )}
@@ -500,11 +608,44 @@ export function BrowseMode() {
               title={contextMenu.entry.displayName}
               ariaLabel={t("browseContextMenu")}
               items={browseContextItems}
-              onClose={() => closeContextMenu("action")}
+              closing={contextClosing}
+              onClose={(reason) => closeContextMenu(reason === "escape" ? "escape" : "action")}
             />
           ) : null}
+          {backgroundMenu ? <FileLibraryContextMenu
+            x={backgroundMenu.x}
+            y={backgroundMenu.y}
+            title={source.browse.location.displayName}
+            ariaLabel={t("browseContextMenu")}
+            items={backgroundContextItems}
+            onClose={() => setBackgroundMenu(null)}
+          /> : null}
         </div>
       </div>
+      <FileLibraryStatusBar
+        loadedCount={source.loadedCount}
+        totalCount={source.knownCount}
+        selectionCount={source.selectedCount}
+        selectionScope={source.selectedCount === 0 ? "none" : "loaded"}
+        selectedSize={selectedSize}
+        statusText={[changeStatusText ?? statusText].filter(Boolean).join(" · ")}
+        sourceText={`${source.browse.location.displayName} · ${completion === "complete" ? t("browseEnumerationCompleteShort") : t("browseEnumerationPartialShort")}`}
+        live
+        t={t}
+        actions={<>
+          <button type="button" onClick={source.openLocationPicker}>{t("browseLocationsButton")}</button>
+          <button
+            type="button"
+            disabled={source.enumerationState === "loading"
+              || source.enumerationState === "loading_more"
+              || source.changeState === "checking"
+              || source.changeState === "refreshing"}
+            onClick={() => void source.refreshEnumeration()}
+          >
+            {t("browseRefresh")}
+          </button>
+        </>}
+      />
     </div>
   );
 }

@@ -823,7 +823,7 @@ fn initial_mft_persist_batch_size() -> usize {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| matches!(value, 512 | 1024 | 2048 | 4096 | 8192))
-        .unwrap_or(2048)
+        .unwrap_or(4096)
 }
 
 fn enrich_initial_mft_metadata(entries: &mut [GlobalEntryInput]) {
@@ -2267,7 +2267,9 @@ mod tests {
         legacy.journal_cursor = Some("9001".into());
         legacy.last_full_index_at = Some(111);
         legacy.last_incremental_sync_at = Some(222);
-        legacy.entry_count = 1;
+        // The source-stat triggers derive this field from persisted entries.
+        // Start the fixture empty before inserting its one historical row.
+        legacy.entry_count = 0;
         db.upsert_global_volume(&legacy)
             .expect("seed legacy fallback source");
         db.upsert_global_entries_batch(&[GlobalEntryInput {

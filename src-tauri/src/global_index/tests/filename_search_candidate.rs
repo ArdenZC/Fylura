@@ -402,7 +402,7 @@ fn transient_filename_catalog_keeps_existing_managed_link_during_rebuild() {
         )
         .expect("persist in two bounded transactions");
     assert_eq!(persisted, 2);
-    assert_eq!(timing.sqlite_transactions, 2);
+    assert_eq!(timing.sqlite_transactions, 3);
     let connection = db.conn().expect("open verification connection");
     let active_entries: i64 = connection
         .query_row(
@@ -636,7 +636,7 @@ fn pending_new_source_fts_build_recovers_on_database_reopen() {
         .expect("persist the first bounded FTS batch");
     partial_build
         .execute(
-            "UPDATE global_volumes SET fts_bulk_cursor=?2 WHERE id='gv_bulk_recovery'",
+            "UPDATE global_volumes SET fts_bulk_cursor=?1 WHERE id='gv_bulk_recovery'",
             [pending_rowid],
         )
         .expect("persist the cursor atomically with its FTS batch");

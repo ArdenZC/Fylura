@@ -10,6 +10,7 @@ fn database() -> Connection {
             id TEXT PRIMARY KEY,
             enabled INTEGER NOT NULL,
             coverage_pending INTEGER NOT NULL DEFAULT 0,
+            fts_bulk_build INTEGER NOT NULL DEFAULT 0,
             platform TEXT NOT NULL,
             scope_authorization_state TEXT NOT NULL
         );

@@ -162,7 +162,7 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
 
     const panel = read("src/views/fileLibrary/context/ContextPanel.tsx");
     const css = read("src/views/fileLibrary/fileLibraryV26.css");
-    expect(panel).toContain("if (layout === \"large\" || usePaneOverlay) restoreFileLibraryFocus(restoreFocus)");
+    expect(panel).toContain("if (inline || usePaneOverlay) restoreFileLibraryFocus(restoreFocus)");
     expect(css).toContain(".file-library-command-search input:focus-visible");
     expect(css).toContain("outline: 2px solid CanvasText");
     expect(css).toContain(".file-library-workspace .file-library-command-search input:focus-visible,");

@@ -6,7 +6,7 @@ import { buttonIconDanger, buttonSecondary, cn } from "../../../utils/tw";
 import { compactPath, normalizePathLike } from "../../../utils/viewHelpers";
 import { deriveWatcherPresentation } from "../../../utils/watcherPresentation";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
-import { SettingsControlGroup, SettingsEmptyState, SettingsRow, SettingsSection, SettingsSegmentedControl, SettingsSwitchControl, settingsField } from "../components/SettingsPrimitives";
+import { SettingsControlGroup, SettingsEmptyState, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitchControl, settingsField } from "../components/SettingsPrimitives";
 import type { FolderDeleteConfirmState } from "./settingsSectionTypes";
 
 export interface FileSourcesSettingsSectionProps {
@@ -62,7 +62,7 @@ export function FileSourcesSettingsSection({
             const watcherStatus = watcherStatusForSetting(root, watcherRootStatuses);
             const watcherPresentation = deriveWatcherPresentation(watcherStatus);
             return (
-              <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
+              <div key={root.id} data-settings-item className={cn(compactInteractiveRow(), "px-3 py-2")}>
                 <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                   <div className="min-w-0 text-left">
                     <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
@@ -96,22 +96,18 @@ export function FileSourcesSettingsSection({
       </SettingsControlGroup>
 
       <SettingsControlGroup title={t("settingsOrganizeRoot")} description={t("settingsOrganizeRootDesc")}>
-        <SettingsRow
+        <SettingsSelect
+          id="settings-organize-root-mode"
           label={t("settingsOrganizeRoot")}
-          description={organizeRootMode === "current_folder" ? t("organizeRootCurrentDesc") : organizeRootMode === "zen_canvas_folder" ? t("organizeRootZenCanvasDesc") : t("organizeRootCustomDesc")}
-          hint={t("organizePreviewStillRequired")}
-        >
-          <SettingsSegmentedControl
-            value={organizeRootMode}
-            ariaLabel={t("settingsOrganizeRoot")}
-            options={[
-              { value: "current_folder", label: t("organizeRootCurrentFolder") },
-              { value: "zen_canvas_folder", label: t("organizeRootZenCanvasFolder") },
-              { value: "custom_root", label: t("organizeRootCustomRoot") }
-            ]}
-            onChange={onOrganizeRootMode}
-          />
-        </SettingsRow>
+          description={`${organizeRootMode === "current_folder" ? t("organizeRootCurrentDesc") : organizeRootMode === "zen_canvas_folder" ? t("organizeRootZenCanvasDesc") : t("organizeRootCustomDesc")} ${t("organizePreviewStillRequired")}`}
+          value={organizeRootMode}
+          options={[
+            { value: "current_folder" as const, label: t("organizeRootCurrentFolder") },
+            { value: "zen_canvas_folder" as const, label: t("organizeRootZenCanvasFolder") },
+            { value: "custom_root" as const, label: t("organizeRootCustomRoot") }
+          ]}
+          onChange={onOrganizeRootMode}
+        />
         {organizeRootMode === "custom_root" ? (
           <SettingsRow label={t("organizeRootCustomRoot")} description={t("organizeRootCustomDesc")}>
             <div className="flex min-w-0 flex-wrap items-center gap-2">

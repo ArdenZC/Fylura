@@ -1,13 +1,14 @@
 import { WorkbenchLayout } from "./WorkbenchLayout";
 import { isTauri } from "@tauri-apps/api/core";
 import { FolderComparison } from "../compare/FolderComparison";
-import { Copy, FolderInput, Plus, X } from "lucide-react";
+import { ArrowLeft, Copy, FolderInput, Plus, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  memo,
   useSyncExternalStore,
   type ComponentType,
   type MouseEvent as ReactMouseEvent,
@@ -18,6 +19,7 @@ import {
   useFileLibraryExperience,
 } from "../FileLibraryExperienceProvider";
 import { useChromeContext, useI18nContext } from "../../../contexts/AppContexts";
+import { playOverlayEnter, playOverlayExit, playPaneEnter, prefersReducedMotion } from "../../../utils/motion";
 import { defaultFileLibraryProjection } from "../../../store/useFileLibraryV2Store";
 import { useFileLibraryStore } from "../../../store/useFileLibraryStore";
 import { useAppStore } from "../../../store/useAppStore";
@@ -48,6 +50,29 @@ import { useWorkbenchDrag } from "./useWorkbenchDrag";
 import { readableError } from "../../../utils/viewHelpers";
 import { useNativeFileDrop } from "./useNativeFileDrop";
 import "./workbench.css";
+/**
+ * A 16px glyph that states the current pane arrangement, so the menu trigger
+ * communicates the layout without a text label.
+ */
+function PaneLayoutIcon({ count, layout }: { count: number; layout: "columns" | "grid" }) {
+  const cells = count === 1
+    ? ["0,0,16,16"]
+    : count === 2
+      ? ["0,0,7,16", "9,0,7,16"]
+      : count === 3
+        ? ["0,0,9,7", "0,9,9,7", "11,0,5,16"]
+        : layout === "grid"
+          ? ["0,0,7,7", "9,0,7,7", "0,9,7,7", "9,9,7,7"]
+          : ["0,0,4,16", "6,0,4,16", "12,0,4,16", "0,0,0,0"];
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className="wb-pane-layout-icon">
+      {cells.filter((cell) => cell !== "0,0,0,0").map((cell, index) => {
+        const [x, y, width, height] = cell.split(",").map(Number);
+        return <rect key={index} x={x} y={y} width={width} height={height} rx="1.5" />;
+      })}
+    </svg>
+  );
+}
 function tabLabel(tab: WorkbenchTab, t: Translator) {
   const pane = tab.panes.find((pane) => pane.id === tab.activePaneId)!;
   return (
@@ -478,6 +503,128 @@ export function FileLibraryWorkbench({
     focus,
     t,
   });
+  // Unhiding four virtualized panes in one React commit produced a ~520ms
+  // script task at 4× CPU. Reveal them one per frame; identity, paths and
+  // controllers stay owned by the existing pane model.
+  const [paneReveal, setPaneReveal] = useState<{ tabId: string; count: number }>({ tabId: active.id, count: active.paneCount });
+  useEffect(() => {
+    if (paneReveal.tabId !== active.id) {
+      setPaneReveal({ tabId: active.id, count: active.paneCount });
+      return undefined;
+    }
+    if (paneReveal.count > active.paneCount) {
+      setPaneReveal({ tabId: active.id, count: active.paneCount });
+      return undefined;
+    }
+    if (paneReveal.count >= active.paneCount) return undefined;
+    const frame = requestAnimationFrame(() => {
+      setPaneReveal((current) => current.tabId === active.id
+        ? { tabId: current.tabId, count: Math.min(active.paneCount, current.count + 1) }
+        : current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active.id, active.paneCount, paneReveal]);
+  const revealCount = paneReveal.tabId === active.id ? Math.min(paneReveal.count, active.paneCount) : active.paneCount;
+  const paneMotionRef = useRef<{ count: number; ids: string[] } | null>(null);
+  useLayoutEffect(() => {
+    const panes = [...(root.current?.querySelectorAll<HTMLElement>(".wb-pane") ?? [])]
+      .filter((pane) => pane.offsetParent !== null);
+    const ids = panes.map((pane) => pane.getAttribute("data-pane-id") ?? "");
+    const previous = paneMotionRef.current;
+    paneMotionRef.current = { count: revealCount, ids };
+    if (!previous || previous.count === revealCount) return;
+    // Only the panes that did not exist before land in; re-running the entrance
+    // on every existing pane made a layout change look like a full refresh.
+    const previousIds = new Set(previous.ids);
+    panes.forEach((pane, index) => {
+      const newlyRevealed = index >= previous.count || !previousIds.has(ids[index]);
+      if (newlyRevealed) playPaneEnter(pane);
+    });
+  }, [revealCount, active.layout]);
+
+  // Keep the known pane ids current for renders that do not change the count
+  // (initial hydration, async pane admission). Without this a first layout
+  // change saw an empty previous set and replayed every pane.
+  useLayoutEffect(() => {
+    if (!paneMotionRef.current || paneMotionRef.current.count !== active.paneCount) return;
+    const ids = [...(root.current?.querySelectorAll<HTMLElement>(".wb-pane") ?? [])]
+      .filter((pane) => pane.offsetParent !== null)
+      .map((pane) => pane.getAttribute("data-pane-id") ?? "");
+    if (ids.length !== paneMotionRef.current.ids.length || ids.some((id, index) => id !== paneMotionRef.current?.ids[index])) {
+      paneMotionRef.current = { count: active.paneCount, ids };
+    }
+  });
+
+  const [paneMenuOpen, setPaneMenuOpen] = useState(false);
+  const [paneMenuClosing, setPaneMenuClosing] = useState(false);
+  const paneMenuRef = useRef<HTMLDivElement | null>(null);
+  const paneMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const paneMenuTimerRef = useRef<number | null>(null);
+
+  function closePaneMenuNow(restore = false) {
+    if (paneMenuTimerRef.current !== null) {
+      window.clearTimeout(paneMenuTimerRef.current);
+      paneMenuTimerRef.current = null;
+    }
+    setPaneMenuClosing(false);
+    setPaneMenuOpen(false);
+    if (restore) paneMenuTriggerRef.current?.focus({ preventScroll: true });
+  }
+
+  function dismissPaneMenu(restore = false) {
+    if (!paneMenuOpen || paneMenuClosing || paneMenuTimerRef.current !== null) return;
+    if (prefersReducedMotion()) {
+      closePaneMenuNow(restore);
+      return;
+    }
+    if (restore) paneMenuTriggerRef.current?.focus({ preventScroll: true });
+    setPaneMenuClosing(true);
+    paneMenuTimerRef.current = window.setTimeout(() => {
+      paneMenuTimerRef.current = null;
+      closePaneMenuNow(restore);
+    }, 130);
+  }
+
+  // Keep the latest dismiss closure for document listeners without re-running
+  // the entrance on every render (hover, focus and size changes re-render).
+  const dismissPaneMenuRef = useRef(dismissPaneMenu);
+  dismissPaneMenuRef.current = dismissPaneMenu;
+
+  useEffect(() => {
+    if (!paneMenuOpen) return;
+    playOverlayEnter(paneMenuRef.current, "menu", { origin: "top right" });
+  }, [paneMenuOpen]);
+
+  useEffect(() => {
+    if (!paneMenuOpen) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (paneMenuRef.current?.contains(target) || paneMenuTriggerRef.current?.contains(target)) return;
+      dismissPaneMenuRef.current(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      dismissPaneMenuRef.current(true);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [paneMenuOpen]);
+
+  useEffect(() => {
+    if (!paneMenuClosing) return;
+    void playOverlayExit(paneMenuRef.current, "menu");
+  }, [paneMenuClosing]);
+
+  useEffect(() => () => {
+    if (paneMenuTimerRef.current !== null) window.clearTimeout(paneMenuTimerRef.current);
+  }, []);
+
   return (
     <div
       ref={root}
@@ -555,66 +702,141 @@ export function FileLibraryWorkbench({
         >
           <Plus size={17} />
         </button>
-        <select className="wb-split-button" aria-label={t("wbPaneCount")} disabled={locked}
-          value={active.paneCount} onChange={(event) => model.setPaneCount(active.id, Number(event.target.value))}>
-          {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{t("wbPane")} × {count}</option>)}
-        </select>
-        {active.paneCount === 4 && <select className="wb-split-button" aria-label={t("wbLayout")} disabled={locked}
-          value={active.layout} onChange={(event) => model.setLayout(active.id, event.target.value as "grid" | "columns")}>
-          <option value="grid">2 × 2</option><option value="columns">{t("wbColumns")}</option>
-        </select>}
-      {active.paneCount > 1 && (
-        <div className="wb-pane-actions">
-          {visiblePanes.map((pane, index) => (
-            <button
-              key={pane.id}
-              className="wb-side-button"
-              aria-pressed={active.activePaneId === pane.id}
-              disabled={locked}
-              onClick={() => focus(active.id, pane.id)}
-            >
-              {t("wbPane")} {index + 1}
-            </button>
-          ))}
-          <button className="wb-icon" disabled={transferLocked} aria-label={t("wbClosePane")} onClick={() => {
-            clearExpandedTreePaths(active.activePaneId);
-            void model.closePane(active.id, active.activePaneId);
-          }}><X size={14} /></button>
-          <button className="wb-icon" disabled={locked || visiblePanes[0].id === active.activePaneId}
-            aria-label={t("wbReorderPane")} onClick={() => model.movePane(active.id, active.activePaneId, -1)}>←</button>
-          <select aria-label={t("wbDestinationPane")} value={destinationPane?.id ?? ""} disabled={locked}
-            onChange={(event) => setTargets((current) => ({ ...current, [active.id]: event.target.value }))}>
-            {visiblePanes.filter((pane) => pane.id !== active.activePaneId).map((pane) =>
-              <option key={pane.id} value={pane.id}>{t("wbPane")} {visiblePanes.indexOf(pane) + 1}: {pane.path || t("wbNewFolderTab")}</option>)}
-          </select>
-          <span className="wb-pane-hint">
-            {!wide ? t("wbCompactPane") : t("wbDragHint")}
-          </span>
+        <div className="wb-pane-menu" data-pane-menu data-open={paneMenuOpen ? "true" : "false"}>
           <button
-            className="wb-cross-button"
-            aria-label={t("wbCopyOther")} title={t("wbCopyOther")}
-            disabled={!canTransfer}
-            onClick={() =>
-              useFileManagementStore.getState().requestAction("copy_other")
-            }
+            ref={paneMenuTriggerRef}
+            type="button"
+            className="wb-pane-menu-trigger"
+            aria-label={t("wbPaneCount")}
+            aria-expanded={paneMenuOpen}
+            aria-haspopup="dialog"
+            title={`${t("wbPaneCount")}: ${active.paneCount}`}
+            data-pane-count={active.paneCount}
+            onClick={() => {
+              if (paneMenuOpen && (paneMenuClosing || paneMenuTimerRef.current !== null)) {
+                setPaneMenuClosing(false);
+                if (paneMenuTimerRef.current !== null) {
+                  window.clearTimeout(paneMenuTimerRef.current);
+                  paneMenuTimerRef.current = null;
+                }
+                playOverlayEnter(paneMenuRef.current, "menu", { origin: "top right" });
+                return;
+              }
+              if (paneMenuOpen) {
+                dismissPaneMenu(true);
+              } else {
+                setPaneMenuClosing(false);
+                setPaneMenuOpen(true);
+              }
+            }}
           >
-            <Copy size={14} />
-            <span className="wb-cross-label">{t("wbCopyOther")}</span>
+            <PaneLayoutIcon count={active.paneCount} layout={active.layout} />
+            <span className="wb-pane-menu-count">{active.paneCount}</span>
           </button>
-          <button
-            className="wb-cross-button"
-            aria-label={t("wbMoveOther")} title={t("wbMoveOther")}
-            disabled={!canTransfer}
-            onClick={() =>
-              useFileManagementStore.getState().requestAction("move_other")
-            }
+          {paneMenuOpen ? <div
+            ref={paneMenuRef}
+            className="wb-pane-menu-panel"
+            data-closing={paneMenuClosing ? "true" : undefined}
+            aria-hidden={paneMenuClosing ? true : undefined}
+            inert={paneMenuClosing ? true : undefined}
+            role="group"
+            aria-label={t("wbPaneLayoutGroup")}
+            onClick={(event) => {
+              // Choosing an action dismisses the menu; a select keeps it open
+              // so the destination picker is not closed mid-selection.
+              if ((event.target as Element).closest("button")) {
+                closePaneMenuNow(false);
+              }
+            }}
           >
-            <FolderInput size={14} />
-            <span className="wb-cross-label">{t("wbMoveOther")}</span>
-          </button>
-          {active.paneCount === 2 && <FolderComparison key={active.id} compact={!wide} paneIds={visiblePanes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} />}
+            <div className="wb-pane-menu-row">
+              <span className="wb-pane-menu-label">{t("wbPaneCount")}</span>
+              <div className="wb-seg" role="group" aria-label={t("wbPaneCount")}>
+                {[1, 2, 3, 4].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    disabled={locked}
+                    aria-pressed={active.paneCount === count}
+                    aria-label={`${t("wbPane")} × ${count}`}
+                    onClick={() => model.setPaneCount(active.id, count)}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {active.paneCount === 4 ? (
+              <div className="wb-pane-menu-row">
+                <span className="wb-pane-menu-label">{t("wbLayout")}</span>
+                <div className="wb-seg" role="group" aria-label={t("wbLayout")}>
+                  <button type="button" disabled={locked} aria-pressed={active.layout === "grid"} onClick={() => model.setLayout(active.id, "grid")}>2 × 2</button>
+                  <button type="button" disabled={locked} aria-pressed={active.layout === "columns"} onClick={() => model.setLayout(active.id, "columns")}>{t("wbColumns")}</button>
+                </div>
+              </div>
+            ) : null}
+            {active.paneCount > 1 ? (
+              <>
+                <div className="wb-pane-menu-row">
+                  <span className="wb-pane-menu-label">{t("wbActivePane")}</span>
+                  <div className="wb-seg" role="group" aria-label={t("wbActivePane")}>
+                    {visiblePanes.map((pane, index) => (
+                      <button
+                        key={pane.id}
+                        type="button"
+                        disabled={locked}
+                        aria-label={`${t("wbPane")} ${index + 1}`}
+                        aria-pressed={active.activePaneId === pane.id}
+                        onClick={() => focus(active.id, pane.id)}
+                      >
+                        {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="wb-pane-menu-row">
+                  <span className="wb-pane-menu-label">{t("wbDestinationPane")}</span>
+                  <select
+                    aria-label={t("wbDestinationPane")}
+                    value={destinationPane?.id ?? ""}
+                    disabled={locked}
+                    onChange={(event) => setTargets((current) => ({ ...current, [active.id]: event.target.value }))}
+                  >
+                    {visiblePanes.filter((pane) => pane.id !== active.activePaneId).map((pane) =>
+                      <option key={pane.id} value={pane.id}>{t("wbPane")} {visiblePanes.indexOf(pane) + 1}: {pane.path || t("wbNewFolderTab")}</option>)}
+                  </select>
+                </div>
+                <div className="wb-pane-menu-actions">
+                  <button type="button" disabled={!canTransfer} onClick={() => useFileManagementStore.getState().requestAction("copy_other")}>
+                    <Copy size={14} aria-hidden="true" />{t("wbCopyOther")}
+                  </button>
+                  <button type="button" disabled={!canTransfer} onClick={() => useFileManagementStore.getState().requestAction("move_other")}>
+                    <FolderInput size={14} aria-hidden="true" />{t("wbMoveOther")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={locked || visiblePanes[0].id === active.activePaneId}
+                    onClick={() => model.movePane(active.id, active.activePaneId, -1)}
+                  >
+                    <ArrowLeft size={14} aria-hidden="true" />{t("wbReorderPane")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={transferLocked}
+                    onClick={() => {
+                      clearExpandedTreePaths(active.activePaneId);
+                      void model.closePane(active.id, active.activePaneId);
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />{t("wbClosePane")}
+                  </button>
+                </div>
+                <p className="wb-pane-menu-hint">{!wide ? t("wbCompactPane") : t("wbDragHint")}</p>
+              </>
+            ) : null}
+          </div> : null}
         </div>
-      )}
+        {active.paneCount === 2 ? <FolderComparison key={active.id} compact={!wide} paneIds={visiblePanes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} /> : null}
       </header>
       {state.tabs.map((tab) => (
         <div
@@ -626,16 +848,19 @@ export function FileLibraryWorkbench({
           hidden={state.activeTabId !== tab.id}
           data-multiple={tab.paneCount > 1 && wide}
         >
-          <WorkbenchLayout tab={tab} model={model} wide={wide} label={t("wbResizePane")} disabled={locked}>
+          <WorkbenchLayout tab={tab} model={model} wide={wide} revealCount={tab.id === active.id ? revealCount : tab.paneCount} label={t("wbResizePane")} disabled={locked}>
           {tab.panes.map((pane, index) => {
+            const tabReveal = tab.id === active.id ? revealCount : tab.paneCount;
             const visible =
               workspaceReady && workspaceActive &&
               state.activeTabId === tab.id &&
-              index < tab.paneCount && (wide || tab.activePaneId === pane.id);
+              index < tab.paneCount && index < tabReveal && (wide || tab.activePaneId === pane.id);
             return (
               <PaneHost
                 key={pane.id}
                 pane={pane}
+                panePath={pane.path}
+                panePathTargetKey={pane.pathTargetKey}
                 Pane={Pane}
                 visible={visible}
                 retained={workspaceReady}
@@ -682,8 +907,18 @@ export function FileLibraryWorkbench({
     </div>
   );
 }
-function PaneHost({
+/**
+ * PaneHost renders a full Files workspace (tree, list, status bar). The
+ * workbench re-renders on every pane-count/focus change; without memoisation a
+ * 1→4 switch re-rendered all four workspaces in one React commit (~520ms at
+ * 4× CPU). The comparator keeps pane identity and visible/focus/drop state,
+ * while ignoring per-render pointer wrappers whose captured pane/tab ids are
+ * stable and whose mutable inputs are compared explicitly.
+ */
+const PaneHost = memo(function PaneHost({
   pane,
+  panePath,
+  panePathTargetKey,
   Pane,
   mutationEpoch,
   restoreError,
@@ -701,6 +936,10 @@ function PaneHost({
   | "registerPreview"
 > & {
   pane: WorkbenchPane;
+  /** Primitive snapshot: the pane object is mutated in place by the model, so
+   * comparing `pane.path` during memoisation would always see the new value. */
+  panePath: string;
+  panePathTargetKey: string | null;
   Pane: ComponentType;
   mutationEpoch: number;
   restoreError: string;
@@ -760,8 +999,8 @@ function PaneHost({
     projection: pane.projection,
     scope,
     setScope,
-    routingHint: pane.path,
-    pathTargetKey: pane.pathTargetKey,
+    routingHint: panePath,
+    pathTargetKey: panePathTargetKey,
     updateLocation,
     registerPreview,
   };
@@ -802,4 +1041,28 @@ function PaneHost({
       </PaneContext.Provider>
     </div>
   );
-}
+}, (previous, next) => {
+  // Per-render wrappers (`activate`, `onPointerDown`, ...) close over this
+  // pane's stable tab/pane ids; every mutable input they read is compared
+  // below, so their identity changes must not invalidate the whole workspace.
+  return previous.pane.id === next.pane.id
+    && previous.panePath === next.panePath
+    && previous.panePathTargetKey === next.panePathTargetKey
+    && previous.pane.projection === next.pane.projection
+    && previous.pane.controller === next.pane.controller
+    && previous.Pane === next.Pane
+    && previous.mutationEpoch === next.mutationEpoch
+    && previous.restoreError === next.restoreError
+    && previous.retained === next.retained
+    && previous.visible === next.visible
+    && previous.focused === next.focused
+    && previous.wideMultiPane === next.wideMultiPane
+    && previous.targetPaneId === next.targetPaneId
+    && previous.internalDrop === next.internalDrop
+    && previous.externalDrop === next.externalDrop
+    && previous.onPointerMove === next.onPointerMove
+    && previous.onPointerUp === next.onPointerUp
+    && previous.onPointerCancel === next.onPointerCancel
+    && previous.onLostPointerCapture === next.onLostPointerCapture
+    && previous.onClickCapture === next.onClickCapture;
+});

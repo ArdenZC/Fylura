@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { prefersReducedMotion } from "../../../utils/motion";
 import type { BrowsePresentationEntry } from "../presentation/contracts";
 import { resolveBrowseContextMenuTarget } from "../list/contextMenuTarget";
 import type { BrowseSourceOwner } from "./browseSourceOwner";
@@ -25,6 +26,20 @@ export function useBrowseContextMenu({
   restoreFocus: (target: HTMLElement | null) => void;
 }) {
   const [contextMenu, setContextMenu] = useState<BrowseContextMenuState | null>(null);
+  const [contextClosing, setContextClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const cancelPendingClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setContextClosing(false);
+  }, []);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   const openContextMenu = useCallback((
     entry: BrowsePresentationEntry,
@@ -50,6 +65,7 @@ export function useBrowseContextMenu({
           : null;
     const rect = row?.getBoundingClientRect();
     const width = 260;
+    cancelPendingClose();
     const height = Math.min(
       window.innerHeight - 16,
       entry.entryKind === "directory" ? 520 : 560,
@@ -60,28 +76,46 @@ export function useBrowseContextMenu({
       x: clamp(anchorX ?? rect?.left ?? 8, width, window.innerWidth),
       y: clamp(anchorY ?? rect?.bottom ?? 8, height, window.innerHeight)
     });
-  }, [source.selectEntry, source.selectedIds]);
+  }, [cancelPendingClose, source.selectEntry, source.selectedIds]);
 
   const closeContextMenu = useCallback((
     reason: CloseReason = "action",
     pointerTarget: EventTarget | null = null
   ) => {
-    const restoreTarget = contextMenu?.restoreFocusElement ?? null;
-    setContextMenu(null);
-    if (reason === "source-change" || reason === "dialog-handoff") return;
-    requestAnimationFrame(() => {
-      if (reason === "outside-pointer") {
-        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        if (isValidFocusTarget(active)) return;
-        const pointerElement = focusablePointerTarget(pointerTarget);
-        if (pointerElement) {
-          pointerElement.focus();
-          if (document.activeElement === pointerElement) return;
+    if (!contextMenu) return;
+    const restoreTarget = contextMenu.restoreFocusElement;
+    const finish = () => {
+      setContextMenu(null);
+      setContextClosing(false);
+      if (reason === "source-change" || reason === "dialog-handoff") return;
+      requestAnimationFrame(() => {
+        if (reason === "outside-pointer") {
+          const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          if (isValidFocusTarget(active)) return;
+          const pointerElement = focusablePointerTarget(pointerTarget);
+          if (pointerElement) {
+            pointerElement.focus();
+            if (document.activeElement === pointerElement) return;
+          }
         }
-      }
-      restoreFocus(restoreTarget);
-    });
-  }, [contextMenu, restoreFocus]);
+        restoreFocus(restoreTarget);
+      });
+    };
+    if (reason === "action" || reason === "source-change" || reason === "dialog-handoff" || prefersReducedMotion()) {
+      cancelPendingClose();
+      finish();
+      return;
+    }
+    if (contextClosing) return;
+    // Escape returns focus before the menu goes inert; outside clicks leave
+    // focus to the pointer target and are reconciled after the exit.
+    if (reason === "escape") restoreFocus(restoreTarget);
+    setContextClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      finish();
+    }, 130);
+  }, [cancelPendingClose, contextClosing, contextMenu, restoreFocus]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -92,22 +126,34 @@ export function useBrowseContextMenu({
     };
   }, [closeContextMenu, contextMenu]);
 
-  const openFocusedContextMenu = useCallback(() => {
+  const openFocusedContextMenu = useCallback((entryOrEvent?: BrowsePresentationEntry) => {
+    // A column can name the row it wants the menu for; the list/grid path
+    // resolves it from the source's focus instead. A React onClick handler can
+    // also be wired directly, so anything that is not an entry falls back to
+    // the focused row rather than being treated as one.
+    const entry = entryOrEvent !== null
+      && typeof entryOrEvent === "object"
+      && "entryRef" in entryOrEvent
+      ? entryOrEvent
+      : undefined;
+    if (entry !== undefined) {
+      openContextMenu(entry, undefined, undefined, false);
+      return;
+    }
     const target = resolveBrowseContextMenuTarget({
       entries: source.entries,
       focusedId: source.focusedId,
       selectedIds: source.selectedIds
     });
-    const entry = target?.entry;
-    if (entry) openContextMenu(entry, undefined, undefined, false);
+    if (target) openContextMenu(target.entry, undefined, undefined, false);
   }, [openContextMenu, source.entries, source.focusedId, source.selectedIds]);
 
-  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLDivElement>, entry: BrowsePresentationEntry) => {
+  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLElement>, entry: BrowsePresentationEntry) => {
     event.preventDefault();
     openContextMenu(entry, event.clientX, event.clientY);
   }, [openContextMenu]);
 
-  return { contextMenu, openContextMenu, closeContextMenu, openFocusedContextMenu, handleRowContextMenu };
+  return { contextMenu, contextClosing, openContextMenu, closeContextMenu, openFocusedContextMenu, handleRowContextMenu };
 }
 
 function clamp(value: number, size: number, extent: number) {

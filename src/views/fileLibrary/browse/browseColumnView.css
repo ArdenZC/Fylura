@@ -1,0 +1,354 @@
+/*
+ * Finder-style column browser inside one pane (v3.40 §0.2).
+ *
+ * 226px ancestor columns, a 244px preview column, 24px single-line rows and
+ * the macOS selection fill. Columns are a presentation of the pane's own
+ * navigation stack; no second enumeration session is created.
+ */
+
+.browse-columns {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: var(--zc-radius-row);
+  background: var(--zc-surface);
+  box-shadow: var(--zc-card-ring);
+  scrollbar-width: thin;
+}
+
+.browse-column {
+  display: flex;
+  width: 226px;
+  min-width: 226px;
+  flex: 0 0 226px;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--zc-divider);
+}
+
+.browse-column-head {
+  display: flex;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  border-bottom: 1px solid transparent;
+  padding: 0 8px 0 10px;
+}
+
+.browse-column-title {
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 1px 4px;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-column-title:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-secondary);
+}
+
+.browse-column-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 5px 5px 12px;
+  list-style: none;
+}
+
+.browse-column-row {
+  display: flex;
+  width: 100%;
+  height: 24px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 0 6px;
+  color: var(--zc-text-primary);
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.browse-column-row:hover {
+  background: var(--zc-surface-hover);
+}
+
+/* The hover rule has the same specificity as the selected rule; keep the
+ * selected fill explicit for both the hovered and non-hovered states. */
+.browse-columns .browse-column-row.is-selected,
+.browse-columns .browse-column-row.is-selected:hover,
+.browse-columns .browse-column-row.is-trail,
+.browse-columns .browse-column-row.is-trail:hover {
+  background: var(--zc-primary);
+  color: #fff;
+}
+
+.browse-columns .browse-column-row.is-selected .browse-column-name,
+.browse-columns .browse-column-row.is-trail .browse-column-name {
+  color: #fff;
+  font-weight: 500;
+}
+
+.browse-column-row.is-selected .browse-column-icon,
+.browse-column-row.is-selected .browse-column-chevron,
+.browse-column-row.is-trail .browse-column-icon,
+.browse-column-row.is-trail .browse-column-chevron {
+  color: #fff;
+}
+
+.browse-column-row:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+/* File-kind colour is shared with list/grid; the selected row overrides it so
+ * the Finder selection stays legible. */
+.browse-column-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--zc-text-tertiary);
+}
+
+.browse-column-icon[data-file-kind="folder"] { color: var(--zc-file-folder); }
+.browse-column-icon[data-file-kind="pdf"] { color: var(--zc-file-pdf); }
+.browse-column-icon[data-file-kind="doc"] { color: var(--zc-file-doc); }
+.browse-column-icon[data-file-kind="sheet"] { color: var(--zc-file-sheet); }
+.browse-column-icon[data-file-kind="deck"] { color: var(--zc-file-slide); }
+.browse-column-icon[data-file-kind="img"] { color: var(--zc-file-image); }
+.browse-column-icon[data-file-kind="video"] { color: var(--zc-file-video); }
+.browse-column-icon[data-file-kind="audio"] { color: var(--zc-file-audio); }
+.browse-column-icon[data-file-kind="code"] { color: var(--zc-file-code); }
+.browse-column-icon[data-file-kind="zip"] { color: var(--zc-file-archive); }
+
+.browse-column-name {
+  overflow: hidden;
+  flex: 1 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-column-chevron {
+  flex: none;
+  color: var(--zc-text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.55;
+}
+
+.browse-column-empty {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  padding: 12px 10px;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+.browse-column-empty button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  color: var(--zc-primary-text);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.browse-column-empty button:hover {
+  background: var(--zc-surface-hover);
+}
+
+/* Finder's preview column: 244px, big document glyph, name, kind and the
+ * three facts the prototype shows, plus the real Quick Preview entry. */
+.browse-column-preview {
+  display: flex;
+  width: 244px;
+  min-width: 244px;
+  flex: 0 0 244px;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  padding: 32px 18px 20px;
+  text-align: center;
+}
+
+.browse-column-preview-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  color: var(--zc-text-tertiary);
+}
+
+.browse-column-preview-icon[data-file-kind="pdf"] { color: var(--zc-file-pdf); }
+.browse-column-preview-icon[data-file-kind="doc"] { color: var(--zc-file-doc); }
+.browse-column-preview-icon[data-file-kind="sheet"] { color: var(--zc-file-sheet); }
+.browse-column-preview-icon[data-file-kind="deck"] { color: var(--zc-file-slide); }
+.browse-column-preview-icon[data-file-kind="img"] { color: var(--zc-file-image); }
+.browse-column-preview-icon[data-file-kind="video"] { color: var(--zc-file-video); }
+.browse-column-preview-icon[data-file-kind="audio"] { color: var(--zc-file-audio); }
+.browse-column-preview-icon[data-file-kind="code"] { color: var(--zc-file-code); }
+.browse-column-preview-icon[data-file-kind="zip"] { color: var(--zc-file-archive); }
+
+.browse-column-preview h4 {
+  margin: 0;
+  color: var(--zc-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.browse-column-preview-kind {
+  margin: 3px 0 0;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+.browse-column-preview dl {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  margin: 18px 0 0;
+  font-size: 11.5px;
+}
+
+.browse-column-preview dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.browse-column-preview dt {
+  color: var(--zc-text-tertiary);
+}
+
+.browse-column-preview dd {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--zc-text-secondary);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-column-preview-open {
+  margin-top: 18px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--zc-surface-subtle);
+  padding: 0 14px;
+  color: var(--zc-text-primary);
+  font-size: 12px;
+}
+
+.browse-column-preview-open:hover {
+  background: var(--zc-surface-hover);
+}
+
+.browse-column-preview-open:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browse-column-row {
+    transition: none;
+  }
+}
+
+/* Loaded / total live in the column head so a partially enumerated directory
+ * never looks complete. The value is tabular so neighbouring columns align. */
+.browse-column-count {
+  flex: none;
+  padding-left: 6px;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.browse-column-row.is-focused {
+  box-shadow: inset 0 0 0 1px var(--zc-focus);
+}
+
+/* Ancestor file rows are inert: the pane's selection belongs to the current
+ * directory, so acting here would target the wrong folder. */
+.browse-column-row.is-static {
+  cursor: default;
+  color: var(--zc-text-secondary);
+}
+
+.browse-column-row.is-static:hover {
+  background: transparent;
+}
+
+/* The prototype gives narrow windows the columns' width back and drops the
+ * preview below 1320px; 5K/Pro keep the full Finder measurements. */
+@media (max-width: 1320px) {
+  .browse-column { width: 206px; min-width: 206px; flex-basis: 206px; }
+  .browse-column-preview { display: none; }
+}
+
+@media (max-width: 1200px) {
+  .browse-column { width: 190px; min-width: 190px; flex-basis: 190px; }
+}
+
+@media (max-width: 1040px) {
+  .browse-column { width: 182px; min-width: 182px; flex-basis: 182px; }
+}
+
+.browse-column-load-more,
+.browse-column-show-more {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 0;
+  border-top: 1px solid var(--zc-divider);
+  background: transparent;
+  padding: 0 8px;
+  color: var(--zc-primary-text);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.browse-column-load-more:hover:not(:disabled),
+.browse-column-show-more:hover {
+  background: var(--zc-surface-hover);
+}
+
+.browse-column-load-more:disabled {
+  color: var(--zc-text-tertiary);
+}
+
+.browse-column-load-more:focus-visible,
+.browse-column-show-more:focus-visible,
+.browse-column-title:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}

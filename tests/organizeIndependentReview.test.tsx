@@ -702,16 +702,16 @@ describe("Organize independent review behavior", () => {
     await flush();
     await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${groupA.groupId}"]`)?.click());
     await flush();
-    expect(container.textContent).toContain(itemA.sourceNameSnapshot);
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(itemA.sourceNameSnapshot);
 
     await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${groupB.groupId}"]`)?.click());
-    expect(container.textContent).not.toContain(itemA.sourceNameSnapshot);
+    expect(container.querySelector('[role="dialog"]')?.textContent).not.toContain(itemA.sourceNameSnapshot);
     expect(container.textContent).toContain("C:/GroupB");
 
     rejectGroupB(new Error("group_b_items_failed"));
     await flush();
     expect(container.textContent).toContain(t("organizeLoadFailedDesc"));
-    expect(container.textContent).not.toContain(itemA.sourceNameSnapshot);
+    expect(container.querySelector('[role="dialog"]')?.textContent).not.toContain(itemA.sourceNameSnapshot);
   });
 
   it("keeps group acceptance out of requires-decision when the backend action intersection is unavailable and confirms a single ordinary item mutation", async () => {

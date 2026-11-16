@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SETTINGS_SECTION_EVENT } from "../../../components/spotlight/commandRegistry";
+import { scrollSettingsSectionIntoView } from "../components/SettingsPrimitives";
 import {
-  activeSettingsSectionId,
-  scrollSettingsSectionIntoView
-} from "../components/SettingsPrimitives";
-import {
-  SETTINGS_SECTION_IDS,
   isProgressiveSettingsSectionId,
   settingsNavigationSectionId,
   settingsSectionRequestTarget
@@ -15,20 +11,26 @@ export { SETTINGS_SECTION_IDS } from "../settingsSectionModel";
 
 type SettingsFocusOptions = { focusContent?: boolean };
 
+/**
+ * v3.40 §8.2: Settings renders one section at a time. Navigation is explicit
+ * state instead of a scroll-spy, but deep links, focus placement, disclosure
+ * reveal and the single scroll owner stay unchanged.
+ */
 export function useSettingsNavigationController() {
   const [activeSettingsSection, setActiveSettingsSection] = useState("settings-general");
   const settingsScrollRef = useRef<HTMLDivElement | null>(null);
-  const settingsScrollFrameRef = useRef<number | null>(null);
-  const pendingInitialSectionRef = useRef(false);
 
   const focusSettingsSection = useCallback((sectionId: string, options: SettingsFocusOptions = {}) => {
     const targetId = settingsSectionRequestTarget(sectionId);
     const navigationId = settingsNavigationSectionId(targetId);
     setActiveSettingsSection(navigationId);
     window.requestAnimationFrame(() => {
-      scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, {
+      const container = settingsScrollRef.current;
+      if (!container) return;
+      container.scrollTop = 0;
+      scrollSettingsSectionIntoView(container, targetId, {
         ...options,
-        revealContent: isProgressiveSettingsSectionId(targetId)
+        revealContent: isProgressiveSettingsSectionId(targetId) || targetId !== navigationId
       });
     });
   }, []);
@@ -45,7 +47,6 @@ export function useSettingsNavigationController() {
       const pendingSection = window.sessionStorage.getItem(SETTINGS_SECTION_EVENT);
       if (pendingSection) {
         hasPendingSection = true;
-        pendingInitialSectionRef.current = true;
         window.sessionStorage.removeItem(SETTINGS_SECTION_EVENT);
         focusSettingsSection(pendingSection);
       }
@@ -59,35 +60,6 @@ export function useSettingsNavigationController() {
     }
     return () => window.removeEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
   }, [focusSettingsSection]);
-
-  useEffect(() => {
-    const container = settingsScrollRef.current;
-    if (!container) return undefined;
-
-    const updateActiveSection = () => {
-      settingsScrollFrameRef.current = null;
-      if (pendingInitialSectionRef.current) {
-        pendingInitialSectionRef.current = false;
-        return;
-      }
-      const nextSectionId = activeSettingsSectionId(container, SETTINGS_SECTION_IDS);
-      if (!nextSectionId) return;
-      setActiveSettingsSection((current) => current === nextSectionId ? current : nextSectionId);
-    };
-
-    const scheduleUpdate = () => {
-      if (settingsScrollFrameRef.current !== null) return;
-      settingsScrollFrameRef.current = window.requestAnimationFrame(updateActiveSection);
-    };
-
-    container.addEventListener("scroll", scheduleUpdate, { passive: true });
-    scheduleUpdate();
-    return () => {
-      container.removeEventListener("scroll", scheduleUpdate);
-      if (settingsScrollFrameRef.current !== null) window.cancelAnimationFrame(settingsScrollFrameRef.current);
-      settingsScrollFrameRef.current = null;
-    };
-  }, []);
 
   return { activeSettingsSection, focusSettingsSection, settingsScrollRef };
 }

@@ -1,0 +1,1024 @@
+/*
+ * Files workspace chrome — v3.40 baseline.
+ *
+ * Covers the surfaces that frame the file list: the tab strip, the single
+ * location row (history + breadcrumb + tools), the compact action strip, the
+ * inline directory tree and the content/inspector split. List internals
+ * (row rhythm, marquee, inline rename) keep their own owners.
+ */
+
+.file-library-workspace {
+  --file-library-column-gap: 0px;
+  --file-library-command-height: 44px;
+  gap: 0;
+}
+
+/* ------------------------------------------------------------- tab strip */
+
+/* The tree keeps its six grouped sections; the prototype drops the explanatory
+ * paragraph so the column reads as navigation, not documentation. */
+.file-library-navigation-description {
+  display: none;
+}
+
+.file-library-navigation-header {
+  padding: 0 8px 4px;
+}
+
+.wb-workbench {
+  background: transparent;
+}
+
+.wb-tabs-row {
+  min-height: var(--zc-tabstrip-height);
+  padding: 6px 12px;
+  gap: 4px;
+  border-bottom: 1px solid var(--zc-divider);
+  background: color-mix(in srgb, var(--zc-canvas) 72%, transparent);
+}
+
+.wb-tabs {
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.wb-tab {
+  position: relative;
+  max-width: 220px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--zc-text-secondary);
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.wb-tab:hover {
+  background: rgba(24, 48, 80, 0.055);
+}
+
+:root.dark .wb-tab:hover {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.wb-tab[data-active="true"] {
+  background: var(--zc-surface);
+  color: var(--zc-text-primary);
+  box-shadow: 0 0 0 1px rgba(24, 48, 80, 0.1);
+}
+
+:root.dark .wb-tab[data-active="true"] {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.wb-tab > [role="tab"] {
+  min-height: 28px;
+  padding: 0 18px;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.wb-tab-close {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  opacity: 0.32;
+}
+
+.wb-tab:hover .wb-tab-close,
+.wb-tab[data-active="true"] .wb-tab-close,
+.wb-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.wb-icon {
+  flex-basis: 28px;
+  min-height: 28px;
+  border-radius: var(--zc-radius-control);
+  color: var(--zc-text-secondary);
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard),
+    color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.wb-icon:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-split-button {
+  min-height: 28px;
+  border: 0;
+  border-radius: var(--zc-radius-control);
+  background: transparent;
+  padding: 0 6px;
+  color: var(--zc-text-secondary);
+  font-size: 11.5px;
+}
+
+.wb-split-button:hover {
+  background: var(--zc-surface-hover);
+}
+
+/* ---------------------------------------------------------- location row */
+
+.file-library-location-row,
+.wb-pane .file-library-workspace .file-library-location-row {
+  min-height: var(--file-library-command-height);
+  gap: 8px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--zc-divider);
+}
+
+.file-library-location-row > .wb-path-section,
+.wb-pane .file-library-workspace .file-library-location-row > .wb-path-section {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wb-pathbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.wb-pathbar .wb-icon {
+  flex: 0 0 28px;
+  width: 28px;
+  min-height: 28px;
+  border-radius: var(--zc-radius-control);
+  color: var(--zc-text-secondary);
+}
+
+.wb-pathbar .wb-icon:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-crumbs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+  color: var(--zc-text-tertiary);
+}
+
+.wb-crumbs > svg {
+  flex: none;
+  margin-right: 4px;
+  opacity: 0.7;
+}
+
+.wb-crumbs button {
+  max-width: 220px;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 3px 6px;
+  color: var(--zc-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-crumbs button:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+/* With no folder open the crumb area states where the pane is instead of
+ * leaving an unexplained gap between history and the right-hand tools. */
+.wb-crumbs-empty {
+  overflow: hidden;
+  padding: 0 6px;
+  color: var(--zc-text-tertiary);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The last crumb is the current folder: it reads as text, not a link. */
+.wb-crumbs button[aria-current="page"] {
+  color: var(--zc-text-primary);
+  font-weight: 560;
+}
+
+.wb-path-edit {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+}
+
+.wb-path-edit input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--zc-control-border);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface);
+  padding: 0 8px;
+  color: var(--zc-text-primary);
+  font-size: 12.5px;
+}
+
+.file-library-command-bar,
+.wb-pane .file-library-workspace .file-library-location-row .file-library-command-bar {
+  flex: 0 1 auto;
+  min-height: 32px;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  flex-wrap: nowrap;
+}
+
+.file-library-command-button,
+.file-library-mode-button {
+  min-height: 28px;
+  gap: 5px;
+  border: 0;
+  border-radius: var(--zc-radius-control);
+  padding: 0 7px;
+  color: var(--zc-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.file-library-command-button:hover:not(:disabled),
+.file-library-mode-button:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.file-library-command-button[aria-pressed="true"],
+.file-library-mode-button[aria-selected="true"],
+.file-library-context-toggle[aria-pressed="true"] {
+  background: var(--zc-primary-soft);
+  color: var(--zc-primary-text);
+}
+
+.file-library-command-group,
+.file-library-view-switch {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  gap: 0;
+  min-height: 28px;
+}
+
+/* ------------------------------------------------------- action strip */
+
+.file-library-workspace .fm-workflow,
+.wb-pane .file-library-workspace .fm-workflow {
+  min-height: 36px;
+  padding: 3px 14px;
+  border-bottom: 1px solid var(--zc-divider);
+}
+
+.fm-primary-toolbar {
+  gap: 1px;
+}
+
+.fm-workflow .fm-selection {
+  margin-right: 8px;
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+.fm-workflow .fm-selection strong {
+  color: var(--zc-text-primary);
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+
+.fm-toolbar button,
+.fm-panel button {
+  min-height: 28px;
+  border: 0;
+  border-radius: var(--zc-radius-control);
+  padding: 0 8px;
+  background: transparent;
+  color: var(--zc-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.fm-toolbar button:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.fm-more-trigger {
+  margin-left: 4px;
+}
+
+/* ------------------------------------------------------------- body grid */
+
+.file-library-workspace-body {
+  gap: 0;
+}
+
+.file-library-workspace[data-layout="large"][data-tree-inline="true"] .file-library-workspace-body {
+  grid-template-columns: var(--file-tree-width, var(--zc-tree-width)) minmax(0, 1fr);
+}
+
+
+/* Column resizer: a 9px hit band with a 1px visual line that turns primary on
+ * hover/drag (DESIGN-SPEC §9.12). */
+.file-library-tree-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.file-library-tree-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  content: "";
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.file-library-tree-resizer:hover::after,
+.file-library-tree-resizer:focus-visible::after,
+.file-library-tree-resizer:active::after {
+  background: var(--zc-primary);
+}
+
+.file-library-tree-resizer:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+/* Edge capsule when the column is collapsed: the tree stays one click away
+ * without occupying permanent width. */
+.file-library-tree-handle {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 0;
+  display: grid;
+  width: 14px;
+  height: 62px;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 1px solid var(--zc-divider);
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  background: var(--zc-surface);
+  color: var(--zc-text-tertiary);
+  box-shadow: var(--zc-shadow-raised);
+}
+
+.file-library-tree-handle:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+/* The tree is a column, not a card: a single divider separates it from the
+ * list, matching the prototype's flat panel grammar. */
+.file-library-workspace[data-tree-inline="true"] .file-library-navigation-slot {
+  position: relative;
+  border-right: 1px solid var(--zc-divider);
+}
+
+.file-library-navigation-panel {
+  gap: 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 10px 12px;
+  font-size: 12.5px;
+}
+
+.file-library-navigation-panel .file-library-navigation-title,
+.file-library-navigation-panel .file-library-navigation-section-title {
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.014em;
+}
+
+.file-library-navigation-panel .file-library-navigation-item {
+  min-height: 30px;
+  border-radius: 8px;
+  padding: 0 8px;
+  color: var(--zc-text-secondary);
+  font-size: 12.5px;
+}
+
+.file-library-navigation-panel .file-library-navigation-item:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.file-library-navigation-panel .file-library-navigation-item.is-active {
+  background: var(--zc-primary-soft);
+  color: var(--zc-primary-text);
+}
+
+.file-library-navigation-panel .file-library-navigation-footnote {
+  display: none;
+}
+
+.file-library-workspace[data-tree-inline="true"] .file-library-navigation-section {
+  gap: 2px;
+}
+
+.file-library-workspace[data-tree-inline="true"] .file-library-navigation-section-title {
+  padding: 6px 8px 2px;
+}
+
+.file-library-content-slot {
+  padding: 14px 20px 0;
+}
+
+.file-library-workspace[data-layout="compact"] .file-library-content-slot {
+  padding: 10px 12px 0;
+}
+
+/* ------------------------------------------------------- start page cards */
+
+/* Location and volume cards read as cards through a hairline ring, not a bold
+ * border: the storefront stays quiet and only the ring separates it. */
+.browse-location-card {
+  border: 0;
+  border-radius: var(--zc-radius-panel);
+  box-shadow: var(--zc-card-ring);
+  padding: 16px;
+}
+
+.browse-location-card.is-unavailable {
+  box-shadow: none;
+  background: var(--zc-surface-subtle);
+}
+
+/* Dark cards need a slightly stronger ring: the surface and the panel share a
+ * value, so the boundary carries the whole separation. */
+:root.dark .browse-location-card:not(.is-unavailable) {
+  background: var(--zc-surface-raised);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+.browse-location-open {
+  border: 1px solid var(--zc-border);
+  border-radius: var(--zc-radius-control);
+  background: var(--zc-surface);
+  padding: 0 12px;
+  color: var(--zc-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.browse-location-open:hover:not(:disabled) {
+  border-color: var(--zc-border-strong);
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+/* The list header, rows and selection column are owned by
+ * `list/sharedFileList.css`; this file only frames the workspace around them. */
+
+/* ------------------------------------------------------------- inspector */
+
+.file-library-context-panel-inline {
+  border: 0;
+  border-left: 1px solid var(--zc-divider);
+  border-radius: 0;
+  background: var(--zc-surface-raised);
+}
+
+.file-library-context-inline-header {
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--zc-divider);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.014em;
+  color: var(--zc-text-tertiary);
+}
+
+.file-library-context-content-inner {
+  gap: 14px;
+  padding: 14px 16px 18px;
+}
+
+/* ----------------------------------------------------------- responsive */
+
+@media (max-width: 1180px) {
+  .file-library-location-row,
+  .wb-pane .file-library-workspace .file-library-location-row {
+    padding-inline: 10px;
+  }
+
+  .file-library-command-bar .file-library-command-button > span {
+    display: none;
+  }
+
+  /* A 50px input is not a search field. Keep a usable floor and let the
+   * breadcrumb give up the space; it truncates cleanly. */
+  .wb-pane .file-library-workspace .file-library-location-row .file-library-command-bar .file-library-command-search {
+    min-width: 150px;
+    max-width: 220px;
+  }
+
+  .file-library-command-bar .file-library-command-search input {
+    min-width: 0;
+  }
+
+  .wb-pane .file-library-workspace .file-library-location-row .file-library-command-bar,
+  .file-library-location-row .file-library-command-bar {
+    flex-shrink: 0;
+  }
+
+  .fm-workflow {
+    padding-inline: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-tab,
+  .wb-icon {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------ pane menu */
+
+/* One trigger replaces the previous row of selects and buttons: the strip
+ * states the arrangement and keeps every pane control one click away. */
+.wb-pane-menu {
+  position: relative;
+  flex: none;
+}
+
+.wb-pane-menu > summary {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--zc-radius-control);
+  padding: 0 7px;
+  color: var(--zc-text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.wb-pane-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.wb-pane-menu > summary:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-pane-menu[open] > summary {
+  background: var(--zc-primary-soft);
+  color: var(--zc-primary-text);
+}
+
+.wb-pane-layout-icon {
+  fill: currentColor;
+  opacity: 0.7;
+}
+
+.wb-pane-menu-count {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-pane-menu-panel {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: 268px;
+  gap: 8px;
+  border: 1px solid var(--zc-divider);
+  border-radius: var(--zc-radius-panel);
+  background: var(--zc-surface-overlay);
+  padding: 10px;
+  box-shadow: var(--zc-shadow-menu);
+}
+
+.wb-pane-menu-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-pane-menu-label {
+  color: var(--zc-text-tertiary);
+  font-size: 11px;
+  letter-spacing: 0.014em;
+}
+
+.wb-pane-menu-row .wb-seg {
+  justify-self: start;
+}
+
+.wb-pane-menu-row select {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid var(--zc-control-border);
+  border-radius: 6px;
+  background: var(--zc-surface);
+  padding: 0 4px;
+  color: var(--zc-text-secondary);
+  font-size: 11.5px;
+}
+
+.wb-pane-menu-actions {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--zc-divider);
+  padding-top: 6px;
+}
+
+.wb-pane-menu-actions button {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 6px;
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.wb-pane-menu-actions button:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-pane-menu-actions button:disabled {
+  opacity: 0.38;
+}
+
+.wb-pane-menu-hint {
+  margin: 0;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------- multi-pane state */
+
+/* The focused pane is marked with a single inset rule, not a colour wash: the
+ * rows inside it already own the selection colour. */
+.wb-tab-panel[data-multiple="true"] .wb-pane[data-focused="true"] {
+  box-shadow: inset 0 0 0 1px var(--zc-primary);
+}
+
+.wb-tab-panel[data-multiple="true"] .wb-pane {
+  border-radius: 8px;
+}
+
+.wb-divider {
+  background: transparent;
+}
+
+.wb-divider-column::after,
+.wb-divider-row::after {
+  position: absolute;
+  background: var(--zc-divider);
+  content: "";
+  transition: background-color var(--zc-duration-fast) var(--zc-ease-standard);
+}
+
+.wb-divider-column::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+}
+
+.wb-divider-row::after {
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+}
+
+.wb-divider:hover::after,
+.wb-divider:focus-visible::after,
+.wb-divider:active::after {
+  background: var(--zc-primary);
+}
+
+.wb-divider:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: -2px;
+}
+
+/* ------------------------------------------------------------- inspector */
+
+/* Fact rows follow the prototype's 9px rhythm with a single hairline per row,
+ * and the value column reads one step louder than its label. */
+.file-library-context-facts {
+  gap: 0;
+  font-size: 12px;
+}
+
+.file-library-context-facts > div {
+  gap: 10px;
+  border-bottom: 1px solid var(--zc-divider);
+  padding: 9px 0;
+}
+
+.file-library-context-facts > div:first-child {
+  border-top: 1px solid var(--zc-divider);
+}
+
+.file-library-context-facts dt {
+  color: var(--zc-text-tertiary);
+  font-size: 11.5px;
+}
+
+.file-library-context-facts dd {
+  color: var(--zc-text-secondary);
+  font-size: 12px;
+}
+
+.file-library-context-selection-count {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.file-library-context-entry-heading > div > strong,
+.file-library-context-entry-heading strong {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.file-library-context-note {
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* Small panes: the start page becomes a compact list instead of a grid of
+ * half-width cards that pushes every location below the fold. */
+@container (max-width: 620px) {
+  /* browseMode.css is imported by the view after this stylesheet, so these
+   * narrowing rules carry the extra class to win the cascade. */
+  .browse-mode .browse-mode-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .browse-mode-header .browse-mode-description {
+    display: none;
+  }
+
+  .browse-mode .browse-location-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .browse-mode .browse-location-card {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+  }
+
+  .browse-mode .browse-location-card-header {
+    flex: 1 1 auto;
+  }
+
+  .browse-mode .browse-location-actions {
+    flex: none;
+  }
+
+  .browse-mode .browse-location-title {
+    font-size: 12.5px;
+  }
+}
+
+/* ------------------------------------------------------------- devices */
+/* Prototype device rows: icon, name + chip, real capacity line, bar and an
+ * eject action that appears on hover/focus. All values come from the mounted
+ * volume projection; no demo capacities are invented. */
+[data-file-library-navigation] .file-library-device-row,
+.file-library-navigation-panel .file-library-device-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 4px 5px 6px;
+  border-radius: 8px;
+}
+
+.file-library-device-row:hover,
+.file-library-device-row:focus-within {
+  background: var(--zc-surface-hover);
+}
+
+.file-library-device-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--zc-text-tertiary);
+}
+
+.file-library-device-row[data-device-offline="true"] .file-library-device-icon {
+  opacity: 0.5;
+}
+
+.file-library-device-open {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+  padding: 0 22px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.file-library-device-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.file-library-device-name b {
+  overflow: hidden;
+  color: var(--zc-text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-library-device-chip {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--zc-surface-subtle);
+  color: var(--zc-text-secondary);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.file-library-device-chip.is-ro {
+  border-color: rgba(132, 84, 20, 0.18);
+  background: rgba(132, 84, 20, 0.1);
+  color: var(--zc-warning-text);
+}
+
+.file-library-device-chip.is-cloud {
+  border-color: rgba(16, 113, 220, 0.16);
+  background: rgba(16, 113, 220, 0.09);
+  color: var(--zc-primary-text);
+}
+
+.file-library-device-chip.is-off {
+  color: var(--zc-text-tertiary);
+}
+
+.dark .file-library-device-chip.is-ro {
+  border-color: rgba(196, 140, 48, 0.26);
+  background: rgba(196, 140, 48, 0.16);
+}
+
+.dark .file-library-device-chip.is-cloud {
+  border-color: rgba(102, 176, 255, 0.22);
+  background: rgba(102, 176, 255, 0.14);
+}
+
+.file-library-device-detail {
+  overflow: hidden;
+  color: var(--zc-text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-library-device-bar {
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(24, 48, 80, 0.08);
+}
+
+.dark .file-library-device-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.file-library-device-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--zc-primary);
+  opacity: 0.55;
+}
+
+.file-library-device-eject {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--zc-text-tertiary);
+  opacity: 0;
+  transition: opacity 120ms var(--zc-ease-standard), background-color 120ms var(--zc-ease-standard);
+}
+
+.file-library-device-row:hover .file-library-device-eject,
+.file-library-device-row:focus-within .file-library-device-eject {
+  opacity: 1;
+}
+
+.file-library-device-eject:hover {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+/* Segmented control inside the pane menu. The menu was rebuilt as a controlled
+ * popover in PR 2 but only its layout hook survived; without these rules the
+ * 1/2/3/4 counts rendered as raw text. */
+.wb-pane-menu-row .wb-seg {
+  display: inline-flex;
+  justify-self: start;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--zc-divider);
+  border-radius: 8px;
+  background: var(--zc-surface-subtle);
+}
+
+.wb-pane-menu-row .wb-seg > button {
+  display: grid;
+  min-width: 28px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--zc-text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 0 6px;
+}
+
+.wb-pane-menu-row .wb-seg > button:hover:not(:disabled) {
+  background: var(--zc-surface-hover);
+  color: var(--zc-text-primary);
+}
+
+.wb-pane-menu-row .wb-seg > button[aria-pressed="true"] {
+  background: var(--zc-primary-soft);
+  color: var(--zc-primary-text);
+  font-weight: 600;
+}
+
+.wb-pane-menu-row .wb-seg > button:disabled {
+  opacity: 0.5;
+}
+
+.wb-pane-menu-row .wb-seg > button:focus-visible {
+  outline: 2px solid var(--zc-focus);
+  outline-offset: 1px;
+}

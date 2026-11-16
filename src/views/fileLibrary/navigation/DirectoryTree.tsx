@@ -688,12 +688,21 @@ export function DirectoryTree({
           </button>
         </div>
         {node.error !== null ? <p className="file-library-navigation-muted flex items-center gap-1" role="status" style={{ paddingInlineStart: `${(node.depth + 1) * 12 + 6}px` }}><CircleAlert size={13} aria-hidden="true" />{describeDirectoryTreeError(node.error, t)}</p> : null}
-        {canExpand && node.expanded && node.childKeys.length > 0 ? (
-          <div role="group" className="file-library-navigation-list file-library-navigation-sublist">
-            {node.childKeys.map((childKey) => {
-              const child = nodes.get(childKey);
-              return child ? renderNode(child) : null;
-            })}
+        {canExpand && node.childKeys.length > 0 ? (
+          <div
+            className="file-library-tree-branch"
+            data-open={node.expanded ? "true" : "false"}
+            aria-hidden={!node.expanded}
+            inert={!node.expanded ? true : undefined}
+          >
+            <div data-tree-branch-inner>
+              <div role="group" className="file-library-navigation-list file-library-navigation-sublist">
+                {node.childKeys.map((childKey) => {
+                  const child = nodes.get(childKey);
+                  return child ? renderNode(child) : null;
+                })}
+              </div>
+            </div>
           </div>
         ) : null}
         {node.depth >= MAX_DEPTH ? <p className="file-library-navigation-muted" role="status" style={{ paddingInlineStart: `${(node.depth + 1) * 12 + 6}px` }}>{t("fileLibraryNavigationTreeDepthLimit")}</p> : null}
@@ -715,7 +724,7 @@ export function DirectoryTree({
   return (
     <section className="file-library-navigation-section" aria-labelledby={`file-library-navigation-tree-heading-${paneId}`} data-file-library-directory-tree="true">
       <div className="file-library-navigation-section-heading">
-        <h3 id={`file-library-navigation-tree-heading-${paneId}`} className="file-library-navigation-section-title">{t("fileLibraryNavigationTree")}</h3>
+        <h3 id={`file-library-navigation-tree-heading-${paneId}`} className="file-library-navigation-section-title">{platform === "darwin" ? t("fileLibraryNavigationTreeMac") : t("fileLibraryNavigationTree")}</h3>
         <button type="button" className="file-library-navigation-group-toggle !min-h-7 !w-7 !justify-center !p-0" disabled={sessionLoading || !rootKey || currentPath === null || treeBusy} title={t("fileLibraryNavigationTreeLocateCurrent")} aria-label={t("fileLibraryNavigationTreeLocateCurrent")} onClick={locateCurrentFolder}>
           <LocateFixed size={14} aria-hidden="true" />
         </button>

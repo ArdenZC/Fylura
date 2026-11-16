@@ -534,7 +534,19 @@ export async function mockFileWorkspaceInvoke<T>(
         { id: "home", kind: "folder", displayName: "Home", path: "/mock/home", available: true },
         { id: "desktop", kind: "folder", displayName: "Desktop", path: "/mock/home/Desktop", available: true },
         { id: "downloads", kind: "folder", displayName: "Downloads", path: "/mock/home/Downloads", available: true },
-        { id: "documents", kind: "folder", displayName: "Documents", path: "/mock/home/Documents", available: true }
+        { id: "documents", kind: "folder", displayName: "Documents", path: "/mock/home/Documents", available: true },
+        ...(new URLSearchParams(globalThis.location?.search ?? "").has("devices-fixture")
+          ? [
+            {
+              id: "volume:E:", kind: "volume", displayName: "Archive SSD", path: "E:/", available: true,
+              volume: { identity: "fixture-ssd", kind: "removable", readOnly: true, availableBytes: 60 * 1024 ** 3, totalBytes: 256 * 1024 ** 3, canEject: true, availability: "available" }
+            },
+            {
+              id: "volume:nas", kind: "volume", displayName: "Studio NAS", path: "\\nas\studio", available: false,
+              volume: { identity: "fixture-nas", kind: "network", readOnly: null, availableBytes: null, totalBytes: null, canEject: false, availability: "offline" }
+            }
+          ]
+          : [])
       ] as T;
     case "file_workspace_change_start":
       return startChange(request as unknown as ChangeStartRequest) as T;

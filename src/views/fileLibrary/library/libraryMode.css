@@ -47,3 +47,17 @@
     scroll-behavior: auto;
   }
 }
+
+.file-library-library-mode-result {
+  transition: grid-template-columns var(--zc-dur-panel) var(--zc-spring-smooth);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-library-library-mode-result {
+    transition: none;
+  }
+}
+
+.file-library-workspace[data-layout="medium"] .file-library-library-mode-result.has-context {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 260px);
+}

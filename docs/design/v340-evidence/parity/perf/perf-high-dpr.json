@@ -1,0 +1,47 @@
+{
+  "chrome": "151.0.7922.34",
+  "viewport": "1440x900",
+  "dpr": 2,
+  "platform": "Win32 mock",
+  "fixture": "browser-mock=1 (managed mock root)",
+  "scenarios": [
+    {
+      "cpu": 1,
+      "dpr": 2,
+      "verified": true,
+      "animation": {
+        "id": "zc-pane-in",
+        "duration": 260,
+        "state": "running"
+      },
+      "frames": 111,
+      "p50": 16.7,
+      "p95": 16.8,
+      "dropped": 3,
+      "layout": 98,
+      "layoutMs": 36,
+      "styleMs": 31,
+      "loafCount": 1,
+      "loafMax": 56
+    },
+    {
+      "cpu": 4,
+      "dpr": 2,
+      "verified": true,
+      "animation": {
+        "id": "zc-pane-in",
+        "duration": 260,
+        "state": "running"
+      },
+      "frames": 96,
+      "p50": 16.7,
+      "p95": 133.3,
+      "dropped": 15,
+      "layout": 104,
+      "layoutMs": 255,
+      "styleMs": 179,
+      "loafCount": 16,
+      "loafMax": 366
+    }
+  ]
+}

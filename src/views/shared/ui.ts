@@ -1,4 +1,4 @@
-import { createElement, useId, useRef, type InputHTMLAttributes, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { createElement, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { Variants } from "motion/react";
 import { Circle, CircleCheck, CircleDot, LoaderCircle, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { ModalPortal } from "../../components/modal/ModalPortal";
@@ -58,6 +58,7 @@ import {
   segmented
 } from "../../components/ui/surfaces";
 import { buttonDanger, buttonPrimary, buttonWarning, buttonSecondary } from "../../utils/tw";
+import { playExitGhost } from "../../utils/motion";
 
 export { Button, IconButton } from "../../components/ui/Button";
 export type { ButtonSize, ButtonVariant } from "../../components/ui/Button";
@@ -452,6 +453,9 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  const ghostRef = useRef<HTMLElement | null>(null);
+  const [present, setPresent] = useState(open);
   const onCancelRef = useRef(onCancel);
   const isProcessingRef = useRef(isProcessing);
   const restoreFocusRef = useRef(restoreFocus);
@@ -461,7 +465,21 @@ export function ConfirmDialog({
   onCancelRef.current = onCancel;
   isProcessingRef.current = isProcessing;
   restoreFocusRef.current = restoreFocus;
-  if (!open) return null;
+  // Confirm/cancel callbacks run in the same tick as the click. Only the
+  // picture stays for the 130ms exit, as an inert snapshot with no handlers.
+  useLayoutEffect(() => {
+    if (open) {
+      // A quick reopen must not sit under the previous 130ms snapshot.
+      ghostRef.current?.remove();
+      ghostRef.current = null;
+      setPresent(true);
+      return;
+    }
+    if (!present) return;
+    ghostRef.current = playExitGhost(backdropRef.current);
+    setPresent(false);
+  }, [open, present]);
+  if (!present) return null;
 
   const ToneIcon = tone === "danger" ? Trash2 : tone === "warning" ? ShieldAlert : CircleCheck;
   const emphasisClass = tone === "danger"
@@ -480,11 +498,12 @@ export function ConfirmDialog({
       },
       children: createElement(
       "div",
-      { className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4" },
+      { ref: backdropRef, "data-confirm-backdrop": "true", className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4" },
       createElement(
         "div",
         {
           className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
+          "data-confirm-card": "true",
           role: tone === "default" ? "dialog" : "alertdialog",
           "aria-modal": "true",
           "aria-labelledby": titleId,

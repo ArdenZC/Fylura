@@ -63,7 +63,7 @@ describe("command modal spotlight polish", () => {
       'relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8'
     );
     expect(commandModal).toContain(
-      'fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] sm:pt-[20vh]'
+      'fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[14vh]'
     );
     expect(commandModal).toContain("<motion.div");
     expect(commandModal).toContain("layout");
@@ -71,11 +71,14 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain('window.removeEventListener("blur", handleBlur)');
     expect(commandModal).toContain("const blurredSnapshot = searchWindowSnapshotRef.current;");
     expect(commandModal).toContain("requestSearchWindowHide(blurredSnapshot)");
-    expect(commandModal).toContain("initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}");
-    expect(commandModal).toContain("animate={{ opacity: 1, y: 0 }}");
-    expect(commandModal).toContain("exit={{ opacity: 0, y: 8 }}");
-    expect(commandModal).toContain("prefersReducedMotion ? { duration: 0 }");
-    expect(commandModal).not.toContain("scale:");
+    expect(commandModal).toContain("initial={prefersReducedMotion ? false : { opacity: 0, y: -8, scale: 0.96 }}");
+    expect(commandModal).toContain("animate={{ opacity: 1, y: 0, scale: 1 }}");
+    expect(commandModal).toContain("exit={{ opacity: 0, scale: 0.985 }}");
+    expect(commandModal).toContain("prefersReducedMotion");
+    expect(commandModal).toContain("? { duration: 0 }");
+    expect(commandModal).toContain("duration: 0.26");
+    expect(commandModal).toContain('max-w-[560px]');
+    expect(commandModal).toContain("[0.34, 1.38, 0.64, 1]");
   });
 
   it("uses polished shortcut badges and active result text treatment", () => {

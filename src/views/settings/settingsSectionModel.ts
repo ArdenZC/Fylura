@@ -32,5 +32,9 @@ export function settingsSectionRequestTarget(sectionId: string) {
 }
 
 export function settingsNavigationSectionId(sectionId: string) {
-  return settingsSectionRequestTarget(sectionId);
+  const target = settingsSectionRequestTarget(sectionId);
+  const match = [...SETTINGS_SECTION_IDS]
+    .sort((left, right) => right.length - left.length)
+    .find((id) => target === id || target.startsWith(`${id}-`));
+  return match ?? target;
 }

@@ -1,0 +1,517 @@
+{
+  "chrome": "151.0.7922.34",
+  "viewport": "1440x900",
+  "dpr": 1,
+  "platform": "Win32 mock",
+  "fixture": "browser-mock=1 (managed mock root)",
+  "runs": [
+    {
+      "cpu": 1,
+      "scenarios": [
+        {
+          "id": "page",
+          "name": "页面切换",
+          "durationMs": 3410,
+          "verified": true,
+          "animation": {
+            "id": "zc-page-in",
+            "duration": 220,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "opacity": "1",
+            "transform": "none"
+          },
+          "frames": 142,
+          "idleFrames": 58,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 61,
+          "recalc": 214,
+          "layoutMs": 49,
+          "styleMs": 42,
+          "scriptMs": 306,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "rail",
+          "name": "侧栏收展",
+          "durationMs": 2080,
+          "verified": true,
+          "animation": {
+            "property": "opacity, padding, border-radius",
+            "duration": "0.14s, 0.2s, 0.2s",
+            "easing": "cubic-bezier(0.2, 0, 0, 1), cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.32, 0.72, 0, 1)"
+          },
+          "closing": null,
+          "final": {
+            "widths": [
+              82.65625,
+              7.84375,
+              189.484375,
+              82.640625,
+              7.84375,
+              189.484375
+            ],
+            "finalWidth": 216
+          },
+          "frames": 75,
+          "idleFrames": 46,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 92,
+          "recalc": 102,
+          "layoutMs": 56,
+          "styleMs": 28,
+          "scriptMs": 177,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "menu",
+          "name": "菜单弹出",
+          "durationMs": 1087,
+          "verified": true,
+          "animation": {
+            "id": "zc-menu-in",
+            "duration": 240,
+            "state": "running"
+          },
+          "closing": {
+            "id": "zc-menu-out",
+            "duration": 130,
+            "state": "running"
+          },
+          "final": {
+            "menuCount": 0
+          },
+          "frames": 60,
+          "idleFrames": 1,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 11,
+          "recalc": 93,
+          "layoutMs": 4,
+          "styleMs": 12,
+          "scriptMs": 30,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "sheet",
+          "name": "确认层",
+          "durationMs": 901,
+          "verified": true,
+          "animation": {
+            "id": "zc-dialog-card-in",
+            "duration": "0.24s"
+          },
+          "closing": null,
+          "final": {
+            "realDialog": 0,
+            "ghost": 0
+          },
+          "frames": 32,
+          "idleFrames": 12,
+          "p50": 16.7,
+          "p95": 49.9,
+          "max": 49.9,
+          "dropped": 4,
+          "layout": 29,
+          "recalc": 77,
+          "layoutMs": 16,
+          "styleMs": 30,
+          "scriptMs": 39,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "tree",
+          "name": "目录树折叠",
+          "durationMs": 1971,
+          "verified": true,
+          "animation": {
+            "property": "grid-template-rows, opacity",
+            "duration": "0.2s, 0.15s",
+            "easing": "cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.2, 0, 0, 1)"
+          },
+          "closing": null,
+          "final": {
+            "beforeHeight": 64,
+            "finalHeight": 64,
+            "mid": [
+              {
+                "open": "false",
+                "height": 8
+              }
+            ]
+          },
+          "frames": 73,
+          "idleFrames": 41,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.7,
+          "dropped": 0,
+          "layout": 92,
+          "recalc": 107,
+          "layoutMs": 41,
+          "styleMs": 10,
+          "scriptMs": 38,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "view",
+          "name": "列表↔网格",
+          "durationMs": 3512,
+          "verified": true,
+          "animation": {
+            "id": "zc-view-swap",
+            "duration": 240,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "list": 1,
+            "grid": 0
+          },
+          "frames": 150,
+          "idleFrames": 56,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 16.8,
+          "dropped": 0,
+          "layout": 60,
+          "recalc": 250,
+          "layoutMs": 26,
+          "styleMs": 44,
+          "scriptMs": 196,
+          "loafCount": 0,
+          "loafMax": 0,
+          "longestLoaf": null,
+          "loafStyleMs": 0
+        },
+        {
+          "id": "layout",
+          "name": "窗格布局切换",
+          "durationMs": 3029,
+          "verified": true,
+          "animation": {
+            "id": "zc-pane-in",
+            "duration": 260,
+            "state": "running"
+          },
+          "closing": null,
+          "final": {
+            "counts": [
+              "2",
+              "4",
+              "3",
+              "1"
+            ]
+          },
+          "frames": 112,
+          "idleFrames": 63,
+          "p50": 16.7,
+          "p95": 16.7,
+          "max": 33.3,
+          "dropped": 2,
+          "layout": 98,
+          "recalc": 207,
+          "layoutMs": 38,
+          "styleMs": 32,
+          "scriptMs": 313,
+          "loafCount": 1,
+          "loafMax": 62,
+          "longestLoaf": {
+            "duration": 62,
+            "styleAndLayout": 62,
+            "renderStart": 61,
+            "blocking": 8,
+            "scripts": [
+              {
+                "name": "dispatchDiscreteEvent",
+                "invoker": "DIV#root.onclick",
+                "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+                "duration": 56,
+                "forcedStyleAndLayout": 1
+              }
+            ]
+          },
+          "loafStyleMs": 62
+        }
+      ]
+    }
+  ],
+  "cpu": 1,
+  "scenarios": [
+    {
+      "id": "page",
+      "name": "页面切换",
+      "durationMs": 3410,
+      "verified": true,
+      "animation": {
+        "id": "zc-page-in",
+        "duration": 220,
+        "state": "running"
+      },
+      "closing": null,
+      "final": {
+        "opacity": "1",
+        "transform": "none"
+      },
+      "frames": 142,
+      "idleFrames": 58,
+      "p50": 16.7,
+      "p95": 16.7,
+      "max": 16.8,
+      "dropped": 0,
+      "layout": 61,
+      "recalc": 214,
+      "layoutMs": 49,
+      "styleMs": 42,
+      "scriptMs": 306,
+      "loafCount": 0,
+      "loafMax": 0,
+      "longestLoaf": null,
+      "loafStyleMs": 0
+    },
+    {
+      "id": "rail",
+      "name": "侧栏收展",
+      "durationMs": 2080,
+      "verified": true,
+      "animation": {
+        "property": "opacity, padding, border-radius",
+        "duration": "0.14s, 0.2s, 0.2s",
+        "easing": "cubic-bezier(0.2, 0, 0, 1), cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.32, 0.72, 0, 1)"
+      },
+      "closing": null,
+      "final": {
+        "widths": [
+          82.65625,
+          7.84375,
+          189.484375,
+          82.640625,
+          7.84375,
+          189.484375
+        ],
+        "finalWidth": 216
+      },
+      "frames": 75,
+      "idleFrames": 46,
+      "p50": 16.7,
+      "p95": 16.7,
+      "max": 16.8,
+      "dropped": 0,
+      "layout": 92,
+      "recalc": 102,
+      "layoutMs": 56,
+      "styleMs": 28,
+      "scriptMs": 177,
+      "loafCount": 0,
+      "loafMax": 0,
+      "longestLoaf": null,
+      "loafStyleMs": 0
+    },
+    {
+      "id": "menu",
+      "name": "菜单弹出",
+      "durationMs": 1087,
+      "verified": true,
+      "animation": {
+        "id": "zc-menu-in",
+        "duration": 240,
+        "state": "running"
+      },
+      "closing": {
+        "id": "zc-menu-out",
+        "duration": 130,
+        "state": "running"
+      },
+      "final": {
+        "menuCount": 0
+      },
+      "frames": 60,
+      "idleFrames": 1,
+      "p50": 16.7,
+      "p95": 16.7,
+      "max": 16.8,
+      "dropped": 0,
+      "layout": 11,
+      "recalc": 93,
+      "layoutMs": 4,
+      "styleMs": 12,
+      "scriptMs": 30,
+      "loafCount": 0,
+      "loafMax": 0,
+      "longestLoaf": null,
+      "loafStyleMs": 0
+    },
+    {
+      "id": "sheet",
+      "name": "确认层",
+      "durationMs": 901,
+      "verified": true,
+      "animation": {
+        "id": "zc-dialog-card-in",
+        "duration": "0.24s"
+      },
+      "closing": null,
+      "final": {
+        "realDialog": 0,
+        "ghost": 0
+      },
+      "frames": 32,
+      "idleFrames": 12,
+      "p50": 16.7,
+      "p95": 49.9,
+      "max": 49.9,
+      "dropped": 4,
+      "layout": 29,
+      "recalc": 77,
+      "layoutMs": 16,
+      "styleMs": 30,
+      "scriptMs": 39,
+      "loafCount": 0,
+      "loafMax": 0,
+      "longestLoaf": null,
+      "loafStyleMs": 0
+    },
+    {
+      "id": "tree",
+      "name": "目录树折叠",
+      "durationMs": 1971,
+      "verified": true,
+      "animation": {
+        "property": "grid-template-rows, opacity",
+        "duration": "0.2s, 0.15s",
+        "easing": "cubic-bezier(0.32, 0.72, 0, 1), cubic-bezier(0.2, 0, 0, 1)"
+      },
+      "closing": null,
+      "final": {
+        "beforeHeight": 64,
+        "finalHeight": 64,
+        "mid": [
+          {
+            "open": "false",
+            "height": 8
+          }
+        ]
+      },
+      "frames": 73,
+      "idleFrames": 41,
+      "p50": 16.7,
+      "p95": 16.7,
+      "max": 16.7,
+      "dropped": 0,
+      "layout": 92,
+      "recalc": 107,
+      "layoutMs": 41,
+      "styleMs": 10,
+      "scriptMs": 38,
+      "loafCount": 0,
+      "loafMax": 0,
+      "longestLoaf": null,
+      "loafStyleMs": 0
+    },
+    {
+      "id": "view",
+      "name": "列表↔网格",
+      "durationMs": 3512,
+      "verified": true,
+      "animation": {
+        "id": "zc-view-swap",
+        "duration": 240,
+        "state": "running"
+      },
+      "closing": null,
+      "final": {
+        "list": 1,
+        "grid": 0
+      },
+      "frames": 150,
+      "idleFrames": 56,
+      "p50": 16.7,
+      "p95": 16.7,
+      "max": 16.8,
+      "dropped": 0,
+      "layout": 60,
+      "recalc": 250,
+      "layoutMs": 26,
+      "styleMs": 44,
+      "scriptMs": 196,
+      "loafCount": 0,
+      "loafMax": 0,
+      "longestLoaf": null,
+      "loafStyleMs": 0
+    },
+    {
+      "id": "layout",
+      "name": "窗格布局切换",
+      "durationMs": 3029,
+      "verified": true,
+      "animation": {
+        "id": "zc-pane-in",
+        "duration": 260,
+        "state": "running"
+      },
+      "closing": null,
+      "final": {
+        "counts": [
+          "2",
+          "4",
+          "3",
+          "1"
+        ]
+      },
+      "frames": 112,
+      "idleFrames": 63,
+      "p50": 16.7,
+      "p95": 16.7,
+      "max": 33.3,
+      "dropped": 2,
+      "layout": 98,
+      "recalc": 207,
+      "layoutMs": 38,
+      "styleMs": 32,
+      "scriptMs": 313,
+      "loafCount": 1,
+      "loafMax": 62,
+      "longestLoaf": {
+        "duration": 62,
+        "styleAndLayout": 62,
+        "renderStart": 61,
+        "blocking": 8,
+        "scripts": [
+          {
+            "name": "dispatchDiscreteEvent",
+            "invoker": "DIV#root.onclick",
+            "url": "http://127.0.0.1:5363/node_modules/.vite/deps/react-dom_client.js?v=9bce390c",
+            "duration": 56,
+            "forcedStyleAndLayout": 1
+          }
+        ]
+      },
+      "loafStyleMs": 62
+    }
+  ]
+}

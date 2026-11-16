@@ -136,7 +136,7 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')");
     expect(workflow).toContain("filename_file_count:");
     expect(workflow).toContain("filename_persist_batch_size:");
-    expect(workflow).toContain("options: ['512', '4096', '8192']");
+    expect(workflow).toContain("options: ['512', '1024', '2048', '4096', '8192']");
     expect(workflow).toContain("inputs.filename_file_count != '1000000'");
   });
 

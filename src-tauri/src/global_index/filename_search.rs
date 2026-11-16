@@ -527,6 +527,7 @@ impl FilenameSearchManager {
         (catalog.operation_id == operation_id).then_some(catalog.entries.len())
     }
 
+    #[cfg(any(test, all(feature = "native-qa", windows)))]
     pub(crate) fn transient_catalog_memory_bytes(&self, volume_id: &str) -> Option<usize> {
         let catalog = self
             .transient_catalogs
@@ -632,7 +633,7 @@ impl FilenameSearchManager {
             return Err("transient_catalog_owner_changed");
         }
         for entry in entries {
-            let Some(index) = catalog.by_id.get(&entry_id_digest(&entry)).copied() else {
+            let Some(index) = catalog.by_id.get(&entry_id_digest(entry)).copied() else {
                 return Err("transient_catalog_entry_missing");
             };
             catalog.entries[index].size = entry.size;

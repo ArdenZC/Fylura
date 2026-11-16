@@ -459,7 +459,7 @@ fn transfer_execution_advances_directory_selection_using_journaled_successes() {
 }
 
 #[test]
-fn system_trash_preview_fails_closed_and_preserves_source_without_safe_binding() {
+fn system_trash_preview_is_available_only_on_supported_platforms_and_does_not_mutate() {
     use crate::file_ops::manual_transfer::{
         CaptureRequest, TransferAction, TransferPreviewRequest,
     };
@@ -486,16 +486,17 @@ fn system_trash_preview_fails_closed_and_preserves_source_without_safe_binding()
         keep_both: Vec::new(),
         skip: Vec::new(),
     });
-    let expected_error = if cfg!(any(target_os = "windows", target_os = "macos")) {
-        "system_trash_source_binding_unsupported"
+    if cfg!(any(target_os = "windows", target_os = "macos")) {
+        let preview = preview.expect("supported native platform should preview system trash");
+        assert_eq!(preview.rows.len(), 1);
+        assert!(preview.rows[0].preview.is_some());
     } else {
-        "unsupported_platform_linux"
-    };
-    match preview {
-        Err(error) => assert_eq!(error, expected_error),
-        Ok(_) => panic!("system trash must fail closed"),
+        match preview {
+            Err(error) => assert_eq!(error, "unsupported_platform_linux"),
+            Ok(_) => panic!("Linux system trash is unsupported"),
+        }
     }
-    assert!(source.exists());
+    assert!(source.exists(), "Preview must not mutate the source");
     runtime.dispose();
 }
 

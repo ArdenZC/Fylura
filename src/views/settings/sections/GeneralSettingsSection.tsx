@@ -114,23 +114,17 @@ export function GeneralSettingsSection({
           label={t("settingsDeleteDestination")}
           description={t("settingsDeleteDestinationDesc")}
         >
-          {deleteDestination === "system_trash" ? (
-            <div className="flex flex-col items-start gap-2">
-              <span>{t("settingsSystemTrashUnavailable")}</span>
-              <button className={buttonSecondary} type="button" onClick={() => onDeleteDestination("fylura_trash")}>
-                {t("settingsUseFyluraTrash")}
-              </button>
-            </div>
-          ) : (
-            <span>{t("settingsFyluraTrash")}</span>
-          )}
-        </SettingsRow>
-        <SettingsInlineMessage tone="warning">
-          <div className="zc-settings-ai-notice">
-            <ShieldCheck size={15} aria-hidden="true" />
-            <p>{t("errorSystemTrashSourceBindingUnsupported")}</p>
+          <div className="flex flex-col items-start gap-2">
+            <span>{t(deleteDestination === "system_trash" ? "settingsSystemTrash" : "settingsFyluraTrash")}</span>
+            <button
+              className={buttonSecondary}
+              type="button"
+              onClick={() => onDeleteDestination(deleteDestination === "system_trash" ? "fylura_trash" : "system_trash")}
+            >
+              {t(deleteDestination === "system_trash" ? "settingsUseFyluraTrash" : "settingsUseSystemTrash")}
+            </button>
           </div>
-        </SettingsInlineMessage>
+        </SettingsRow>
       </SettingsControlGroup>
 
       <SettingsControlGroup className="zc-settings-ai-group" title={t("settingsAIPrivacy")}>

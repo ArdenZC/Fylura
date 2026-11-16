@@ -964,8 +964,6 @@ impl FileWorkspaceRuntime {
     ) -> Result<TransferPreview, String> {
         self.ensure_live()?;
         if request.action == TransferAction::SystemTrash {
-            #[cfg(any(target_os = "windows", target_os = "macos"))]
-            return Err("system_trash_source_binding_unsupported".into());
             #[cfg(not(any(target_os = "windows", target_os = "macos")))]
             return Err("unsupported_platform_linux".into());
         }
@@ -1579,6 +1577,9 @@ fn snapshot(
     } else {
         validate_transfer_source_path(source)?
     };
+    if action == TransferAction::SystemTrash {
+        super::ensure_system_trash_source_supported(&source)?;
+    }
     #[cfg(windows)]
     if matches!(
         action,

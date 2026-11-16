@@ -29,6 +29,8 @@ pub(crate) enum FileOpError {
 #[derive(Debug)]
 pub(crate) enum FileMutationError {
     Validation(String),
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    OutcomeUnknown(String),
     Atomic(crate::fs_safety::AtomicMoveError),
 }
 
@@ -48,6 +50,8 @@ impl std::fmt::Display for FileMutationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Validation(error) => formatter.write_str(error),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            Self::OutcomeUnknown(error) => formatter.write_str(error),
             Self::Atomic(error) => error.fmt(formatter),
         }
     }
@@ -57,6 +61,8 @@ impl FileMutationError {
     pub(crate) fn journal_phase(&self) -> &'static str {
         match self {
             Self::Validation(_) => "rolled_back",
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            Self::OutcomeUnknown(_) => "manual_review",
             Self::Atomic(error) => match error {
                 crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
                 | crate::fs_safety::AtomicMoveError::TargetCommittedIdentityMismatch => {
@@ -83,6 +89,8 @@ impl FileMutationError {
     pub(crate) fn requires_recovery(&self) -> bool {
         match self {
             Self::Validation(_) => false,
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            Self::OutcomeUnknown(_) => true,
             Self::Atomic(error) => !matches!(
                 error.commit_state(),
                 crate::fs_safety::AtomicMoveCommitState::RolledBack
@@ -459,6 +467,24 @@ pub(crate) fn move_to_system_trash_with_safety(
     cancel_flag: Option<&AtomicBool>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
+    move_to_system_trash_with_safety_before_handoff(
+        source_path,
+        app_data_dir,
+        expected_identity,
+        cancel_flag,
+        phase_observer,
+        |_| {},
+    )
+}
+
+fn move_to_system_trash_with_safety_before_handoff(
+    source_path: String,
+    app_data_dir: Option<&Path>,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    cancel_flag: Option<&AtomicBool>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    before_handoff: impl FnOnce(&Path),
+) -> Result<FileOperationResult, FileMutationError> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (
@@ -467,6 +493,7 @@ pub(crate) fn move_to_system_trash_with_safety(
             expected_identity,
             cancel_flag,
             phase_observer,
+            before_handoff,
         );
         Err(FileMutationError::Validation(
             "system_trash_unsupported_on_platform".into(),
@@ -474,24 +501,263 @@ pub(crate) fn move_to_system_trash_with_safety(
     }
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        let _ = (
-            source_path,
-            app_data_dir,
-            expected_identity,
-            cancel_flag,
-            phase_observer,
-        );
-        // `trash::delete` resolves and deletes by pathname on both supported
-        // platforms. Its Windows implementation creates an IShellItem from a
-        // path before IFileOperation::DeleteItem; macOS creates an NSURL from
-        // a path before NSFileManager::trashItemAtURL. Neither API accepts the
-        // verified source handle or file ID, so a same-path replacement can
-        // race the verification. Keep this action blocked until a native
-        // object-bound implementation is available; Safe Trash remains the
-        // supported recoverable destination.
-        Err(FileMutationError::Validation(
-            "system_trash_source_binding_unsupported".into(),
-        ))
+        if cancel_flag.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(FileMutationError::Atomic(
+                crate::fs_safety::AtomicMoveError::Cancelled,
+            ));
+        }
+        let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)
+            .map_err(FileMutationError::Validation)?;
+        ensure_not_safe_trash_operation(&source).map_err(FileMutationError::Validation)?;
+        ensure_system_trash_source_supported(&source).map_err(FileMutationError::Validation)?;
+
+        let expected = expected_identity.ok_or_else(|| {
+            FileMutationError::Validation("system_trash_identity_required".into())
+        })?;
+        require_system_trash_physical_identity(expected).map_err(FileMutationError::Validation)?;
+        let parent_path = source.parent().ok_or_else(|| {
+            FileMutationError::Validation(FileOpError::TargetParentMissing.to_string())
+        })?;
+        let parent = VerifiedDirectory::open_existing(parent_path).map_err(|error| {
+            FileMutationError::Validation(format!("system_trash_parent_unavailable: {error}"))
+        })?;
+        validate_system_trash_source_identity(&source, expected, cancel_flag)
+            .map_err(FileMutationError::Validation)?;
+        parent
+            .ensure_unchanged()
+            .map_err(|_| FileMutationError::Validation("system_trash_parent_changed".into()))?;
+        if cancel_flag.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err(FileMutationError::Atomic(
+                crate::fs_safety::AtomicMoveError::Cancelled,
+            ));
+        }
+
+        // Kept as a narrow seam so native integration tests can perform a
+        // real same-path replacement at the last possible point. Production
+        // passes a no-op: the OS APIs below accept paths, not our verified
+        // handle, so the documented TOCTOU boundary remains.
+        before_handoff(&source);
+
+        // This is the final path-based handoff to the OS. `trash` uses
+        // IFileOperation + FOF_ALLOWUNDO on Windows and Finder's native Trash
+        // operation on macOS. Both preserve the original restore location and
+        // return per-item/native execution failures. Neither accepts our open
+        // file handle, so a replacement in the tiny interval after the
+        // identity check and before the OS resolves the path remains a TOCTOU
+        // boundary; the operation is revalidated immediately before handoff.
+        match trash::delete(&source) {
+            Ok(()) => {
+                if let Some(observer) = phase_observer {
+                    observer(crate::fs_safety::FileOperationEvent::Phase(
+                        "target_committed".into(),
+                    ))
+                    .map_err(|error| {
+                        FileMutationError::OutcomeUnknown(format!(
+                            "system_trash_result_uncertain: the OS accepted the item but the journal phase could not be persisted: {error}"
+                        ))
+                    })?;
+                }
+                match system_trash_source_state(&source, expected) {
+                    SystemTrashSourceState::Missing => Ok(FileOperationResult {
+                        operation: "move_to_system_trash".into(),
+                        source_path: normalize_path(&source),
+                        target_path: system_trash_target_label(),
+                    }),
+                    state => Err(FileMutationError::OutcomeUnknown(format!(
+                        "system_trash_result_uncertain: the OS returned success but the source path is {state:?}; check the system Recycle Bin or Trash before retrying"
+                    ))),
+                }
+            }
+            Err(error) => {
+                let directory =
+                    fs::symlink_metadata(&source).is_ok_and(|metadata| metadata.is_dir());
+                match system_trash_source_state(&source, expected) {
+                    SystemTrashSourceState::Original if !directory => Err(
+                        FileMutationError::Validation(format!("system_trash_failed: {error}")),
+                    ),
+                    state => Err(FileMutationError::OutcomeUnknown(format!(
+                        "system_trash_result_uncertain: the OS reported {error} and the source path is {state:?}; check the system Recycle Bin or Trash before retrying"
+                    ))),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SystemTrashSourceState {
+    Original,
+    Changed,
+    Missing,
+    Unreadable,
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
+fn namespace_identity(
+    expected: &crate::fs_safety::ExpectedFileIdentity,
+) -> crate::fs_safety::ExpectedFileIdentity {
+    crate::fs_safety::ExpectedFileIdentity {
+        size: expected.size,
+        modified_ns: expected.modified_ns,
+        platform_volume_id: expected.platform_volume_id.clone(),
+        platform_file_id: expected.platform_file_id.clone(),
+        sample_hash: None,
+        full_hash: None,
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
+fn require_system_trash_physical_identity(
+    expected: &crate::fs_safety::ExpectedFileIdentity,
+) -> Result<(), String> {
+    if expected
+        .platform_volume_id
+        .as_deref()
+        .is_none_or(str::is_empty)
+        || expected
+            .platform_file_id
+            .as_deref()
+            .is_none_or(str::is_empty)
+    {
+        return Err("system_trash_physical_identity_unavailable".into());
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
+fn validate_system_trash_source_identity(
+    source: &Path,
+    expected: &crate::fs_safety::ExpectedFileIdentity,
+    cancel_flag: Option<&AtomicBool>,
+) -> Result<(), String> {
+    require_system_trash_physical_identity(expected)?;
+    let actual = crate::fs_safety::capture_namespace_identity_only(source, cancel_flag)
+        .map_err(|error| error.to_string())?;
+    if !crate::fs_safety::identity_matches(&namespace_identity(expected), &actual) {
+        return Err("system_trash_source_changed".into());
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn system_trash_source_state(
+    source: &Path,
+    expected: &crate::fs_safety::ExpectedFileIdentity,
+) -> SystemTrashSourceState {
+    match crate::fs_safety::capture_namespace_identity_only(source, None) {
+        Ok(actual)
+            if crate::fs_safety::identity_matches(&namespace_identity(expected), &actual) =>
+        {
+            SystemTrashSourceState::Original
+        }
+        Ok(_) => SystemTrashSourceState::Changed,
+        Err(crate::fs_safety::IdentityError::SourceMissing) => SystemTrashSourceState::Missing,
+        Err(_) => SystemTrashSourceState::Unreadable,
+    }
+}
+
+/// Performs the inexpensive, read-only platform gate used by both Preview and
+/// execution. Provider/cloud items and volumes whose system-trash behavior is
+/// not established are rejected rather than hydrated or silently redirected.
+pub(crate) fn ensure_system_trash_source_supported(source: &Path) -> Result<(), String> {
+    ensure_general_file_operation_allowed(source)?;
+    ensure_cleanup_operation_allowed(source, None)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetDriveTypeW, GetVolumeInformationW, GetVolumePathNameW,
+        };
+
+        crate::file_ops::manual_transfer::ensure_transfer_source_content_ready(source)?;
+        let path = source
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let mut root = vec![0u16; 32_768];
+        if unsafe { GetVolumePathNameW(path.as_ptr(), root.as_mut_ptr(), root.len() as u32) } == 0 {
+            return Err("system_trash_volume_unavailable".into());
+        }
+        if unsafe { GetDriveTypeW(root.as_ptr()) } != 3 {
+            return Err("system_trash_local_ntfs_required".into());
+        }
+        let mut filesystem = vec![0u16; 64];
+        let mut flags = 0u32;
+        if unsafe {
+            GetVolumeInformationW(
+                root.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut flags,
+                filesystem.as_mut_ptr(),
+                filesystem.len() as u32,
+            )
+        } == 0
+        {
+            return Err("system_trash_volume_unavailable".into());
+        }
+        let end = filesystem
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(filesystem.len());
+        let filesystem = String::from_utf16_lossy(&filesystem[..end]);
+        if !filesystem.eq_ignore_ascii_case("ntfs") || flags & 0x0008_0000 != 0 {
+            return Err("system_trash_local_ntfs_required".into());
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use crate::platform::macos::MacCloudBacking;
+        use std::os::unix::fs::MetadataExt;
+
+        let metadata = fs::symlink_metadata(source).map_err(|error| error.to_string())?;
+        if metadata.file_type().is_symlink() {
+            return Err("system_trash_symlink_unsupported".into());
+        }
+        let semantics = crate::platform::macos::file_semantics::inspect(source);
+        if semantics.backing_kind != MacCloudBacking::Local {
+            return Err("system_trash_cloud_or_provider_item_unsupported".into());
+        }
+        let filesystem = semantics
+            .volume
+            .filesystem_type
+            .as_deref()
+            .ok_or("system_trash_volume_unavailable")?;
+        if semantics.volume.is_local != Some(true)
+            || semantics.volume.is_read_only != Some(false)
+            || !matches!(
+                filesystem.to_ascii_lowercase().as_str(),
+                "apfs" | "hfs" | "hfsx"
+            )
+            || metadata.dev() == 0
+        {
+            return Err("system_trash_local_volume_unsupported".into());
+        }
+        let parent = source
+            .parent()
+            .ok_or_else(|| FileOpError::TargetParentMissing.to_string())?;
+        crate::platform::macos::mutation::ensure_path_eligible(source, parent)
+            .map_err(|error| format!("system_trash_source_unsupported:{error}"))?;
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = source;
+        Err("unsupported_platform_linux".into())
+    }
+    #[cfg(any(windows, target_os = "macos"))]
+    Ok(())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn system_trash_target_label() -> String {
+    if cfg!(target_os = "windows") {
+        "System Recycle Bin".into()
+    } else {
+        "System Trash".into()
     }
 }
 
@@ -1198,15 +1464,16 @@ mod unsupported_system_trash_tests {
     }
 }
 
-#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
-mod system_trash_binding_tests {
-    use super::move_to_system_trash_with_safety;
-    use crate::fs_safety::capture_identity;
+#[cfg(test)]
+mod system_trash_identity_tests {
+    use super::validate_system_trash_source_identity;
+    use crate::fs_safety::{capture_namespace_identity_only, ExpectedFileIdentity};
     use crate::ids::new_job_id;
     use std::fs;
+    use std::path::Path;
 
     #[test]
-    fn system_trash_refuses_real_source_and_same_path_replacement() {
+    fn system_trash_revalidation_rejects_same_path_replacement() {
         let root = std::env::temp_dir().join(format!(
             "fylura-system-trash-binding-{}",
             new_job_id("test")
@@ -1214,62 +1481,438 @@ mod system_trash_binding_tests {
         fs::create_dir(&root).expect("create fixture root");
 
         let file = root.join("file.txt");
-        fs::write(&file, b"verified file").expect("write file");
-        let file_identity = capture_identity(&file, None).expect("capture file identity");
-        let file_error = move_to_system_trash_with_safety(
-            file.to_string_lossy().into_owned(),
-            None,
-            Some(&file_identity),
-            None,
-            None,
-        )
-        .expect_err("file system-trash action must fail closed");
-        assert!(file_error
-            .to_string()
-            .contains("system_trash_source_binding_unsupported"));
-        assert_eq!(fs::read(&file).expect("file remains"), b"verified file");
-
-        let directory = root.join("directory");
-        fs::create_dir(&directory).expect("create directory");
-        fs::write(directory.join("child.txt"), b"verified directory").expect("write child");
-        let directory_identity =
-            capture_identity(&directory, None).expect("capture directory identity");
-        let directory_error = move_to_system_trash_with_safety(
-            directory.to_string_lossy().into_owned(),
-            None,
-            Some(&directory_identity),
-            None,
-            None,
-        )
-        .expect_err("directory system-trash action must fail closed");
-        assert!(directory_error
-            .to_string()
-            .contains("system_trash_source_binding_unsupported"));
+        fs::write(&file, b"previewed object").expect("write previewed source");
+        let expected = capture_namespace_identity_only(&file, None).expect("capture identity");
+        fs::remove_file(&file).expect("remove previewed source");
+        fs::write(&file, b"replacement object").expect("write replacement source");
+        let error = validate_system_trash_source_identity(&file, &expected, None)
+            .expect_err("replacement must be rejected before native handoff");
+        assert!(error.contains("system_trash_source_changed"));
         assert_eq!(
-            fs::read(directory.join("child.txt")).expect("directory child remains"),
-            b"verified directory"
+            fs::read(&file).expect("replacement remains"),
+            b"replacement object"
         );
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
 
-        let replaced = root.join("replaced.txt");
-        fs::write(&replaced, b"previewed object").expect("write previewed source");
-        let expected = capture_identity(&replaced, None).expect("capture source identity");
-        fs::remove_file(&replaced).expect("replace source path");
-        fs::write(&replaced, b"replacement object").expect("write replacement source");
-        let replacement_error = move_to_system_trash_with_safety(
-            replaced.to_string_lossy().into_owned(),
+    #[test]
+    fn system_trash_revalidation_rejects_renamed_or_missing_source() {
+        let root = std::env::temp_dir().join(format!(
+            "fylura-system-trash-renamed-{}",
+            new_job_id("test")
+        ));
+        fs::create_dir(&root).expect("create fixture root");
+        let source = root.join("source.txt");
+        let renamed = root.join("renamed.txt");
+        fs::write(&source, b"source").expect("write source");
+        let expected: ExpectedFileIdentity =
+            capture_namespace_identity_only(&source, None).expect("capture identity");
+        fs::rename(&source, &renamed).expect("rename source");
+        assert!(validate_system_trash_source_identity(&source, &expected, None).is_err());
+        assert_eq!(fs::read(&renamed).expect("renamed file remains"), b"source");
+        fs::remove_file(renamed).expect("remove fixture");
+        fs::remove_dir(root).expect("remove fixture root");
+    }
+
+    #[test]
+    fn system_trash_identity_projection_uses_namespace_facts_without_content_hashes() {
+        let root = std::env::temp_dir().join(format!(
+            "fylura-system-trash-namespace-{}",
+            new_job_id("test")
+        ));
+        fs::create_dir(&root).expect("create fixture root");
+        let source = root.join("source.txt");
+        fs::write(&source, b"same object").expect("write source");
+        let expected = capture_namespace_identity_only(&source, None).expect("capture identity");
+        assert!(validate_system_trash_source_identity(Path::new(&source), &expected, None).is_ok());
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+fn native_system_trash_test_root(label: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(".tmp-tests")
+        .join(format!(
+            "fylura-system-trash-{label}-{}",
+            crate::ids::new_job_id("test")
+        ))
+}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+mod system_trash_preflight_native_tests {
+    use super::move_to_system_trash_with_safety;
+    use crate::fs_safety::capture_namespace_identity_only;
+    use std::fs;
+
+    #[test]
+    fn native_system_trash_rejects_same_path_replacement_before_handoff() {
+        let root = super::native_system_trash_test_root("preflight");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let source = root.join("entry.txt");
+        fs::write(&source, b"previewed object").expect("write previewed source");
+        let expected = capture_namespace_identity_only(&source, None).expect("capture identity");
+        fs::remove_file(&source).expect("remove previewed source");
+        fs::write(&source, b"replacement object").expect("write replacement");
+
+        let error = move_to_system_trash_with_safety(
+            source.to_string_lossy().into_owned(),
             None,
             Some(&expected),
             None,
             None,
         )
-        .expect_err("same-path replacement must fail closed");
-        assert!(replacement_error
-            .to_string()
-            .contains("system_trash_source_binding_unsupported"));
+        .expect_err("changed source must be rejected before the OS resolves the path");
+        assert!(error.to_string().contains("system_trash_source_changed"));
         assert_eq!(
-            fs::read(&replaced).expect("replacement remains"),
+            fs::read(&source).expect("replacement remains"),
             b"replacement object"
         );
         fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_system_trash_native_tests {
+    use super::{
+        move_to_system_trash_with_safety, move_to_system_trash_with_safety_before_handoff,
+    };
+    use crate::fs_safety::capture_namespace_identity_only;
+    use std::fs;
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    static NATIVE_TRASH_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn same_windows_path(left: &Path, right: &Path) -> bool {
+        fn normalized(path: &Path) -> String {
+            let path = path.to_string_lossy().replace('/', "\\");
+            path.strip_prefix("\\\\?\\")
+                .unwrap_or(&path)
+                .to_ascii_lowercase()
+        }
+
+        normalized(left) == normalized(right)
+    }
+
+    fn trash_and_restore(path: &Path) {
+        let matches = trash::os_limited::list()
+            .expect("list real Windows Recycle Bin")
+            .into_iter()
+            .filter(|item| same_windows_path(&item.original_path(), path))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "Recycle Bin should retain the original path"
+        );
+        trash::os_limited::restore_all(matches).expect("restore through Windows Shell");
+    }
+
+    #[test]
+    fn windows_recycle_bin_restores_file_and_directory_to_original_paths() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Windows Recycle Bin tests");
+        let root = super::native_system_trash_test_root("windows-native");
+        fs::create_dir_all(&root).expect("create fixture root");
+
+        let file = root.join("native-file.txt");
+        fs::write(&file, b"system recycle bin round trip").expect("write file");
+        let identity = capture_namespace_identity_only(&file, None).expect("file identity");
+        let result = move_to_system_trash_with_safety(
+            file.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+        )
+        .expect("send file to the real Recycle Bin");
+        assert_eq!(result.target_path, "System Recycle Bin");
+        assert!(!file.exists());
+        trash_and_restore(&file);
+        assert_eq!(
+            fs::read(&file).expect("restored file"),
+            b"system recycle bin round trip"
+        );
+
+        let directory = root.join("native-directory");
+        fs::create_dir_all(directory.join("nested")).expect("create nested directory");
+        fs::write(directory.join("nested/child.txt"), b"folder tree").expect("write child");
+        let identity =
+            capture_namespace_identity_only(&directory, None).expect("directory identity");
+        let result = move_to_system_trash_with_safety(
+            directory.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+        )
+        .expect("send directory to the real Recycle Bin");
+        assert_eq!(result.target_path, "System Recycle Bin");
+        assert!(!directory.exists());
+        trash_and_restore(&directory);
+        assert_eq!(
+            fs::read(directory.join("nested/child.txt")).expect("restored nested file"),
+            b"folder tree"
+        );
+        fs::remove_dir_all(root).expect("cleanup restored fixture");
+    }
+
+    #[test]
+    fn windows_native_reproduces_same_path_replacement_after_final_revalidation() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Windows Recycle Bin tests");
+        let root = super::native_system_trash_test_root("windows-handoff-race");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let source = root.join("race-entry.txt");
+        let displaced_original = root.join("validated-original.txt");
+        fs::write(&source, b"validated original").expect("write original file");
+        let identity = capture_namespace_identity_only(&source, None).expect("capture identity");
+
+        let result = move_to_system_trash_with_safety_before_handoff(
+            source.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+            |checked_path| {
+                fs::rename(checked_path, &displaced_original)
+                    .expect("competitor moves the validated object");
+                fs::write(checked_path, b"same-path replacement")
+                    .expect("competitor recreates the checked path");
+            },
+        )
+        .expect("native path API accepts the replacement in the documented race window");
+
+        assert_eq!(result.target_path, "System Recycle Bin");
+        assert_eq!(
+            fs::read(&displaced_original).expect("validated object remains outside Trash"),
+            b"validated original"
+        );
+        assert!(!source.exists(), "the replacement path was sent to Trash");
+        trash_and_restore(&source);
+        assert_eq!(
+            fs::read(&source).expect("restore the replacement from Recycle Bin"),
+            b"same-path replacement"
+        );
+        eprintln!("SYSTEM_TRASH_TOC_TOU_NATIVE_PASS platform=windows replacement_after_final_revalidation=true path_api_accepted_replacement=true");
+        fs::remove_dir_all(root).expect("cleanup race fixture");
+    }
+
+    #[test]
+    fn windows_staged_trash_restore_returns_to_staging_path() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Windows Recycle Bin tests");
+        let root = super::native_system_trash_test_root("windows-staging-restore");
+        let original_parent = root.join("original-location");
+        let staging_parent = root.join("fylura-staging");
+        fs::create_dir_all(&original_parent).expect("create original location");
+        fs::create_dir_all(&staging_parent).expect("create staging location");
+        let original = original_parent.join("staged-entry.txt");
+        let staged = staging_parent.join("staged-entry.txt");
+        fs::write(&original, b"B staging semantics").expect("write original file");
+        fs::rename(&original, &staged).expect("same-volume move into controlled staging");
+
+        trash::delete(&staged).expect("send staged path to the real Recycle Bin");
+        assert!(!staged.exists());
+        trash_and_restore(&staged);
+        assert_eq!(
+            fs::read(&staged).expect("Shell restores to the path handed to it"),
+            b"B staging semantics"
+        );
+        assert!(
+            !original.exists(),
+            "native restore targets the staged path, not the pre-staging source"
+        );
+        eprintln!("SYSTEM_TRASH_STAGING_NATIVE_PASS platform=windows restored_to_staging=true original_path_preserved=false");
+        fs::remove_dir_all(root).expect("cleanup staged restore fixture");
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_system_trash_native_tests {
+    use super::{
+        move_to_system_trash_with_safety, move_to_system_trash_with_safety_before_handoff,
+    };
+    use crate::fs_safety::capture_namespace_identity_only;
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+    use std::sync::Mutex;
+
+    static NATIVE_TRASH_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn applescript_string(value: &str) -> String {
+        value.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+
+    fn restore_with_finder(path: &Path) {
+        let name = path
+            .file_name()
+            .expect("fixture has a file name")
+            .to_string_lossy();
+        let parent = path
+            .parent()
+            .expect("fixture has a parent")
+            .to_string_lossy();
+        let script = format!(
+            "tell application \"Finder\"\n\
+             activate\n\
+             set targetItem to first item of trash whose name is \"{}\"\n\
+             set targetFolder to POSIX file \"{}\" as alias\n\
+             move targetItem to targetFolder\n\
+             end tell",
+            applescript_string(&name),
+            applescript_string(&parent)
+        );
+        let output = Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .expect("run Finder restore operation");
+        assert!(
+            output.status.success(),
+            "Finder failed to restore the item: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn finder_trash_round_trips_local_file_and_directory() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Finder Trash tests");
+        let root = super::native_system_trash_test_root("macos-native");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let unique_name = root
+            .file_name()
+            .expect("fixture root has a name")
+            .to_string_lossy();
+
+        let file = root.join(format!("{unique_name}-native-file.txt"));
+        fs::write(&file, b"Finder Trash integration fixture").expect("write file");
+        let identity = capture_namespace_identity_only(&file, None).expect("file identity");
+        let result = move_to_system_trash_with_safety(
+            file.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+        )
+        .expect("send local file to Finder Trash");
+        assert_eq!(result.target_path, "System Trash");
+        assert!(!file.exists());
+        restore_with_finder(&file);
+        assert_eq!(
+            fs::read(&file).expect("Finder-restored file"),
+            b"Finder Trash integration fixture"
+        );
+
+        let directory = root.join(format!("{unique_name}-native-directory"));
+        fs::create_dir_all(directory.join("nested")).expect("create nested directory");
+        fs::write(directory.join("nested/child.txt"), b"folder tree").expect("write child");
+        let identity =
+            capture_namespace_identity_only(&directory, None).expect("directory identity");
+        let result = move_to_system_trash_with_safety(
+            directory.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+        )
+        .expect("send directory tree to Finder Trash");
+        assert_eq!(result.target_path, "System Trash");
+        assert!(!directory.exists());
+        restore_with_finder(&directory);
+        assert_eq!(
+            fs::read(directory.join("nested/child.txt")).expect("Finder-restored nested file"),
+            b"folder tree"
+        );
+        fs::remove_dir_all(root).expect("cleanup remaining test files");
+    }
+
+    #[test]
+    fn finder_native_reproduces_same_path_replacement_after_final_revalidation() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Finder Trash tests");
+        let root = super::native_system_trash_test_root("macos-handoff-race");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let root_name = root
+            .file_name()
+            .expect("fixture root has a name")
+            .to_string_lossy();
+        let source = root.join(format!("{root_name}-race-entry.txt"));
+        let displaced_original = root.join("validated-original.txt");
+        fs::write(&source, b"validated original").expect("write original file");
+        let identity = capture_namespace_identity_only(&source, None).expect("capture identity");
+
+        let result = move_to_system_trash_with_safety_before_handoff(
+            source.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+            |checked_path| {
+                fs::rename(checked_path, &displaced_original)
+                    .expect("competitor moves the validated object");
+                fs::write(checked_path, b"same-path replacement")
+                    .expect("competitor recreates the checked path");
+            },
+        )
+        .expect("Finder path API accepts the replacement in the documented race window");
+
+        assert_eq!(result.target_path, "System Trash");
+        assert_eq!(
+            fs::read(&displaced_original).expect("validated object remains outside Trash"),
+            b"validated original"
+        );
+        assert!(!source.exists(), "the replacement path was sent to Trash");
+        restore_with_finder(&source);
+        assert_eq!(
+            fs::read(&source).expect("restore the replacement from Finder Trash"),
+            b"same-path replacement"
+        );
+        eprintln!("SYSTEM_TRASH_TOC_TOU_NATIVE_PASS platform=macos replacement_after_final_revalidation=true path_api_accepted_replacement=true");
+        fs::remove_dir_all(root).expect("cleanup race fixture");
+    }
+
+    #[test]
+    fn finder_staged_trash_restore_returns_to_staging_path() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Finder Trash tests");
+        let root = super::native_system_trash_test_root("macos-staging-restore");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let root_name = root
+            .file_name()
+            .expect("fixture root has a name")
+            .to_string_lossy();
+        let original_parent = root.join("original-location");
+        let staging_parent = root.join("fylura-staging");
+        fs::create_dir_all(&original_parent).expect("create original location");
+        fs::create_dir_all(&staging_parent).expect("create staging location");
+        let name = format!("{root_name}-staged-entry.txt");
+        let original = original_parent.join(&name);
+        let staged = staging_parent.join(&name);
+        fs::write(&original, b"B staging semantics").expect("write original file");
+        fs::rename(&original, &staged).expect("same-volume move into controlled staging");
+
+        trash::delete(&staged).expect("send staged path to Finder Trash");
+        assert!(!staged.exists());
+        restore_with_finder(&staged);
+        assert_eq!(
+            fs::read(&staged).expect("Finder restores to the path handed to it"),
+            b"B staging semantics"
+        );
+        assert!(
+            !original.exists(),
+            "Finder restore targets the staged path, not the pre-staging source"
+        );
+        eprintln!("SYSTEM_TRASH_STAGING_NATIVE_PASS platform=macos restored_to_staging=true original_path_preserved=false");
+        fs::remove_dir_all(root).expect("cleanup staged restore fixture");
     }
 }

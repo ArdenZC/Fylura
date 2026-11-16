@@ -185,4 +185,12 @@ describe("W6-07 Phase 1B Files identity and continuity", () => {
     expect(library).toContain('data-library-selection-authority="library-selection-v1"');
     expect(browse).toContain('data-browse-selection-authority="browse-source-local"');
   });
+
+  it("exposes distinct Safe Trash and system Trash actions from Browse context menus", () => {
+    const browse = read("src/views/fileLibrary/browse/BrowseMode.tsx");
+    expect(browse).toContain('label: t("fmSafeDelete")');
+    expect(browse).toContain('requestAction("trash")');
+    expect(browse).toContain('label: t("fmSystemDelete")');
+    expect(browse).toContain('requestAction("system_trash")');
+  });
 });

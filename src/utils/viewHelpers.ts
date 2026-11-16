@@ -377,7 +377,19 @@ export function localizedStableError(error: unknown, t: Translator): string {
   if (message.startsWith("unsupported_platform_linux")) return t("errorUnsupportedPlatformLinux");
   if (message.startsWith("macos_file_mutation_source_binding_unsupported")) return t("errorMacosFileMutationSourceBindingUnsupported");
   if (message.startsWith("staging_identity_changed")) return t("errorStagingIdentityChanged");
-  if (message.startsWith("system_trash_source_binding_unsupported")) return t("errorSystemTrashSourceBindingUnsupported");
+  if (message.startsWith("system_trash_identity_required")) return t("errorSystemTrashIdentityRequired");
+  if (message.startsWith("system_trash_physical_identity_unavailable")) return t("errorSystemTrashPhysicalIdentityUnavailable");
+  if (message.startsWith("system_trash_source_changed")) return t("errorSystemTrashSourceChanged");
+  if (message.startsWith("system_trash_cloud_or_provider_item_unsupported")) return t("errorSystemTrashCloudItemUnsupported");
+  if (message.startsWith("system_trash_local_ntfs_required")
+    || message.startsWith("system_trash_local_volume_unsupported")
+    || message.startsWith("system_trash_volume_unavailable")
+    || message.startsWith("system_trash_source_unsupported")
+    || message.startsWith("system_trash_symlink_unsupported")) return t("errorSystemTrashVolumeUnsupported");
+  if (message.startsWith("system_trash_result_uncertain")) return t("errorSystemTrashResultUncertain");
+  if (message.startsWith("system_trash_failed")) return t("errorSystemTrashFailed");
+  if (message.startsWith("system_trash_parent_changed")
+    || message.startsWith("system_trash_parent_unavailable")) return t("errorSystemTrashSourceChanged");
   if (message.startsWith("staging_handle_commit_unsupported")) return t("errorStagingHandleCommitUnsupported");
   if (message.startsWith("target_committed_durability_unknown")) return t("errorTargetCommittedDurabilityUnknown");
   if (message.startsWith("target_committed_identity_mismatch")) return t("errorTargetCommittedIdentityMismatch");

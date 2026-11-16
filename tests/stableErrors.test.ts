@@ -25,7 +25,7 @@ describe("stable error codes", () => {
     expect(localizedStableError("restore_pending_reconciliation", en)).toContain("startup reconciliation");
     expect(localizedStableError("claim_identity_mismatch", zh)).toContain("身份不一致");
     expect(localizedStableError("manual_review_required", en)).toContain("manual review");
-    expect(localizedStableError("system_trash_source_binding_unsupported", zh)).toContain("系统回收站");
+    expect(localizedStableError("system_trash_source_changed", zh)).toContain("系统回收站");
     expect(localizedStableError("provider error: windows_global_index_unsupported_virtual_volume", en))
       .toContain("USN journal support");
     expect(localizedStableError("provider error: windows_global_index_usn_journal_support_not_advertised", en))

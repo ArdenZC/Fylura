@@ -21,7 +21,9 @@ export function localizedRestoreError(error: unknown, t: ReturnType<typeof curre
   const stableMessage = localizedStableError(error, t);
   if (stableMessage !== technical) return { message: stableMessage, technical };
   let message = t("restoreErrorGeneric");
-  if (normalized.includes("target file already exists") || normalized.includes("original path already exists") || normalized.includes("already exists") || normalized.includes("原路径已有文件")) {
+  if (normalized === "restore from system trash.") {
+    message = t("errorSystemTrashRestoreInOs");
+  } else if (normalized.includes("target file already exists") || normalized.includes("original path already exists") || normalized.includes("already exists") || normalized.includes("原路径已有文件")) {
     message = t("restoreErrorTargetExists");
   } else if (normalized.includes("source file does not exist") || normalized.includes("safe trash path is missing") || normalized.includes("not found") || normalized.includes("不存在") || normalized.includes("缺失")) {
     message = t("restoreErrorSourceMissing");
@@ -61,8 +63,8 @@ export function localizedRestoreError(error: unknown, t: ReturnType<typeof curre
     message = t("errorMacosFileMutationSourceBindingUnsupported");
   } else if (normalized.startsWith("staging_identity_changed")) {
     message = t("errorStagingIdentityChanged");
-  } else if (normalized.startsWith("system_trash_source_binding_unsupported")) {
-    message = t("errorSystemTrashSourceBindingUnsupported");
+  } else if (normalized.startsWith("system_trash_result_uncertain")) {
+    message = t("errorSystemTrashResultUncertain");
   } else if (normalized.startsWith("staging_handle_commit_unsupported")) {
     message = t("errorStagingHandleCommitUnsupported");
   } else if (normalized.startsWith("target_committed_durability_unknown")) {

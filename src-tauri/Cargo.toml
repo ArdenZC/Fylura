@@ -99,6 +99,7 @@ libc = "0.2"
 [target.'cfg(target_os = "windows")'.dependencies]
 drag = "2.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+trash = { version = "5.3.0", default-features = false, features = ["coinit_apartmentthreaded"] }
 winreg = "0.55.0"
 windows-sys = { version = "0.61.2", features = [
     "Win32_Devices_DeviceAndDriverInstallation",
@@ -135,6 +136,7 @@ drag = "2.1.0"
 block2 = "0.6.2"
 fsevent-sys = "4.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
+trash = { version = "5.3.0", default-features = false, features = ["coinit_apartmentthreaded"] }
 objc2 = { version = "0.6.4", features = ["exception"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSView", "NSWorkspace", "NSPasteboard", "NSPasteboardItem", "NSAlert", "NSButton", "NSControl", "NSWindow"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["CFRunLoop", "objc2"] }

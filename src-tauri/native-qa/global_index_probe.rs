@@ -160,8 +160,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .first()
         .is_some_and(|a| a == "--qualify-filename-first-incremental")
     {
-        if arguments.len() != 7 {
-            return Err("usage: --qualify-filename-first-incremental <profile> <source-id> <added-file> <renamed-from> <renamed-to> <deleted-file>".into());
+        if arguments.len() != 9 {
+            return Err("usage: --qualify-filename-first-incremental <profile> <source-id> <added-file> <renamed-from> <renamed-to> <moved-from> <moved-to> <deleted-file>".into());
         }
         #[cfg(windows)]
         {
@@ -172,6 +172,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 std::path::Path::new(&arguments[4]),
                 std::path::Path::new(&arguments[5]),
                 std::path::Path::new(&arguments[6]),
+                std::path::Path::new(&arguments[7]),
+                std::path::Path::new(&arguments[8]),
             )?;
             println!("{}", serde_json::to_string(&result)?);
             return Ok(());

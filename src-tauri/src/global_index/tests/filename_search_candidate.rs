@@ -63,7 +63,10 @@ fn build_index(db: &Database) -> FilenameSearchDiagnostics {
     diagnostics
 }
 
-fn claim_transient_test_operation(db: &Database, operation_id: &str) {
+fn claim_transient_test_operation(
+    db: &Database,
+    operation_id: &str,
+) -> crate::global_index::repository::SourceOperationOwner {
     let source = db
         .get_global_volume("gv_test")
         .expect("load source to claim test operation")
@@ -75,7 +78,7 @@ fn claim_transient_test_operation(db: &Database, operation_id: &str) {
         crate::global_index::SourceOperationRoute::Service,
     )
     .expect("claim test source operation")
-    .expect("test operation owner is available");
+    .expect("test operation owner is available")
 }
 
 #[test]
@@ -110,6 +113,31 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
         Some(40),
         false,
     );
+    let mut chinese = fixture_entry(
+        "gv_test",
+        r"C:\Global\中文目录\预算报告.txt",
+        "预算报告.txt",
+        "txt",
+        Some(41),
+        false,
+    );
+    chinese.platform_file_id = "mac:stable-chinese-transient-identity".into();
+    let case_upper = fixture_entry(
+        "gv_test",
+        r"C:\Global\Case\upper-variant.txt",
+        "upper-variant.txt",
+        "txt",
+        Some(42),
+        false,
+    );
+    let case_lower = fixture_entry(
+        "gv_test",
+        r"C:\Global\case\lower-variant.txt",
+        "lower-variant.txt",
+        "txt",
+        Some(43),
+        false,
+    );
     db.filename_search
         .begin_transient_catalog("gv_test", "transient-operation");
     db.filename_search
@@ -117,10 +145,35 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
             "gv_test",
             "transient-operation",
             1,
-            &[included.clone(), excluded],
-            &[Decision::Include, Decision::Exclude("test_scope")],
+            &[
+                included.clone(),
+                excluded.clone(),
+                chinese.clone(),
+                case_upper.clone(),
+                case_lower.clone(),
+            ],
+            &[
+                Decision::Include,
+                Decision::Exclude("test_scope"),
+                Decision::Include,
+                Decision::Include,
+                Decision::Include,
+            ],
         )
         .expect("append preflighted MFT entries");
+    let staged = db
+        .filename_search
+        .transient_catalog_batch("gv_test", "transient-operation", 0, 5)
+        .expect("read compact staged records");
+    assert_eq!(staged.entries[0].path, included.path);
+    assert_eq!(staged.entries[1].path, excluded.path);
+    assert_eq!(staged.entries[2].path, chinese.path);
+    assert!(
+        db.filename_search
+            .transient_catalog_memory_bytes("gv_test")
+            .expect("measure compact catalog")
+            < crate::global_index::filename_search::MAX_TRANSIENT_CATALOG_BYTES
+    );
 
     let snapshot = db
         .search_global_entries_snapshot("transient-report", 20, 0)
@@ -129,8 +182,8 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
     assert_eq!(snapshot.results[0].path, included.path);
     assert_eq!(snapshot.results[0].id, included.entry_id());
     assert!(!snapshot.index_status.collection_complete);
-    assert_eq!(snapshot.index_status.processed_entries, 1);
-    assert_eq!(snapshot.index_status.total_entries, 1);
+    assert_eq!(snapshot.index_status.processed_entries, 4);
+    assert_eq!(snapshot.index_status.total_entries, 4);
     assert!(
         crate::global_index::commands::filter_live_transient_search_results(
             &db,
@@ -154,6 +207,24 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
         .expect("query a path fragment spanning a directory and filename");
     assert_eq!(nested_path_match.results.len(), 1);
     assert_eq!(nested_path_match.results[0].path, included.path);
+    let chinese_match = db
+        .search_global_entries_snapshot("预算报告", 20, 0)
+        .expect("short Unicode filename query searches packed names");
+    assert_eq!(chinese_match.results.len(), 1);
+    assert_eq!(chinese_match.results[0].path, chinese.path);
+    let chinese_path_match = db
+        .search_global_entries_snapshot("中文目录", 20, 0)
+        .expect("Unicode parent path stays searchable");
+    assert_eq!(chinese_path_match.results.len(), 1);
+    assert_eq!(chinese_path_match.results[0].path, chinese.path);
+    let upper_case_result = db
+        .search_global_entries_snapshot("upper-variant", 20, 0)
+        .expect("case-preserving directory paths remain distinct");
+    assert_eq!(upper_case_result.results[0].path, case_upper.path);
+    let lower_case_result = db
+        .search_global_entries_snapshot("lower-variant", 20, 0)
+        .expect("case-sensitive NTFS directory spelling is preserved");
+    assert_eq!(lower_case_result.results[0].path, case_lower.path);
     let transient_entry = db
         .get_global_entry_or_transient(&included.entry_id())
         .expect("resolve a pre-persistence search selection")
@@ -249,7 +320,7 @@ fn transient_filename_catalog_keeps_existing_managed_link_during_rebuild() {
         None,
     )
     .expect("mark rebuild incomplete");
-    claim_transient_test_operation(&db, "managed-rebuild");
+    let owner = claim_transient_test_operation(&db, "managed-rebuild");
 
     let policy_revision = crate::global_index::coverage::load_policy(&db.conn().unwrap())
         .expect("read current scope revision")
@@ -273,6 +344,93 @@ fn transient_filename_catalog_keeps_existing_managed_link_during_rebuild() {
     assert!(snapshot.results[0].managed);
     assert_eq!(snapshot.results[0].id, input.entry_id());
     assert!(!snapshot.index_status.collection_complete);
+
+    let second = fixture_entry(
+        "gv_test",
+        r"C:\Global\bulk-second-transient.txt",
+        "bulk-second-transient.txt",
+        "txt",
+        Some(49),
+        false,
+    );
+    db.filename_search
+        .append_transient_catalog(
+            "gv_test",
+            "managed-rebuild",
+            policy_revision,
+            std::slice::from_ref(&second),
+            &[Decision::Include],
+        )
+        .expect("append a second row to exercise separate writer transactions");
+    let (catalog_count, catalog_revision) = db
+        .filename_search
+        .complete_transient_catalog("gv_test", "managed-rebuild")
+        .expect("complete compact rebuild catalogue");
+    assert_eq!(catalog_count, 2);
+    let (persisted, timing) = db
+        .upsert_transient_mft_catalog_bulk_owned_timed(
+            "gv_test",
+            "managed-rebuild",
+            catalog_count,
+            1,
+            catalog_revision.expect("catalog retained its scope revision"),
+            &owner,
+        )
+        .expect("persist in two bounded transactions");
+    assert_eq!(persisted, 2);
+    assert_eq!(timing.sqlite_transactions, 2);
+    let connection = db.conn().expect("open verification connection");
+    let active_entries: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM global_entries WHERE volume_id='gv_test' AND is_stale=0",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count active durable rows");
+    assert_eq!(active_entries, 2);
+    let source_entry_count: i64 = connection
+        .query_row(
+            "SELECT entry_count FROM global_volumes WHERE id='gv_test'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read source statistics trigger result");
+    assert_eq!(source_entry_count, 2);
+    connection
+        .execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .expect("FTS remains consistent after bounded writes");
+    let triggers: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('global_entries_ai','global_entries_ad','global_entries_au')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read FTS trigger count");
+    assert_eq!(triggers, 3);
+    let managed_links: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM managed_entries WHERE global_entry_id=?1 AND enabled=1",
+            [input.entry_id()],
+            |row| row.get(0),
+        )
+        .expect("read preexisting managed association");
+    assert_eq!(managed_links, 1);
+    drop(connection);
+    let persisted_results = db
+        .search_global_entries("managed-transient-budget", 10, 0)
+        .expect("search after durable FTS maintenance");
+    assert!(persisted_results
+        .iter()
+        .any(|result| result.id == input.entry_id()));
+    let second_results = db
+        .search_global_entries("bulk-second-transient", 10, 0)
+        .expect("search second separately committed transaction");
+    assert!(second_results
+        .iter()
+        .any(|result| result.id == second.entry_id()));
 }
 
 #[derive(Debug)]

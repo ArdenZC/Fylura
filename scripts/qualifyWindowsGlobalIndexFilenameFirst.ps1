@@ -29,14 +29,18 @@ $candidateProbeExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Candidat
 $BaselineRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $BaselineRoot).Path)
 $CandidateRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CandidateRoot).Path)
 $EvidencePath = [IO.Path]::GetFullPath($EvidencePath)
-$performanceTargetSeconds = if ($FileCount -ge 1000000) { 60 } else { 10 }
-$performanceTargetMicroseconds = $performanceTargetSeconds * 1000000
+$searchReadyTargetSeconds = if ($FileCount -ge 1000000) { 20 } else { 10 }
+$durableTargetSeconds = if ($FileCount -ge 1000000) { 60 } else { 30 }
+$fullSourceTargetSeconds = if ($FileCount -ge 1000000) { 90 } else { 60 }
+$searchReadyTargetMicroseconds = $searchReadyTargetSeconds * 1000000
+$durableTargetMicroseconds = $durableTargetSeconds * 1000000
+$fullSourceTargetMicroseconds = $fullSourceTargetSeconds * 1000000
 $vhdMaximumMiB = if ($FileCount -ge 1000000) { 16384 } else { 4096 }
 $evidenceDirectory = Split-Path -Parent $EvidencePath
 $traceDirectory = Join-Path $evidenceDirectory 'traces'
 $script:evidence = [ordered]@{
     status = 'RUNNING'
-    comparison = 'same_release_binary_sqlite_8192_vs_filename_first_catalog_8192'
+    comparison = 'same_release_binary_sqlite_8192_vs_filename_first_catalog_4096'
     baselineSha = $ExpectedBaselineSha
     candidateSha = $ExpectedCandidateSha
     fileCount = $FileCount
@@ -48,10 +52,10 @@ $script:evidence = [ordered]@{
     candidate = @()
     incremental = $null
     averages = $null
-    firstSearchTargetSeconds = $performanceTargetSeconds
-    fullIndexTargetSeconds = $performanceTargetSeconds
-    completeFilenameSearchTargetSeconds = $performanceTargetSeconds
-    durableFtsBackgroundTargetSeconds = $performanceTargetSeconds
+    firstSearchTargetSeconds = $searchReadyTargetSeconds
+    fullIndexTargetSeconds = $fullSourceTargetSeconds
+    completeFilenameSearchTargetSeconds = $searchReadyTargetSeconds
+    durableFtsBackgroundTargetSeconds = $durableTargetSeconds
     vhdMaximumMiB = $vhdMaximumMiB
     firstSearchTargetMet = $null
     fullIndexTargetMet = $null
@@ -144,7 +148,7 @@ function Invoke-Probe(
     foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
     $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
     $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = $FilenameFirstMode
-    $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = '8192'
+    $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = '4096'
     $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'
     $startInfo.Environment['ZC_GLOBAL_INDEX_QA_TRACE'] = $TracePath
 
@@ -211,16 +215,26 @@ function Prepare-Profile([string]$ProbeExe, [string]$Profile) {
 
 function Get-Average([object[]]$Rows, [string]$Property) {
     $values = foreach ($row in $Rows) {
-        if ($Property.StartsWith('result.')) {
-            $resultProperty = $Property.Substring(7)
-            [double]$row.result.$resultProperty
-        } elseif ($Property.StartsWith('stages.')) {
-            $parts = $Property.Substring(7).Split('.', 2)
-            [double]$row.stages.($parts[0]).($parts[1])
-        } else {
-            [double]$row.$Property
+        $value = $row
+        foreach ($part in $Property.Split('.')) {
+            if ($null -eq $value) { break }
+            $value = $value.$part
         }
+        if ($null -eq $value) { 0.0 } else { [double]$value }
     }
+    return [double](($values | Measure-Object -Average).Average)
+}
+
+function Get-AverageWhenAvailable([object[]]$Rows, [string]$Property) {
+    $values = foreach ($row in $Rows) {
+        $value = $row
+        foreach ($part in $Property.Split('.')) {
+            if ($null -eq $value) { break }
+            $value = $value.$part
+        }
+        if ($null -ne $value) { [double]$value }
+    }
+    if ($null -eq $values -or @($values).Count -eq 0) { return $null }
     return [double](($values | Measure-Object -Average).Average)
 }
 
@@ -272,6 +286,8 @@ try {
     $renamedPath = Join-Path $fixtureRoot 'bucket-000\zz-filename-first-renamedmarker.txt'
     $firstTargetPath = Join-Path $fixtureRoot 'bucket-000\filename-first-item-000000.txt'
     $addedPath = Join-Path $fixtureRoot 'bucket-000\filename-first-addedprobe.txt'
+    $movedFromPath = Join-Path $fixtureRoot 'bucket-000\filename-first-item-000256.txt'
+    $movedToPath = Join-Path $fixtureRoot 'bucket-001\filename-first-moved.txt'
     [IO.File]::WriteAllBytes($targetPath, [byte[]]::new(0))
 
     $script:evidence.fixture = [ordered]@{
@@ -284,6 +300,8 @@ try {
         addedPath = $addedPath
         renamedFrom = $targetPath
         renamedTo = $renamedPath
+        movedFrom = $movedFromPath
+        movedTo = $movedToPath
         deletedPath = $deletePath
     }
     $baselineRows = [Collections.Generic.List[object]]::new()
@@ -351,6 +369,7 @@ try {
 
     [IO.File]::WriteAllBytes($addedPath, [byte[]]::new(0))
     [IO.File]::Move($targetPath, $renamedPath)
+    [IO.File]::Move($movedFromPath, $movedToPath)
     Remove-Item -LiteralPath $deletePath -Force
     Start-Sleep -Milliseconds 500
     $incremental = [ordered]@{}
@@ -365,9 +384,11 @@ try {
             $addedPath,
             $targetPath,
             $renamedPath,
+            $movedFromPath,
+            $movedToPath,
             $deletePath
         ) $mode $trace 30
-        if (-not $run.result.restartCorrect) { throw "$side incremental changes failed restart validation" }
+        if (-not $run.result.restartCorrect -or -not $run.result.movedVisible -or -not $run.result.oldMoveHidden) { throw "$side incremental add/rename/move/delete failed restart validation" }
         $incremental[$side] = $run.result
         New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null
         Copy-Item -LiteralPath $trace -Destination (Join-Path $traceDirectory "$side-incremental.log") -Force
@@ -401,6 +422,48 @@ try {
         candidatePeakPrivateBytes = Get-Average $candidateRows.ToArray() 'peakPrivateBytes'
         baselineDatabaseBytes = Get-Average $baselineRows.ToArray() 'result.databaseBytesWithWal'
         candidateDatabaseBytes = Get-Average $candidateRows.ToArray() 'result.databaseBytesWithWal'
+        baselinePeakDatabaseAndWalBytes = Get-Average $baselineRows.ToArray() 'result.peakDatabaseBytesWithWal'
+        candidatePeakDatabaseAndWalBytes = Get-Average $candidateRows.ToArray() 'result.peakDatabaseBytesWithWal'
+        baselineTransientCatalogBytes = Get-Average $baselineRows.ToArray() 'result.transientCatalogAllocatedBytes'
+        candidateTransientCatalogBytes = Get-Average $candidateRows.ToArray() 'result.transientCatalogAllocatedBytes'
+    }
+    $baselineDbstatAvailable = $baselineRows.Count -gt 0 -and @($baselineRows | Where-Object { -not $_.result.databaseFootprintAfterIndex.dbstatAvailable }).Count -eq 0
+    $candidateDbstatAvailable = $candidateRows.Count -gt 0 -and @($candidateRows | Where-Object { -not $_.result.databaseFootprintAfterIndex.dbstatAvailable }).Count -eq 0
+    $script:evidence.databaseFootprintAverages = [ordered]@{
+        baselineDbstatAvailable = $baselineDbstatAvailable
+        candidateDbstatAvailable = $candidateDbstatAvailable
+        baselineMainBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterIndex.mainBytes'
+        candidateMainBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterIndex.mainBytes'
+        baselineWalBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterIndex.walBytes'
+        candidateWalBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterIndex.walBytes'
+        baselineFtsBytes = Get-AverageWhenAvailable $baselineRows.ToArray() 'result.databaseFootprintAfterIndex.ftsBytes'
+        candidateFtsBytes = Get-AverageWhenAvailable $candidateRows.ToArray() 'result.databaseFootprintAfterIndex.ftsBytes'
+        baselineAfterCloseMainBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterClose.mainBytes'
+        candidateAfterCloseMainBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterClose.mainBytes'
+        baselineAfterCloseWalBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterClose.walBytes'
+        candidateAfterCloseWalBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterClose.walBytes'
+        baselineAfterReopenMainBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterReopen.mainBytes'
+        candidateAfterReopenMainBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterReopen.mainBytes'
+        baselineAfterReopenWalBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterReopen.walBytes'
+        candidateAfterReopenWalBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterReopen.walBytes'
+        baselineAfterCheckpointMainBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterCheckpoint.mainBytes'
+        candidateAfterCheckpointMainBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterCheckpoint.mainBytes'
+        baselineAfterCheckpointWalBytes = Get-Average $baselineRows.ToArray() 'result.databaseFootprintAfterCheckpoint.walBytes'
+        candidateAfterCheckpointWalBytes = Get-Average $candidateRows.ToArray() 'result.databaseFootprintAfterCheckpoint.walBytes'
+    }
+    $script:evidence.concurrentWriterAverages = [ordered]@{
+        baselineFilesP95Us = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.files.p95Us'
+        candidateFilesP95Us = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.files.p95Us'
+        baselineFilesMaxUs = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.files.maxUs'
+        candidateFilesMaxUs = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.files.maxUs'
+        baselineJournalP95Us = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.journal.p95Us'
+        candidateJournalP95Us = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.journal.p95Us'
+        baselineSettingsP95Us = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.settings.p95Us'
+        candidateSettingsP95Us = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.settings.p95Us'
+        baselinePeakWalBytes = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.peakWalBytes'
+        candidatePeakWalBytes = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.peakWalBytes'
+        baselineBusyErrors = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.sqliteBusyErrors'
+        candidateBusyErrors = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.sqliteBusyErrors'
     }
     $script:evidence.phaseAverages = [ordered]@{
         baselineMftReadParseUs = Get-Average $baselineRows.ToArray() 'stages.mft.mft_read_parse_us'
@@ -427,6 +490,8 @@ try {
         candidateTransactionAcquisitionUs = Get-Average $candidateRows.ToArray() 'stages.writer.transaction_acquisition_us'
         baselineTransactionSetupUs = Get-Average $baselineRows.ToArray() 'stages.writer.transaction_setup_us'
         candidateTransactionSetupUs = Get-Average $candidateRows.ToArray() 'stages.writer.transaction_setup_us'
+        baselineMaxWriterLockUs = Get-Average $baselineRows.ToArray() 'stages.writer.max_writer_lock_us'
+        candidateMaxWriterLockUs = Get-Average $candidateRows.ToArray() 'stages.writer.max_writer_lock_us'
         baselineEntryUpsertUs = Get-Average $baselineRows.ToArray() 'stages.writer.entry_upsert_us'
         candidateEntryUpsertUs = Get-Average $candidateRows.ToArray() 'stages.writer.entry_upsert_us'
         baselineAiTaskQualificationUs = Get-Average $baselineRows.ToArray() 'stages.writer.ai_task_qualification_us'
@@ -439,23 +504,25 @@ try {
         candidateCommitUs = Get-Average $candidateRows.ToArray() 'stages.writer.commit_us'
         baselineSqliteTransactionCount = Get-Average $baselineRows.ToArray() 'stages.writer.sqlite_transactions'
         candidateSqliteTransactionCount = Get-Average $candidateRows.ToArray() 'stages.writer.sqlite_transactions'
-        ftsTiming = 'Baseline uses synchronous FTS triggers; candidate initial persistence rebuilds FTS once in the atomic bulk transaction before restoring triggers.'
+        baselineWalCheckpointUs = Get-Average $baselineRows.ToArray() 'stages.writer.wal_checkpoint_us'
+        candidateWalCheckpointUs = Get-Average $candidateRows.ToArray() 'stages.writer.wal_checkpoint_us'
+        ftsTiming = 'Both modes keep production FTS triggers enabled. Trigger maintenance is included in entry_upsert_us; candidate uses bounded 4096-row transactions and does not run a full-table FTS rebuild.'
     }
     $allCandidateFirstSearchTargetsMet = @($candidateRows | Where-Object {
-        [double]$_.result.firstSearchableUs -gt $performanceTargetMicroseconds
+        [double]$_.result.firstSearchableUs -gt $searchReadyTargetMicroseconds
     }).Count -eq 0
-    $script:evidence.firstSearchTargetMet = $candidateFirst -le $performanceTargetMicroseconds -and $allCandidateFirstSearchTargetsMet
+    $script:evidence.firstSearchTargetMet = $candidateFirst -le $searchReadyTargetMicroseconds -and $allCandidateFirstSearchTargetsMet
     $allCandidateCollectionsComplete = @($candidateRows | Where-Object { -not $_.result.indexComplete }).Count -eq 0
     $allCandidateCompleteCatalogsReady = @($candidateRows | Where-Object {
         $null -eq $_.result.transientCatalogReadyUs -or
-        [double]$_.result.transientCatalogReadyUs -gt $performanceTargetMicroseconds -or
+        [double]$_.result.transientCatalogReadyUs -gt $searchReadyTargetMicroseconds -or
         [long]$_.result.transientFixtureFileEntries -ne $FileCount -or
         -not $_.result.completeTransientSearchVisible -or
         -not $_.result.completeTransientSearchBeforeDurableFts -or
         $_.result.collectionCompleteWhenTransientReady
     }).Count -eq 0
     $allCandidateDurableFilenameTargetsMet = @($candidateRows | Where-Object {
-        [double]$_.result.durableFilenameIndexUs -gt $performanceTargetMicroseconds -or
+        [double]$_.result.durableFilenameIndexUs -gt $durableTargetMicroseconds -or
         [long]$_.result.fixtureFileEntries -ne $FileCount -or
         -not $_.result.ftsIntegrityVerified -or
         -not $_.result.restartedSearchVisible -or
@@ -466,24 +533,47 @@ try {
         candidate = @($candidateRows | ForEach-Object { $_.result.indexComplete })
     }
     $candidateCompleteFilenameSearchable = Get-Average $candidateRows.ToArray() 'result.transientCatalogReadyUs'
-    $script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $performanceTargetMicroseconds -and $allCandidateCompleteCatalogsReady
-    $script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $performanceTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet
+    $script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady
+    $script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $durableTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet
     $script:evidence.fixtureFilenameIndexTargetMet = $script:evidence.completeFilenameSearchTargetMet
-    $script:evidence.fullIndexTargetMet = $candidateFull -le $performanceTargetMicroseconds -and $allCandidateCollectionsComplete
+    $allCandidateFullSourceTargetsMet = @($candidateRows | Where-Object {
+        [double]$_.result.fullIndexUs -gt $fullSourceTargetMicroseconds
+    }).Count -eq 0
+    $script:evidence.fullIndexTargetMet = $candidateFull -le $fullSourceTargetMicroseconds -and $allCandidateFullSourceTargetsMet -and $allCandidateCollectionsComplete
     $script:evidence.fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet
+    $workingSetTargetBytes = 768 * 1024 * 1024
+    $databaseAndWalTargetBytes = 2 * 1024 * 1024 * 1024
+    $candidatePeakWorkingSet = Get-Average $candidateRows.ToArray() 'peakWorkingSetBytes'
+    $candidateDatabaseAndWal = Get-Average $candidateRows.ToArray() 'result.peakDatabaseBytesWithWal'
+    $allCandidateWorkingSetsMet = @($candidateRows | Where-Object {
+        [double]$_.peakWorkingSetBytes -gt $workingSetTargetBytes
+    }).Count -eq 0
+    $allCandidateDatabaseSizesMet = @($candidateRows | Where-Object {
+        [double]$_.result.peakDatabaseBytesWithWal -gt $databaseAndWalTargetBytes
+    }).Count -eq 0
+    $script:evidence.resourceTargets = [ordered]@{
+        workingSetTargetBytes = $workingSetTargetBytes
+        candidatePeakWorkingSetBytesAverage = $candidatePeakWorkingSet
+        candidateWorkingSetMet = $candidatePeakWorkingSet -le $workingSetTargetBytes -and $allCandidateWorkingSetsMet
+        databaseAndWalTargetBytes = $databaseAndWalTargetBytes
+        candidatePeakDatabaseAndWalBytesAverage = $candidateDatabaseAndWal
+        candidateDatabaseAndWalMet = $candidateDatabaseAndWal -le $databaseAndWalTargetBytes -and $allCandidateDatabaseSizesMet
+    }
     $targetFailures = @()
     if (-not $script:evidence.firstSearchTargetMet) {
-        $targetFailures += "first searchable result exceeded the $performanceTargetSeconds-second target"
+        $targetFailures += "first searchable result exceeded the $searchReadyTargetSeconds-second target"
     }
     if (-not $script:evidence.completeFilenameSearchTargetMet) {
-        $targetFailures += "complete transient filename catalogue exceeded $performanceTargetSeconds seconds or failed fixture-count/search/progress checks"
+        $targetFailures += "complete transient filename catalogue exceeded $searchReadyTargetSeconds seconds or failed fixture-count/search/progress checks"
     }
     if ($targetFailures.Count -gt 0) {
         $script:evidence.status = 'PERFORMANCE_TARGET_MISSED'
         $failure = $targetFailures -join '; '
         $script:evidence.failure = $failure
     } elseif (-not $script:evidence.durableFilenameIndexTargetMet) {
-        $script:evidence.status = "SEARCH_READY_TARGET_MET_BACKGROUND_FTS_OVER_${performanceTargetSeconds}S"
+        $script:evidence.status = "SEARCH_READY_TARGET_MET_BACKGROUND_FTS_OVER_${durableTargetSeconds}S"
+    } elseif (-not $script:evidence.fullIndexTargetMet -or -not $script:evidence.resourceTargets.candidateWorkingSetMet -or -not $script:evidence.resourceTargets.candidateDatabaseAndWalMet) {
+        $script:evidence.status = 'SEARCH_READY_TARGET_MET_FULL_INDEX_OR_RESOURCE_TARGET_PARTIAL'
     } else {
         $script:evidence.status = 'PASS'
     }

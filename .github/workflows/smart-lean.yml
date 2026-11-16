@@ -365,6 +365,14 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-audit --no-fund
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: fylura-Windows-global-index-service-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
       - name: Build candidate frontend assets
         run: npm run build:frontend
       - name: Build one Release QA executable for both feature modes

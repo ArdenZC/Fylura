@@ -308,7 +308,6 @@ impl FilenameSearchManager {
         let Some(digest) = transient_id_digest(entry_id) else {
             return false;
         };
-        let key = transient_id_hash(&digest);
         self.transient_catalogs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -317,11 +316,7 @@ impl FilenameSearchManager {
                 let catalog = catalog
                     .read()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                catalog
-                    .by_id
-                    .get(&key)
-                    .is_some_and(|index| catalog.entries[*index as usize].id_digest == digest)
-                    || catalog.by_id_collisions.contains_key(&digest)
+                transient_catalog_entry_index(&catalog, &digest).is_some()
             })
     }
 
@@ -521,7 +516,7 @@ impl FilenameSearchManager {
                 }
             }
         }
-        if transient_catalog_allocated_bytes(&catalog) > MAX_TRANSIENT_CATALOG_BYTES {
+        if transient_catalog_estimated_bytes(&catalog) > MAX_TRANSIENT_CATALOG_BYTES {
             return Err("transient_catalog_memory_budget_exceeded");
         }
         Ok(())
@@ -567,7 +562,7 @@ impl FilenameSearchManager {
     }
 
     #[cfg(any(test, all(feature = "native-qa", windows)))]
-    pub(crate) fn transient_catalog_memory_bytes(&self, volume_id: &str) -> Option<usize> {
+    pub(crate) fn transient_catalog_estimated_bytes(&self, volume_id: &str) -> Option<usize> {
         let catalog = self
             .transient_catalogs
             .lock()
@@ -577,7 +572,7 @@ impl FilenameSearchManager {
         let catalog = catalog
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Some(transient_catalog_allocated_bytes(&catalog))
+        Some(transient_catalog_estimated_bytes(&catalog))
     }
 
     #[cfg(all(feature = "native-qa", windows))]
@@ -672,7 +667,8 @@ impl FilenameSearchManager {
             return Err("transient_catalog_owner_changed");
         }
         for entry in entries {
-            let Some(index) = catalog.by_id.get(&entry_id_digest(entry)).copied() else {
+            let id = entry_id_digest(entry);
+            let Some(index) = transient_catalog_entry_index(&catalog, &id) else {
                 return Err("transient_catalog_entry_missing");
             };
             catalog.entries[index].size = entry.size;
@@ -736,7 +732,7 @@ impl FilenameSearchManager {
             let Some(digest) = transient_id_digest(entry_id) else {
                 continue;
             };
-            let Some(index) = catalog.by_id.get(&digest).copied() else {
+            let Some(index) = transient_catalog_entry_index(&catalog, &digest) else {
                 continue;
             };
             let entry = &catalog.entries[index];
@@ -1875,6 +1871,20 @@ fn transient_id_hash(digest: &[u8; 32]) -> u64 {
     )
 }
 
+fn transient_catalog_entry_index(
+    catalog: &TransientFilenameCatalog,
+    digest: &[u8; 32],
+) -> Option<usize> {
+    let key = transient_id_hash(digest);
+    catalog
+        .by_id
+        .get(&key)
+        .copied()
+        .filter(|index| catalog.entries[*index as usize].id_digest == *digest)
+        .or_else(|| catalog.by_id_collisions.get(digest).copied())
+        .map(|index| index as usize)
+}
+
 fn transient_name_prefix_keys(value: &str) -> [Option<u64>; 2] {
     let mut keys = [None; 2];
     let mut key = 0u64;
@@ -1892,7 +1902,7 @@ fn transient_name_prefix_search_key(value: &str) -> Option<u64> {
         .last()
 }
 
-fn transient_catalog_allocated_bytes(catalog: &TransientFilenameCatalog) -> usize {
+fn transient_catalog_estimated_bytes(catalog: &TransientFilenameCatalog) -> usize {
     let mut bytes = catalog
         .strings
         .allocated_bytes()

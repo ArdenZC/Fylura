@@ -227,7 +227,7 @@ pub fn run_initial(
     let mut durable_filename_index_us = None;
     let mut transient_catalog_ready_us = None;
     let mut transient_catalog_entry_count = None;
-    let mut transient_catalog_allocated_bytes = None;
+    let mut transient_catalog_estimated_bytes = None;
     let mut transient_fixture_file_entries = None;
     let mut complete_transient_search_visible = None;
     let mut complete_transient_search_before_durable_fts = None;
@@ -281,8 +281,9 @@ pub fn run_initial(
             {
                 transient_catalog_ready_us = Some(started.elapsed().as_micros());
                 transient_catalog_entry_count = Some(catalog_entries);
-                transient_catalog_allocated_bytes =
-                    db.filename_search.transient_catalog_memory_bytes(source_id);
+                transient_catalog_estimated_bytes = db
+                    .filename_search
+                    .transient_catalog_estimated_bytes(source_id);
                 transient_fixture_file_entries = Some(fixture_entries);
                 complete_transient_search_before_durable_fts =
                     Some(durable_filename_index_us.is_none());
@@ -505,7 +506,7 @@ pub fn run_initial(
         "firstSearchTotalEntries": first_search_total_entries,
         "transientCatalogReadyUs": transient_catalog_ready_us,
         "transientCatalogEntryCount": transient_catalog_entry_count,
-        "transientCatalogAllocatedBytes": transient_catalog_allocated_bytes,
+        "transientCatalogEstimatedBytes": transient_catalog_estimated_bytes,
         "transientFixtureFileEntries": transient_fixture_file_entries,
         "completeTransientSearchVisible": complete_transient_search_visible,
         "completeTransientSearchBeforeDurableFts": complete_transient_search_before_durable_fts,

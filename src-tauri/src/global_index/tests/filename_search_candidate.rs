@@ -170,7 +170,7 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
     assert_eq!(staged.entries[2].path, chinese.path);
     assert!(
         db.filename_search
-            .transient_catalog_memory_bytes("gv_test")
+            .transient_catalog_estimated_bytes("gv_test")
             .expect("measure compact catalog")
             < crate::global_index::filename_search::MAX_TRANSIENT_CATALOG_BYTES
     );

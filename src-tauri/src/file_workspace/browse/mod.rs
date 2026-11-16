@@ -376,6 +376,10 @@ impl std::fmt::Debug for SelectionChangeMonitor {
 
 impl SelectionChangeMonitor {
     fn watch(path: &Path) -> Result<Self, BrowseError> {
+        #[cfg(test)]
+        let diagnostic_test = std::thread::current().name().unwrap_or_default().to_owned();
+        #[cfg(test)]
+        let diagnostic_path = path.to_path_buf();
         let changes = Arc::new(Mutex::new(Vec::new()));
         let unavailable = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let wake = Arc::new(std::sync::Condvar::new());
@@ -387,10 +391,28 @@ impl SelectionChangeMonitor {
                 let event = match event {
                     Ok(event) => event,
                     Err(_) => {
+                        #[cfg(test)]
+                        if diagnostic_test.contains("directory_selection_snapshot_advances")
+                            || diagnostic_test
+                                .contains("transfer_execution_advances_directory_selection")
+                        {
+                            eprintln!("selection watcher error for {}", diagnostic_path.display());
+                        }
                         callback_unavailable.store(true, Ordering::Release);
                         return;
                     }
                 };
+                #[cfg(test)]
+                if diagnostic_test.contains("directory_selection_snapshot_advances")
+                    || diagnostic_test.contains("transfer_execution_advances_directory_selection")
+                {
+                    eprintln!(
+                        "selection watcher event for {}: {:?} {:?}",
+                        diagnostic_path.display(),
+                        event.kind,
+                        event.paths
+                    );
+                }
                 let kind = match event.kind {
                     EventKind::Create(_) => SelectionNamespaceChangeKind::Create,
                     EventKind::Remove(_) => SelectionNamespaceChangeKind::Remove,
@@ -445,6 +467,8 @@ impl SelectionChangeMonitor {
         allow_safe_trash_root_creation: bool,
     ) -> Result<(HashSet<PathBuf>, bool), BrowseError> {
         if self.unavailable.load(Ordering::Acquire) {
+            #[cfg(test)]
+            eprintln!("selection watcher unavailable during reconciliation");
             return Err(BrowseError::SelectionSnapshotStale);
         }
         let changes = std::mem::take(
@@ -497,6 +521,11 @@ impl SelectionChangeMonitor {
                     | SelectionNamespaceChangeKind::Rename
                     | SelectionNamespaceChangeKind::PathChange
                     | SelectionNamespaceChangeKind::Unknown => {
+                        #[cfg(test)]
+                        eprintln!(
+                            "selection watcher rejected {:?} {:?} (allowed: {:?})",
+                            change.kind, path, allowed_removals
+                        );
                         return Err(BrowseError::SelectionSnapshotStale);
                     }
                 }
@@ -532,6 +561,8 @@ impl SelectionChangeMonitor {
                     .map_err(|_| BrowseError::SelectionSnapshotStale)?;
                 if result.timed_out() && changes.is_empty() {
                     if directory_changed && observed_removals.is_empty() {
+                        #[cfg(test)]
+                        eprintln!("selection watcher timed out with parent change but no verified child removal; required={required_removals:?}");
                         return Err(BrowseError::SelectionSnapshotStale);
                     }
                     return Ok(());
@@ -544,6 +575,8 @@ impl SelectionChangeMonitor {
                 drop(changes);
             }
             if std::time::Instant::now() >= deadline {
+                #[cfg(test)]
+                eprintln!("selection watcher timed out; observed={observed_removals:?}; required={required_removals:?}; pending={:?}", *self.changes.lock().map_err(|_| BrowseError::SelectionSnapshotStale)?);
                 return Err(BrowseError::SelectionSnapshotStale);
             }
         }

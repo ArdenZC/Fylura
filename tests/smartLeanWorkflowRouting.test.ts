@@ -141,16 +141,16 @@ describe("Global Index performance workflow routing", () => {
   it("compares the filename-first path against SQLite using the same Release binary", () => {
     expect(workflow).toContain("Build one Release QA executable for both feature modes");
     expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
-    expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_8192");
-    expect(workflow).toContain("same Release binary; direct SQLite uses synchronous FTS with 8192-row batches; candidate emits configured 8192-row MFT chunks");
-    expect(workflow).toContain("reuses preflight Scope decisions");
-    expect(workflow).toContain("one-time FTS rebuild");
+    expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_4096");
+    expect(workflow).toContain("same Release binary and same task-owned NTFS data; baseline uses synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists 4096-row transactions");
+    expect(workflow).toContain("Both keep production FTS triggers enabled");
+    expect(workflow).toContain("candidate avoids a full-table rebuild");
     expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
     expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
-    expect(filenameFirstQualification).toContain("$performanceTargetSeconds = if ($FileCount -ge 1000000) { 60 } else { 10 }");
-    expect(filenameFirstQualification).toContain("durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $performanceTargetMicroseconds");
-    expect(filenameFirstQualification).toContain("completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $performanceTargetMicroseconds -and $allCandidateCompleteCatalogsReady");
+    expect(filenameFirstQualification).toContain("$searchReadyTargetSeconds = if ($FileCount -ge 1000000) { 20 } else { 10 }");
+    expect(filenameFirstQualification).toContain("$script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $durableTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet");
+    expect(filenameFirstQualification).toContain("$script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady");
     expect(filenameFirstQualification).toContain("completeTransientSearchBeforeDurableFts");
     expect(filenameFirstQualification).toContain("collectionCompleteWhenTransientReady");
     expect(filenameFirstQualification).toContain("fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet");
@@ -165,12 +165,12 @@ describe("Global Index performance workflow routing", () => {
     expect(filenameFirstQualification).toContain("$candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'");
     expect(filenameFirstQualification).toContain("stages.writer.fts_rebuild_us");
     expect(filenameFirstQualification).toContain("ftsIntegrityVerified");
-    expect(workflow).toContain("FTS rebuild (candidate bulk path)");
+    expect(workflow).toContain("full-table rebuild baseline/candidate:");
     expect(workflow).toContain("Average peak working set baseline/candidate:");
     expect(filenameFirstQualification).toContain("stages.writer.transient_staging_us");
     expect(workflow).toContain("Transient catalog staging baseline/candidate:");
     expect(workflow).toContain("Average complete filename search baseline/candidate:");
-    expect(workflow).toContain("Average database+WAL bytes baseline/candidate:");
+    expect(workflow).toContain("Peak DB+WAL during indexing baseline/candidate:");
     expect(workflow).toContain("Write-Output $summary");
   });
 });

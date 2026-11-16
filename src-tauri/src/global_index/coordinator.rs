@@ -806,7 +806,7 @@ fn initial_mft_persist_batch_size() -> usize {
     std::env::var("ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| matches!(value, 512 | 4096 | 8192))
+        .filter(|value| matches!(value, 512 | 1024 | 2048 | 4096 | 8192))
         .unwrap_or(4096)
 }
 

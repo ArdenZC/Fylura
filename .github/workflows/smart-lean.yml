@@ -45,7 +45,7 @@ on:
         description: Candidate bounded SQLite transaction size for the real NTFS pair
         type: choice
         default: '4096'
-        options: ['512', '4096', '8192']
+        options: ['512', '1024', '2048', '4096', '8192']
       run_trigger_matrix:
         description: Re-run the synthetic 25k FTS/source-stat attribution matrix
         type: boolean

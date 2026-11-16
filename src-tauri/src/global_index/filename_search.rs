@@ -429,7 +429,7 @@ impl FilenameSearchManager {
         Ok((catalog.entries.len(), catalog.policy_revision))
     }
 
-    #[cfg(feature = "native-qa")]
+    #[cfg(all(feature = "native-qa", windows))]
     pub(crate) fn transient_catalog_qa_counts(
         &self,
         volume_id: &str,
@@ -1469,7 +1469,7 @@ impl FilenameSearchManager {
     }
 }
 
-#[cfg(feature = "native-qa")]
+#[cfg(all(feature = "native-qa", windows))]
 fn normalized_path_has_prefix(path: &str, normalized_prefix: &str) -> bool {
     let path = path.as_bytes();
     let prefix = normalized_prefix.as_bytes();

@@ -189,14 +189,12 @@ pub fn run_initial(
                     Some(db.global_index_status()?.collection_complete);
             }
         }
-        if first_searchable_us.is_none() {
-            if live_result_visible(&db, query, &expected_path)? {
-                let status = db.global_index_status()?;
-                first_searchable_us = Some(started.elapsed().as_micros());
-                first_search_complete = Some(status.collection_complete);
-                first_search_processed_entries = Some(status.processed_entries);
-                first_search_total_entries = Some(status.total_entries);
-            }
+        if first_searchable_us.is_none() && live_result_visible(&db, query, &expected_path)? {
+            let status = db.global_index_status()?;
+            first_searchable_us = Some(started.elapsed().as_micros());
+            first_search_complete = Some(status.collection_complete);
+            first_search_processed_entries = Some(status.processed_entries);
+            first_search_total_entries = Some(status.total_entries);
         }
         if worker.is_finished() {
             break;
@@ -208,14 +206,12 @@ pub fn run_initial(
         .map_err(|_| "native MFT qualification worker panicked")?
         .map_err(|error| format!("native MFT qualification failed: {error}"))?;
     let full_index_us = started.elapsed().as_micros();
-    if first_searchable_us.is_none() {
-        if live_result_visible(&db, query, &expected_path)? {
-            let status = db.global_index_status()?;
-            first_searchable_us = Some(full_index_us);
-            first_search_complete = Some(status.collection_complete);
-            first_search_processed_entries = Some(status.processed_entries);
-            first_search_total_entries = Some(status.total_entries);
-        }
+    if first_searchable_us.is_none() && live_result_visible(&db, query, &expected_path)? {
+        let status = db.global_index_status()?;
+        first_searchable_us = Some(full_index_us);
+        first_search_complete = Some(status.collection_complete);
+        first_search_processed_entries = Some(status.processed_entries);
+        first_search_total_entries = Some(status.total_entries);
     }
     let first_searchable_us =
         first_searchable_us.ok_or("target filename never became searchable")?;

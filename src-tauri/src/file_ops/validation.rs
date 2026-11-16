@@ -1691,6 +1691,33 @@ mod windows_system_trash_native_tests {
         eprintln!("SYSTEM_TRASH_TOC_TOU_NATIVE_PASS platform=windows replacement_after_final_revalidation=true path_api_accepted_replacement=true");
         fs::remove_dir_all(root).expect("cleanup race fixture");
     }
+
+    #[test]
+    fn windows_staged_trash_restore_returns_to_staging_path() {
+        let root = super::native_system_trash_test_root("windows-staging-restore");
+        let original_parent = root.join("original-location");
+        let staging_parent = root.join("fylura-staging");
+        fs::create_dir_all(&original_parent).expect("create original location");
+        fs::create_dir_all(&staging_parent).expect("create staging location");
+        let original = original_parent.join("staged-entry.txt");
+        let staged = staging_parent.join("staged-entry.txt");
+        fs::write(&original, b"B staging semantics").expect("write original file");
+        fs::rename(&original, &staged).expect("same-volume move into controlled staging");
+
+        trash::delete(&staged).expect("send staged path to the real Recycle Bin");
+        assert!(!staged.exists());
+        trash_and_restore(&staged);
+        assert_eq!(
+            fs::read(&staged).expect("Shell restores to the path handed to it"),
+            b"B staging semantics"
+        );
+        assert!(
+            !original.exists(),
+            "native restore targets the staged path, not the pre-staging source"
+        );
+        eprintln!("SYSTEM_TRASH_STAGING_NATIVE_PASS platform=windows restored_to_staging=true original_path_preserved=false");
+        fs::remove_dir_all(root).expect("cleanup staged restore fixture");
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -1830,5 +1857,38 @@ mod macos_system_trash_native_tests {
         );
         eprintln!("SYSTEM_TRASH_TOC_TOU_NATIVE_PASS platform=macos replacement_after_final_revalidation=true path_api_accepted_replacement=true");
         fs::remove_dir_all(root).expect("cleanup race fixture");
+    }
+
+    #[test]
+    fn finder_staged_trash_restore_returns_to_staging_path() {
+        let root = super::native_system_trash_test_root("macos-staging-restore");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let root_name = root
+            .file_name()
+            .expect("fixture root has a name")
+            .to_string_lossy();
+        let original_parent = root.join("original-location");
+        let staging_parent = root.join("fylura-staging");
+        fs::create_dir_all(&original_parent).expect("create original location");
+        fs::create_dir_all(&staging_parent).expect("create staging location");
+        let name = format!("{root_name}-staged-entry.txt");
+        let original = original_parent.join(&name);
+        let staged = staging_parent.join(&name);
+        fs::write(&original, b"B staging semantics").expect("write original file");
+        fs::rename(&original, &staged).expect("same-volume move into controlled staging");
+
+        trash::delete(&staged).expect("send staged path to Finder Trash");
+        assert!(!staged.exists());
+        restore_with_finder(&staged);
+        assert_eq!(
+            fs::read(&staged).expect("Finder restores to the path handed to it"),
+            b"B staging semantics"
+        );
+        assert!(
+            !original.exists(),
+            "Finder restore targets the staged path, not the pre-staging source"
+        );
+        eprintln!("SYSTEM_TRASH_STAGING_NATIVE_PASS platform=macos restored_to_staging=true original_path_preserved=false");
+        fs::remove_dir_all(root).expect("cleanup staged restore fixture");
     }
 }

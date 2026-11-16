@@ -10,7 +10,6 @@ use std::{
 };
 
 static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-const INITIAL_MFT_WAL_CHECKPOINT_INTERVAL_TRANSACTIONS: u64 = 16;
 const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
@@ -1328,17 +1327,12 @@ impl Database {
         timing.connection_acquisition = connection_started.elapsed();
         let previous_journal_size_limit =
             conn.query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))?;
-        let previous_wal_autocheckpoint =
-            conn.query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))?;
         conn.pragma_update(None, "journal_size_limit", INITIAL_MFT_WAL_SIZE_LIMIT_BYTES)?;
-        // Avoid a large automatic checkpoint on the final commit of one
-        // indexing batch. This connection checkpoints every 16 bounded
-        // transactions and once at the end; its prior pool settings are
-        // restored before returning.
-        if let Err(error) = conn.pragma_update(None, "wal_autocheckpoint", 0_i64) {
-            let _ = conn.pragma_update(None, "journal_size_limit", previous_journal_size_limit);
-            return Err(error.into());
-        }
+        // Keep the database's configured automatic WAL checkpoint threshold.
+        // Bounded transactions limit writer-lock duration; suppressing auto
+        // checkpoints here allowed FTS pages to accumulate into a very large
+        // WAL when other readers were active. A final passive checkpoint
+        // below records how much of the completed write stream can be folded.
         let canonical_writer = canonical_scope_decision_writes();
         #[cfg(test)]
         let upsert_sql = if canonical_writer {
@@ -1464,25 +1458,9 @@ impl Database {
                 timing.commit += commit_started.elapsed();
                 timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
                 timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
-                if timing.sqlite_transactions % INITIAL_MFT_WAL_CHECKPOINT_INTERVAL_TRANSACTIONS
-                    == 0
-                {
-                    let checkpoint_started = Instant::now();
-                    match passive_wal_checkpoint(&conn) {
-                        Ok((busy, log_frames, checkpointed_frames)) => {
-                            crate::global_index::qa_trace::record(&format!(
-                                "global_index_wal_checkpoint mode=passive interval_transactions={} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={}",
-                                timing.sqlite_transactions,
-                                checkpoint_started.elapsed().as_micros()
-                            ));
-                        }
-                        Err(error) => log::warn!(
-                            target: "global_index::repository",
-                            "periodic passive WAL checkpoint during filename indexing failed: {error}"
-                        ),
-                    }
-                    timing.wal_checkpoint += checkpoint_started.elapsed();
-                }
+                // Give ordinary pooled writers a chance to acquire the next
+                // slot between successive bounded index transactions.
+                std::thread::yield_now();
 
                 offset += entries.len();
                 processed_entries += entries.len();
@@ -1497,8 +1475,6 @@ impl Database {
         let checkpoint_started = Instant::now();
         let checkpoint_result = passive_wal_checkpoint(&conn);
         timing.wal_checkpoint += checkpoint_started.elapsed();
-        let restore_autocheckpoint =
-            conn.pragma_update(None, "wal_autocheckpoint", previous_wal_autocheckpoint);
         let restore_journal_size_limit =
             conn.pragma_update(None, "journal_size_limit", previous_journal_size_limit);
         match checkpoint_result {
@@ -1513,10 +1489,8 @@ impl Database {
                 "passive WAL checkpoint after filename indexing failed: {error}"
             ),
         }
-        let restore_result = restore_autocheckpoint;
         let restore_journal_size_limit_result = restore_journal_size_limit;
         let (processed_entries, has_eligible_pending_work) = write_result?;
-        restore_result?;
         restore_journal_size_limit_result?;
         debug_assert_eq!(processed_entries, entry_count);
         if has_eligible_pending_work {

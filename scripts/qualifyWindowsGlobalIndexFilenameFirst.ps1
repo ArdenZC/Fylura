@@ -488,6 +488,23 @@ try {
         baselineBusyErrors = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.sqliteBusyErrors'
         candidateBusyErrors = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.sqliteBusyErrors'
     }
+    $normalWriteP95LimitUs = 500000
+    $candidateConcurrentWritesSucceeded = @($candidateRows | Where-Object {
+        [long]$_.result.concurrentDatabaseWrites.sqliteBusyErrors -gt 0 -or
+        @($_.result.concurrentDatabaseWrites.errors).Count -gt 0
+    }).Count -eq 0
+    $candidateConcurrentWriteLatencyMet = @($candidateRows | Where-Object {
+        [double]$_.result.concurrentDatabaseWrites.files.p95Us -gt $normalWriteP95LimitUs -or
+        [double]$_.result.concurrentDatabaseWrites.journal.p95Us -gt $normalWriteP95LimitUs -or
+        [double]$_.result.concurrentDatabaseWrites.settings.p95Us -gt $normalWriteP95LimitUs
+    }).Count -eq 0
+    $script:evidence.concurrentWritesTarget = [ordered]@{
+        sqliteBusyErrors = $script:evidence.concurrentWriterAverages.candidateBusyErrors
+        p95LatencyLimitUs = $normalWriteP95LimitUs
+        writesSucceededWithoutErrors = $candidateConcurrentWritesSucceeded
+        p95LatencyWithinLimit = $candidateConcurrentWriteLatencyMet
+        met = $candidateConcurrentWritesSucceeded -and $candidateConcurrentWriteLatencyMet
+    }
     $script:evidence.phaseAverages = [ordered]@{
         baselineMftReadParseUs = Get-Average $baselineRows.ToArray() 'stages.mft.mft_read_parse_us'
         candidateMftReadParseUs = Get-Average $candidateRows.ToArray() 'stages.mft.mft_read_parse_us'
@@ -588,6 +605,9 @@ try {
     }
     if (-not $script:evidence.completeFilenameSearchTargetMet) {
         $targetFailures += "complete transient filename catalogue exceeded $searchReadyTargetSeconds seconds or failed fixture-count/search/progress checks"
+    }
+    if (-not $script:evidence.concurrentWritesTarget.met) {
+        $targetFailures += "normal Files/Journal/Settings writes returned SQLITE_BUSY or exceeded the $normalWriteP95LimitUs-us p95 latency limit during indexing"
     }
     if ($targetFailures.Count -gt 0) {
         $script:evidence.status = 'PERFORMANCE_TARGET_MISSED'

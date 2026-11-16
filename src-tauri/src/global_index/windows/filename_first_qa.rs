@@ -134,7 +134,7 @@ pub fn run_initial(
             });
             file_latencies_us.push(file_started.elapsed().as_micros() as u64);
             if let Err(error) = file_result {
-                errors.push(format!("files:{error}"));
+                errors.push(format!("files:{error:?}"));
             }
 
             let journal_started = Instant::now();
@@ -151,7 +151,7 @@ pub fn run_initial(
             });
             journal_latencies_us.push(journal_started.elapsed().as_micros() as u64);
             if let Err(error) = journal_result {
-                errors.push(format!("journal:{error}"));
+                errors.push(format!("journal:{error:?}"));
             }
 
             let settings_started = Instant::now();
@@ -167,7 +167,7 @@ pub fn run_initial(
             });
             settings_latencies_us.push(settings_started.elapsed().as_micros() as u64);
             if let Err(error) = settings_result {
-                errors.push(format!("settings:{error}"));
+                errors.push(format!("settings:{error:?}"));
             }
             index = index.saturating_add(1);
             thread::sleep(std::time::Duration::from_millis(100));

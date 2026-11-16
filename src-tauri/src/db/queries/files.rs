@@ -24,6 +24,15 @@ use std::{
 use sysinfo::Disks;
 
 const RESTORE_FINALIZATION_MAX_ATTEMPTS: usize = 3;
+const FILE_UPSERT_BUSY_SNAPSHOT_RETRIES: usize = 3;
+
+fn is_file_upsert_busy_snapshot(error: &DbError) -> bool {
+    matches!(
+        error,
+        DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
+            if code.extended_code == rusqlite::ffi::SQLITE_BUSY_SNAPSHOT
+    )
+}
 
 fn is_retryable_restore_database_lock(error: &DbError) -> bool {
     matches!(
@@ -192,6 +201,28 @@ impl Database {
         if files.is_empty() {
             return Ok(());
         }
+        for attempt in 0..=FILE_UPSERT_BUSY_SNAPSHOT_RETRIES {
+            match self.insert_files_once(files) {
+                Err(error)
+                    if attempt < FILE_UPSERT_BUSY_SNAPSHOT_RETRIES
+                        && is_file_upsert_busy_snapshot(&error) =>
+                {
+                    // This transaction reads existing row identity before it
+                    // writes. In WAL mode, a concurrent index writer can
+                    // commit between those statements and invalidate the read
+                    // snapshot. The busy handler cannot upgrade that stale
+                    // snapshot; dropping the whole transaction and retrying
+                    // from a fresh snapshot is safe because all effects are
+                    // database-local and transactional.
+                    std::thread::sleep(std::time::Duration::from_millis(5 << attempt));
+                }
+                result => return result,
+            }
+        }
+        unreachable!("the final retry returns its result")
+    }
+
+    fn insert_files_once(&self, files: &[InsertFileRequest]) -> Result<(), DbError> {
         let last_seen_at = current_unix_seconds();
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;

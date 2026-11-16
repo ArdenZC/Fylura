@@ -2557,8 +2557,8 @@ mod tests {
         let (bulk_build, indexed_rows): (bool, i64) = conn
             .query_row(
                 "SELECT fts_bulk_build,
-                        (SELECT count(*) FROM global_entries_fts f
-                         JOIN global_entries e ON e.rowid=f.rowid WHERE e.volume_id=?1)
+                        (SELECT count(*) FROM global_entries_fts
+                         WHERE global_entries_fts MATCH 'spotlight')
                  FROM global_volumes WHERE id=?1",
                 [&volume.id],
                 |row| Ok((row.get(0)?, row.get(1)?)),

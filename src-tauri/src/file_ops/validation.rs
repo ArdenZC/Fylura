@@ -1549,11 +1549,22 @@ mod windows_system_trash_native_tests {
     use std::fs;
     use std::path::Path;
 
+    fn same_windows_path(left: &Path, right: &Path) -> bool {
+        fn normalized(path: &Path) -> String {
+            let path = path.to_string_lossy().replace('/', "\\");
+            path.strip_prefix("\\\\?\\")
+                .unwrap_or(&path)
+                .to_ascii_lowercase()
+        }
+
+        normalized(left) == normalized(right)
+    }
+
     fn trash_and_restore(path: &Path) {
         let matches = trash::os_limited::list()
             .expect("list real Windows Recycle Bin")
             .into_iter()
-            .filter(|item| item.original_path() == path)
+            .filter(|item| same_windows_path(&item.original_path(), path))
             .collect::<Vec<_>>();
         assert_eq!(
             matches.len(),

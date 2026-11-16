@@ -494,7 +494,7 @@ pub fn run_initial(
     if !checkpointed_search_visible {
         return Err("filename search was missing after WAL checkpoint and reopen".into());
     }
-    Ok(json!({
+    let search_evidence = json!({
         "filenameFirstEnabled": filename_first,
         "query": query,
         "expectedPath": expected_path,
@@ -511,6 +511,8 @@ pub fn run_initial(
         "completeTransientSearchBeforeDurableFts": complete_transient_search_before_durable_fts,
         "collectionCompleteWhenTransientReady": collection_complete_when_transient_ready,
         "completeCoverageSearchVisible": complete_coverage_search_visible,
+    });
+    let persistence_evidence = json!({
         "fullIndexUs": full_index_us,
         "peakWorkingSetBytes": peak_working_set_bytes,
         "peakPrivateBytes": peak_private_bytes,
@@ -525,12 +527,12 @@ pub fn run_initial(
         "databaseFootprintAfterReopen": database_footprint_after_reopen,
         "databaseFootprintAfterCheckpointClose": database_footprint_after_checkpoint_close,
         "databaseFootprintAfterCheckpoint": database_footprint_after_checkpoint,
-        "walCheckpoint": {
+        "walCheckpoint": json!({
             "mode": "truncate",
             "busy": checkpoint_busy,
             "logFrames": checkpoint_log_frames,
             "checkpointedFrames": checkpointed_frames,
-        },
+        }),
         "checkpointedSearchVisible": checkpointed_search_visible,
         "ftsIntegrityVerified": true,
         "ftsTriggerCount": fts_trigger_count,
@@ -541,10 +543,32 @@ pub fn run_initial(
         "savedJournalId": saved_journal_id,
         "savedJournalCursor": saved_journal_cursor,
         "journalCheckpointValid": journal_checkpoint_valid,
+    });
+    let coverage_evidence = json!({
         "coverageUndetermined": source_coverage.undetermined,
         "coveragePending": source_coverage.pending,
         "undeterminedEntries": undetermined_entries,
-    }))
+    });
+    let mut result = serde_json::Map::new();
+    result.extend(
+        search_evidence
+            .as_object()
+            .ok_or("search evidence is not an object")?
+            .clone(),
+    );
+    result.extend(
+        persistence_evidence
+            .as_object()
+            .ok_or("persistence evidence is not an object")?
+            .clone(),
+    );
+    result.extend(
+        coverage_evidence
+            .as_object()
+            .ok_or("coverage evidence is not an object")?
+            .clone(),
+    );
+    Ok(Value::Object(result))
 }
 
 fn process_memory_sample() -> Option<(u64, u64)> {

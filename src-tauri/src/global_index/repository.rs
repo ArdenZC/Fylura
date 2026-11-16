@@ -11,6 +11,7 @@ use std::{
 
 static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
+const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
     conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
@@ -31,7 +32,7 @@ pub(crate) struct GlobalIndexBatchTiming {
     pub(crate) entry_upsert: Duration,
     pub(crate) ai_task_qualification: Duration,
     pub(crate) record_decisions: Duration,
-    pub(crate) fts_rebuild: Duration,
+    pub(crate) fts_bulk_build: Duration,
     pub(crate) wal_checkpoint: Duration,
     pub(crate) metadata_update: Duration,
     pub(crate) metadata_commit: Duration,
@@ -54,7 +55,7 @@ impl GlobalIndexBatchTiming {
         self.entry_upsert += other.entry_upsert;
         self.ai_task_qualification += other.ai_task_qualification;
         self.record_decisions += other.record_decisions;
-        self.fts_rebuild += other.fts_rebuild;
+        self.fts_bulk_build += other.fts_bulk_build;
         self.wal_checkpoint += other.wal_checkpoint;
         self.metadata_update += other.metadata_update;
         self.metadata_commit += other.metadata_commit;
@@ -1275,8 +1276,8 @@ impl Database {
     }
 
     /// Persist a completed filename-first MFT catalogue in bounded shared-DB
-    /// transactions. FTS5 remains trigger-maintained so other application
-    /// writers are never exposed to a committed interval with its triggers off.
+    /// transactions. Existing sources keep trigger-maintained FTS; a new empty
+    /// source uses its durable rowid cursor to populate FTS in bounded chunks.
     pub(crate) fn upsert_transient_mft_catalog_bulk_owned_timed(
         &self,
         volume_id: &str,
@@ -1325,6 +1326,8 @@ impl Database {
         let connection_started = Instant::now();
         let mut conn = self.conn()?;
         timing.connection_acquisition = connection_started.elapsed();
+        let fts_bulk_build_active =
+            begin_transient_mft_fts_bulk_build(&mut conn, owner, &mut timing)?;
         let previous_journal_size_limit =
             conn.query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))?;
         conn.pragma_update(None, "journal_size_limit", INITIAL_MFT_WAL_SIZE_LIMIT_BYTES)?;
@@ -1470,6 +1473,11 @@ impl Database {
                     "transient_initial_catalog_persist_count_mismatch".into(),
                 ));
             }
+            if fts_bulk_build_active {
+                let fts_started = Instant::now();
+                continue_fts_bulk_build(&mut conn, volume_id, Some(owner), &mut timing)?;
+                timing.fts_bulk_build += fts_started.elapsed();
+            }
             Ok((processed_entries, has_eligible_pending_work))
         })();
         let checkpoint_started = Instant::now();
@@ -1498,6 +1506,59 @@ impl Database {
         }
         timing.sqlite_transaction = sqlite_started.elapsed();
         Ok((entry_count, timing))
+    }
+
+    /// Finish an interrupted per-source bulk FTS build before the database is
+    /// exposed to search. A durable rowid cursor makes each bounded FTS batch
+    /// restartable without rebuilding FTS data for other sources.
+    pub(crate) fn recover_pending_global_fts_bulk_builds(&self) -> Result<(), DbError> {
+        let pending_sources = {
+            let conn = self.conn()?;
+            let mut statement = conn.prepare(
+                "SELECT id FROM global_volumes
+                 WHERE fts_bulk_build=1 AND enabled=1
+                   AND (platform!='windows' OR scope_authorization_state='authorized')
+                 ORDER BY id",
+            )?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for volume_id in pending_sources {
+            let mut conn = self.conn()?;
+            let mut timing = GlobalIndexBatchTiming::default();
+            let started = Instant::now();
+            match continue_fts_bulk_build(&mut conn, &volume_id, None, &mut timing) {
+                Ok(()) => {
+                    timing.fts_bulk_build = started.elapsed();
+                    crate::global_index::qa_trace::record(&format!(
+                        "global_index_fts_bulk_recovery status=complete source={} transactions={} fts_bulk_build_us={} max_writer_lock_us={} commit_us={}",
+                        volume_id,
+                        timing.sqlite_transactions,
+                        timing.fts_bulk_build.as_micros(),
+                        timing.writer_lock_max.as_micros(),
+                        timing.commit.as_micros(),
+                    ));
+                }
+                Err(error) => {
+                    timing.fts_bulk_build = started.elapsed();
+                    log::warn!(
+                        target: "global_index::repository",
+                        "pending per-source FTS recovery remains incomplete for {volume_id}: {error}"
+                    );
+                    crate::global_index::qa_trace::record(&format!(
+                        "global_index_fts_bulk_recovery status=incomplete source={} transactions={} fts_bulk_build_us={} max_writer_lock_us={} commit_us={} error={}",
+                        volume_id,
+                        timing.sqlite_transactions,
+                        timing.fts_bulk_build.as_micros(),
+                        timing.writer_lock_max.as_micros(),
+                        timing.commit.as_micros(),
+                        error,
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Performs the authorization and Scope evaluation needed before an MFT
@@ -2807,6 +2868,159 @@ fn map_global_volume(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVolume> 
         created_at: row.get(17)?,
         updated_at: row.get(18)?,
     })
+}
+
+fn begin_transient_mft_fts_bulk_build(
+    conn: &mut Connection,
+    owner: &SourceOperationOwner,
+    timing: &mut GlobalIndexBatchTiming,
+) -> Result<bool, DbError> {
+    let transaction_started = Instant::now();
+    let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    timing.transaction_acquisition += transaction_started.elapsed();
+    let writer_lock_started = Instant::now();
+    ensure_source_operation_owner_tx(&transaction, owner)?;
+    let (already_building, has_entries, entry_count, active_rows): (bool, bool, i64, i64) =
+        transaction.query_row(
+            "SELECT fts_bulk_build,
+                EXISTS(SELECT 1 FROM global_entries WHERE volume_id=global_volumes.id),
+                entry_count,
+                COALESCE((SELECT active_rows FROM global_entry_source_facts
+                          WHERE volume_id=global_volumes.id),-1)
+         FROM global_volumes WHERE id=?1",
+            [&owner.volume_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+    if already_building {
+        let commit_started = Instant::now();
+        transaction.commit()?;
+        timing.commit += commit_started.elapsed();
+        timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
+        timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
+        let fts_started = Instant::now();
+        continue_fts_bulk_build(conn, &owner.volume_id, Some(owner), timing)?;
+        timing.fts_bulk_build += fts_started.elapsed();
+        return Ok(false);
+    }
+    let start_bulk_build = !has_entries && entry_count == 0 && active_rows == 0;
+    if start_bulk_build {
+        transaction.execute(
+            "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0
+             WHERE id=?1 AND operation_revision=?2 AND operation_owner_id=?3
+               AND operation_state='running'",
+            params![owner.volume_id, owner.revision, owner.operation_id],
+        )?;
+    }
+    let commit_started = Instant::now();
+    transaction.commit()?;
+    timing.commit += commit_started.elapsed();
+    timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
+    timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
+    Ok(start_bulk_build)
+}
+
+fn continue_fts_bulk_build(
+    conn: &mut Connection,
+    volume_id: &str,
+    owner: Option<&SourceOperationOwner>,
+    timing: &mut GlobalIndexBatchTiming,
+) -> Result<(), DbError> {
+    loop {
+        let transaction_started = Instant::now();
+        let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        timing.transaction_acquisition += transaction_started.elapsed();
+        let writer_lock_started = Instant::now();
+        if let Some(owner) = owner {
+            ensure_source_operation_owner_tx(&transaction, owner)?;
+        } else {
+            let authorized: bool = transaction.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM global_volumes
+                    WHERE id=?1 AND enabled=1
+                      AND (platform!='windows' OR scope_authorization_state='authorized')
+                )",
+                [volume_id],
+                |row| row.get(0),
+            )?;
+            if !authorized {
+                return Err(DbError::Validation(
+                    "global_index_fts_recovery_source_not_authorized".into(),
+                ));
+            }
+        }
+        let (is_building, cursor): (bool, i64) = transaction.query_row(
+            "SELECT fts_bulk_build, fts_bulk_cursor
+             FROM global_volumes WHERE id=?1",
+            [volume_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if !is_building {
+            let commit_started = Instant::now();
+            transaction.commit()?;
+            timing.commit += commit_started.elapsed();
+            timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
+            timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
+            return Ok(());
+        }
+
+        let inserted = transaction.execute(
+            "INSERT INTO global_entries_fts(rowid, name, path, extension)
+             SELECT rowid, name, path, extension
+             FROM global_entries
+             WHERE volume_id=?1 AND rowid>?2
+             ORDER BY rowid
+             LIMIT ?3",
+            params![volume_id, cursor, INITIAL_MFT_FTS_BUILD_BATCH_SIZE],
+        )?;
+        if inserted == 0 {
+            let changed = transaction.execute(
+                "UPDATE global_volumes
+                 SET fts_bulk_build=0, fts_bulk_cursor=0
+                 WHERE id=?1 AND fts_bulk_build=1 AND fts_bulk_cursor=?2",
+                params![volume_id, cursor],
+            )?;
+            if changed != 1 {
+                return Err(DbError::Validation(
+                    "global_index_fts_bulk_completion_lost".into(),
+                ));
+            }
+        } else {
+            let next_cursor: i64 = transaction.query_row(
+                "SELECT MAX(rowid) FROM (
+                    SELECT rowid FROM global_entries
+                    WHERE volume_id=?1 AND rowid>?2
+                    ORDER BY rowid LIMIT ?3
+                 )",
+                params![volume_id, cursor, INITIAL_MFT_FTS_BUILD_BATCH_SIZE],
+                |row| row.get(0),
+            )?;
+            if next_cursor <= cursor {
+                return Err(DbError::Validation(
+                    "global_index_fts_bulk_cursor_did_not_advance".into(),
+                ));
+            }
+            let changed = transaction.execute(
+                "UPDATE global_volumes SET fts_bulk_cursor=?2
+                 WHERE id=?1 AND fts_bulk_build=1 AND fts_bulk_cursor=?3",
+                params![volume_id, next_cursor, cursor],
+            )?;
+            if changed != 1 {
+                return Err(DbError::Validation(
+                    "global_index_fts_bulk_cursor_update_lost".into(),
+                ));
+            }
+        }
+        let commit_started = Instant::now();
+        transaction.commit()?;
+        timing.commit += commit_started.elapsed();
+        timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
+        timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
+        if inserted == 0 {
+            break;
+        }
+        std::thread::yield_now();
+    }
+    Ok(())
 }
 
 pub(super) fn ensure_source_operation_owner_tx(

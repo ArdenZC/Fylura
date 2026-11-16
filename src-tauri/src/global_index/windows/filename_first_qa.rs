@@ -388,12 +388,41 @@ pub fn run_initial(
     }
     let (database_total_entries, database_active_entries) =
         db.native_qa_global_entry_counts(source_id)?;
+    let (source_entry_count, source_fact_active_rows, source_fact_active_ids): (i64, i64, i64) =
+        db.conn()?.query_row(
+            "SELECT gv.entry_count, facts.active_rows, facts.active_ids
+             FROM global_volumes gv
+             JOIN global_entry_source_facts facts ON facts.volume_id=gv.id
+             WHERE gv.id=?1",
+            [source_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+    if source_entry_count != database_active_entries
+        || source_fact_active_rows != database_active_entries
+        || source_fact_active_ids > source_fact_active_rows
+    {
+        return Err(format!(
+            "source statistics disagree with active entries: entry_count={source_entry_count} facts_rows={source_fact_active_rows} facts_ids={source_fact_active_ids} active_entries={database_active_entries}"
+        )
+        .into());
+    }
     let fixture_file_entries = db.conn()?.query_row(
         "SELECT COUNT(*) FROM global_entries WHERE volume_id=?1 AND is_stale=0 AND path_normalized LIKE ?2",
         rusqlite::params![source_id, fixture_file_pattern],
         |row| row.get::<_, i64>(0),
     )?;
     let integrity_conn = db.conn()?;
+    let (fts_bulk_build, fts_bulk_cursor): (i64, i64) = integrity_conn.query_row(
+        "SELECT fts_bulk_build, fts_bulk_cursor FROM global_volumes WHERE id=?1",
+        [source_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if fts_bulk_build != 0 || fts_bulk_cursor != 0 {
+        return Err(format!(
+            "source FTS bulk build did not finish: fts_bulk_build={fts_bulk_build} cursor={fts_bulk_cursor}"
+        )
+        .into());
+    }
     integrity_conn.execute(
         "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
         [],
@@ -520,6 +549,9 @@ pub fn run_initial(
         "concurrentDatabaseWrites": concurrent_database_writes,
         "databaseTotalEntries": database_total_entries,
         "databaseActiveEntries": database_active_entries,
+        "sourceEntryCount": source_entry_count,
+        "sourceFactActiveRows": source_fact_active_rows,
+        "sourceFactActiveIds": source_fact_active_ids,
         "fixtureFileEntries": fixture_file_entries,
         "databaseBytesWithWal": database_bytes,
         "peakDatabaseBytesWithWal": peak_database_bytes_with_wal,
@@ -537,6 +569,7 @@ pub fn run_initial(
         "checkpointedSearchVisible": checkpointed_search_visible,
         "ftsIntegrityVerified": true,
         "ftsTriggerCount": fts_trigger_count,
+        "ftsBulkBuildComplete": fts_bulk_build == 0 && fts_bulk_cursor == 0,
         "restartedSearchVisible": restarted_search_visible,
         "restartedCompleteCoverageSearchVisible": restarted_complete_coverage_visible,
         "indexComplete": final_status.collection_complete,

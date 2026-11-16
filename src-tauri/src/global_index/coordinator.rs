@@ -506,7 +506,7 @@ struct SourceWriteTimings {
     entry_upsert: Duration,
     ai_task_qualification: Duration,
     record_decisions: Duration,
-    fts_rebuild: Duration,
+    fts_bulk_build: Duration,
     metadata_update: Duration,
     metadata_commit: Duration,
     commit: Duration,
@@ -557,7 +557,7 @@ impl SourceWriteTimings {
         self.entry_upsert += timing.entry_upsert;
         self.ai_task_qualification += timing.ai_task_qualification;
         self.record_decisions += timing.record_decisions;
-        self.fts_rebuild += timing.fts_rebuild;
+        self.fts_bulk_build += timing.fts_bulk_build;
         self.metadata_update += timing.metadata_update;
         self.metadata_commit += timing.metadata_commit;
         self.commit += timing.commit;
@@ -934,7 +934,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
             if timings.batches > 0 {
                 log::info!(
                     target: "global_index::repository",
-                    "source_operation_write status={} completed={} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} max_writer_lock_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_rebuild_us={} wal_checkpoint_us={} metadata_update_us={} metadata_commit_us={} commit_us={} finalize_us={}",
+                    "source_operation_write status={} completed={} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} max_writer_lock_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_bulk_build_us={} wal_checkpoint_us={} metadata_update_us={} metadata_commit_us={} commit_us={} finalize_us={}",
                     status,
                     completed,
                     timings.batches,
@@ -951,7 +951,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
                     timings.entry_upsert.as_micros(),
                     timings.ai_task_qualification.as_micros(),
                     timings.record_decisions.as_micros(),
-                    timings.fts_rebuild.as_micros(),
+                    timings.fts_bulk_build.as_micros(),
                     timings.wal_checkpoint.as_micros(),
                     timings.metadata_update.as_micros(),
                     timings.metadata_commit.as_micros(),
@@ -959,7 +959,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
                     finalize_us
                 );
                 crate::global_index::qa_trace::record(&format!(
-                    "source_operation_write status={status} completed={completed} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} max_writer_lock_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_rebuild_us={} wal_checkpoint_us={} metadata_update_us={} metadata_commit_us={} commit_us={} finalize_us={finalize_us}",
+                    "source_operation_write status={status} completed={completed} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} max_writer_lock_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_bulk_build_us={} wal_checkpoint_us={} metadata_update_us={} metadata_commit_us={} commit_us={} finalize_us={finalize_us}",
                     timings.batches,
                     timings.sqlite_transactions,
                     timings.transient_staging.as_micros(),
@@ -974,7 +974,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
                     timings.entry_upsert.as_micros(),
                     timings.ai_task_qualification.as_micros(),
                     timings.record_decisions.as_micros(),
-                    timings.fts_rebuild.as_micros(),
+                    timings.fts_bulk_build.as_micros(),
                     timings.wal_checkpoint.as_micros(),
                     timings.metadata_update.as_micros(),
                     timings.metadata_commit.as_micros(),

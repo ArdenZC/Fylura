@@ -139,14 +139,16 @@ impl Database {
             super::schema::migrate_with_cancellation(&conn, cancel)?;
         }
 
-        Ok(Self {
+        let database = Self {
             path,
             pool,
             filename_search,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),
-        })
+        };
+        database.recover_pending_global_fts_bulk_builds()?;
+        Ok(database)
     }
 
     pub(crate) fn set_managed_ai_waker(&self, sender: SyncSender<()>) {

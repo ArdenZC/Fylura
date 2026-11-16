@@ -342,6 +342,9 @@ try {
             if (-not $run.result.ftsIntegrityVerified -or [long]$run.result.ftsTriggerCount -ne 3) {
                 throw "$side initial run $repetition did not verify FTS content and restore all triggers"
             }
+            if (-not $run.result.ftsBulkBuildComplete) {
+                throw "$side initial run $repetition left a partial FTS bulk build"
+            }
             if ($run.result.sourceIndexStatus -ne 'ready' -or $run.result.coveragePending) {
                 throw "$side initial run $repetition did not finish its source operation: status=$($run.result.sourceIndexStatus) coveragePending=$($run.result.coveragePending)"
             }
@@ -538,15 +541,16 @@ try {
         candidateAiTaskQualificationUs = Get-Average $candidateRows.ToArray() 'stages.writer.ai_task_qualification_us'
         baselineRecordDecisionsUs = Get-Average $baselineRows.ToArray() 'stages.writer.record_decisions_us'
         candidateRecordDecisionsUs = Get-Average $candidateRows.ToArray() 'stages.writer.record_decisions_us'
-        baselineFtsRebuildUs = Get-Average $baselineRows.ToArray() 'stages.writer.fts_rebuild_us'
-        candidateFtsRebuildUs = Get-Average $candidateRows.ToArray() 'stages.writer.fts_rebuild_us'
+        baselineFtsBulkBuildUs = Get-Average $baselineRows.ToArray() 'stages.writer.fts_bulk_build_us'
+        candidateFtsBulkBuildUs = Get-Average $candidateRows.ToArray() 'stages.writer.fts_bulk_build_us'
         baselineCommitUs = Get-Average $baselineRows.ToArray() 'stages.writer.commit_us'
         candidateCommitUs = Get-Average $candidateRows.ToArray() 'stages.writer.commit_us'
         baselineSqliteTransactionCount = Get-Average $baselineRows.ToArray() 'stages.writer.sqlite_transactions'
         candidateSqliteTransactionCount = Get-Average $candidateRows.ToArray() 'stages.writer.sqlite_transactions'
         baselineWalCheckpointUs = Get-Average $baselineRows.ToArray() 'stages.writer.wal_checkpoint_us'
         candidateWalCheckpointUs = Get-Average $candidateRows.ToArray() 'stages.writer.wal_checkpoint_us'
-        ftsTiming = "Both modes keep production FTS triggers enabled. Trigger maintenance is included in entry_upsert_us; candidate uses bounded $($script:candidatePersistBatch)-row transactions and does not run a full-table FTS rebuild."
+        sourceStatsTiming = "entry_count and source facts remain row-triggered so concurrent file changes stay exact; their cost is included in entry_upsert_us."
+        ftsTiming = "Production FTS triggers stay enabled for existing sources and incremental changes. A fresh source defers only its own FTS inserts into restartable 8192-row transactions; no global FTS rebuild is run."
     }
     $allCandidateFirstSearchTargetsMet = @($candidateRows | Where-Object {
         [double]$_.result.firstSearchableUs -gt $searchReadyTargetMicroseconds

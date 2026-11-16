@@ -75,7 +75,7 @@ const FILENAME_INDEX_BUILD_SQL: &str =
     "SELECT ge.rowid, ge.id, ge.name_normalized, lower(ge.extension), ge.modified_at_fs
     FROM global_entries ge INDEXED BY idx_global_entries_active_name_order
     JOIN global_volumes gv ON gv.id=ge.volume_id
-    WHERE gv.enabled=1 AND gv.coverage_pending=0
+    WHERE gv.enabled=1 AND gv.coverage_pending=0 AND gv.fts_bulk_build=0
       AND (gv.platform != 'windows' OR gv.scope_authorization_state='authorized')
       AND ge.is_stale=0
     ORDER BY ge.name_normalized COLLATE BINARY";
@@ -2427,7 +2427,7 @@ impl FilenameSearchIndex {
         let active_volume_ids = {
             let mut statement = connection.prepare(
                 "SELECT id FROM global_volumes
-                 WHERE enabled=1 AND coverage_pending=0
+                 WHERE enabled=1 AND coverage_pending=0 AND fts_bulk_build=0
                    AND (platform != 'windows' OR scope_authorization_state='authorized')
                  ORDER BY id COLLATE BINARY",
             )?;
@@ -2741,7 +2741,7 @@ impl FilenameSearchIndex {
     fn active_sources_match(&self, connection: &Connection) -> rusqlite::Result<bool> {
         let mut statement = connection.prepare(
             "SELECT id FROM global_volumes
-             WHERE enabled=1 AND coverage_pending=0
+             WHERE enabled=1 AND coverage_pending=0 AND fts_bulk_build=0
                AND (platform != 'windows' OR scope_authorization_state='authorized')
              ORDER BY id COLLATE BINARY",
         )?;
@@ -2767,7 +2767,7 @@ impl FilenameSearchIndex {
              FROM json_each(?1) changed
              JOIN global_entries ge ON ge.rowid=CAST(changed.value AS INTEGER)
              JOIN global_volumes gv ON gv.id=ge.volume_id
-             WHERE gv.enabled=1 AND gv.coverage_pending=0
+             WHERE gv.enabled=1 AND gv.coverage_pending=0 AND gv.fts_bulk_build=0
                AND (gv.platform != 'windows' OR gv.scope_authorization_state='authorized')
                AND ge.is_stale=0",
         )?;

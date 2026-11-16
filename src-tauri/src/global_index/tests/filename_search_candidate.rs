@@ -457,6 +457,597 @@ fn transient_filename_catalog_keeps_existing_managed_link_during_rebuild() {
         .any(|result| result.id == second.entry_id()));
 }
 
+#[test]
+fn new_source_transient_persistence_builds_fts_and_source_facts_in_batches() {
+    let (db, _path) = open_candidate_database();
+    add_volume(&db, "gv_new_bulk", r"D:\NewBulk");
+    let source = db
+        .get_global_volume("gv_new_bulk")
+        .expect("load new authorized source")
+        .expect("new source exists");
+    let owner = db
+        .claim_global_index_operation(
+            &source,
+            "new-source-bulk-operation",
+            crate::global_index::SourceOperationKind::Initial,
+            crate::global_index::SourceOperationRoute::Service,
+        )
+        .expect("claim initial operation")
+        .expect("new source has an available operation owner");
+    let inputs = [
+        fixture_entry(
+            "gv_new_bulk",
+            r"D:\NewBulk\newsourcebulkmarker-one.txt",
+            "newsourcebulkmarker-one.txt",
+            "txt",
+            Some(70),
+            false,
+        ),
+        fixture_entry(
+            "gv_new_bulk",
+            r"D:\NewBulk\newsourcebulkmarker-two.txt",
+            "newsourcebulkmarker-two.txt",
+            "txt",
+            Some(80),
+            false,
+        ),
+    ];
+    let policy_revision = crate::global_index::coverage::load_policy(&db.conn().unwrap())
+        .expect("read current Scope revision")
+        .revision;
+    db.filename_search
+        .begin_transient_catalog("gv_new_bulk", &owner.operation_id);
+    db.filename_search
+        .append_transient_catalog(
+            "gv_new_bulk",
+            &owner.operation_id,
+            policy_revision,
+            &inputs,
+            &[Decision::Include, Decision::Include],
+        )
+        .expect("stage the authorized source filenames");
+    let (entry_count, retained_revision) = db
+        .filename_search
+        .complete_transient_catalog("gv_new_bulk", &owner.operation_id)
+        .expect("complete transient candidate");
+    let (persisted, timing) = db
+        .upsert_transient_mft_catalog_bulk_owned_timed(
+            "gv_new_bulk",
+            &owner.operation_id,
+            entry_count,
+            1,
+            retained_revision.expect("Scope revision remains stable"),
+            &owner,
+        )
+        .expect("persist rows and build their FTS postings");
+    assert_eq!(persisted, 2);
+    assert!(timing.fts_bulk_build > std::time::Duration::ZERO);
+    assert!(timing.sqlite_transactions >= 5);
+
+    let connection = db.conn().expect("open durable source verification");
+    let stats: (i64, i64, i64, i64) = connection
+        .query_row(
+            "SELECT gv.entry_count,facts.active_rows,facts.active_ids,gv.fts_bulk_build
+             FROM global_volumes gv JOIN global_entry_source_facts facts ON facts.volume_id=gv.id
+             WHERE gv.id='gv_new_bulk'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("read per-batch source statistics");
+    assert_eq!(stats, (2, 2, 2, 0));
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM global_entries_fts
+                 WHERE global_entries_fts MATCH 'newsourcebulkmarker'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("find the new source's complete FTS rows"),
+        2
+    );
+    connection
+        .execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .expect("FTS content matches durable entries");
+    drop(connection);
+    db.finish_global_index_operation(&owner, INDEX_STATUS_READY, None, Some(80), None, true)
+        .expect("finish initial operation after durable search is ready");
+}
+
+#[test]
+fn pending_new_source_fts_build_recovers_on_database_reopen() {
+    let (db, path) = open_candidate_database();
+    let baseline = fixture_entry(
+        "gv_test",
+        r"C:\Global\baselineftspreservedmarker.txt",
+        "baselineftspreservedmarker.txt",
+        "txt",
+        Some(50),
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&baseline))
+        .expect("persist an already-searchable source");
+    add_volume(&db, "gv_bulk_recovery", r"D:\BulkRecovery");
+
+    let pending = fixture_entry(
+        "gv_bulk_recovery",
+        r"D:\BulkRecovery\pendingftscursormarker.txt",
+        "pendingftscursormarker.txt",
+        "txt",
+        Some(60),
+        false,
+    );
+    let not_yet_indexed = fixture_entry(
+        "gv_bulk_recovery",
+        r"D:\BulkRecovery\laterftscursormarker.txt",
+        "laterftscursormarker.txt",
+        "txt",
+        Some(80),
+        false,
+    );
+    let inserted_during_build = fixture_entry(
+        "gv_bulk_recovery",
+        r"D:\BulkRecovery\insertedwhileftsbuildmarker.txt",
+        "insertedwhileftsbuildmarker.txt",
+        "txt",
+        Some(90),
+        false,
+    );
+    {
+        let connection = db.conn().expect("open fixture connection");
+        connection
+            .execute(
+                "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0
+                 WHERE id='gv_bulk_recovery'",
+                [],
+            )
+            .expect("simulate a durable interrupted FTS build");
+    }
+    db.upsert_global_entries_batch(&[pending.clone(), not_yet_indexed.clone()])
+        .expect("write pending-source rows while their FTS triggers are deferred");
+    let mut partial_build_connection = db.conn().expect("open partial FTS writer");
+    let partial_build = partial_build_connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .expect("begin one restartable FTS batch");
+    let pending_rowid: i64 = partial_build
+        .query_row(
+            "SELECT rowid FROM global_entries WHERE id=?1",
+            [pending.entry_id()],
+            |row| row.get(0),
+        )
+        .expect("read first source rowid");
+    let later_rowid: i64 = partial_build
+        .query_row(
+            "SELECT rowid FROM global_entries WHERE id=?1",
+            [not_yet_indexed.entry_id()],
+            |row| row.get(0),
+        )
+        .expect("read next source rowid");
+    assert!(pending_rowid < later_rowid);
+    partial_build
+        .execute(
+            "INSERT INTO global_entries_fts(rowid,name,path,extension)
+             SELECT rowid,name,path,extension FROM global_entries WHERE rowid=?1",
+            [pending_rowid],
+        )
+        .expect("persist the first bounded FTS batch");
+    partial_build
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_cursor=?2 WHERE id='gv_bulk_recovery'",
+            [pending_rowid],
+        )
+        .expect("persist the cursor atomically with its FTS batch");
+    partial_build.commit().expect("commit partial FTS progress");
+    partial_build_connection
+        .execute(
+            "UPDATE global_entries
+             SET name='recoveredftscursormarker.txt',
+                 name_normalized='recoveredftscursormarker.txt',
+                 path='D:\\BulkRecovery\\recoveredftscursormarker.txt',
+                 path_normalized='d:/bulkRecovery/recoveredftscursormarker.txt'
+             WHERE id=?1",
+            [pending.entry_id()],
+        )
+        .expect("maintain already-indexed rows during a resumed build");
+    partial_build_connection
+        .execute(
+            "DELETE FROM global_entries WHERE id=?1",
+            [not_yet_indexed.entry_id()],
+        )
+        .expect("skip deleting a row not yet covered by the FTS cursor");
+    drop(partial_build_connection);
+    db.upsert_global_entries_batch(std::slice::from_ref(&inserted_during_build))
+        .expect("concurrent incremental insert keeps source facts current");
+
+    let connection = db
+        .conn()
+        .expect("open pre-recovery verification connection");
+    let pending_fts_rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM global_entries_fts
+             WHERE global_entries_fts MATCH 'recoveredftscursormarker'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read the not-yet-built FTS source");
+    assert_eq!(
+        pending_fts_rows, 1,
+        "the partial FTS batch exists durably while its source is still hidden"
+    );
+    drop(connection);
+    assert!(db
+        .search_global_entries("baselineftspreservedmarker", 10, 0)
+        .expect("other indexed source remains searchable")
+        .iter()
+        .any(|entry| entry.id == baseline.entry_id()));
+    assert!(db
+        .search_global_entries("recoveredftscursormarker", 10, 0)
+        .expect("incomplete source stays hidden until its FTS build completes")
+        .is_empty());
+    drop(db);
+
+    let reopened = Database::open(&path).expect("reopen and resume the bounded FTS build");
+    let connection = reopened.conn().expect("verify recovered source state");
+    let (pending_flag, cursor): (i64, i64) = connection
+        .query_row(
+            "SELECT fts_bulk_build, fts_bulk_cursor FROM global_volumes WHERE id='gv_bulk_recovery'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read recovered source FTS state");
+    assert_eq!((pending_flag, cursor), (0, 0));
+    let recovered_stats: (i64, i64, i64) = connection
+        .query_row(
+            "SELECT gv.entry_count, facts.active_rows, facts.active_ids
+             FROM global_volumes gv JOIN global_entry_source_facts facts ON facts.volume_id=gv.id
+             WHERE gv.id='gv_bulk_recovery'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read recovered source statistics");
+    assert_eq!(recovered_stats, (2, 2, 2));
+    connection
+        .execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .expect("recovered FTS matches the external-content table");
+    drop(connection);
+    assert!(reopened
+        .search_global_entries("recoveredftscursormarker", 10, 0)
+        .expect("search recovered durable filename")
+        .iter()
+        .any(|entry| entry.id == pending.entry_id()));
+    assert!(reopened
+        .search_global_entries("laterftscursormarker", 10, 0)
+        .expect("deleted row beyond cursor stays hidden after recovery")
+        .is_empty());
+    assert!(reopened
+        .search_global_entries("insertedwhileftsbuildmarker", 10, 0)
+        .expect("incremental insert beyond cursor is included in resumed FTS")
+        .iter()
+        .any(|entry| entry.id == inserted_during_build.entry_id()));
+    assert!(reopened
+        .search_global_entries("pendingftscursormarker", 10, 0)
+        .expect("renamed row's old FTS terms are removed")
+        .is_empty());
+    assert!(reopened
+        .search_global_entries("baselineftspreservedmarker", 10, 0)
+        .expect("previous source remains searchable after recovery")
+        .iter()
+        .any(|entry| entry.id == baseline.entry_id()));
+}
+
+#[test]
+fn deleting_source_during_partial_fts_build_preserves_fts_integrity() {
+    let (db, _path) = open_candidate_database();
+    add_volume(&db, "gv_bulk_delete", r"E:\BulkDelete");
+    let connection = db.conn().expect("open source state connection");
+    connection
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0 WHERE id=?1",
+            ["gv_bulk_delete"],
+        )
+        .expect("simulate deferred initial-source FTS");
+    drop(connection);
+
+    let entries = [
+        fixture_entry(
+            "gv_bulk_delete",
+            r"E:\BulkDelete\partialftsindexedmarker.txt",
+            "partialftsindexedmarker.txt",
+            "txt",
+            Some(10),
+            false,
+        ),
+        fixture_entry(
+            "gv_bulk_delete",
+            r"E:\BulkDelete\partialftsnotindexedmarker.txt",
+            "partialftsnotindexedmarker.txt",
+            "txt",
+            Some(20),
+            false,
+        ),
+    ];
+    db.upsert_global_entries_batch(&entries)
+        .expect("write rows while their FTS triggers are deferred");
+
+    let mut connection = db.conn().expect("open partial-build connection");
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .expect("begin first FTS chunk");
+    let first_rowid: i64 = transaction
+        .query_row(
+            "SELECT rowid FROM global_entries WHERE id=?1",
+            [entries[0].entry_id()],
+            |row| row.get(0),
+        )
+        .expect("read first source rowid");
+    transaction
+        .execute(
+            "INSERT INTO global_entries_fts(rowid,name,path,extension)
+             SELECT rowid,name,path,extension FROM global_entries WHERE rowid=?1",
+            [first_rowid],
+        )
+        .expect("persist one FTS chunk");
+    transaction
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_cursor=?2 WHERE id=?1",
+            rusqlite::params!["gv_bulk_delete", first_rowid],
+        )
+        .expect("persist matching cursor");
+    transaction.commit().expect("commit the partial FTS state");
+    connection
+        .execute("DELETE FROM global_volumes WHERE id=?1", ["gv_bulk_delete"])
+        .expect("cascade-delete a partially indexed source");
+    connection
+        .execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .expect("cascade cleanup removes indexed rows and skips rows beyond cursor");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM global_entries_fts
+                 WHERE global_entries_fts MATCH 'partialfts'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("no removed-source posting remains"),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM global_fts_bulk_delete_guard",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("delete guard is cleaned up"),
+        0
+    );
+}
+
+#[test]
+fn moving_unindexed_row_out_of_bulk_source_keeps_fts_exact() {
+    let (db, path) = open_candidate_database();
+    add_volume(&db, "gv_move_from_bulk", r"E:\MoveFromBulk");
+    add_volume(&db, "gv_move_to_normal", r"F:\MoveToNormal");
+    let connection = db.conn().expect("open pending-source connection");
+    connection
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0 WHERE id=?1",
+            ["gv_move_from_bulk"],
+        )
+        .expect("mark initial source FTS as deferred");
+    drop(connection);
+
+    let original = fixture_entry(
+        "gv_move_from_bulk",
+        r"E:\MoveFromBulk\unindexedbeforemoveftsmarker.txt",
+        "unindexedbeforemoveftsmarker.txt",
+        "txt",
+        Some(30),
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&original))
+        .expect("write row before source FTS catches up");
+    let connection = db.conn().expect("move row across source boundary");
+    connection
+        .execute(
+            "UPDATE global_entries SET
+                 volume_id='gv_move_to_normal',
+                 name='movedoutofbulkftsmarker.txt',
+                 name_normalized='movedoutofbulkftsmarker.txt',
+                 path='F:\\MoveToNormal\\movedoutofbulkftsmarker.txt',
+                 path_normalized='f:/MoveToNormal/movedoutofbulkftsmarker.txt'
+             WHERE id=?1",
+            [original.entry_id()],
+        )
+        .expect("transfer an unindexed row into an FTS-ready source");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT active_rows FROM global_entry_source_facts WHERE volume_id='gv_move_from_bulk'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("source facts decrement for the move"),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT active_rows FROM global_entry_source_facts WHERE volume_id='gv_move_to_normal'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("destination facts increment for the move"),
+        1
+    );
+    connection
+        .execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .expect("moving a row does not delete a non-existent old posting");
+    drop(connection);
+    assert!(db
+        .search_global_entries("movedoutofbulkftsmarker", 10, 0)
+        .expect("destination source uses its current FTS posting")
+        .iter()
+        .any(|result| result.id == original.entry_id()));
+    assert!(db
+        .search_global_entries("unindexedbeforemoveftsmarker", 10, 0)
+        .expect("old name is no longer indexed")
+        .is_empty());
+    add_volume(&db, "gv_move_to_bulk", r"G:\MoveToBulk");
+    let connection = db.conn().expect("defer destination source FTS");
+    connection
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0
+             WHERE id='gv_move_to_bulk'",
+            [],
+        )
+        .expect("mark the next source as not yet searchable through FTS");
+    connection
+        .execute(
+            "UPDATE global_entries SET
+                 volume_id='gv_move_to_bulk',
+                 name='movedintobulkftsmarker.txt',
+                 name_normalized='movedintobulkftsmarker.txt',
+                 path='G:\\MoveToBulk\\movedintobulkftsmarker.txt',
+                 path_normalized='g:/MoveToBulk/movedintobulkftsmarker.txt'
+             WHERE id=?1",
+            [original.entry_id()],
+        )
+        .expect("remove the old posting without inserting into deferred FTS");
+    drop(connection);
+    assert!(db
+        .search_global_entries("movedoutofbulkftsmarker", 10, 0)
+        .expect("moved-out source no longer returns the row")
+        .is_empty());
+    assert!(db
+        .search_global_entries("movedintobulkftsmarker", 10, 0)
+        .expect("deferred destination is hidden until its FTS build finishes")
+        .is_empty());
+    drop(db);
+
+    let reopened = Database::open(&path).expect("recover the source cursors");
+    let flags: (i64, i64) = reopened
+        .conn()
+        .expect("read recovered source flags")
+        .query_row(
+            "SELECT
+                (SELECT fts_bulk_build FROM global_volumes WHERE id='gv_move_from_bulk'),
+                (SELECT fts_bulk_build FROM global_volumes WHERE id='gv_move_to_bulk')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("source recovery completed");
+    assert_eq!(flags, (0, 0));
+    reopened
+        .conn()
+        .expect("open recovered FTS integrity connection")
+        .execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .expect("both source moves have consistent FTS state after recovery");
+    assert!(reopened
+        .search_global_entries("movedintobulkftsmarker", 10, 0)
+        .expect("row moved into deferred source is indexed during recovery")
+        .iter()
+        .any(|result| result.id == original.entry_id()));
+    assert!(reopened
+        .search_global_entries("movedoutofbulkftsmarker", 10, 0)
+        .expect("intermediate source name is removed after a second move")
+        .is_empty());
+}
+
+#[test]
+fn revoked_source_stays_hidden_until_authorized_fts_recovery() {
+    let (db, path) = open_candidate_database();
+    add_volume(&db, "gv_revoked_bulk", r"G:\RevokedBulk");
+    let connection = db.conn().expect("open source state connection");
+    connection
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0 WHERE id=?1",
+            ["gv_revoked_bulk"],
+        )
+        .expect("start a deferred source FTS build");
+    drop(connection);
+    let entry = fixture_entry(
+        "gv_revoked_bulk",
+        r"G:\RevokedBulk\revokedbulksearchmarker.txt",
+        "revokedbulksearchmarker.txt",
+        "txt",
+        Some(50),
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+        .expect("persist entry without exposing a partial FTS source");
+    let connection = db.conn().expect("revoke source authorization");
+    connection
+        .execute(
+            "UPDATE global_volumes SET scope_authorization_state='not_authorized'
+             WHERE id='gv_revoked_bulk'",
+            [],
+        )
+        .expect("simulate user revoking indexing authorization");
+    drop(connection);
+    drop(db);
+
+    let revoked = Database::open(&path).expect("unavailable source does not block database open");
+    let state: (i64, String) = revoked
+        .conn()
+        .expect("read revoked source state")
+        .query_row(
+            "SELECT fts_bulk_build, scope_authorization_state
+             FROM global_volumes WHERE id='gv_revoked_bulk'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("source remains durably pending while unauthorized");
+    assert_eq!(state, (1, "not_authorized".into()));
+    assert!(revoked
+        .search_global_entries("revokedbulksearchmarker", 10, 0)
+        .expect("revoked-source entries remain hidden")
+        .is_empty());
+    drop(revoked);
+
+    let authorized_connection = rusqlite::Connection::open(&path).unwrap();
+    authorized_connection
+        .execute(
+            "UPDATE global_volumes SET scope_authorization_state='authorized'
+             WHERE id='gv_revoked_bulk'",
+            [],
+        )
+        .expect("simulate a later explicit re-authorization");
+    drop(authorized_connection);
+    let recovered = Database::open(&path).expect("authorized source resumes FTS recovery");
+    let state: (i64, i64) = recovered
+        .conn()
+        .expect("read recovered source state")
+        .query_row(
+            "SELECT fts_bulk_build, fts_bulk_cursor
+             FROM global_volumes WHERE id='gv_revoked_bulk'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("recovery completes after authorization");
+    assert_eq!(state, (0, 0));
+    assert!(recovered
+        .search_global_entries("revokedbulksearchmarker", 10, 0)
+        .expect("reauthorized source becomes searchable")
+        .iter()
+        .any(|result| result.id == entry.entry_id()));
+}
+
 #[derive(Debug)]
 struct OracleRow {
     result: GlobalSearchResult,

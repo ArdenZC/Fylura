@@ -144,9 +144,9 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("Build one Release QA executable for both feature modes");
     expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
     expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)");
-    expect(workflow).toContain("same Release binary and same task-owned NTFS data; baseline uses synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists $env:FILENAME_FIRST_PERSIST_BATCH_SIZE-row transactions");
-    expect(workflow).toContain("Both keep production FTS triggers enabled");
-    expect(workflow).toContain("candidate avoids a full-table rebuild");
+    expect(workflow).toContain("same Release binary and same task-owned NTFS data; baseline maintains FTS in synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists $env:FILENAME_FIRST_PERSIST_BATCH_SIZE-row transactions");
+    expect(workflow).toContain("Existing-source and incremental FTS triggers stay enabled; no global rebuild runs.");
+    expect(workflow).toContain("fills only its new-source FTS in restartable 8192-row batches");
     expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
     expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
@@ -168,9 +168,9 @@ describe("Global Index performance workflow routing", () => {
   it("reads native pair timing fields from the QA result and prints durable evidence", () => {
     expect(filenameFirstQualification).toContain("$baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'");
     expect(filenameFirstQualification).toContain("$candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'");
-    expect(filenameFirstQualification).toContain("stages.writer.fts_rebuild_us");
+    expect(filenameFirstQualification).toContain("stages.writer.fts_bulk_build_us");
     expect(filenameFirstQualification).toContain("ftsIntegrityVerified");
-    expect(workflow).toContain("full-table rebuild baseline/candidate:");
+    expect(workflow).toContain("per-source restartable FTS bulk build baseline/candidate:");
     expect(workflow).toContain("Average peak working set baseline/candidate:");
     expect(filenameFirstQualification).toContain("stages.writer.transient_staging_us");
     expect(workflow).toContain("Transient catalog staging baseline/candidate:");

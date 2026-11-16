@@ -1205,6 +1205,7 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
         owners: HashMap::new(),
         operation_context: HashMap::new(),
         deferred_initial_sources: HashSet::new(),
+        initial_fts_bulk_sources: HashSet::new(),
         fallback_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     };
@@ -1251,6 +1252,7 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
         owners: HashMap::new(),
         operation_context: HashMap::new(),
         deferred_initial_sources: HashSet::new(),
+        initial_fts_bulk_sources: HashSet::new(),
         fallback_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     };
@@ -1301,6 +1303,7 @@ fn filename_first_initial_mft_is_searchable_before_sqlite_and_finishes_with_fts(
         owners: HashMap::new(),
         operation_context: HashMap::new(),
         deferred_initial_sources: HashSet::new(),
+        initial_fts_bulk_sources: HashSet::new(),
         fallback_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     };

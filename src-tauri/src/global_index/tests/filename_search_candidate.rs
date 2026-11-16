@@ -535,6 +535,25 @@ fn new_source_transient_persistence_builds_fts_and_source_facts_in_batches() {
         )
         .expect("read per-batch source statistics");
     assert_eq!(stats, (2, 2, 2, 0));
+    let mut parent_statement = connection
+        .prepare(
+            "SELECT parent_platform_file_id FROM global_entries
+             WHERE volume_id='gv_new_bulk' ORDER BY path",
+        )
+        .expect("prepare persisted parent identity query");
+    let persisted_parent_ids: Vec<String> = parent_statement
+        .query_map([], |row| row.get(0))
+        .expect("read persisted parent identities")
+        .collect::<Result<_, _>>()
+        .expect("collect persisted parent identities");
+    assert_eq!(
+        persisted_parent_ids,
+        vec![
+            inputs[0].parent_platform_file_id.clone(),
+            inputs[1].parent_platform_file_id.clone(),
+        ]
+    );
+    drop(parent_statement);
     assert_eq!(
         connection
             .query_row(

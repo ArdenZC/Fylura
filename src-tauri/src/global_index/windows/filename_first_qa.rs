@@ -242,6 +242,11 @@ pub fn run_initial(
             peak_private_bytes = peak_private_bytes.max(private_bytes);
         }
         if durable_filename_index_us.is_none() {
+            // The finalmarker file is created after all fixture files and
+            // FSCTL_ENUM_USN_DATA returns records in MFT order. Once its FTS
+            // posting is present and the source row count reaches the fixture
+            // size, the complete fixture has passed the durable writer. Avoid
+            // rescanning one million global_entries rows on every 10 ms poll.
             let durable_filename_index_ready = durable_connection.query_row(
                 "SELECT CASE WHEN EXISTS(
                     SELECT 1
@@ -251,15 +256,15 @@ pub fn run_initial(
                       AND ge.volume_id=?2
                       AND ge.path_normalized=?3
                       AND ge.is_stale=0
-                 ) THEN (
-                    SELECT COUNT(*) FROM global_entries
-                    WHERE volume_id=?2 AND is_stale=0 AND path_normalized LIKE ?4
-                 ) = ?5 ELSE 0 END",
+                 ) AND EXISTS (
+                    SELECT 1 FROM global_volumes
+                    WHERE id=?2 AND entry_count >= ?4
+                      AND fts_bulk_build=0 AND fts_bulk_cursor=0
+                 ) THEN 1 ELSE 0 END",
                 rusqlite::params![
                     complete_query,
                     source_id,
                     complete_expected_path,
-                    fixture_file_pattern,
                     expected_fixture_file_count as i64,
                 ],
                 |row| row.get::<_, bool>(0),

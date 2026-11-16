@@ -259,6 +259,7 @@ pub(crate) struct TransientFilenameEntry {
 struct TransientPathDirectory {
     original_path: u32,
     normalized_path: u32,
+    parent_platform_file_id: u32,
     separator: u8,
     entries: Vec<u32>,
 }
@@ -397,6 +398,7 @@ impl FilenameSearchManager {
                 let parent_directory_index = if visible {
                     transient_path_directory_index(
                         &input.path,
+                        &input.parent_platform_file_id,
                         strings,
                         path_directories,
                         by_path_directory,
@@ -759,9 +761,7 @@ impl FilenameSearchManager {
                     .strings
                     .get(entry.platform_file_id as usize)
                     .to_owned(),
-                parent_platform_file_id: catalog
-                    .strings
-                    .get(entry.parent_platform_file_id as usize)
+                parent_platform_file_id: transient_parent_platform_file_id(&catalog, entry)
                     .to_owned(),
                 name: catalog.strings.get(entry.name as usize).to_owned(),
                 name_normalized: catalog
@@ -1633,6 +1633,7 @@ fn transient_parent_directory(path: &str) -> String {
 
 fn transient_path_directory_index(
     path: &str,
+    parent_platform_file_id: &str,
     strings: &mut PackedStrings,
     directories: &mut Vec<TransientPathDirectory>,
     by_directory: &mut HashMap<u64, Vec<u32>>,
@@ -1649,7 +1650,11 @@ fn transient_path_directory_index(
     let hash = transient_string_hash(original_path);
     if let Some(indices) = by_directory.get(&hash) {
         for index in indices {
-            if strings.get(directories[*index as usize].original_path as usize) == original_path {
+            let directory = &directories[*index as usize];
+            if strings.get(directory.original_path as usize) == original_path
+                && strings.get(directory.parent_platform_file_id as usize)
+                    == parent_platform_file_id
+            {
                 return Ok(*index);
             }
         }
@@ -1662,6 +1667,9 @@ fn transient_path_directory_index(
     let normalized_path_id = strings
         .push(&normalized_path)
         .map_err(|_| "transient_catalog_string_pool_limit")?;
+    let parent_platform_file_id = strings
+        .push(parent_platform_file_id)
+        .map_err(|_| "transient_catalog_string_pool_limit")?;
     let mut grams = filename_grams(&normalized_path);
     grams.sort_unstable();
     grams.dedup();
@@ -1673,6 +1681,7 @@ fn transient_path_directory_index(
     directories.push(TransientPathDirectory {
         original_path: original_path_id,
         normalized_path: normalized_path_id,
+        parent_platform_file_id,
         separator,
         entries: Vec::new(),
     });
@@ -1754,9 +1763,13 @@ fn transient_filename_entry(
         platform_file_id: strings
             .push(&input.platform_file_id)
             .map_err(|_| "transient_catalog_string_pool_limit")?,
-        parent_platform_file_id: strings
-            .push(&input.parent_platform_file_id)
-            .map_err(|_| "transient_catalog_string_pool_limit")?,
+        parent_platform_file_id: if parent_directory_index != INVALID_TRANSIENT_STRING_ID {
+            INVALID_TRANSIENT_STRING_ID
+        } else {
+            strings
+                .push(&input.parent_platform_file_id)
+                .map_err(|_| "transient_catalog_string_pool_limit")?
+        },
         name,
         path: if decision.visible() {
             INVALID_TRANSIENT_STRING_ID
@@ -1790,7 +1803,7 @@ fn transient_entry_to_input(
     GlobalEntryInput {
         volume_id: catalog.volume_id.clone(),
         platform_file_id: text(entry.platform_file_id),
-        parent_platform_file_id: text(entry.parent_platform_file_id),
+        parent_platform_file_id: transient_parent_platform_file_id(catalog, entry).to_owned(),
         name: text(entry.name),
         path: transient_entry_path(catalog, entry),
         extension: text(entry.extension),
@@ -1806,6 +1819,22 @@ fn transient_entry_to_input(
             .get(catalog.source_provider as usize)
             .to_owned(),
         last_seen_at: entry.last_seen_at,
+    }
+}
+
+fn transient_parent_platform_file_id<'a>(
+    catalog: &'a TransientFilenameCatalog,
+    entry: &TransientFilenameEntry,
+) -> &'a str {
+    if entry.parent_platform_file_id != INVALID_TRANSIENT_STRING_ID {
+        catalog.strings.get(entry.parent_platform_file_id as usize)
+    } else if entry.parent_directory_index != INVALID_TRANSIENT_STRING_ID {
+        catalog.strings.get(
+            catalog.path_directories[entry.parent_directory_index as usize].parent_platform_file_id
+                as usize,
+        )
+    } else {
+        ""
     }
 }
 

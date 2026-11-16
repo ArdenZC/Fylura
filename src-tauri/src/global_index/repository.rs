@@ -12,6 +12,7 @@ use std::{
 static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
+const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 32 * 1024;
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
     conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
@@ -224,6 +225,25 @@ const UPSERT_GLOBAL_ENTRY_SQL: &str = r#"
                     OR global_entries.source_provider IS NOT excluded.source_provider
                     OR global_entries.last_seen_at IS NOT excluded.last_seen_at
                     OR ( ?19 IS NOT NULL AND global_entries.scope_decision IS NOT excluded.scope_decision )
+                "#;
+
+// A source with no prior entries is already proven empty by the FTS bulk-build
+// admission check. Its transient catalogue deduplicates stable IDs before
+// persistence, so a plain INSERT avoids carrying the conflict-update branch
+// and its large no-op predicate through every initial row. SQLite still
+// enforces the primary-key uniqueness constraint normally.
+const INSERT_GLOBAL_ENTRY_SQL_INITIAL: &str = r#"
+                INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at, scope_decision
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                    CASE WHEN ?19 = 'minimal_ancestor' THEN 1 ELSE 0 END,
+                    ?17, ?18, COALESCE(?19, 'include')
+                )
                 "#;
 
 #[cfg(test)]
@@ -1359,7 +1379,25 @@ impl Database {
             begin_initial_global_source_fts_bulk_build(&mut conn, owner, &mut timing)?;
         let previous_journal_size_limit =
             conn.query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))?;
-        conn.pragma_update(None, "journal_size_limit", INITIAL_MFT_WAL_SIZE_LIMIT_BYTES)?;
+        let previous_cache_size =
+            conn.query_row("PRAGMA cache_size", [], |row| row.get::<_, i64>(0))?;
+        // Keep dirty pages for the current bounded batch in SQLite's page
+        // cache. The default 2 MiB cache spills index pages repeatedly while
+        // populating the global_entries secondary indexes. This is a
+        // connection-local limit and is restored before returning the pooled
+        // connection to ordinary database work.
+        let enlarged_writer_cache = entry_count >= 16_384;
+        if enlarged_writer_cache {
+            conn.pragma_update(None, "cache_size", -INITIAL_MFT_WRITER_CACHE_KIB)?;
+        }
+        if let Err(error) =
+            conn.pragma_update(None, "journal_size_limit", INITIAL_MFT_WAL_SIZE_LIMIT_BYTES)
+        {
+            if enlarged_writer_cache {
+                let _ = conn.pragma_update(None, "cache_size", previous_cache_size);
+            }
+            return Err(error.into());
+        }
         // Keep the database's configured automatic WAL checkpoint threshold.
         // Bounded transactions limit writer-lock duration; suppressing auto
         // checkpoints here allowed FTS pages to accumulate into a very large
@@ -1369,11 +1407,17 @@ impl Database {
         #[cfg(test)]
         let upsert_sql = if canonical_writer {
             UPSERT_GLOBAL_ENTRY_SQL_CANONICAL
+        } else if fts_bulk_build_active {
+            INSERT_GLOBAL_ENTRY_SQL_INITIAL
         } else {
             UPSERT_GLOBAL_ENTRY_SQL
         };
         #[cfg(not(test))]
-        let upsert_sql = UPSERT_GLOBAL_ENTRY_SQL;
+        let upsert_sql = if fts_bulk_build_active {
+            INSERT_GLOBAL_ENTRY_SQL_INITIAL
+        } else {
+            UPSERT_GLOBAL_ENTRY_SQL
+        };
         let write_result = (|| -> Result<(usize, bool), DbError> {
             let mut offset = 0usize;
             let mut processed_entries = 0usize;
@@ -1514,6 +1558,7 @@ impl Database {
         timing.wal_checkpoint += checkpoint_started.elapsed();
         let restore_journal_size_limit =
             conn.pragma_update(None, "journal_size_limit", previous_journal_size_limit);
+        let restore_cache_size = conn.pragma_update(None, "cache_size", previous_cache_size);
         match checkpoint_result {
             Ok((busy, log_frames, checkpointed_frames)) => {
                 crate::global_index::qa_trace::record(&format!(
@@ -1526,9 +1571,9 @@ impl Database {
                 "passive WAL checkpoint after filename indexing failed: {error}"
             ),
         }
-        let restore_journal_size_limit_result = restore_journal_size_limit;
         let (processed_entries, has_eligible_pending_work) = write_result?;
-        restore_journal_size_limit_result?;
+        restore_cache_size?;
+        restore_journal_size_limit?;
         debug_assert_eq!(processed_entries, entry_count);
         if has_eligible_pending_work {
             self.notify_managed_ai_work();

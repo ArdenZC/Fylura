@@ -823,7 +823,7 @@ fn initial_mft_persist_batch_size() -> usize {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| matches!(value, 512 | 1024 | 2048 | 4096 | 8192))
-        .unwrap_or(4096)
+        .unwrap_or(8192)
 }
 
 fn enrich_initial_mft_metadata(entries: &mut [GlobalEntryInput]) {

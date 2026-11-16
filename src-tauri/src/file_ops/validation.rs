@@ -1580,6 +1580,9 @@ mod windows_system_trash_native_tests {
     use crate::fs_safety::capture_namespace_identity_only;
     use std::fs;
     use std::path::Path;
+    use std::sync::Mutex;
+
+    static NATIVE_TRASH_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn same_windows_path(left: &Path, right: &Path) -> bool {
         fn normalized(path: &Path) -> String {
@@ -1608,6 +1611,9 @@ mod windows_system_trash_native_tests {
 
     #[test]
     fn windows_recycle_bin_restores_file_and_directory_to_original_paths() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Windows Recycle Bin tests");
         let root = super::native_system_trash_test_root("windows-native");
         fs::create_dir_all(&root).expect("create fixture root");
 
@@ -1655,6 +1661,9 @@ mod windows_system_trash_native_tests {
 
     #[test]
     fn windows_native_reproduces_same_path_replacement_after_final_revalidation() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Windows Recycle Bin tests");
         let root = super::native_system_trash_test_root("windows-handoff-race");
         fs::create_dir_all(&root).expect("create fixture root");
         let source = root.join("race-entry.txt");
@@ -1694,6 +1703,9 @@ mod windows_system_trash_native_tests {
 
     #[test]
     fn windows_staged_trash_restore_returns_to_staging_path() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Windows Recycle Bin tests");
         let root = super::native_system_trash_test_root("windows-staging-restore");
         let original_parent = root.join("original-location");
         let staging_parent = root.join("fylura-staging");
@@ -1729,6 +1741,9 @@ mod macos_system_trash_native_tests {
     use std::fs;
     use std::path::Path;
     use std::process::Command;
+    use std::sync::Mutex;
+
+    static NATIVE_TRASH_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn applescript_string(value: &str) -> String {
         value.replace('\\', "\\\\").replace('"', "\\\"")
@@ -1767,6 +1782,9 @@ mod macos_system_trash_native_tests {
 
     #[test]
     fn finder_trash_round_trips_local_file_and_directory() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Finder Trash tests");
         let root = super::native_system_trash_test_root("macos-native");
         fs::create_dir_all(&root).expect("create fixture root");
         let unique_name = root
@@ -1818,6 +1836,9 @@ mod macos_system_trash_native_tests {
 
     #[test]
     fn finder_native_reproduces_same_path_replacement_after_final_revalidation() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Finder Trash tests");
         let root = super::native_system_trash_test_root("macos-handoff-race");
         fs::create_dir_all(&root).expect("create fixture root");
         let root_name = root
@@ -1861,6 +1882,9 @@ mod macos_system_trash_native_tests {
 
     #[test]
     fn finder_staged_trash_restore_returns_to_staging_path() {
+        let _guard = NATIVE_TRASH_TEST_LOCK
+            .lock()
+            .expect("serialize Finder Trash tests");
         let root = super::native_system_trash_test_root("macos-staging-restore");
         fs::create_dir_all(&root).expect("create fixture root");
         let root_name = root

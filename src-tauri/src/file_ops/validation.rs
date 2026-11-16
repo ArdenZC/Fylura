@@ -1632,13 +1632,54 @@ mod macos_system_trash_native_tests {
     use super::move_to_system_trash_with_safety;
     use crate::fs_safety::capture_namespace_identity_only;
     use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn applescript_string(value: &str) -> String {
+        value.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+
+    fn restore_with_finder(path: &Path) {
+        let name = path
+            .file_name()
+            .expect("fixture has a file name")
+            .to_string_lossy();
+        let parent = path
+            .parent()
+            .expect("fixture has a parent")
+            .to_string_lossy();
+        let script = format!(
+            "tell application \"Finder\"\n\
+             activate\n\
+             set targetItem to first item of trash whose name is \"{}\"\n\
+             set targetFolder to POSIX file \"{}\" as alias\n\
+             move targetItem to targetFolder\n\
+             end tell",
+            applescript_string(&name),
+            applescript_string(&parent)
+        );
+        let output = Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .expect("run Finder restore operation");
+        assert!(
+            output.status.success(),
+            "Finder failed to restore the item: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
-    fn finder_trash_accepts_local_file_and_directory() {
+    fn finder_trash_round_trips_local_file_and_directory() {
         let root = super::native_system_trash_test_root("macos-native");
         fs::create_dir_all(&root).expect("create fixture root");
+        let unique_name = root
+            .file_name()
+            .expect("fixture root has a name")
+            .to_string_lossy();
 
-        let file = root.join("native-file.txt");
+        let file = root.join(format!("{unique_name}-native-file.txt"));
         fs::write(&file, b"Finder Trash integration fixture").expect("write file");
         let identity = capture_namespace_identity_only(&file, None).expect("file identity");
         let result = move_to_system_trash_with_safety(
@@ -1651,8 +1692,13 @@ mod macos_system_trash_native_tests {
         .expect("send local file to Finder Trash");
         assert_eq!(result.target_path, "System Trash");
         assert!(!file.exists());
+        restore_with_finder(&file);
+        assert_eq!(
+            fs::read(&file).expect("Finder-restored file"),
+            b"Finder Trash integration fixture"
+        );
 
-        let directory = root.join("native-directory");
+        let directory = root.join(format!("{unique_name}-native-directory"));
         fs::create_dir_all(directory.join("nested")).expect("create nested directory");
         fs::write(directory.join("nested/child.txt"), b"folder tree").expect("write child");
         let identity =
@@ -1667,6 +1713,11 @@ mod macos_system_trash_native_tests {
         .expect("send directory tree to Finder Trash");
         assert_eq!(result.target_path, "System Trash");
         assert!(!directory.exists());
+        restore_with_finder(&directory);
+        assert_eq!(
+            fs::read(directory.join("nested/child.txt")).expect("Finder-restored nested file"),
+            b"folder tree"
+        );
         fs::remove_dir_all(root).expect("cleanup remaining test files");
     }
 }

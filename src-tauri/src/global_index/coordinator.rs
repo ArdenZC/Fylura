@@ -2180,6 +2180,21 @@ mod tests {
 
     struct TestDatabasePath(PathBuf);
 
+    struct TestDirectoryPath(PathBuf);
+
+    impl TestDirectoryPath {
+        fn new(path: PathBuf) -> Self {
+            fs::create_dir_all(&path).expect("create task-owned test directory");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectoryPath {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     impl TestDatabasePath {
         fn new() -> Self {
             let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2496,7 +2511,12 @@ mod tests {
     fn spotlight_initial_batches_bulk_build_fts_and_keep_incremental_search_exact() {
         let path = TestDatabasePath::new();
         let db = Database::open(&path.0).expect("open isolated Spotlight writer database");
-        let root = path.0.with_extension("spotlight-fixture");
+        let root = TestDirectoryPath::new(path.0.with_extension("spotlight-fixture"));
+        let root = root.0.as_path();
+        fs::write(root.join("spotlight-bulk-original-unique.txt"), b"original")
+            .expect("create the original Spotlight source file");
+        fs::write(root.join("spotlight-bulk-second-unique.txt"), b"second")
+            .expect("create the second Spotlight source file");
         let mut volume = crate::global_index::tests::test_volume();
         volume.id = format!("gv_spotlight_{}", std::process::id());
         volume.platform = "macos".into();
@@ -2586,6 +2606,11 @@ mod tests {
         assert_eq!(first_search.results.len(), 2);
 
         let updated = make_entry(1001, "spotlight-bulk-renamed-unique.txt");
+        fs::rename(
+            root.join("spotlight-bulk-original-unique.txt"),
+            root.join("spotlight-bulk-renamed-unique.txt"),
+        )
+        .expect("rename the source file before the incremental Spotlight update");
         sink.admit_source_operation(
             &db.get_global_volume(&volume.id).unwrap().unwrap(),
             "spotlight-bulk-incremental",

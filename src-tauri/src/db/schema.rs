@@ -3906,7 +3906,9 @@ mod issue381_b4_p0_tests {
                 Some("900".into()),
                 Some(100),
                 Some(101),
-                2,
+                // The migration repairs this derived count from the active
+                // entry rows instead of preserving a stale pre-migration value.
+                1,
                 "legacy_confirmation_required".into()
             )
         );

@@ -147,6 +147,9 @@ describe("Global Index performance workflow routing", () => {
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
     expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
     expect(filenameFirstQualification).toContain("durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le 10000000");
+    expect(filenameFirstQualification).toContain("completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le 10000000 -and $allCandidateCompleteCatalogsReady");
+    expect(filenameFirstQualification).toContain("completeTransientSearchBeforeDurableFts");
+    expect(filenameFirstQualification).toContain("collectionCompleteWhenTransientReady");
     expect(filenameFirstQualification).toContain("fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet");
     expect(filenameFirstQualification).toContain("'result.durableFilenameIndexUs'");
     expect(filenameFirstQualification).toContain("sourceIndexStatus -ne 'ready' -or $run.result.coveragePending");
@@ -163,6 +166,7 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("Average peak working set baseline/candidate:");
     expect(filenameFirstQualification).toContain("stages.writer.transient_staging_us");
     expect(workflow).toContain("Transient catalog staging baseline/candidate:");
+    expect(workflow).toContain("Average complete filename search baseline/candidate:");
     expect(workflow).toContain("Average database+WAL bytes baseline/candidate:");
     expect(workflow).toContain("Write-Output $summary");
   });

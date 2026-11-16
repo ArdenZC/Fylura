@@ -1435,14 +1435,13 @@ fn hardlink_search_admission_uses_native_index_policy() {
         &CoveragePolicy::default(),
         &f.source,
         std::slice::from_ref(&e),
-    )[0]
-    .clone();
+    )[0];
     let mut alias = e;
     alias.path = alias_path.to_string_lossy().into_owned();
     alias.name = "user-copy.js".into();
     alias.extension = "js".into();
     super::native::enrich_fixture_identity(&mut alias);
-    let alias_decision = observe_batch(&CoveragePolicy::default(), &f.source, &[alias])[0].clone();
+    let alias_decision = observe_batch(&CoveragePolicy::default(), &f.source, &[alias])[0];
     // Read-only filename indexing need not open a handle just to reject
     // hardlinks. Each visible name still follows its own Index Scope path.
     #[cfg(windows)]

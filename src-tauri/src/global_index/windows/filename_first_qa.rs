@@ -89,6 +89,11 @@ pub fn run_initial(
         .and_then(|(bucket_path, _)| bucket_path.rsplit_once('/'))
         .map(|(fixture_root, _)| format!("{fixture_root}/bucket-%/filename-first-item-______.txt"))
         .ok_or("qualification fixture path is not nested under a bucket directory")?;
+    let fixture_root_prefix = expected_path
+        .rsplit_once('/')
+        .and_then(|(bucket_path, _)| bucket_path.rsplit_once('/'))
+        .map(|(fixture_root, _)| format!("{fixture_root}/"))
+        .ok_or("qualification fixture path is not nested under a bucket directory")?;
     let durable_connection = db.conn()?;
     let filename_first = std::env::var("ZC_GLOBAL_INDEX_FILENAME_FIRST")
         .map(|value| value != "0")
@@ -128,6 +133,12 @@ pub fn run_initial(
     let mut first_search_processed_entries = None;
     let mut first_search_total_entries = None;
     let mut durable_filename_index_us = None;
+    let mut transient_catalog_ready_us = None;
+    let mut transient_catalog_entry_count = None;
+    let mut transient_fixture_file_entries = None;
+    let mut complete_transient_search_visible = None;
+    let mut complete_transient_search_before_durable_fts = None;
+    let mut collection_complete_when_transient_ready = None;
     loop {
         if durable_filename_index_us.is_none() {
             let durable_filename_index_ready = durable_connection.query_row(
@@ -154,6 +165,28 @@ pub fn run_initial(
             )?;
             if durable_filename_index_ready {
                 durable_filename_index_us = Some(started.elapsed().as_micros());
+            }
+        }
+        if transient_catalog_ready_us.is_none() {
+            if let Some((true, catalog_entries, fixture_entries)) =
+                db.filename_search.transient_catalog_qa_counts(
+                    source_id,
+                    &fixture_root_prefix,
+                    "filename-first-item-",
+                )
+            {
+                transient_catalog_ready_us = Some(started.elapsed().as_micros());
+                transient_catalog_entry_count = Some(catalog_entries);
+                transient_fixture_file_entries = Some(fixture_entries);
+                complete_transient_search_before_durable_fts =
+                    Some(durable_filename_index_us.is_none());
+                complete_transient_search_visible = Some(live_result_visible(
+                    &db,
+                    complete_query,
+                    &complete_expected_path,
+                )?);
+                collection_complete_when_transient_ready =
+                    Some(db.global_index_status()?.collection_complete);
             }
         }
         if first_searchable_us.is_none() {
@@ -188,6 +221,18 @@ pub fn run_initial(
         first_searchable_us.ok_or("target filename never became searchable")?;
     let durable_filename_index_us = durable_filename_index_us
         .ok_or("complete task fixture was not visible through durable FTS")?;
+    if filename_first
+        && (transient_catalog_ready_us.is_none()
+            || transient_fixture_file_entries != Some(expected_fixture_file_count)
+            || complete_transient_search_visible != Some(true)
+            || complete_transient_search_before_durable_fts != Some(true)
+            || collection_complete_when_transient_ready != Some(false))
+    {
+        return Err(format!(
+            "complete transient filename catalogue was not searchable before durable FTS: ready_us={transient_catalog_ready_us:?} fixture_entries={transient_fixture_file_entries:?} expected={expected_fixture_file_count} final_marker_visible={complete_transient_search_visible:?} before_fts={complete_transient_search_before_durable_fts:?} collection_complete={collection_complete_when_transient_ready:?}"
+        )
+        .into());
+    }
     let complete_coverage_search_visible = db
         .search_global_entries(complete_query, 50, 0)?
         .iter()
@@ -285,6 +330,12 @@ pub fn run_initial(
         "firstSearchBeforeComplete": first_search_complete == Some(false),
         "firstSearchProcessedEntries": first_search_processed_entries,
         "firstSearchTotalEntries": first_search_total_entries,
+        "transientCatalogReadyUs": transient_catalog_ready_us,
+        "transientCatalogEntryCount": transient_catalog_entry_count,
+        "transientFixtureFileEntries": transient_fixture_file_entries,
+        "completeTransientSearchVisible": complete_transient_search_visible,
+        "completeTransientSearchBeforeDurableFts": complete_transient_search_before_durable_fts,
+        "collectionCompleteWhenTransientReady": collection_complete_when_transient_ready,
         "completeCoverageSearchVisible": complete_coverage_search_visible,
         "fullIndexUs": full_index_us,
         "databaseTotalEntries": database_total_entries,

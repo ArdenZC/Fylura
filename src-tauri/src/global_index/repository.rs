@@ -240,26 +240,41 @@ const UPSERT_GLOBAL_ENTRY_SQL_CANONICAL: &str = r#"
                     last_seen_at = excluded.last_seen_at
                 "#;
 
+struct EntryUpsertValues<'a> {
+    entry_id: &'a str,
+    entry: &'a GlobalEntryInput,
+    normalized_name: &'a str,
+    normalized_path: &'a str,
+    scope_decision: Option<&'a str>,
+    canonical_writer: bool,
+}
+
 fn execute_entry_upsert(
     _transaction: &rusqlite::Transaction<'_>,
     statement: &mut rusqlite::Statement<'_>,
     _sql: &str,
-    entry_id: &str,
-    entry: &GlobalEntryInput,
-    scope_decision: Option<&str>,
-    canonical_writer: bool,
+    values: EntryUpsertValues<'_>,
 ) -> Result<usize, DbError> {
     macro_rules! execute_values {
-        ($values:expr) => {{
+        ($bindings:expr) => {{
             #[cfg(test)]
             if CANONICAL_FACTS_READ.with(std::cell::Cell::get) {
                 // Exact previous producer preparation strategy for the paired writer
                 // baseline; production reuses one compiled statement for the batch.
-                return Ok(_transaction.execute(_sql, $values)?);
+                return Ok(_transaction.execute(_sql, $bindings)?);
             }
-            Ok(statement.execute($values)?)
+            Ok(statement.execute($bindings)?)
         }};
     }
+
+    let EntryUpsertValues {
+        entry_id,
+        entry,
+        normalized_name,
+        normalized_path,
+        scope_decision,
+        canonical_writer,
+    } = values;
 
     if canonical_writer {
         execute_values!(params![
@@ -268,9 +283,9 @@ fn execute_entry_upsert(
             entry.platform_file_id,
             entry.parent_platform_file_id,
             entry.name,
-            entry.name.to_lowercase(),
+            normalized_name,
             entry.path,
-            normalize_path(&entry.path),
+            normalized_path,
             entry.extension,
             bool_to_i64(entry.is_directory),
             entry.size,
@@ -289,9 +304,9 @@ fn execute_entry_upsert(
             entry.platform_file_id,
             entry.parent_platform_file_id,
             entry.name,
-            entry.name.to_lowercase(),
+            normalized_name,
             entry.path,
-            normalize_path(&entry.path),
+            normalized_path,
             entry.extension,
             bool_to_i64(entry.is_directory),
             entry.size,
@@ -1329,80 +1344,84 @@ impl Database {
         let mut offset = 0usize;
         let mut processed_entries = 0usize;
         while offset < entry_count {
-            let entries = self
-                .filename_search
-                .transient_catalog_batch(volume_id, operation_id, offset, batch_size)
-                .ok_or_else(|| {
-                    DbError::Validation("transient_initial_catalog_lost_before_persist".into())
-                })?;
-            if entries.is_empty()
-                || entries.len() > batch_size
-                || offset.saturating_add(entries.len()) > entry_count
-                || entries.iter().any(|entry| entry.volume_id != volume_id)
-            {
-                return Err(DbError::Validation(
-                    "transient_initial_catalog_batch_invalid".into(),
-                ));
-            }
+            let batch_len = self.filename_search.with_transient_catalog_batch(
+                volume_id,
+                operation_id,
+                offset,
+                batch_size,
+                |entries| {
+                    if entries.is_empty()
+                        || entries.len() > batch_size
+                        || offset.saturating_add(entries.len()) > entry_count
+                        || entries
+                            .iter()
+                            .any(|entry| entry.input.volume_id != volume_id)
+                    {
+                        return Err(DbError::Validation(
+                            "transient_initial_catalog_batch_invalid".into(),
+                        ));
+                    }
+                    if entries
+                        .iter()
+                        .any(|entry| entry.decision.reason() == "outside_authorized_source")
+                    {
+                        return Err(DbError::Validation(
+                            "transient_initial_catalog_decisions_invalid".into(),
+                        ));
+                    }
 
-            let decisions = self
-                .filename_search
-                .transient_catalog_decisions(volume_id, operation_id, offset, batch_size)
-                .ok_or_else(|| {
-                    DbError::Validation("transient_initial_catalog_decisions_lost".into())
-                })?;
-            if decisions.len() != entries.len()
-                || decisions
-                    .iter()
-                    .any(|decision| decision.reason() == "outside_authorized_source")
-            {
-                return Err(DbError::Validation(
-                    "transient_initial_catalog_decisions_invalid".into(),
-                ));
-            }
-
-            for (entry, decision) in entries.iter().zip(&decisions) {
-                let visible = decision.visible();
-                if !visible && !entry.is_directory {
-                    continue;
-                }
-                let scope_decision = if entry.is_directory && !visible {
-                    "minimal_ancestor"
-                } else if matches!(decision, super::coverage::Decision::Undetermined(_)) {
-                    "undetermined"
-                } else if visible {
-                    "include"
-                } else {
-                    decision.reason()
-                };
-                let scope_decision = if canonical_writer {
-                    None
-                } else {
-                    Some(scope_decision)
-                };
-                let upsert_started = Instant::now();
-                let entry_id = entry.entry_id();
-                execute_entry_upsert(
-                    &transaction,
-                    &mut statement,
-                    upsert_sql,
-                    &entry_id,
-                    entry,
-                    scope_decision,
-                    canonical_writer,
-                )?;
-                timing.entry_upsert += upsert_started.elapsed();
-            }
-            let decisions_started = Instant::now();
-            super::coverage::record_decisions(
-                &transaction,
-                &entries,
-                &decisions,
-                canonical_writer,
+                    for entry in entries {
+                        let input = &entry.input;
+                        let decision = entry.decision;
+                        let visible = decision.visible();
+                        if !visible && !input.is_directory {
+                            continue;
+                        }
+                        let scope_decision = if input.is_directory && !visible {
+                            "minimal_ancestor"
+                        } else if matches!(decision, super::coverage::Decision::Undetermined(_)) {
+                            "undetermined"
+                        } else if visible {
+                            "include"
+                        } else {
+                            decision.reason()
+                        };
+                        let scope_decision = if canonical_writer {
+                            None
+                        } else {
+                            Some(scope_decision)
+                        };
+                        let upsert_started = Instant::now();
+                        let normalized_path = normalize_path(&input.path);
+                        execute_entry_upsert(
+                            &transaction,
+                            &mut statement,
+                            upsert_sql,
+                            EntryUpsertValues {
+                                entry_id: &entry.id,
+                                entry: input,
+                                normalized_name: &entry.normalized_name,
+                                normalized_path: &normalized_path,
+                                scope_decision,
+                                canonical_writer,
+                            },
+                        )?;
+                        timing.entry_upsert += upsert_started.elapsed();
+                    }
+                    let decisions_started = Instant::now();
+                    super::coverage::record_decisions_with_cached_ids(
+                        &transaction,
+                        entries
+                            .iter()
+                            .map(|entry| (&entry.input, entry.id.as_str(), entry.decision)),
+                        canonical_writer,
+                    )?;
+                    timing.record_decisions += decisions_started.elapsed();
+                    Ok(entries.len())
+                },
             )?;
-            timing.record_decisions += decisions_started.elapsed();
-            offset += entries.len();
-            processed_entries += entries.len();
+            offset += batch_len;
+            processed_entries += batch_len;
         }
         drop(statement);
         if processed_entries != entry_count {
@@ -1830,14 +1849,20 @@ impl Database {
             };
             let upsert_started = Instant::now();
             let entry_id = entry.entry_id();
+            let normalized_name = entry.name.to_lowercase();
+            let normalized_path = normalize_path(&entry.path);
             execute_entry_upsert(
                 &transaction,
                 &mut statement,
                 upsert_sql,
-                &entry_id,
-                entry,
-                scope_decision,
-                canonical_writer,
+                EntryUpsertValues {
+                    entry_id: &entry_id,
+                    entry,
+                    normalized_name: &normalized_name,
+                    normalized_path: &normalized_path,
+                    scope_decision,
+                    canonical_writer,
+                },
             )?;
             timing.entry_upsert += upsert_started.elapsed();
             if visible {

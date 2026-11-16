@@ -212,14 +212,14 @@ struct TransientFilenameCatalog {
     by_path_gram: HashMap<u64, Vec<usize>>,
 }
 
-struct TransientFilenameEntry {
-    id: String,
-    input: GlobalEntryInput,
-    normalized_name: String,
+pub(crate) struct TransientFilenameEntry {
+    pub(crate) id: String,
+    pub(crate) input: GlobalEntryInput,
+    pub(crate) normalized_name: String,
     normalized_extension: String,
     parent_directory_index: Option<usize>,
-    decision: Decision,
-    visible: bool,
+    pub(crate) decision: Decision,
+    pub(crate) visible: bool,
 }
 
 struct TransientPathDirectory {
@@ -429,6 +429,43 @@ impl FilenameSearchManager {
         Ok((catalog.entries.len(), catalog.policy_revision))
     }
 
+    #[cfg(feature = "native-qa")]
+    pub(crate) fn transient_catalog_qa_counts(
+        &self,
+        volume_id: &str,
+        fixture_root_prefix: &str,
+        filename_prefix: &str,
+    ) -> Option<(bool, usize, usize)> {
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()?;
+        let catalog = catalog
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let fixture_entries = if catalog.complete {
+            catalog
+                .entries
+                .iter()
+                .filter(|entry| {
+                    entry.visible
+                        && !entry.input.is_directory
+                        && entry
+                            .input
+                            .name
+                            .get(..filename_prefix.len())
+                            .is_some_and(|name| name.eq_ignore_ascii_case(filename_prefix))
+                        && normalized_path_has_prefix(&entry.input.path, fixture_root_prefix)
+                })
+                .count()
+        } else {
+            0
+        };
+        Some((catalog.complete, catalog.entries.len(), fixture_entries))
+    }
+
     pub(crate) fn mark_transient_persisted(
         &self,
         volume_id: &str,
@@ -609,6 +646,42 @@ impl FilenameSearchManager {
                 .map(|entry| entry.input.clone())
                 .collect()
         })
+    }
+
+    /// Visits a completed initial-index batch without cloning every path and
+    /// identity string. Readers also take a shared lock, so the durable writer
+    /// does not block filename searches while it consumes the catalog.
+    pub(crate) fn with_transient_catalog_batch<T>(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        start: usize,
+        limit: usize,
+        visit: impl FnOnce(&[TransientFilenameEntry]) -> Result<T, DbError>,
+    ) -> Result<T, DbError> {
+        let catalog = self
+            .transient_catalogs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(volume_id)
+            .cloned()
+            .ok_or_else(|| {
+                DbError::Validation("transient_initial_catalog_lost_before_persist".into())
+            })?;
+        let catalog = catalog
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if catalog.operation_id != operation_id || !catalog.complete {
+            return Err(DbError::Validation(
+                "transient_initial_catalog_owner_changed_before_persist".into(),
+            ));
+        }
+        let end = start.saturating_add(limit).min(catalog.entries.len());
+        let entries = catalog
+            .entries
+            .get(start..end)
+            .ok_or_else(|| DbError::Validation("transient_initial_catalog_batch_invalid".into()))?;
+        visit(entries)
     }
 
     pub(crate) fn transient_catalog_decisions(
@@ -1394,6 +1467,29 @@ impl FilenameSearchManager {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
     }
+}
+
+#[cfg(feature = "native-qa")]
+fn normalized_path_has_prefix(path: &str, normalized_prefix: &str) -> bool {
+    let path = path.as_bytes();
+    let prefix = normalized_prefix.as_bytes();
+    path.len() >= prefix.len()
+        && path[..prefix.len()]
+            .iter()
+            .zip(prefix)
+            .all(|(path_byte, prefix_byte)| {
+                let path_byte = if *path_byte == b'\\' {
+                    b'/'
+                } else {
+                    path_byte.to_ascii_lowercase()
+                };
+                let prefix_byte = if *prefix_byte == b'\\' {
+                    b'/'
+                } else {
+                    prefix_byte.to_ascii_lowercase()
+                };
+                path_byte == prefix_byte
+            })
 }
 
 fn transient_parent_directory(path: &str) -> String {

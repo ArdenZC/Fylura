@@ -4,6 +4,7 @@ use crate::{
     global_index::GlobalEntryInput,
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use std::borrow::Cow;
 
 const KEY: &str = "global_index_coverage_v1";
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +111,35 @@ pub(crate) fn record_decisions(
     decisions: &[Decision],
     update_entry_rows: bool,
 ) -> Result<(), DbError> {
+    record_decisions_with_ids(
+        conn,
+        entries
+            .iter()
+            .zip(decisions)
+            .map(|(entry, decision)| (entry, None, *decision)),
+        update_entry_rows,
+    )
+}
+
+pub(crate) fn record_decisions_with_cached_ids<'a>(
+    conn: &Connection,
+    entries: impl IntoIterator<Item = (&'a GlobalEntryInput, &'a str, Decision)>,
+    update_entry_rows: bool,
+) -> Result<(), DbError> {
+    record_decisions_with_ids(
+        conn,
+        entries
+            .into_iter()
+            .map(|(entry, id, decision)| (entry, Some(id), decision)),
+        update_entry_rows,
+    )
+}
+
+fn record_decisions_with_ids<'a>(
+    conn: &Connection,
+    entries: impl IntoIterator<Item = (&'a GlobalEntryInput, Option<&'a str>, Decision)>,
+    update_entry_rows: bool,
+) -> Result<(), DbError> {
     let mut counts = std::collections::HashMap::<&str, [i64; 3]>::new();
     let mut retire = None;
     let mut explain = if update_entry_rows {
@@ -119,7 +149,8 @@ pub(crate) fn record_decisions(
     } else {
         None
     };
-    for (entry, d) in entries.iter().zip(decisions) {
+    for (entry, entry_id, decision) in entries {
+        let d = &decision;
         let totals = counts.entry(&entry.volume_id).or_default();
         totals[if matches!(d, Decision::Undetermined(_)) {
             2
@@ -134,9 +165,12 @@ pub(crate) fn record_decisions(
                     "UPDATE global_entries SET is_stale=1,scope_decision=?2 WHERE id=?1",
                 )?);
             }
+            let entry_id = entry_id
+                .map(Cow::Borrowed)
+                .unwrap_or_else(|| Cow::Owned(entry.entry_id()));
             if let Some(retire) = retire.as_mut() {
                 retire.execute(params![
-                    entry.entry_id(),
+                    entry_id.as_ref(),
                     if entry.is_directory {
                         "minimal_ancestor"
                     } else {
@@ -146,8 +180,11 @@ pub(crate) fn record_decisions(
             }
         } else if d.visible() {
             if let Some(explain) = explain.as_mut() {
+                let entry_id = entry_id
+                    .map(Cow::Borrowed)
+                    .unwrap_or_else(|| Cow::Owned(entry.entry_id()));
                 explain.execute(params![
-                    entry.entry_id(),
+                    entry_id.as_ref(),
                     if matches!(d, Decision::Undetermined(_)) {
                         "undetermined"
                     } else {

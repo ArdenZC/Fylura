@@ -1,6 +1,6 @@
 use super::*;
-use crate::global_index::filename_search::FilenameSearchDiagnostics;
 use crate::global_index::coverage::Decision;
+use crate::global_index::filename_search::FilenameSearchDiagnostics;
 use crate::global_index::models::{GlobalEntryInput, GlobalSearchResult, GlobalVolume};
 use rusqlite::Connection;
 use std::path::PathBuf;

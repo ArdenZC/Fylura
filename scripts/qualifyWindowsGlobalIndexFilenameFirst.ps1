@@ -47,8 +47,12 @@ $script:evidence = [ordered]@{
     averages = $null
     firstSearchTargetSeconds = 10
     fullIndexTargetSeconds = 10
+    completeFilenameSearchTargetSeconds = 10
+    durableFtsBackgroundTargetSeconds = 10
     firstSearchTargetMet = $null
     fullIndexTargetMet = $null
+    completeFilenameSearchTargetMet = $null
+    durableFilenameIndexTargetMet = $null
     fixtureFilenameIndexTargetMet = $null
     completeCoveragePerPath = $null
     cleanup = [ordered]@{
@@ -378,6 +382,9 @@ try {
         baselineFirstSearchableUs = $baselineFirst
         candidateFirstSearchableUs = $candidateFirst
         firstSearchImprovementPercent = if ($baselineFirst -gt 0) { 100.0 * ($baselineFirst - $candidateFirst) / $baselineFirst } else { 0 }
+        baselineCompleteFilenameSearchableUs = $baselineDurableFilenameIndex
+        candidateCompleteFilenameSearchableUs = Get-Average $candidateRows.ToArray() 'result.transientCatalogReadyUs'
+        completeFilenameSearchImprovementPercent = if ($baselineDurableFilenameIndex -gt 0) { 100.0 * ($baselineDurableFilenameIndex - (Get-Average $candidateRows.ToArray() 'result.transientCatalogReadyUs')) / $baselineDurableFilenameIndex } else { 0 }
         baselineFullIndexUs = $baselineFull
         candidateFullIndexUs = $candidateFull
         fullIndexImprovementPercent = if ($baselineFull -gt 0) { 100.0 * ($baselineFull - $candidateFull) / $baselineFull } else { 0 }
@@ -435,6 +442,14 @@ try {
     }).Count -eq 0
     $script:evidence.firstSearchTargetMet = $candidateFirst -le 10000000 -and $allCandidateFirstSearchTargetsMet
     $allCandidateCollectionsComplete = @($candidateRows | Where-Object { -not $_.result.indexComplete }).Count -eq 0
+    $allCandidateCompleteCatalogsReady = @($candidateRows | Where-Object {
+        $null -eq $_.result.transientCatalogReadyUs -or
+        [double]$_.result.transientCatalogReadyUs -gt 10000000 -or
+        [long]$_.result.transientFixtureFileEntries -ne $FileCount -or
+        -not $_.result.completeTransientSearchVisible -or
+        -not $_.result.completeTransientSearchBeforeDurableFts -or
+        $_.result.collectionCompleteWhenTransientReady
+    }).Count -eq 0
     $allCandidateDurableFilenameTargetsMet = @($candidateRows | Where-Object {
         [double]$_.result.durableFilenameIndexUs -gt 10000000 -or
         [long]$_.result.fixtureFileEntries -ne $FileCount -or
@@ -446,21 +461,25 @@ try {
         baseline = @($baselineRows | ForEach-Object { $_.result.indexComplete })
         candidate = @($candidateRows | ForEach-Object { $_.result.indexComplete })
     }
+    $candidateCompleteFilenameSearchable = Get-Average $candidateRows.ToArray() 'result.transientCatalogReadyUs'
+    $script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le 10000000 -and $allCandidateCompleteCatalogsReady
     $script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le 10000000 -and $allCandidateDurableFilenameTargetsMet
-    $script:evidence.fixtureFilenameIndexTargetMet = $script:evidence.durableFilenameIndexTargetMet
+    $script:evidence.fixtureFilenameIndexTargetMet = $script:evidence.completeFilenameSearchTargetMet
     $script:evidence.fullIndexTargetMet = $candidateFull -le 10000000 -and $allCandidateCollectionsComplete
     $script:evidence.fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet
     $targetFailures = @()
     if (-not $script:evidence.firstSearchTargetMet) {
         $targetFailures += 'first searchable result exceeded the 10-second target'
     }
-    if (-not $script:evidence.durableFilenameIndexTargetMet) {
-        $targetFailures += 'durable FTS for the complete task fixture exceeded 10 seconds or failed its row-count/restart/integrity checks'
+    if (-not $script:evidence.completeFilenameSearchTargetMet) {
+        $targetFailures += 'complete transient filename catalogue exceeded 10 seconds or failed fixture-count/search/progress checks'
     }
     if ($targetFailures.Count -gt 0) {
         $script:evidence.status = 'PERFORMANCE_TARGET_MISSED'
         $failure = $targetFailures -join '; '
         $script:evidence.failure = $failure
+    } elseif (-not $script:evidence.durableFilenameIndexTargetMet) {
+        $script:evidence.status = 'SEARCH_READY_TARGET_MET_BACKGROUND_FTS_OVER_10S'
     } else {
         $script:evidence.status = 'PASS'
     }

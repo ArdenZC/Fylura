@@ -114,7 +114,10 @@ pub(crate) fn persist_pending_operation_journal(
                 .unwrap_or(false);
             let fingerprint =
                 crate::file_ops::measure_native_qa_copy_phase("source_identity", || {
-                    if cfg!(target_os = "macos") || is_directory {
+                    if cfg!(target_os = "macos")
+                        || is_directory
+                        || operation.operation_type == "move_to_system_trash"
+                    {
                         file_namespace_fingerprint(Path::new(&operation.source_path))
                     } else {
                         file_identity_fingerprint(Path::new(&operation.source_path))
@@ -311,11 +314,15 @@ pub(crate) fn make_operation_log(
         && operation.operation_type != "create_file";
     let restore_status = if system_trash && success {
         "unavailable"
+    } else if system_trash && status == "manual_review" {
+        "manual_review"
     } else {
         "not_restored"
     };
     let restore_error = if system_trash && success {
         Some("Restore from system trash.".to_string())
+    } else if system_trash && status == "manual_review" {
+        Some("System trash outcome is uncertain; check the OS trash.".to_string())
     } else {
         None
     };
@@ -395,4 +402,60 @@ pub(crate) fn current_timestamp_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod system_trash_log_tests {
+    use super::make_operation_log;
+    use crate::file_ops::OperationPreviewRequest;
+
+    #[test]
+    fn system_trash_log_never_claims_fylura_restore_or_undo() {
+        let source = std::env::temp_dir().join("system-trash-entry.txt");
+        let operation = OperationPreviewRequest {
+            id: "system-trash-operation".into(),
+            file_id: "system-trash-file".into(),
+            operation_type: "move_to_system_trash".into(),
+            source_path: source.to_string_lossy().into_owned(),
+            target_path: "System Recycle Bin".into(),
+            old_name: "system-trash-entry.txt".into(),
+            new_name: "system-trash-entry.txt".into(),
+            is_executable: Some(true),
+        };
+
+        let success = make_operation_log(
+            "system-trash-batch",
+            "1",
+            0,
+            &operation,
+            "success",
+            None,
+            "System Recycle Bin".into(),
+        );
+        assert!(!success.can_restore);
+        assert!(!success.can_undo);
+        assert_eq!(success.restore_status, "unavailable");
+        assert_eq!(
+            success.restore_error.as_deref(),
+            Some("Restore from system trash.")
+        );
+
+        let uncertain = make_operation_log(
+            "system-trash-batch",
+            "1",
+            0,
+            &operation,
+            "manual_review",
+            Some("system_trash_result_uncertain".into()),
+            "System Recycle Bin".into(),
+        );
+        assert!(!uncertain.can_restore);
+        assert!(!uncertain.can_undo);
+        assert_eq!(uncertain.restore_status, "manual_review");
+        assert!(uncertain
+            .restore_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("uncertain"));
+    }
 }

@@ -1505,18 +1505,24 @@ mod system_trash_identity_tests {
 }
 
 #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
+fn native_system_trash_test_root(label: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(".tmp-tests")
+        .join(format!(
+            "fylura-system-trash-{label}-{}",
+            crate::ids::new_job_id("test")
+        ))
+}
+
+#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
 mod system_trash_preflight_native_tests {
     use super::move_to_system_trash_with_safety;
     use crate::fs_safety::capture_namespace_identity_only;
-    use crate::ids::new_job_id;
     use std::fs;
 
     #[test]
     fn native_system_trash_rejects_same_path_replacement_before_handoff() {
-        let root = std::env::temp_dir().join(format!(
-            "fylura-system-trash-preflight-{}",
-            new_job_id("test")
-        ));
+        let root = super::native_system_trash_test_root("preflight");
         fs::create_dir_all(&root).expect("create fixture root");
         let source = root.join("entry.txt");
         fs::write(&source, b"previewed object").expect("write previewed source");
@@ -1545,7 +1551,6 @@ mod system_trash_preflight_native_tests {
 mod windows_system_trash_native_tests {
     use super::move_to_system_trash_with_safety;
     use crate::fs_safety::capture_namespace_identity_only;
-    use crate::ids::new_job_id;
     use std::fs;
     use std::path::Path;
 
@@ -1576,8 +1581,7 @@ mod windows_system_trash_native_tests {
 
     #[test]
     fn windows_recycle_bin_restores_file_and_directory_to_original_paths() {
-        let root =
-            std::env::temp_dir().join(format!("fylura-system-trash-native-{}", new_job_id("test")));
+        let root = super::native_system_trash_test_root("windows-native");
         fs::create_dir_all(&root).expect("create fixture root");
 
         let file = root.join("native-file.txt");
@@ -1627,13 +1631,11 @@ mod windows_system_trash_native_tests {
 mod macos_system_trash_native_tests {
     use super::move_to_system_trash_with_safety;
     use crate::fs_safety::capture_namespace_identity_only;
-    use crate::ids::new_job_id;
     use std::fs;
 
     #[test]
     fn finder_trash_accepts_local_file_and_directory() {
-        let root =
-            std::env::temp_dir().join(format!("fylura-system-trash-native-{}", new_job_id("test")));
+        let root = super::native_system_trash_test_root("macos-native");
         fs::create_dir_all(&root).expect("create fixture root");
 
         let file = root.join("native-file.txt");

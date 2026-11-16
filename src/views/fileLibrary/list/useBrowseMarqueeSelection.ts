@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import type { PresentationInteractionProjection } from "./interactionContracts";
-import { intersectSelectionRects, selectionRectFromPoints, selectionRectIntersects, type SelectionRect } from "./browseMarquee";
+import {
+  idsIntersectingSelection,
+  selectionEntryRectToContent,
+  selectionRectFromPoints,
+  selectionRectToContent,
+  type SelectionRect
+} from "./browseMarquee";
 
 const EDGE_ZONE = 28;
 const MAX_SCROLL_STEP = 22;
@@ -15,22 +21,19 @@ interface ActiveMarquee {
   additive: boolean;
   moved: boolean;
   selectionRect: SelectionRect | null;
-  hitIds: Set<string>;
+  contentSelectionRect: SelectionRect | null;
+  entryRects: Map<string, SelectionRect>;
   frame: number | null;
 }
 
-function idsInRect(root: HTMLElement, rect: SelectionRect) {
+function captureVisibleEntryRects(root: HTMLElement, entryRects: Map<string, SelectionRect>) {
   const viewport = root.getBoundingClientRect();
-  const clipped = intersectSelectionRects(rect, viewport);
-  if (!clipped) return [];
-  const ids = new Set<string>();
   for (const element of root.querySelectorAll<HTMLElement>("[data-browse-entry-id], [data-browse-grid-entry-id]")) {
-    const bounds = element.getBoundingClientRect();
-    if (!selectionRectIntersects(clipped, bounds)) continue;
     const id = element.dataset.browseEntryId ?? element.dataset.browseGridEntryId;
-    if (id) ids.add(id);
+    if (id) entryRects.set(id, selectionEntryRectToContent(
+      element.getBoundingClientRect(), viewport, root.scrollLeft, root.scrollTop
+    ));
   }
-  return [...ids];
 }
 
 /** Marquee selection is only an input method; BrowseSourceOwner remains the selection authority. */
@@ -53,7 +56,12 @@ export function useBrowseMarqueeSelection(
       if (active.moved) {
         active.selectionRect = selectionRectFromPoints(active.startX, active.startY, active.x, active.y);
         const root = rootRef.current;
-        if (root) idsInRect(root, active.selectionRect).forEach((id) => active.hitIds.add(id));
+        if (root) {
+          captureVisibleEntryRects(root, active.entryRects);
+          active.contentSelectionRect = selectionRectToContent(
+            active.selectionRect, root.getBoundingClientRect(), root.scrollLeft, root.scrollTop
+          );
+        }
       }
     }
     activeRef.current = null;
@@ -67,7 +75,7 @@ export function useBrowseMarqueeSelection(
       }
       if (commit && active.moved && active.selectionRect) {
         interactionRef.current.actions.selectIds?.(
-          [...active.hitIds],
+          active.contentSelectionRect ? idsIntersectingSelection(active.entryRects, active.contentSelectionRect) : [],
           active.additive
         );
       }
@@ -91,7 +99,10 @@ export function useBrowseMarqueeSelection(
       root.scrollTop += scroll(active.y, bounds.top, bounds.bottom);
       root.scrollLeft += scroll(active.x, bounds.left, bounds.right);
       active.selectionRect = selectionRectFromPoints(active.startX, active.startY, active.x, active.y);
-      idsInRect(root, active.selectionRect).forEach((id) => active.hitIds.add(id));
+      captureVisibleEntryRects(root, active.entryRects);
+      active.contentSelectionRect = selectionRectToContent(
+        active.selectionRect, root.getBoundingClientRect(), root.scrollLeft, root.scrollTop
+      );
       setRectangle(active.selectionRect);
     }
     active.frame = requestAnimationFrame(tick);
@@ -114,7 +125,8 @@ export function useBrowseMarqueeSelection(
       additive: event.ctrlKey || event.metaKey || event.shiftKey,
       moved: false,
       selectionRect: null,
-      hitIds: new Set(),
+      contentSelectionRect: null,
+      entryRects: new Map(),
       frame: null
     };
     activeRef.current = active;

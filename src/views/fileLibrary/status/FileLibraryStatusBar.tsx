@@ -4,7 +4,7 @@ import { formatBytes } from "../../../utils/format";
 import type { Translator } from "../../../types/ui";
 import "./fileLibraryStatusBar.css";
 
-export type StatusSelectionScope = "none" | "loaded" | "all";
+export type StatusSelectionScope = "none" | "loaded" | "directory" | "all";
 
 /**
  * The Files status bar. Every number is derived from the source that owns it:
@@ -101,6 +101,8 @@ export function statusSelectionText({
   if (selectionCount <= 0) return t("statusNoSelection");
   const base = selectionScope === "all"
     ? t("statusSelectedAll").replace("{count}", selectionCount.toLocaleString())
-    : t("statusSelected").replace("{count}", selectionCount.toLocaleString());
+    : selectionScope === "directory"
+      ? t("statusSelectedDirectory").replace("{count}", selectionCount.toLocaleString())
+      : t("statusSelected").replace("{count}", selectionCount.toLocaleString());
   return selectedSize === null ? base : `${base} · ${formatBytes(selectedSize)}`;
 }

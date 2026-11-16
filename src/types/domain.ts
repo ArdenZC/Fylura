@@ -84,11 +84,13 @@ export type OperationType =
   | "replace"
   | "permanent_delete"
   | "move_to_trash"
+  | "move_to_system_trash"
   | "create_directory"
   | "create_file";
 export type ClassificationStatus = "unclassified" | "classified";
 export type FolderNamingLanguage = "en" | "zh";
 export type CloseBehavior = "ask" | "minimize" | "quit";
+export type DeleteDestination = "fylura_trash" | "system_trash";
 export type RestoreRetentionDays = 15 | 30 | 60 | 90;
 export type RuleExecutionMode = "inbox_only" | "all_changed_or_rule_changed";
 export type SearchScopeMode = "all" | "current_scan" | "custom_roots";
@@ -1285,6 +1287,7 @@ export interface ExecuteOrganizationPlanResult {
 export interface AppSettings {
   closeBehavior: CloseBehavior;
   folderNamingLanguage: FolderNamingLanguage;
+  deleteDestination: DeleteDestination;
   defaultScanFolders: ScanRootSetting[];
   restoreRetentionDays: RestoreRetentionDays;
   launchAtLogin: boolean;
@@ -2190,6 +2193,14 @@ export interface OperationLog {
   restore_claim_created_at?: string | null;
   restore_claim_platform_file_id?: string | null;
   restore_claim_full_hash?: string | null;
+}
+
+export interface OperationLogBatch {
+  batch_id: string;
+  expected_count: number;
+  actual_count: number;
+  is_complete: boolean;
+  logs: OperationLog[];
 }
 
 export interface ExecuteOperationRequest {

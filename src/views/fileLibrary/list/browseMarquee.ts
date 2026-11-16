@@ -5,6 +5,41 @@ export interface SelectionRect {
   bottom: number;
 }
 
+export function selectionRectToContent(
+  rect: SelectionRect,
+  viewport: Pick<DOMRect, "left" | "top">,
+  scrollLeft: number,
+  scrollTop: number
+): SelectionRect {
+  return {
+    left: rect.left - viewport.left + scrollLeft,
+    top: rect.top - viewport.top + scrollTop,
+    right: rect.right - viewport.left + scrollLeft,
+    bottom: rect.bottom - viewport.top + scrollTop
+  };
+}
+
+export function selectionEntryRectToContent(
+  rect: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
+  viewport: Pick<DOMRect, "left" | "top">,
+  scrollLeft: number,
+  scrollTop: number
+): SelectionRect {
+  return {
+    left: rect.left - viewport.left + scrollLeft,
+    top: rect.top - viewport.top + scrollTop,
+    right: rect.right - viewport.left + scrollLeft,
+    bottom: rect.bottom - viewport.top + scrollTop
+  };
+}
+
+export function idsIntersectingSelection(
+  entryRects: ReadonlyMap<string, SelectionRect>,
+  selectionRect: SelectionRect
+) {
+  return [...entryRects].filter(([, rect]) => selectionRectIntersects(selectionRect, rect)).map(([id]) => id);
+}
+
 export function selectionRectFromPoints(x1: number, y1: number, x2: number, y2: number): SelectionRect {
   return {
     left: Math.min(x1, x2),

@@ -21,6 +21,23 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 journal_identity_matches(&log, candidate)
             })
         });
+        if log.operation_type == "move_to_system_trash"
+            && log.operation_phase == "target_committed"
+            && before_state == OperationJournalPathState::Missing
+        {
+            log.status = "success".to_string();
+            log.operation_phase = "completed".to_string();
+            log.can_undo = false;
+            log.can_restore = false;
+            log.restore_status = "unavailable".to_string();
+            log.restore_error = Some("Restore from system trash.".to_string());
+            log.error_message = Some(
+                "System trash accepted this item before the app stopped; restore it from the OS trash."
+                    .to_string(),
+            );
+            by_batch.entry(log.batch_id.clone()).or_default().push(log);
+            continue;
+        }
         match (before_state, after_state, claim_state) {
             (
                 OperationJournalPathState::Missing,
@@ -52,7 +69,10 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
             ) => {
                 log.status = "success".to_string();
                 log.operation_phase = "completed".to_string();
-                log.can_undo = log.operation_type != "move_to_trash";
+                log.can_undo = !matches!(
+                    log.operation_type.as_str(),
+                    "move_to_trash" | "move_to_system_trash"
+                );
                 log.can_restore = log.can_undo;
                 log.error_message =
                     Some("Recovered an interrupted operation journal after restart.".to_string());

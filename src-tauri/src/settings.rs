@@ -136,6 +136,8 @@ fn default_organize_root_mode() -> OrganizeRootMode {
 pub struct AppSettings {
     pub close_behavior: String,
     pub folder_naming_language: String,
+    #[serde(default = "default_delete_destination")]
+    pub delete_destination: String,
     #[serde(
         default = "default_scan_roots",
         deserialize_with = "deserialize_scan_roots"
@@ -169,6 +171,7 @@ impl Default for AppSettings {
         Self {
             close_behavior: "ask".to_string(),
             folder_naming_language: "en".to_string(),
+            delete_destination: default_delete_destination(),
             default_scan_folders: default_scan_roots(),
             restore_retention_days: 30,
             launch_at_login: false,
@@ -182,6 +185,10 @@ impl Default for AppSettings {
             use_learned_rules_as_auto_rules: false,
         }
     }
+}
+
+fn default_delete_destination() -> String {
+    "fylura_trash".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -502,6 +509,12 @@ fn normalized_app_settings(settings: &AppSettings) -> AppSettings {
     }
     if !matches!(next.folder_naming_language.as_str(), "en" | "zh") {
         next.folder_naming_language = "en".to_string();
+    }
+    if !matches!(
+        next.delete_destination.as_str(),
+        "fylura_trash" | "system_trash"
+    ) {
+        next.delete_destination = default_delete_destination();
     }
     next.restore_retention_days = next.restore_retention_days.clamp(1, 3650);
     next.default_scan_folders = scan_roots_from_values(values, dirs::home_dir().as_deref());

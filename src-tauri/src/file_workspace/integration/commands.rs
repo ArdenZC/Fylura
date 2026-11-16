@@ -5,6 +5,7 @@ use super::{
         encode_preview_asset_ipc_response, encode_thumbnail_ipc_response, BrowseCancelRequest,
         BrowseNextPageRequest, BrowseOpenRequest, BrowseReleasePageRequest,
         BrowseReleasePathRequest, BrowseRestoreRequest, BrowseRetainPathRequest,
+        BrowseSelectionSnapshotReleaseRequest, BrowseSelectionSnapshotRequest,
         BrowseSessionRequest, BrowseStartEnumerationRequest, ChangePendingRequest,
         ChangeRefreshRequest, ChangeStartRequest, LocationBrowseRequest, PreviewAssetRequestDto,
         PreviewCreateRequest, PreviewSessionRequest, PreviewSwitchSourceRequest,
@@ -160,6 +161,40 @@ pub async fn file_workspace_browse_start_enumeration<R: Runtime>(
         runtime.clone(),
         "workspace_browse_start_enumeration",
         move |runtime| runtime.start_enumeration(request),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_browse_selection_snapshot_create<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: BrowseSelectionSnapshotRequest,
+) -> Result<super::types::BrowseSelectionSnapshotInfoDto, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(
+        runtime.clone(),
+        "workspace_browse_selection_snapshot_create",
+        move |runtime| runtime.create_selection_snapshot(request),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_browse_selection_snapshot_release<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: BrowseSelectionSnapshotReleaseRequest,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    let Some(runtime) = runtime.current_if_initialized_for_window(&window)? else {
+        return Ok(());
+    };
+    spawn_runtime(
+        runtime.clone(),
+        "workspace_browse_selection_snapshot_release",
+        move |runtime| runtime.release_selection_snapshot(request),
     )
     .await
 }
@@ -549,6 +584,109 @@ pub async fn file_workspace_transfer_capture<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn file_workspace_transfer_capture_selection_page<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::CaptureSelectionPageRequest,
+) -> Result<Vec<crate::file_ops::manual_transfer::TransferTicket>, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(
+        runtime.clone(),
+        "workspace_transfer_capture_selection_page",
+        move |runtime| runtime.capture_selection_snapshot_page(request),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_basket_add<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::BasketAddRequest,
+) -> Result<usize, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_basket_add", move |runtime| {
+        runtime.basket_add(request)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_basket_page<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::BasketPageRequest,
+) -> Result<crate::file_ops::manual_transfer::BasketPageDto, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_basket_page", move |runtime| {
+        runtime.basket_page(request)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_basket_capture<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::BasketEntriesRequest,
+) -> Result<Vec<crate::file_ops::manual_transfer::TransferTicket>, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(
+        runtime.clone(),
+        "workspace_basket_capture",
+        move |runtime| runtime.basket_capture(request),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_basket_remove<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::BasketEntriesRequest,
+) -> Result<usize, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_basket_remove", move |runtime| {
+        runtime.basket_remove(request)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_basket_clear<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+) -> Result<usize, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(runtime.clone(), "workspace_basket_clear", move |runtime| {
+        runtime.basket_clear()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_basket_reconcile_moves<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: crate::file_ops::manual_transfer::BasketMoveReconcileRequest,
+) -> Result<usize, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    spawn_runtime(
+        runtime.clone(),
+        "workspace_basket_reconcile_moves",
+        move |runtime| runtime.basket_reconcile_moves(request),
+    )
+    .await
+}
+
+#[tauri::command]
 #[cfg_attr(
     not(any(target_os = "windows", target_os = "macos")),
     allow(unused_variables)
@@ -571,6 +709,7 @@ pub async fn file_workspace_native_drag_out<R: Runtime + 'static>(
             runtime.native_drag_out_paths(&request.ticket_ids)
         })
         .await?;
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let drag_window = window.clone();
         window
             .run_on_main_thread(move || {
@@ -584,11 +723,20 @@ pub async fn file_workspace_native_drag_out<R: Runtime + 'static>(
                         mode: drag::DragMode::Copy,
                     },
                 );
-                if let Err(error) = result {
-                    log::warn!("Native file drag could not start: {error}");
-                }
+                let result = result.map_err(|error| {
+                    log::warn!("Native file drag could not start: {error:?}");
+                    format!("native_drag_out_start_failed:{error:?}")
+                });
+                let _ = started_tx.send(result);
             })
             .map_err(|error| format!("native_drag_out_dispatch_failed:{error}"))?;
+        tauri::async_runtime::spawn_blocking(move || {
+            started_rx
+                .recv()
+                .map_err(|error| format!("native_drag_out_start_result_unavailable:{error}"))?
+        })
+        .await
+        .map_err(|error| format!("native_drag_out_start_wait_failed:{error}"))??;
         Ok(())
     }
 }
@@ -621,6 +769,35 @@ pub async fn file_workspace_transfer_execute<R: Runtime>(
     crate::file_ops::manual_transfer::execute_registered(app, runtime, cancel.inner(), request)
         .await
 }
+
+#[tauri::command]
+pub async fn file_workspace_zip_create<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: tauri::AppHandle<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    cancel: State<'_, crate::file_ops::OperationCancellationToken>,
+    request: crate::file_ops::manual_transfer::ZipCreateRequest,
+) -> Result<crate::file_ops::ExecuteMovesResult, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    crate::file_ops::manual_transfer::create_zip_registered(app, runtime, cancel.inner(), request)
+        .await
+}
+
+#[tauri::command]
+pub async fn file_workspace_zip_extract<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: tauri::AppHandle<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    cancel: State<'_, crate::file_ops::OperationCancellationToken>,
+    request: crate::file_ops::manual_transfer::ZipExtractRequest,
+) -> Result<crate::file_ops::ExecuteMovesResult, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    crate::file_ops::manual_transfer::extract_zip_registered(app, runtime, cancel.inner(), request)
+        .await
+}
+
 #[tauri::command]
 pub async fn file_workspace_places<R: Runtime>(
     window: WebviewWindow<R>,

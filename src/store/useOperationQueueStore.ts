@@ -33,6 +33,7 @@ import {
 } from "../views/history/historyModel";
 import {
   isPreviewExecutable,
+  MAX_OPERATION_LOGS,
   mergeOperationLogs,
   previewsForExecutionIntent,
   resolveExecutableSelectedPreviews,
@@ -54,6 +55,7 @@ import type { OperationQueueControllerContext } from "./operationQueue/controlle
 export {
   isPreviewBackendApproved,
   isPreviewExecutable,
+  MAX_OPERATION_LOGS,
   mergeOperationLogs,
   operationConfirmationTone,
   operationNeedsCleanupConfirmation,
@@ -70,7 +72,7 @@ export type {
   PreviewExclusionReason
 } from "./operationQueue/selectors";
 
-export const MAX_LOGS = 500;
+export const MAX_LOGS = MAX_OPERATION_LOGS;
 
 export type RestoreConfirmationOutcome<T> =
   | { status: "executed"; value: T }

@@ -63,6 +63,7 @@ pub fn native_qa_copy_phase_timings() -> Vec<(String, u128)> {
     })
 }
 
+pub(crate) mod archive;
 mod authority;
 mod execution;
 mod identity;
@@ -2778,15 +2779,15 @@ mod tests {
     }
 
     #[test]
-    fn restore_moves_core_does_not_restore_move_to_trash_logs() {
+    fn restore_moves_core_does_not_restore_system_trash_logs() {
         let root = test_dir();
         let source = root.join("already-trashed.txt");
         let log = OperationLogDto {
             id: "trash-log".to_string(),
             batch_id: "trash-batch".to_string(),
-            operation_type: "move_to_trash".to_string(),
+            operation_type: "move_to_system_trash".to_string(),
             source_path: source.to_string_lossy().into_owned(),
-            target_path: "Recycle Bin".to_string(),
+            target_path: "System Recycle Bin".to_string(),
             old_name: "already-trashed.txt".to_string(),
             new_name: "already-trashed.txt".to_string(),
             status: "success".to_string(),
@@ -2794,7 +2795,7 @@ mod tests {
             created_at: "1".to_string(),
             can_undo: false,
             path_before: source.to_string_lossy().into_owned(),
-            path_after: "Recycle Bin".to_string(),
+            path_after: "System Recycle Bin".to_string(),
             name_before: "already-trashed.txt".to_string(),
             name_after: "already-trashed.txt".to_string(),
             can_restore: false,

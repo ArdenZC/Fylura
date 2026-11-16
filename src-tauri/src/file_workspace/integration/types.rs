@@ -88,6 +88,32 @@ pub struct BrowseStartEnumerationRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseSelectionSnapshotRequest {
+    pub session_id: String,
+    pub path_ref: BrowsePathRef,
+    #[serde(default)]
+    pub query: BrowseQuerySpecV1,
+    pub include_hidden: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseSelectionSnapshotReleaseRequest {
+    pub session_id: String,
+    pub snapshot_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseSelectionSnapshotInfoDto {
+    pub snapshot_id: String,
+    pub count: usize,
+    pub file_count: usize,
+    pub directory_count: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseNextPageRequest {
     pub session_id: String,
     pub cursor: String,

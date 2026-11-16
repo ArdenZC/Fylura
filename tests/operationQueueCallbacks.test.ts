@@ -18,6 +18,7 @@ const apiMocks = vi.hoisted(() => ({
   getManualRenameOperationPreview: vi.fn(),
   getPermanentDeleteOperationPreview: vi.fn(),
   getOperationLogs: vi.fn(),
+  getOperationLogsByIds: vi.fn(),
   onOperationProgress: vi.fn(),
   materializeProviderPreview: vi.fn(),
   executeMoves: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("../src/api/tauriApi", () => ({
     getManualRenameOperationPreview: apiMocks.getManualRenameOperationPreview,
     getPermanentDeleteOperationPreview: apiMocks.getPermanentDeleteOperationPreview,
     getOperationLogs: apiMocks.getOperationLogs,
+    getOperationLogsByIds: apiMocks.getOperationLogsByIds,
     onOperationProgress: apiMocks.onOperationProgress,
     materializeProviderPreview: apiMocks.materializeProviderPreview,
     executeMoves: apiMocks.executeMoves,
@@ -99,6 +101,7 @@ describe("operation queue store callbacks", () => {
     apiMocks.getOperationPreviewsByFileIds.mockReset().mockResolvedValue([]);
     apiMocks.getPermanentDeleteOperationPreview.mockReset();
     apiMocks.getOperationLogs.mockReset().mockResolvedValue([]);
+    apiMocks.getOperationLogsByIds.mockReset().mockResolvedValue([]);
     apiMocks.onOperationProgress.mockReset().mockResolvedValue(() => {});
     apiMocks.materializeProviderPreview.mockReset().mockResolvedValue({
       previewId: "materialized",
@@ -669,7 +672,7 @@ describe("operation queue store callbacks", () => {
     await useOperationQueueStore.getState().executeSelected(true);
     expect(useFileLibrarySelectionStore.getState()).toMatchObject({ focusedId: nextPath, anchorIndex: -1 });
     expect(useOperationQueueStore.getState().operationLogs).toContainEqual(moved);
-    apiMocks.getOperationLogs.mockResolvedValue([moved]);
+    apiMocks.getOperationLogsByIds.mockResolvedValue([moved]);
     apiMocks.restoreMoves.mockResolvedValueOnce({ logs: [{ ...moved, restore_status: "restored", can_restore: false }] });
     apiMocks.getFileLibraryDetail.mockRejectedValueOnce(new Error("moved ID retired"))
       .mockResolvedValueOnce({ id: oldPath, path: oldPath, isStale: false });

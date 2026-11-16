@@ -42,6 +42,7 @@ describe("v3.40 Files browser surfaces", () => {
     expect(statusSelectionText({ selectionCount: 0, selectionScope: "none", selectedSize: null, t })).toBe("No selection");
     expect(statusSelectionText({ selectionCount: 3, selectionScope: "loaded", selectedSize: null, t })).toBe("3 selected");
     expect(statusSelectionText({ selectionCount: 3, selectionScope: "loaded", selectedSize: 2048, t })).toBe("3 selected · 2.0 KB");
+    expect(statusSelectionText({ selectionCount: 8426, selectionScope: "directory", selectedSize: null, t })).toBe("8,426 selected in this folder");
     expect(statusSelectionText({ selectionCount: 900, selectionScope: "all", selectedSize: null, t })).toBe("All 900 selected");
     // A whole-query selection whose total is still unpublished is counting,
     // never "nothing selected".

@@ -1209,7 +1209,9 @@ fn atomic_replace_uncoordinated(
         return Err(AtomicMoveError::Cancelled);
     }
     let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_variables))]
     let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_variables))]
     let target_parent =
         VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
     let source_claim_path = match planned_source_claim_path {
@@ -1396,7 +1398,7 @@ fn atomic_copy_noreplace_uncoordinated(
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     #[cfg(target_os = "macos")] observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-    #[cfg(not(target_os = "macos"))] observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    #[cfg(not(target_os = "macos"))] _observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     #[cfg(target_os = "macos")] actual_path_observer: Option<
         &mut crate::fs_safety::ActualPathObserver<'_>,
     >,
@@ -1438,7 +1440,7 @@ fn atomic_copy_noreplace_uncoordinated(
     #[cfg(not(target_os = "macos"))]
     {
         let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
-        let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+        let _target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
         let target_parent =
             VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
         if expected_target_parent.is_some_and(|expected| expected != target_parent.identity()) {
@@ -1461,9 +1463,9 @@ fn atomic_copy_noreplace_uncoordinated(
                 source,
                 expected_identity,
                 target_parent,
-                target_name,
+                _target_name,
                 cancel,
-                observer,
+                _observer,
             )
             .map(|_| AtomicMoveOutcome {
                 method: AtomicMoveMethod::CrossVolumeCopyCommit,

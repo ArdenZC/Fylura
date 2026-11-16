@@ -23,6 +23,7 @@ export interface ExecutablePreviewSelection {
 }
 
 export type OperationConfirmationTone = "default" | "warning" | "danger";
+export const MAX_OPERATION_LOGS = 1000;
 
 export function previewsForExecutionIntent(previews: readonly OperationPreview[], intent: PreviewExecutionIntent) {
   return intent?.source === "organize"
@@ -146,5 +147,5 @@ export function mergeOperationLogs(persisted: OperationLog[], current: Operation
     seen.add(log.id);
     merged.push(log);
   }
-  return merged.slice(0, 500);
+  return merged.slice(0, MAX_OPERATION_LOGS);
 }

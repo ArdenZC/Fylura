@@ -13,6 +13,7 @@ import type { RestoreConfirmationOutcome } from "../useOperationQueueStore";
 import { useAppStore } from "../useAppStore";
 import { useFileLibraryStore } from "../useFileLibraryStore";
 import type { OperationQueueControllerContext } from "./controllerTypes";
+import { mergeOperationLogs } from "./selectors";
 import {
   createRestoreSessionId,
   currentT,
@@ -28,7 +29,7 @@ export async function prepareOperationRestoreIntent(
   const requestedIds = [...new Set(selectedIds instanceof Set ? [...selectedIds] : selectedIds)];
   if (!requestedIds.length) return null;
   try {
-    const authoritativeLogs = await get().refreshOperationLogs();
+    const authoritativeLogs = await tauriApi.getOperationLogsByIds(requestedIds);
     const resolution = resolveOperationRestoreSelection(authoritativeLogs, requestedIds);
     const intent = createRestoreExecutionIntent(
       "operation_logs",
@@ -67,7 +68,7 @@ export async function confirmOperationRestore(
 
   let authoritativeLogs: OperationLog[];
   try {
-    authoritativeLogs = await get().refreshOperationLogs();
+  authoritativeLogs = await tauriApi.getOperationLogsByIds([...intent.selectedIds]);
   } catch (error) {
     const copy = localizedRestoreError(error, t);
     set({ restoreError: copy.message, restoreTechnicalError: copy.technical });
@@ -118,7 +119,10 @@ export async function confirmOperationRestore(
     const updatedById = new Map(result.logs.map((log) => [log.id, log]));
     const summary = summarizeOperationRestore(result.logs, intent.excludedCount);
     set((state) => ({
-      operationLogs: state.operationLogs.map((log) => updatedById.get(log.id) ?? log),
+      operationLogs: mergeOperationLogs(
+        state.operationLogs.map((log) => updatedById.get(log.id) ?? log),
+        result.logs
+      ),
       lastRestoreResult: result.logs,
       lastRestoreSummary: summary,
       restoreIntent: null,
@@ -132,10 +136,15 @@ export async function confirmOperationRestore(
     await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery).catch(() => undefined);
     const previewScope = get().previewScope;
     if (previewScope) await get().refreshPreviewsForScope(previewScope).catch(() => undefined);
-    if (summary.failed > 0) {
-      useAppStore.getState().showError(`${t("historyRestoreFailed")}: ${summary.failed.toLocaleString()}`);
-    } else if (summary.canceled > 0 && summary.restored === 0) {
+    if (summary.canceled > 0 && summary.restored === 0 && summary.failed === 0 && summary.missing === 0) {
       useAppStore.getState().showSuccess(t("operationCanceled"));
+    } else if (summary.failed > 0 || summary.missing > 0 || summary.canceled > 0) {
+      const message = t("historyRestorePartialResult")
+        .replace("{restored}", summary.restored.toLocaleString())
+        .replace("{failed}", summary.failed.toLocaleString())
+        .replace("{missing}", summary.missing.toLocaleString())
+        .replace("{canceled}", summary.canceled.toLocaleString());
+      useAppStore.getState().showError(message);
     } else {
       useAppStore.getState().showSuccess(`${t("restored")}: ${summary.restored.toLocaleString()}`);
     }

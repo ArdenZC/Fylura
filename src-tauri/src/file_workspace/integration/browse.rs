@@ -3,7 +3,9 @@ use super::{
     types::{
         BrowseCancelRequest, BrowseNextPageRequest, BrowseOpenRequest, BrowseOpenResponse,
         BrowsePageDto, BrowseReleasePageRequest, BrowseReleasePathRequest, BrowseRestoreRequest,
-        BrowseRetainPathRequest, BrowseSessionRequest, BrowseStartEnumerationRequest,
+        BrowseRetainPathRequest, BrowseSelectionSnapshotInfoDto,
+        BrowseSelectionSnapshotReleaseRequest, BrowseSelectionSnapshotRequest,
+        BrowseSessionRequest, BrowseStartEnumerationRequest,
     },
 };
 use crate::file_workspace::{
@@ -192,6 +194,40 @@ impl FileWorkspaceRuntime {
             .next_page(&request.session_id, &request.cursor, request.page_size)
             .map_err(map_browse_error)?;
         Ok(BrowsePageDto::from_internal(page))
+    }
+
+    pub(crate) fn create_selection_snapshot(
+        &self,
+        request: BrowseSelectionSnapshotRequest,
+    ) -> Result<BrowseSelectionSnapshotInfoDto, String> {
+        self.ensure_live()?;
+        let info = self
+            .inner
+            .browse
+            .create_selection_snapshot(
+                &request.session_id,
+                &request.path_ref,
+                request.query,
+                request.include_hidden,
+            )
+            .map_err(map_browse_error)?;
+        Ok(BrowseSelectionSnapshotInfoDto {
+            snapshot_id: info.snapshot_id,
+            count: info.count,
+            file_count: info.file_count,
+            directory_count: info.directory_count,
+        })
+    }
+
+    pub(crate) fn release_selection_snapshot(
+        &self,
+        request: BrowseSelectionSnapshotReleaseRequest,
+    ) -> Result<(), String> {
+        self.ensure_live()?;
+        self.inner
+            .browse
+            .release_selection_snapshot(&request.session_id, &request.snapshot_id)
+            .map_err(map_browse_error)
     }
 
     pub(crate) fn cancel_enumeration(&self, request: BrowseCancelRequest) -> Result<(), String> {

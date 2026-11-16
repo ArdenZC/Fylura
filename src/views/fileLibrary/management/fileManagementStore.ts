@@ -3,12 +3,14 @@ import { create } from "zustand";
 import { useEffect, useId, useRef } from "react";
 import type { EntryRef, BrowseEntryRef, BrowsePathRef } from "../../../types/fileWorkspace";
 import type { LibrarySelectionV1, OperationLog } from "../../../types/domain";
-import type { TransferTicket, TransferAction, TransferPreview } from "../../../api/fileManagementApi";
+import type { PersistentBasketEntry, TransferTicket, TransferAction, TransferPreview } from "../../../api/fileManagementApi";
 import { usePane } from "../workbench/PaneContext";
 import type { BrowseSourceOwner } from "../browse/browseSourceOwner";
+import type { BrowseSelectionSnapshotInfo } from "../../../types/fileWorkspace";
 
 export interface ManagementSurface {
   browseSource?: BrowseSourceOwner;
+  directorySelection?: (BrowseSelectionSnapshotInfo & { sessionId: string; pathRefId: string; revision: number; excludedEntryIds: ReadonlySet<string> }) | null;
   signature: string;
   count: number | null;
   hasDirectorySelection?: boolean;
@@ -20,7 +22,7 @@ export interface ManagementSurface {
   refresh: () => Promise<void>;
   clear: () => void;
   selectAll?: () => void;
-  selectionScope?: "loaded" | "all";
+  selectionScope?: "loaded" | "all" | "directory";
 }
 /**
  * Transfer guards use only the selected source references and their owning
@@ -35,6 +37,11 @@ export function transferSourceContextKey(surface: ManagementSurface | undefined)
     browsePathId: surface.browse?.pathRef.id ?? null,
     routingHint: surface.routingHint ?? null,
     selection: surface.selection ?? null,
+    directorySelection: surface.directorySelection ? {
+      snapshotId: surface.directorySelection.snapshotId,
+      revision: surface.directorySelection.revision,
+      count: surface.directorySelection.count
+    } : null,
     refs,
   });
 }
@@ -89,6 +96,7 @@ export interface ActiveTransferTask {
   sourceSummary: string;
   destinationSummary: string;
   totalItems: number | null;
+  progressOffset: number;
   phase: "preview" | "execute" | "awaiting_conflict" | "canceling";
   cancelRequested: boolean;
   preview: TransferPreview | null;
@@ -103,7 +111,8 @@ interface ManagementState {
   activePaneId: string | null;
   activatePane: (paneId: string) => void;
   pendingTransfer: PendingPaneTransfer | null;
-  basket: TransferTicket[];
+  basket: PersistentBasketEntry[];
+  basketTotal: number;
   clipboard: { action: TransferAction; tickets: TransferTicket[] } | null;
   results: OperationLog[];
   statuses: Record<string, string>;
@@ -115,14 +124,14 @@ interface ManagementState {
   transferTicketIds: string[];
   activeTransferTask: ActiveTransferTask | null;
   externalDropAction: TransferAction;
-  pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "rename" | "trash" | "create_directory" | "create_file" | "copy_other" | "move_other" | null;
+  pendingAction: "copy" | "cut" | "paste" | "move" | "basket" | "rename" | "trash" | "system_trash" | "create_directory" | "create_file" | "copy_other" | "move_other" | "zip_create" | "zip_extract" | null;
   requestAction: (action: ManagementState["pendingAction"]) => void;
 }
 /** Shared tickets, clipboard and outcomes; every source projection has an explicit pane owner. */
 export const useFileManagementStore = create<ManagementState>((set, get) => ({
   owner: null, surface: null, surfaces: {}, activePaneId: null, pendingTransfer: null, transferOpen: false,
   transferActive: false, transferRunning: false, activeTransferId: null, activeTransferTask: null, externalDropAction: "copy",
-  basket: [], clipboard: null, results: [], statuses: {}, basketOpen: false, transferTicketIds: [], pendingAction: null,
+  basket: [], basketTotal: 0, clipboard: null, results: [], statuses: {}, basketOpen: false, transferTicketIds: [], pendingAction: null,
   activatePane: (activePaneId) => {
     const entry = get().surfaces[activePaneId];
     set({ activePaneId, owner: entry?.owner ?? null, surface: entry?.read ?? null, basketOpen: false });

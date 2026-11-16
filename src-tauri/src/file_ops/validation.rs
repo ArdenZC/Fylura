@@ -467,6 +467,24 @@ pub(crate) fn move_to_system_trash_with_safety(
     cancel_flag: Option<&AtomicBool>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<FileOperationResult, FileMutationError> {
+    move_to_system_trash_with_safety_before_handoff(
+        source_path,
+        app_data_dir,
+        expected_identity,
+        cancel_flag,
+        phase_observer,
+        |_| {},
+    )
+}
+
+fn move_to_system_trash_with_safety_before_handoff(
+    source_path: String,
+    app_data_dir: Option<&Path>,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    cancel_flag: Option<&AtomicBool>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    before_handoff: impl FnOnce(&Path),
+) -> Result<FileOperationResult, FileMutationError> {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (
@@ -475,6 +493,7 @@ pub(crate) fn move_to_system_trash_with_safety(
             expected_identity,
             cancel_flag,
             phase_observer,
+            before_handoff,
         );
         Err(FileMutationError::Validation(
             "system_trash_unsupported_on_platform".into(),
@@ -512,6 +531,12 @@ pub(crate) fn move_to_system_trash_with_safety(
                 crate::fs_safety::AtomicMoveError::Cancelled,
             ));
         }
+
+        // Kept as a narrow seam so native integration tests can perform a
+        // real same-path replacement at the last possible point. Production
+        // passes a no-op: the OS APIs below accept paths, not our verified
+        // handle, so the documented TOCTOU boundary remains.
+        before_handoff(&source);
 
         // This is the final path-based handoff to the OS. `trash` uses
         // IFileOperation + FOF_ALLOWUNDO on Windows and Finder's native Trash
@@ -1549,7 +1574,9 @@ mod system_trash_preflight_native_tests {
 
 #[cfg(all(test, windows))]
 mod windows_system_trash_native_tests {
-    use super::move_to_system_trash_with_safety;
+    use super::{
+        move_to_system_trash_with_safety, move_to_system_trash_with_safety_before_handoff,
+    };
     use crate::fs_safety::capture_namespace_identity_only;
     use std::fs;
     use std::path::Path;
@@ -1625,11 +1652,52 @@ mod windows_system_trash_native_tests {
         );
         fs::remove_dir_all(root).expect("cleanup restored fixture");
     }
+
+    #[test]
+    fn windows_native_reproduces_same_path_replacement_after_final_revalidation() {
+        let root = super::native_system_trash_test_root("windows-handoff-race");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let source = root.join("race-entry.txt");
+        let displaced_original = root.join("validated-original.txt");
+        fs::write(&source, b"validated original").expect("write original file");
+        let identity = capture_namespace_identity_only(&source, None).expect("capture identity");
+
+        let result = move_to_system_trash_with_safety_before_handoff(
+            source.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+            |checked_path| {
+                fs::rename(checked_path, &displaced_original)
+                    .expect("competitor moves the validated object");
+                fs::write(checked_path, b"same-path replacement")
+                    .expect("competitor recreates the checked path");
+            },
+        )
+        .expect("native path API accepts the replacement in the documented race window");
+
+        assert_eq!(result.target_path, "System Recycle Bin");
+        assert_eq!(
+            fs::read(&displaced_original).expect("validated object remains outside Trash"),
+            b"validated original"
+        );
+        assert!(!source.exists(), "the replacement path was sent to Trash");
+        trash_and_restore(&source);
+        assert_eq!(
+            fs::read(&source).expect("restore the replacement from Recycle Bin"),
+            b"same-path replacement"
+        );
+        eprintln!("SYSTEM_TRASH_TOC_TOU_NATIVE_PASS platform=windows replacement_after_final_revalidation=true path_api_accepted_replacement=true");
+        fs::remove_dir_all(root).expect("cleanup race fixture");
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
 mod macos_system_trash_native_tests {
-    use super::move_to_system_trash_with_safety;
+    use super::{
+        move_to_system_trash_with_safety, move_to_system_trash_with_safety_before_handoff,
+    };
     use crate::fs_safety::capture_namespace_identity_only;
     use std::fs;
     use std::path::Path;
@@ -1719,5 +1787,48 @@ mod macos_system_trash_native_tests {
             b"folder tree"
         );
         fs::remove_dir_all(root).expect("cleanup remaining test files");
+    }
+
+    #[test]
+    fn finder_native_reproduces_same_path_replacement_after_final_revalidation() {
+        let root = super::native_system_trash_test_root("macos-handoff-race");
+        fs::create_dir_all(&root).expect("create fixture root");
+        let root_name = root
+            .file_name()
+            .expect("fixture root has a name")
+            .to_string_lossy();
+        let source = root.join(format!("{root_name}-race-entry.txt"));
+        let displaced_original = root.join("validated-original.txt");
+        fs::write(&source, b"validated original").expect("write original file");
+        let identity = capture_namespace_identity_only(&source, None).expect("capture identity");
+
+        let result = move_to_system_trash_with_safety_before_handoff(
+            source.to_string_lossy().into_owned(),
+            None,
+            Some(&identity),
+            None,
+            None,
+            |checked_path| {
+                fs::rename(checked_path, &displaced_original)
+                    .expect("competitor moves the validated object");
+                fs::write(checked_path, b"same-path replacement")
+                    .expect("competitor recreates the checked path");
+            },
+        )
+        .expect("Finder path API accepts the replacement in the documented race window");
+
+        assert_eq!(result.target_path, "System Trash");
+        assert_eq!(
+            fs::read(&displaced_original).expect("validated object remains outside Trash"),
+            b"validated original"
+        );
+        assert!(!source.exists(), "the replacement path was sent to Trash");
+        restore_with_finder(&source);
+        assert_eq!(
+            fs::read(&source).expect("restore the replacement from Finder Trash"),
+            b"same-path replacement"
+        );
+        eprintln!("SYSTEM_TRASH_TOC_TOU_NATIVE_PASS platform=macos replacement_after_final_revalidation=true path_api_accepted_replacement=true");
+        fs::remove_dir_all(root).expect("cleanup race fixture");
     }
 }

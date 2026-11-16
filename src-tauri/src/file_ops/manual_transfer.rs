@@ -2316,6 +2316,7 @@ pub(crate) fn complete_browse_selection_batch(
 ) {
     let mut successful_removals = HashSet::with_capacity(logs.len());
     let mut safe_trash_root_creations = HashSet::new();
+    let mut source_retirement_root_creations = HashSet::new();
     for log in logs.iter().filter(|log| log.status == "success") {
         let log_source = Path::new(&log.path_before);
         let key = transfer_target_key(log_source);
@@ -2331,7 +2332,15 @@ pub(crate) fn complete_browse_selection_batch(
                 .map(|parent| parent.join(".zen-canvas-trash"))
                 .is_some_and(|root| Path::new(&log.path_after).starts_with(root))
         {
-            safe_trash_root_creations.insert(key);
+            safe_trash_root_creations.insert(key.clone());
+        }
+        if cfg!(target_os = "macos")
+            && matches!(
+                log.operation_type.as_str(),
+                "move" | "move_to_trash" | "move_to_system_trash"
+            )
+        {
+            source_retirement_root_creations.insert(key);
         }
     }
 
@@ -2343,6 +2352,7 @@ pub(crate) fn complete_browse_selection_batch(
         let key = transfer_target_key(Path::new(&source.ticket.path));
         let successful_removal = successful_removals.contains(&key);
         let creates_safe_trash_root = safe_trash_root_creations.contains(&key);
+        let creates_source_retirement_root = source_retirement_root_creations.contains(&key);
         groups
             .entry((origin.session_id.clone(), origin.snapshot_id.clone()))
             .or_default()
@@ -2351,6 +2361,7 @@ pub(crate) fn complete_browse_selection_batch(
                 identity: origin.identity.clone(),
                 removed: successful_removal,
                 creates_safe_trash_root,
+                creates_source_retirement_root,
             });
     }
     for ((session_id, snapshot_id), completed) in groups {

@@ -363,7 +363,8 @@ struct SelectionChangeMonitor {
     changes: Arc<Mutex<Vec<SelectionNamespaceChange>>>,
     unavailable: Arc<std::sync::atomic::AtomicBool>,
     wake: Arc<std::sync::Condvar>,
-    safe_trash_root_creation_pending: std::sync::atomic::AtomicBool,
+    safe_trash_root_identity: Mutex<Option<PhysicalFileIdentity>>,
+    source_retirement_root_identity: Mutex<Option<PhysicalFileIdentity>>,
 }
 
 impl std::fmt::Debug for SelectionChangeMonitor {
@@ -376,10 +377,6 @@ impl std::fmt::Debug for SelectionChangeMonitor {
 
 impl SelectionChangeMonitor {
     fn watch(path: &Path) -> Result<Self, BrowseError> {
-        #[cfg(test)]
-        let diagnostic_test = std::thread::current().name().unwrap_or_default().to_owned();
-        #[cfg(test)]
-        let diagnostic_path = path.to_path_buf();
         let changes = Arc::new(Mutex::new(Vec::new()));
         let unavailable = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let wake = Arc::new(std::sync::Condvar::new());
@@ -391,28 +388,10 @@ impl SelectionChangeMonitor {
                 let event = match event {
                     Ok(event) => event,
                     Err(_) => {
-                        #[cfg(test)]
-                        if diagnostic_test.contains("directory_selection_snapshot_advances")
-                            || diagnostic_test
-                                .contains("transfer_execution_advances_directory_selection")
-                        {
-                            eprintln!("selection watcher error for {}", diagnostic_path.display());
-                        }
                         callback_unavailable.store(true, Ordering::Release);
                         return;
                     }
                 };
-                #[cfg(test)]
-                if diagnostic_test.contains("directory_selection_snapshot_advances")
-                    || diagnostic_test.contains("transfer_execution_advances_directory_selection")
-                {
-                    eprintln!(
-                        "selection watcher event for {}: {:?} {:?}",
-                        diagnostic_path.display(),
-                        event.kind,
-                        event.paths
-                    );
-                }
                 let kind = match event.kind {
                     EventKind::Create(_) => SelectionNamespaceChangeKind::Create,
                     EventKind::Remove(_) => SelectionNamespaceChangeKind::Remove,
@@ -441,18 +420,13 @@ impl SelectionChangeMonitor {
         watcher
             .watch(path, RecursiveMode::NonRecursive)
             .map_err(|_| BrowseError::SelectionSnapshotIncomplete)?;
-        let safe_trash_root_creation_pending = matches!(
-            fs::symlink_metadata(path.join(".zen-canvas-trash")),
-            Err(ref error) if error.kind() == io::ErrorKind::NotFound
-        );
         Ok(Self {
             _watcher: Mutex::new(watcher),
             changes,
             unavailable,
             wake,
-            safe_trash_root_creation_pending: std::sync::atomic::AtomicBool::new(
-                safe_trash_root_creation_pending,
-            ),
+            safe_trash_root_identity: Mutex::new(None),
+            source_retirement_root_identity: Mutex::new(None),
         })
     }
 
@@ -465,10 +439,9 @@ impl SelectionChangeMonitor {
         directory: &Path,
         allowed_removals: &HashSet<PathBuf>,
         allow_safe_trash_root_creation: bool,
+        allow_source_retirement_root_creation: bool,
     ) -> Result<(HashSet<PathBuf>, bool), BrowseError> {
         if self.unavailable.load(Ordering::Acquire) {
-            #[cfg(test)]
-            eprintln!("selection watcher unavailable during reconciliation");
             return Err(BrowseError::SelectionSnapshotStale);
         }
         let changes = std::mem::take(
@@ -492,17 +465,43 @@ impl SelectionChangeMonitor {
                 if path.parent() != Some(directory) {
                     continue;
                 }
-                if matches!(change.kind, SelectionNamespaceChangeKind::Create)
-                    && path == directory.join(".zen-canvas-trash")
-                    && allow_safe_trash_root_creation
+                if matches!(
+                    change.kind,
+                    SelectionNamespaceChangeKind::Create | SelectionNamespaceChangeKind::PathChange
+                ) && path == directory.join(".zen-canvas-trash")
                     && !allowed_removals.is_empty()
-                    && self
-                        .safe_trash_root_creation_pending
-                        .load(Ordering::Acquire)
-                    && fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_dir())
+                    && private_directory_event_is_authorized(
+                        &path,
+                        allow_safe_trash_root_creation,
+                        &self.safe_trash_root_identity,
+                    )
                 {
-                    self.safe_trash_root_creation_pending
-                        .store(false, Ordering::Release);
+                    continue;
+                }
+                if matches!(
+                    change.kind,
+                    SelectionNamespaceChangeKind::Create | SelectionNamespaceChangeKind::PathChange
+                ) && path == directory.join(".zen-canvas-retirement")
+                    && !allowed_removals.is_empty()
+                    && private_directory_event_is_authorized(
+                        &path,
+                        allow_source_retirement_root_creation,
+                        &self.source_retirement_root_identity,
+                    )
+                {
+                    continue;
+                }
+                if !allowed_removals.is_empty()
+                    && is_private_source_claim_path(&path)
+                    && path_is_missing(&path)
+                    && matches!(
+                        change.kind,
+                        SelectionNamespaceChangeKind::Create
+                            | SelectionNamespaceChangeKind::Remove
+                            | SelectionNamespaceChangeKind::Rename
+                            | SelectionNamespaceChangeKind::PathChange
+                    )
+                {
                     continue;
                 }
                 match change.kind {
@@ -517,15 +516,21 @@ impl SelectionChangeMonitor {
                         observed_removals.insert(path);
                     }
                     SelectionNamespaceChangeKind::Create
+                        if allowed_removals.contains(&path) && path_is_missing(&path) =>
+                    {
+                        // Native watchers can report a delayed create for the
+                        // baseline object after its journaled move has removed
+                        // this exact snapshot entry. The missing path and
+                        // successful removal identity check distinguish this
+                        // from a live replacement, which remains an
+                        // invalidation.
+                        observed_removals.insert(path);
+                    }
+                    SelectionNamespaceChangeKind::Create
                     | SelectionNamespaceChangeKind::Remove
                     | SelectionNamespaceChangeKind::Rename
                     | SelectionNamespaceChangeKind::PathChange
                     | SelectionNamespaceChangeKind::Unknown => {
-                        #[cfg(test)]
-                        eprintln!(
-                            "selection watcher rejected {:?} {:?} (allowed: {:?})",
-                            change.kind, path, allowed_removals
-                        );
                         return Err(BrowseError::SelectionSnapshotStale);
                     }
                 }
@@ -540,13 +545,18 @@ impl SelectionChangeMonitor {
         allowed_removals: &HashSet<PathBuf>,
         required_removals: &HashSet<PathBuf>,
         allow_safe_trash_root_creation: bool,
+        allow_source_retirement_root_creation: bool,
     ) -> Result<(), BrowseError> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
         let mut observed_removals = HashSet::new();
         let mut directory_changed = false;
         loop {
-            let (batch_removals, batch_directory_changed) =
-                self.reconcile(directory, allowed_removals, allow_safe_trash_root_creation)?;
+            let (batch_removals, batch_directory_changed) = self.reconcile(
+                directory,
+                allowed_removals,
+                allow_safe_trash_root_creation,
+                allow_source_retirement_root_creation,
+            )?;
             observed_removals.extend(batch_removals);
             directory_changed |= batch_directory_changed;
             let all_removals_observed = observed_removals.is_superset(required_removals);
@@ -561,8 +571,6 @@ impl SelectionChangeMonitor {
                     .map_err(|_| BrowseError::SelectionSnapshotStale)?;
                 if result.timed_out() && changes.is_empty() {
                     if directory_changed && observed_removals.is_empty() {
-                        #[cfg(test)]
-                        eprintln!("selection watcher timed out with parent change but no verified child removal; required={required_removals:?}");
                         return Err(BrowseError::SelectionSnapshotStale);
                     }
                     return Ok(());
@@ -575,8 +583,6 @@ impl SelectionChangeMonitor {
                 drop(changes);
             }
             if std::time::Instant::now() >= deadline {
-                #[cfg(test)]
-                eprintln!("selection watcher timed out; observed={observed_removals:?}; required={required_removals:?}; pending={:?}", *self.changes.lock().map_err(|_| BrowseError::SelectionSnapshotStale)?);
                 return Err(BrowseError::SelectionSnapshotStale);
             }
         }
@@ -588,6 +594,40 @@ fn path_is_missing(path: &Path) -> bool {
         fs::symlink_metadata(path),
         Err(ref error) if error.kind() == io::ErrorKind::NotFound
     )
+}
+
+fn private_directory_event_is_authorized(
+    path: &Path,
+    authorized_by_current_operation: bool,
+    known_identity: &Mutex<Option<PhysicalFileIdentity>>,
+) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !metadata.is_dir() {
+        return false;
+    }
+    let Ok(current_identity) = capture_browse_identity(path) else {
+        return false;
+    };
+    let Ok(mut known_identity) = known_identity.lock() else {
+        return false;
+    };
+    match known_identity.as_ref() {
+        Some(expected) => same_directory_object(expected, &current_identity),
+        None if authorized_by_current_operation => {
+            *known_identity = Some(current_identity);
+            true
+        }
+        None => false,
+    }
+}
+
+fn is_private_source_claim_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix(".zen-canvas-claim-"))
+        .is_some_and(|uuid| Uuid::parse_str(uuid).is_ok())
 }
 
 #[derive(Debug, Clone)]
@@ -604,6 +644,7 @@ pub(crate) struct BrowseSelectionCompletion {
     pub(crate) identity: PhysicalFileIdentity,
     pub(crate) removed: bool,
     pub(crate) creates_safe_trash_root: bool,
+    pub(crate) creates_source_retirement_root: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1174,7 +1215,7 @@ impl BrowseService {
         let change_monitor = Arc::new(SelectionChangeMonitor::watch(&path)?);
         let after_directory_identity =
             capture_browse_identity(&path).map_err(map_browse_identity_error)?;
-        let initial_changes = change_monitor.reconcile(&path, &HashSet::new(), false);
+        let initial_changes = change_monitor.reconcile(&path, &HashSet::new(), false, false);
         if !same_directory_state(&directory_identity, &after_directory_identity)
             || initial_changes.is_err()
         {
@@ -1285,7 +1326,7 @@ impl BrowseService {
             .map_err(|_| BrowseError::StateUnavailable)?;
         if snapshot
             .change_monitor
-            .reconcile(&snapshot.path, &removed, false)
+            .reconcile(&snapshot.path, &removed, false, false)
             .is_err()
         {
             self.invalidate_selection_snapshot(session_id, snapshot_id)?;
@@ -1422,6 +1463,9 @@ impl BrowseService {
         let allow_safe_trash_root_creation = completed
             .iter()
             .any(|completion| completion.creates_safe_trash_root);
+        let allow_source_retirement_root_creation = completed
+            .iter()
+            .any(|completion| completion.creates_source_retirement_root);
         for completion in completed {
             attempted.insert(completion.path.clone());
             if completion.removed {
@@ -1449,7 +1493,12 @@ impl BrowseService {
         let notifications = if required_removals.is_empty() {
             snapshot
                 .change_monitor
-                .reconcile(&snapshot.path, &removed, allow_safe_trash_root_creation)
+                .reconcile(
+                    &snapshot.path,
+                    &removed,
+                    allow_safe_trash_root_creation,
+                    allow_source_retirement_root_creation,
+                )
                 .map(|_| ())
         } else {
             snapshot.change_monitor.reconcile_until_quiet(
@@ -1457,6 +1506,7 @@ impl BrowseService {
                 &removed,
                 &required_removals,
                 allow_safe_trash_root_creation,
+                allow_source_retirement_root_creation,
             )
         };
         if notifications.is_err() {
@@ -1495,12 +1545,6 @@ impl BrowseService {
             return Err(BrowseError::SelectionSnapshotNotFound);
         };
         current.directory_identity = current_directory_identity;
-        if allow_safe_trash_root_creation {
-            snapshot
-                .change_monitor
-                .safe_trash_root_creation_pending
-                .store(false, Ordering::Release);
-        }
         Ok(())
     }
 
@@ -3895,6 +3939,15 @@ mod tests {
             .selection_snapshot_page(&session.session_id, &snapshot.snapshot_id, 0, 1000, &[])
             .expect("first page");
         assert_eq!(selection_directory_enumeration_count(), 1);
+        let change_monitor = service
+            .sessions
+            .lock()
+            .expect("browse sessions")
+            .get(&session.session_id)
+            .and_then(|session| session.selection_snapshot.as_ref())
+            .expect("live selection snapshot")
+            .change_monitor
+            .clone();
         let moved = first[0].clone();
         let trash_target = fixture
             .root
@@ -3904,7 +3957,22 @@ mod tests {
             .join(&moved.name);
         fs::create_dir_all(trash_target.parent().expect("trash target parent"))
             .expect("create safe trash parent");
+        fs::create_dir(fixture.root.join(".zen-canvas-retirement"))
+            .expect("create source-claim retirement root");
+        let claim_path = fixture
+            .root
+            .join(format!(".zen-canvas-claim-{}", Uuid::new_v4()));
+        fs::write(&claim_path, b"private claim").expect("create transient source claim");
+        fs::remove_file(claim_path).expect("remove transient source claim");
         fs::rename(&moved.path, &trash_target).expect("move selected item into safe trash");
+        change_monitor
+            .changes
+            .lock()
+            .expect("selection watcher events")
+            .push(SelectionNamespaceChange {
+                kind: SelectionNamespaceChangeKind::Create,
+                paths: vec![moved.path.clone()],
+            });
         service
             .complete_selection_snapshot_batch(
                 &session.session_id,
@@ -3914,6 +3982,7 @@ mod tests {
                     identity: moved.identity,
                     removed: true,
                     creates_safe_trash_root: true,
+                    creates_source_retirement_root: true,
                 }],
             )
             .expect("accept verified operation result");
@@ -3976,6 +4045,7 @@ mod tests {
                     identity: moved.identity,
                     removed: true,
                     creates_safe_trash_root: false,
+                    creates_source_retirement_root: false,
                 }],
             ),
             Err(BrowseError::SelectionSnapshotStale)
@@ -3985,7 +4055,56 @@ mod tests {
     }
 
     #[test]
-    fn directory_selection_rejects_unrelated_safe_trash_root_creation() {
+    fn directory_selection_rejects_unrelated_private_root_creation() {
+        for name in [".zen-canvas-trash", ".zen-canvas-retirement"] {
+            let fixture = Fixture::new();
+            fs::write(fixture.root.join("selected.txt"), b"selected").expect("selected file");
+            let service = service(BrowseLimits::default());
+            let session = service.start_session(fixture.directory()).expect("session");
+            let snapshot = service
+                .create_selection_snapshot(
+                    &session.session_id,
+                    &session.root_path_ref,
+                    BrowseQuerySpecV1::default(),
+                    false,
+                )
+                .expect("selection snapshot");
+            fs::create_dir(fixture.root.join(name)).expect("create unrelated private root");
+            thread::sleep(std::time::Duration::from_millis(50));
+
+            assert!(matches!(
+                service.selection_snapshot_page(
+                    &session.session_id,
+                    &snapshot.snapshot_id,
+                    0,
+                    1000,
+                    &[],
+                ),
+                Err(BrowseError::SelectionSnapshotStale)
+            ));
+        }
+    }
+
+    #[test]
+    fn authorized_private_root_events_remain_bound_to_the_original_directory() {
+        let fixture = Fixture::new();
+        let path = fixture.root.join(".zen-canvas-trash");
+        fs::create_dir(&path).expect("create safe root");
+        let identity = Mutex::new(None);
+        assert!(private_directory_event_is_authorized(
+            &path, true, &identity
+        ));
+
+        let retired = fixture.root.join("retired-safe-root");
+        fs::rename(&path, &retired).expect("rename original root");
+        fs::create_dir(&path).expect("replace safe root");
+        assert!(!private_directory_event_is_authorized(
+            &path, true, &identity
+        ));
+    }
+
+    #[test]
+    fn directory_selection_rejects_live_private_source_claims() {
         let fixture = Fixture::new();
         fs::write(fixture.root.join("selected.txt"), b"selected").expect("selected file");
         let service = service(BrowseLimits::default());
@@ -3998,8 +4117,13 @@ mod tests {
                 false,
             )
             .expect("selection snapshot");
-        fs::create_dir(fixture.root.join(".zen-canvas-trash"))
-            .expect("create unrelated safe trash root");
+        fs::write(
+            fixture
+                .root
+                .join(format!(".zen-canvas-claim-{}", Uuid::new_v4())),
+            b"unrelated claim",
+        )
+        .expect("create unrelated claim path");
         thread::sleep(std::time::Duration::from_millis(50));
 
         assert!(matches!(
@@ -4088,6 +4212,7 @@ mod tests {
                     identity: entry.identity,
                     removed: false,
                     creates_safe_trash_root: false,
+                    creates_source_retirement_root: false,
                 });
             }
             if !completed.is_empty() {
@@ -4174,6 +4299,7 @@ mod tests {
                     identity: entry.identity,
                     removed: true,
                     creates_safe_trash_root: false,
+                    creates_source_retirement_root: false,
                 }],
             ),
             Err(BrowseError::SelectionSnapshotStale)

@@ -348,12 +348,13 @@ impl Database {
 
         tx.execute(
             r#"
-            INSERT INTO operation_batches (id, created_at, status, item_count)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO operation_batches (id, created_at, status, item_count, is_complete)
+            VALUES (?1, ?2, ?3, ?4, 1)
             ON CONFLICT(id) DO UPDATE SET
                 created_at = excluded.created_at,
                 status = excluded.status,
-                item_count = MAX(operation_batches.item_count, excluded.item_count)
+                item_count = MAX(operation_batches.item_count, excluded.item_count),
+                is_complete = excluded.is_complete
             "#,
             params![batch_id, created_at, batch_status, logs.len() as i64],
         )?;
@@ -827,6 +828,18 @@ impl Database {
         let tx = conn.transaction()?;
 
         tx.execute(
+            r#"
+            UPDATE operation_batches
+            SET is_complete = 0
+            WHERE id IN (
+                SELECT DISTINCT batch_id
+                FROM operation_logs
+                WHERE created_at < ?1
+            )
+            "#,
+            params![prune_before],
+        )?;
+        tx.execute(
             "DELETE FROM operation_logs WHERE created_at < ?1",
             params![prune_before],
         )?;
@@ -877,19 +890,20 @@ fn operation_batch_from_connection(
     conn: &rusqlite::Connection,
     batch_id: &str,
 ) -> Result<Option<OperationLogBatchDto>, DbError> {
-    let metadata: Option<(i64, i64)> = conn
+    let metadata: Option<(i64, i64, i64)> = conn
         .query_row(
             r#"
             SELECT item_count,
+                   is_complete,
                    (SELECT COUNT(*) FROM operation_logs WHERE batch_id = operation_batches.id)
             FROM operation_batches
             WHERE id = ?1
             "#,
             params![batch_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    let Some((expected_count, actual_count)) = metadata else {
+    let Some((expected_count, stored_complete, actual_count)) = metadata else {
         return Ok(None);
     };
     let expected_count = usize::try_from(expected_count.max(0)).unwrap_or(usize::MAX);
@@ -903,7 +917,8 @@ fn operation_batch_from_connection(
     let mut stmt = conn.prepare(&query)?;
     let rows = stmt.query_map(params![batch_id], operation_log_from_row)?;
     let logs = rows.collect::<Result<Vec<_>, _>>()?;
-    let is_complete = expected_count > 0
+    let is_complete = stored_complete == 1
+        && expected_count > 0
         && expected_count <= 1000
         && expected_count == actual_count
         && logs.len() == actual_count;

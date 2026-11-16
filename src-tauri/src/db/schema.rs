@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 49;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 50;
 
 const CREATE_FILE_WORKSPACE_BASKET: &str = r#"
 CREATE TABLE IF NOT EXISTS file_workspace_basket (
@@ -1127,6 +1127,37 @@ pub(crate) fn migrate_with_cancellation(
             guard.check_cancelled()?;
             ensure_file_workspace_basket_schema(conn)?;
             set_schema_version(conn, 49)?;
+        }
+        if version < 50 {
+            guard.check_cancelled()?;
+            execute_column_migrations(
+                conn,
+                &["ALTER TABLE operation_batches ADD COLUMN is_complete INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1));"],
+            )?;
+            // Before schema 48, retention pruned individual operation log rows
+            // but kept a batch while any rows remained. Its original size was
+            // not stored. Schema 48 captures the retained count; compare the
+            // first retained timestamp with the batch's original timestamp so
+            // a pruned prefix cannot be mistaken for a complete batch.
+            conn.execute(
+                r#"
+                UPDATE operation_batches
+                SET is_complete = CASE
+                    WHEN item_count > 0
+                     AND item_count = (
+                         SELECT COUNT(*) FROM operation_logs
+                         WHERE operation_logs.batch_id = operation_batches.id
+                     )
+                     AND (
+                         SELECT MIN(created_at) FROM operation_logs
+                         WHERE operation_logs.batch_id = operation_batches.id
+                     ) = operation_batches.created_at
+                    THEN 1 ELSE 0
+                END
+                "#,
+                [],
+            )?;
+            set_schema_version(conn, 50)?;
         }
         guard.check_cancelled()?;
         Ok(())

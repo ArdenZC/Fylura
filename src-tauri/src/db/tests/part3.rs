@@ -109,6 +109,39 @@
     }
 
     #[test]
+    fn pruning_any_log_keeps_the_remaining_batch_durably_incomplete() {
+        let path = test_db_path();
+        {
+            let db = Database::open(&path).expect("open test database");
+            let mut pruned = operation_log("pruned-prefix", "pruned-batch", "success");
+            pruned.created_at = "1".to_string();
+            let mut retained = operation_log("retained-suffix", "pruned-batch", "success");
+            retained.created_at = "4102444800000".to_string();
+            db.save_operation_logs("pruned-batch", &[pruned, retained])
+                .expect("save operation batch");
+
+            db.prune_operation_logs(0)
+                .expect("prune expired operation rows");
+            let batch = db
+                .get_operation_batch("pruned-batch")
+                .expect("read partially pruned operation batch")
+                .expect("retained operation batch exists");
+            assert_eq!(batch.expected_count, 2);
+            assert_eq!(batch.actual_count, 1);
+            assert!(!batch.is_complete);
+        }
+
+        let reopened = Database::open(&path).expect("reopen pruned batch database");
+        let batch = reopened
+            .get_operation_batch("pruned-batch")
+            .expect("read pruned operation batch after restart")
+            .expect("retained operation batch survives restart");
+        assert_eq!(batch.expected_count, 2);
+        assert_eq!(batch.actual_count, 1);
+        assert!(!batch.is_complete);
+    }
+
+    #[test]
     fn operation_batch_completeness_survives_database_restart() {
         let path = test_db_path();
         {

@@ -217,8 +217,8 @@ struct TransientFilenameCatalog {
     by_id: HashMap<u64, u32>,
     by_id_collisions: HashMap<[u8; 32], u32>,
     // Prefix postings replace a BTreeMap<String, Vec<_>> entry for every
-    // distinct filename. Each filename contributes at most three integer
-    // keys (one, two and three Unicode scalar values).
+    // distinct filename. Each filename contributes at most two integer keys
+    // (one and two Unicode scalar values).
     by_name_prefix: HashMap<u64, Vec<u32>>,
     by_extension: BTreeMap<String, Vec<u32>>,
     // Filename postings are append-only and validated against current text.
@@ -3367,6 +3367,52 @@ fn is_ascii_word_character(character: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_compact_id_lookup_handles_hash_collisions() {
+        let mut first = [0; 32];
+        first[..8].copy_from_slice(&17_u64.to_le_bytes());
+        first[31] = 1;
+        let mut second = first;
+        second[31] = 2;
+
+        let mut catalog = TransientFilenameCatalog::default();
+        catalog.by_id.insert(transient_id_hash(&first), 0);
+        catalog.by_id_collisions.insert(second, 1);
+        catalog.entries.push(test_transient_entry(first));
+        catalog.entries.push(test_transient_entry(second));
+
+        assert_eq!(transient_catalog_entry_index(&catalog, &first), Some(0));
+        assert_eq!(transient_catalog_entry_index(&catalog, &second), Some(1));
+
+        let mut missing = second;
+        missing[30] = 9;
+        assert_eq!(transient_catalog_entry_index(&catalog, &missing), None);
+    }
+
+    fn test_transient_entry(id_digest: [u8; 32]) -> TransientFilenameEntry {
+        TransientFilenameEntry {
+            id_digest,
+            platform_file_id: 0,
+            parent_platform_file_id: 0,
+            name: 0,
+            path: 0,
+            extension: 0,
+            normalized_name: 0,
+            normalized_extension: 0,
+            parent_directory_index: INVALID_TRANSIENT_STRING_ID,
+            is_directory: false,
+            size: 0,
+            created_at_fs: None,
+            modified_at_fs: None,
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            last_seen_at: 0,
+            decision: Decision::Include,
+            visible: true,
+        }
+    }
 
     #[test]
     fn transient_search_uses_the_rarest_query_gram() {

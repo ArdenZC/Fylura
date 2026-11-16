@@ -6,7 +6,6 @@ import { useFileManagementStore } from "./fileManagementStore";
 export async function releaseTransferTickets(tickets: TransferTicket[] | string[]) {
   const state = useFileManagementStore.getState();
   const retained = new Set([
-    ...state.basket.map((ticket) => ticket.id),
     ...(state.clipboard?.tickets ?? []).map((ticket) => ticket.id),
     ...(state.pendingTransfer?.tickets ?? []).map((ticket) => ticket.id),
     ...state.transferTicketIds,

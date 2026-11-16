@@ -45,6 +45,7 @@ pub use verified_directory::{DirectoryIdentity, VerifiedDirectory};
 #[derive(Debug, Clone)]
 pub(crate) enum FileOperationEvent {
     Phase(String),
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Progress(FileOperationProgress),
 }
 
@@ -63,6 +64,7 @@ pub(crate) type PhaseObserver<'a> =
 
 /// Throttled counters for the active phase of a recursive transfer. A total
 /// stays absent until a bounded source pass has actually established it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) struct DirectoryTransferProgress {
     stage: String,
     processed_items: u64,
@@ -75,6 +77,7 @@ pub(crate) struct DirectoryTransferProgress {
     last_emitted_bytes: u64,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 impl DirectoryTransferProgress {
     pub(crate) fn new(stage: &str) -> Self {
         Self {

@@ -37,7 +37,7 @@ type BrowseInteractionSource = Pick<
   | "enumerationState"
   | "loadNextPage"
   | "selectEntry"
-  | "selectAllLoaded"
+  | "selectAllDirectory"
   | "selectIds"
   | "invertSelection"
   | "clearSelection"
@@ -95,8 +95,8 @@ export function createLibraryInteractionProjection(
 }
 
 /**
- * Creates a component-facing Browse projection. Browse Ctrl/Cmd+A is always
- * source-owned and loaded-only; no shared selection state is introduced.
+ * Creates a component-facing Browse projection. Browse Ctrl/Cmd+A selects the
+ * current query-matching directory scope through the source owner.
  */
 export function createBrowseInteractionProjection(
   source: BrowseInteractionSource
@@ -129,13 +129,13 @@ export function createBrowseInteractionProjection(
     isLoadingMore: source.enumerationState === "loading_more",
     selection: source.selectedIds,
     capabilities: {
-      selectAll: "loaded",
+      selectAll: "all_matching",
       canActivate: true,
       canLoadMore: source.hasMore
     },
     actions: {
       select,
-      selectAll: source.selectAllLoaded,
+      selectAll: source.selectAllDirectory,
       clearSelection: source.clearSelection,
       focus,
       loadMore: source.loadNextPage,

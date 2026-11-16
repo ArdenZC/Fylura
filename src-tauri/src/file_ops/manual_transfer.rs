@@ -4,9 +4,11 @@
 use super::*;
 mod clipboard;
 use crate::db::{LibrarySelectionV1, OperationPreviewDto};
+use crate::file_workspace::browse::BrowseSelectionCompletion;
 use crate::file_workspace::integration::FileWorkspaceRuntime;
 use crate::file_workspace::{BrowseEntryRef, EntryRef};
-use crate::fs_safety::{DirectoryIdentity, VerifiedDirectory};
+use crate::fs_safety::{DirectoryIdentity, PhysicalFileIdentity, VerifiedDirectory};
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -22,12 +24,21 @@ pub(crate) struct TransferState {
     previews: HashMap<String, TransferPlan>,
 }
 #[derive(Clone)]
-struct Source {
+pub(crate) struct Source {
     ticket: TransferTicket,
     file_id: String,
     identity: FileIdentityFingerprint,
     relative_path: PathBuf,
     tree_guard: Option<TreeGuard>,
+    browse_selection: Option<BrowseSelectionOrigin>,
+}
+
+#[derive(Clone)]
+struct BrowseSelectionOrigin {
+    session_id: String,
+    snapshot_id: String,
+    path: PathBuf,
+    identity: PhysicalFileIdentity,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TreeGuard {
@@ -48,6 +59,57 @@ pub struct TransferTicket {
     pub is_directory: bool,
     pub relative_path: String,
 }
+
+const MAX_PERSISTED_BASKET_ENTRIES: usize = 100_000;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BasketEntryDto {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub is_directory: bool,
+    pub status: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BasketPageDto {
+    pub entries: Vec<BasketEntryDto>,
+    pub total: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BasketPageRequest {
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BasketEntriesRequest {
+    pub entry_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BasketAddRequest {
+    pub ticket_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BasketMoveReconcileRequest {
+    pub moves: Vec<BasketMoveReconcileItem>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BasketMoveReconcileItem {
+    pub entry_id: String,
+    pub operation_log_id: String,
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureRequest {
@@ -59,6 +121,18 @@ pub struct CaptureRequest {
     #[serde(default)]
     pub external_paths: Vec<String>,
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaptureSelectionPageRequest {
+    pub session_id: String,
+    pub snapshot_id: String,
+    pub offset: usize,
+    #[serde(default)]
+    pub excluded_entry_ids: Vec<String>,
+    #[serde(default)]
+    pub advance_snapshot: bool,
+}
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum TransferAction {
@@ -67,6 +141,7 @@ pub enum TransferAction {
     Duplicate,
     Rename,
     Trash,
+    SystemTrash,
     CreateDirectory,
     CreateFile,
 }
@@ -124,7 +199,76 @@ pub struct NativeDragOutRequest {
     pub ticket_ids: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ZipCreateRequest {
+    pub ticket_ids: Vec<String>,
+    pub output_path: String,
+    #[serde(default = "default_zip_compression_level")]
+    pub compression_level: i32,
+}
+
+fn default_zip_compression_level() -> i32 {
+    6
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ZipExtractTarget {
+    Here,
+    SameNameFolder,
+    ChosenDirectory,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ZipExtractRequest {
+    pub ticket_id: String,
+    pub target: ZipExtractTarget,
+    #[serde(default)]
+    pub destination_directory: Option<String>,
+    pub conflict_policy: archive::ZipConflictPolicy,
+}
+
 impl FileWorkspaceRuntime {
+    pub(crate) fn capture_selection_snapshot_page(
+        &self,
+        request: CaptureSelectionPageRequest,
+    ) -> Result<Vec<TransferTicket>, String> {
+        self.ensure_live()?;
+        let entries = self
+            .inner
+            .browse
+            .selection_snapshot_page(
+                &request.session_id,
+                &request.snapshot_id,
+                request.offset,
+                LIMIT,
+                &request.excluded_entry_ids,
+            )
+            .map_err(|error| format!("browse_{error}"))?;
+        let captured = entries
+            .into_iter()
+            .map(|entry| {
+                let origin = request.advance_snapshot.then(|| BrowseSelectionOrigin {
+                    session_id: request.session_id.clone(),
+                    snapshot_id: request.snapshot_id.clone(),
+                    path: entry.path.clone(),
+                    identity: entry.identity.clone(),
+                });
+                let mut source = self.capture_transfer_source(
+                    entry.path,
+                    super::RECOVERY_ACTION_FILE_ID.into(),
+                    Some(entry.identity),
+                    Some(entry.kind),
+                )?;
+                source.browse_selection = origin;
+                Ok(source)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        self.register_transfer_sources(captured, Vec::new())
+    }
+
     pub(crate) fn capture_transfer(
         &self,
         mut request: CaptureRequest,
@@ -157,7 +301,7 @@ impl FileWorkspaceRuntime {
         let mut captured = Vec::new();
         // Resolve before taking the registry lock. No lock covers filesystem IO.
         for reference in request.refs {
-            let (path, file_id) = match reference {
+            let (path, file_id, expected_identity, expected_kind) = match reference {
                 EntryRef::Managed { file_id } => {
                     self.inner
                         .database
@@ -168,7 +312,7 @@ impl FileWorkspaceRuntime {
                         .database
                         .get_file_library_detail(&file_id)
                         .map_err(|e| e.to_string())?;
-                    (PathBuf::from(detail.path), file_id)
+                    (PathBuf::from(detail.path), file_id, None, None)
                 }
                 EntryRef::Ephemeral {
                     browse_session_id,
@@ -187,54 +331,467 @@ impl FileWorkspaceRuntime {
                         .browse
                         .resolve_entry(&reference)
                         .map_err(|e| e.to_string())?;
-                    (resolved.path, super::RECOVERY_ACTION_FILE_ID.into())
+                    (
+                        resolved.path,
+                        super::RECOVERY_ACTION_FILE_ID.into(),
+                        resolved.identity,
+                        Some(resolved.kind),
+                    )
                 }
             };
-            #[cfg(windows)]
-            ensure_transfer_source_content_ready(&path)?;
-            let path = if cfg!(windows) && path.is_dir() {
-                if !path.is_absolute() {
-                    return Err("transfer_source_invalid".into());
-                }
-                crate::fs_safety::capture_source_object_identity(&path)
-                    .map_err(|e| e.to_string())?;
-                ensure_general_file_operation_allowed(&path)?;
-                path.canonicalize().map_err(|e| e.to_string())?
-            } else {
-                validate_source_path(&path)?
-            };
-            VerifiedDirectory::open_existing(path.parent().ok_or("transfer_source_invalid")?)
-                .map_err(|e| e.to_string())?;
-            let identity = file_namespace_fingerprint(&path)?;
-            if identity.platform_file_id.is_none() || identity.platform_volume_id.is_none() {
-                return Err("transfer_identity_unavailable".into());
-            }
-            let name = utf8_file_name(&path)?;
-            let relative_path = PathBuf::from(&name);
-            let ticket = TransferTicket {
-                id: new_job_id("transfer-source"),
-                name,
-                path: normalize_path(&path),
-                is_directory: path.is_dir(),
-                relative_path: utf8_relative_path(&relative_path)?,
-            };
-            captured.push(Source {
-                ticket,
+            captured.push(self.capture_transfer_source(
+                path,
                 file_id,
-                identity,
-                relative_path,
-                tree_guard: None,
-            });
+                expected_identity,
+                expected_kind,
+            )?);
         }
         if !request.external_paths.is_empty() {
             captured.extend(capture_external_sources(request.external_paths)?);
         }
+        self.register_transfer_sources(captured, request.release_ids)
+    }
+
+    pub(crate) fn basket_add(&self, request: BasketAddRequest) -> Result<usize, String> {
+        self.ensure_live()?;
+        if request.ticket_ids.is_empty() || request.ticket_ids.len() > LIMIT {
+            return Err("transfer_selection_limit_1000".into());
+        }
+        let state = self
+            .inner
+            .transfers
+            .lock()
+            .map_err(|_| "transfer_state_unavailable")?;
+        let mut seen = HashSet::new();
+        let sources = request
+            .ticket_ids
+            .iter()
+            .filter(|id| seen.insert((*id).clone()))
+            .map(|id| {
+                state
+                    .sources
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| "transfer_reference_expired".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(state);
+
+        let records = sources
+            .into_iter()
+            .map(|source| {
+                if file_namespace_fingerprint(Path::new(&source.ticket.path))? != source.identity {
+                    return Err("transfer_source_changed".to_string());
+                }
+                let volume_id = source
+                    .identity
+                    .platform_volume_id
+                    .clone()
+                    .ok_or_else(|| "transfer_identity_unavailable".to_string())?;
+                let object_id = source
+                    .identity
+                    .platform_file_id
+                    .clone()
+                    .ok_or_else(|| "transfer_identity_unavailable".to_string())?;
+                let identity_json =
+                    serde_json::to_string(&source.identity).map_err(|error| error.to_string())?;
+                Ok((
+                    source.ticket.path,
+                    source.ticket.name,
+                    source.ticket.is_directory,
+                    identity_json,
+                    volume_id,
+                    object_id,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+
+        let mut conn = self
+            .inner
+            .database
+            .conn()
+            .map_err(|error| error.to_string())?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let mut added = 0usize;
+        let mut total: i64 = tx
+            .query_row("SELECT COUNT(*) FROM file_workspace_basket", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| error.to_string())?;
+        for (path, name, is_directory, identity_json, volume_id, object_id) in records {
+            let exists: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM file_workspace_basket WHERE path=?1 AND volume_id=?2 AND object_id=?3)",
+                    params![path, volume_id, object_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if exists {
+                continue;
+            }
+            if total >= MAX_PERSISTED_BASKET_ENTRIES as i64 {
+                return Err("basket_limit_100000".into());
+            }
+            tx.execute(
+                "INSERT INTO file_workspace_basket(id,path,name,is_directory,identity_json,file_id,volume_id,object_id,added_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",
+                params![
+                    new_job_id("file-basket"),
+                    path,
+                    name,
+                    i64::from(is_directory),
+                    identity_json,
+                    super::RECOVERY_ACTION_FILE_ID,
+                    volume_id,
+                    object_id,
+                    basket_timestamp(),
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+            added += 1;
+            total += 1;
+        }
+        tx.commit().map_err(|error| error.to_string())?;
+        Ok(added)
+    }
+
+    pub(crate) fn basket_page(&self, request: BasketPageRequest) -> Result<BasketPageDto, String> {
+        self.ensure_live()?;
+        if request.limit == 0
+            || request.limit > 100
+            || request.offset > MAX_PERSISTED_BASKET_ENTRIES
+        {
+            return Err("basket_page_invalid".into());
+        }
+        let conn = self
+            .inner
+            .database
+            .conn()
+            .map_err(|error| error.to_string())?;
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM file_workspace_basket", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| error.to_string())?;
+        let mut statement = conn
+            .prepare("SELECT id,path,name,is_directory,identity_json,volume_id,object_id FROM file_workspace_basket ORDER BY added_at,id LIMIT ?1 OFFSET ?2")
+            .map_err(|error| error.to_string())?;
+        let raw = statement
+            .query_map(
+                params![request.limit as i64, request.offset as i64],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)? != 0,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                },
+            )
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        let entries = raw
+            .into_iter()
+            .map(
+                |(id, path, name, is_directory, identity_json, volume_id, object_id)| {
+                    let status =
+                        match serde_json::from_str::<FileIdentityFingerprint>(&identity_json) {
+                            Ok(identity)
+                                if identity.platform_volume_id.as_deref()
+                                    == Some(volume_id.as_str())
+                                    && identity.platform_file_id.as_deref()
+                                        == Some(object_id.as_str()) =>
+                            {
+                                basket_entry_status(Path::new(&path), is_directory, &identity)
+                            }
+                            _ => "changed".to_string(),
+                        };
+                    BasketEntryDto {
+                        id,
+                        name,
+                        path,
+                        is_directory,
+                        status,
+                    }
+                },
+            )
+            .collect();
+        Ok(BasketPageDto {
+            entries,
+            total: total as usize,
+        })
+    }
+
+    pub(crate) fn basket_capture(
+        &self,
+        request: BasketEntriesRequest,
+    ) -> Result<Vec<TransferTicket>, String> {
+        self.ensure_live()?;
+        if request.entry_ids.is_empty() || request.entry_ids.len() > LIMIT {
+            return Err("transfer_selection_limit_1000".into());
+        }
+        let records = {
+            let mut conn = self
+                .inner
+                .database
+                .conn()
+                .map_err(|error| error.to_string())?;
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Deferred)
+                .map_err(|error| error.to_string())?;
+            let mut records = Vec::with_capacity(request.entry_ids.len());
+            let mut seen = HashSet::new();
+            for id in request.entry_ids {
+                if !seen.insert(id.clone()) {
+                    continue;
+                }
+                let raw = tx
+                    .query_row(
+                        "SELECT path,file_id,is_directory,identity_json FROM file_workspace_basket WHERE id=?1",
+                        [&id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, i64>(2)? != 0,
+                                row.get::<_, String>(3)?,
+                            ))
+                        },
+                    )
+                    .optional()
+                    .map_err(|error| error.to_string())?
+                    .ok_or("basket_entry_not_found")?;
+                records.push(raw);
+            }
+            tx.commit().map_err(|error| error.to_string())?;
+            records
+        };
+        let mut sources = Vec::with_capacity(records.len());
+        for (path, file_id, is_directory, identity_json) in records {
+            let expected: FileIdentityFingerprint =
+                serde_json::from_str(&identity_json).map_err(|_| "basket_identity_invalid")?;
+            if basket_entry_status(Path::new(&path), is_directory, &expected) != "available" {
+                return Err("basket_entry_unavailable".into());
+            }
+            let source = self.capture_transfer_source(PathBuf::from(path), file_id, None, None)?;
+            if source.identity != expected || source.ticket.is_directory != is_directory {
+                return Err("basket_entry_changed".into());
+            }
+            sources.push(source);
+        }
+        self.register_transfer_sources(sources, Vec::new())
+    }
+
+    pub(crate) fn basket_remove(&self, request: BasketEntriesRequest) -> Result<usize, String> {
+        self.ensure_live()?;
+        if request.entry_ids.is_empty() || request.entry_ids.len() > LIMIT {
+            return Err("basket_entry_selection_invalid".into());
+        }
+        let mut conn = self
+            .inner
+            .database
+            .conn()
+            .map_err(|error| error.to_string())?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let mut removed = 0;
+        for id in request.entry_ids {
+            removed += tx
+                .execute("DELETE FROM file_workspace_basket WHERE id=?1", [id])
+                .map_err(|error| error.to_string())?;
+        }
+        tx.commit().map_err(|error| error.to_string())?;
+        Ok(removed)
+    }
+
+    pub(crate) fn basket_clear(&self) -> Result<usize, String> {
+        self.ensure_live()?;
+        let conn = self
+            .inner
+            .database
+            .conn()
+            .map_err(|error| error.to_string())?;
+        conn.execute("DELETE FROM file_workspace_basket", [])
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn basket_reconcile_moves(
+        &self,
+        request: BasketMoveReconcileRequest,
+    ) -> Result<usize, String> {
+        self.ensure_live()?;
+        if request.moves.len() > LIMIT {
+            return Err("transfer_selection_limit_1000".into());
+        }
+        let mut updated = 0usize;
+        for item in request.moves {
+            let log = self
+                .inner
+                .database
+                .get_operation_log_by_id(&item.operation_log_id)
+                .map_err(|error| error.to_string())?
+                .ok_or("basket_move_log_not_found")?;
+            if log.operation_type != "move" || log.status != "success" {
+                continue;
+            }
+            let conn = self
+                .inner
+                .database
+                .conn()
+                .map_err(|error| error.to_string())?;
+            let row = conn
+                .query_row(
+                    "SELECT path,is_directory,identity_json FROM file_workspace_basket WHERE id=?1",
+                    [&item.entry_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)? != 0,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(|error| error.to_string())?;
+            drop(conn);
+            let Some((old_path, is_directory, old_identity_json)) = row else {
+                continue;
+            };
+            let old_identity: FileIdentityFingerprint =
+                serde_json::from_str(&old_identity_json).map_err(|_| "basket_identity_invalid")?;
+            if old_path != log.path_before
+                || old_identity.platform_file_id.as_deref()
+                    != log.source_platform_file_id.as_deref()
+                || old_identity.platform_volume_id.as_deref()
+                    != log.source_platform_volume_id.as_deref()
+            {
+                continue;
+            }
+            let target = Path::new(&log.path_after);
+            let target_identity = match file_namespace_fingerprint(target) {
+                Ok(identity)
+                    if identity.platform_file_id.as_deref()
+                        == log.target_platform_file_id.as_deref()
+                        && identity.platform_volume_id.as_deref()
+                            == log.target_platform_volume_id.as_deref()
+                        && target.is_dir() == is_directory =>
+                {
+                    identity
+                }
+                _ => continue,
+            };
+            let volume_id = target_identity
+                .platform_volume_id
+                .as_deref()
+                .ok_or("transfer_identity_unavailable")?;
+            let object_id = target_identity
+                .platform_file_id
+                .as_deref()
+                .ok_or("transfer_identity_unavailable")?;
+            let mut conn = self
+                .inner
+                .database
+                .conn()
+                .map_err(|error| error.to_string())?;
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
+            let changed = tx
+                .execute(
+                    "UPDATE file_workspace_basket SET path=?1,name=?2,identity_json=?3,volume_id=?4,object_id=?5,updated_at=?6 WHERE id=?7 AND path=?8 AND identity_json=?9",
+                    params![
+                        log.path_after,
+                        log.name_after,
+                        serde_json::to_string(&target_identity).map_err(|error| error.to_string())?,
+                        volume_id,
+                        object_id,
+                        basket_timestamp(),
+                        item.entry_id,
+                        old_path,
+                        old_identity_json,
+                    ],
+                )
+                .map_err(|error| error.to_string())?;
+            tx.commit().map_err(|error| error.to_string())?;
+            updated += changed;
+        }
+        Ok(updated)
+    }
+
+    fn capture_transfer_source(
+        &self,
+        path: PathBuf,
+        file_id: String,
+        expected_identity: Option<PhysicalFileIdentity>,
+        expected_kind: Option<crate::file_workspace::browse::BrowseEntryKind>,
+    ) -> Result<Source, String> {
+        if let Some(expected_identity) = expected_identity {
+            let current = crate::fs_safety::capture_browse_identity(&path)
+                .map_err(|error| format!("transfer_source_changed: {error}"))?;
+            if current != expected_identity
+                || expected_kind.is_some_and(|kind| {
+                    path.is_dir()
+                        != (kind == crate::file_workspace::browse::BrowseEntryKind::Directory)
+                })
+            {
+                return Err("transfer_source_changed".into());
+            }
+        }
+        #[cfg(windows)]
+        ensure_transfer_source_content_ready(&path)?;
+        let path = if cfg!(windows) && path.is_dir() {
+            if !path.is_absolute() {
+                return Err("transfer_source_invalid".into());
+            }
+            crate::fs_safety::capture_source_object_identity(&path)
+                .map_err(|error| error.to_string())?;
+            ensure_general_file_operation_allowed(&path)?;
+            path.canonicalize().map_err(|error| error.to_string())?
+        } else {
+            validate_source_path(&path)?
+        };
+        VerifiedDirectory::open_existing(path.parent().ok_or("transfer_source_invalid")?)
+            .map_err(|error| error.to_string())?;
+        let identity = file_namespace_fingerprint(&path)?;
+        if identity.platform_file_id.is_none() || identity.platform_volume_id.is_none() {
+            return Err("transfer_identity_unavailable".into());
+        }
+        let name = utf8_file_name(&path)?;
+        let relative_path = PathBuf::from(&name);
+        let ticket = TransferTicket {
+            id: new_job_id("transfer-source"),
+            name,
+            path: normalize_path(&path),
+            is_directory: path.is_dir(),
+            relative_path: utf8_relative_path(&relative_path)?,
+        };
+        Ok(Source {
+            ticket,
+            file_id,
+            identity,
+            relative_path,
+            tree_guard: None,
+            browse_selection: None,
+        })
+    }
+
+    fn register_transfer_sources(
+        &self,
+        mut captured: Vec<Source>,
+        release_ids: Vec<String>,
+    ) -> Result<Vec<TransferTicket>, String> {
         let mut state = self
             .inner
             .transfers
             .lock()
             .map_err(|_| "transfer_state_unavailable")?;
-        let release_ids = request.release_ids.into_iter().collect::<HashSet<_>>();
+        let release_ids = release_ids.into_iter().collect::<HashSet<_>>();
         for id in &release_ids {
             state.sources.remove(id);
         }
@@ -271,6 +828,89 @@ impl FileWorkspaceRuntime {
             state.sources.insert(source.ticket.id.clone(), source);
         }
         Ok(tickets)
+    }
+
+    fn zip_sources(&self, ticket_ids: &[String]) -> Result<Vec<archive::ZipSource>, String> {
+        self.ensure_live()?;
+        if ticket_ids.is_empty() || ticket_ids.len() > LIMIT {
+            return Err("transfer_selection_limit_1000".into());
+        }
+        let unique = ticket_ids.iter().collect::<HashSet<_>>();
+        if unique.len() != ticket_ids.len() {
+            return Err("transfer_selection_invalid".into());
+        }
+        let sources = {
+            let state = self
+                .inner
+                .transfers
+                .lock()
+                .map_err(|_| "transfer_state_unavailable")?;
+            ticket_ids
+                .iter()
+                .map(|id| {
+                    state
+                        .sources
+                        .get(id)
+                        .cloned()
+                        .ok_or("transfer_reference_expired")
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        sources
+            .into_iter()
+            .map(|source| {
+                let path = validate_transfer_source_path(Path::new(&source.ticket.path))?;
+                if path.is_dir() != source.ticket.is_directory
+                    || file_namespace_fingerprint(&path)? != source.identity
+                {
+                    return Err("transfer_source_changed".into());
+                }
+                if let Some(guard) = source.tree_guard.as_ref() {
+                    validate_tree_guard(guard)?;
+                }
+                let directory_tree_fingerprint = source
+                    .ticket
+                    .is_directory
+                    .then(|| directory_tree_snapshot(&path))
+                    .transpose()?;
+                Ok(archive::ZipSource {
+                    path,
+                    identity: source.identity,
+                    directory_tree_fingerprint,
+                })
+            })
+            .collect()
+    }
+
+    fn zip_source(&self, ticket_id: &str) -> Result<archive::ZipSource, String> {
+        self.ensure_live()?;
+        let source = self
+            .inner
+            .transfers
+            .lock()
+            .map_err(|_| "transfer_state_unavailable")?
+            .sources
+            .get(ticket_id)
+            .cloned()
+            .ok_or("transfer_reference_expired")?;
+        if source.ticket.is_directory {
+            return Err("zip_archive_must_be_file".into());
+        }
+        let path = validate_transfer_source_path(Path::new(&source.ticket.path))?;
+        if !path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+        {
+            return Err("zip_archive_required".into());
+        }
+        if file_namespace_fingerprint(&path)? != source.identity {
+            return Err("transfer_source_changed".into());
+        }
+        Ok(archive::ZipSource {
+            path,
+            identity: source.identity,
+            directory_tree_fingerprint: None,
+        })
     }
 
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -422,9 +1062,18 @@ impl FileWorkspaceRuntime {
         {
             return Err("transfer_trash_request_invalid".into());
         }
+        if request.action == TransferAction::SystemTrash
+            && (request.new_name.is_some()
+                || !request.new_names.is_empty()
+                || request.destination_entry.is_some()
+                || !request.keep_both.is_empty()
+                || !request.skip.is_empty())
+        {
+            return Err("transfer_trash_request_invalid".into());
+        }
         if !matches!(
             request.action,
-            TransferAction::Rename | TransferAction::Trash
+            TransferAction::Rename | TransferAction::Trash | TransferAction::SystemTrash
         ) && (request.new_name.is_some() || !request.new_names.is_empty())
         {
             return Err("transfer_new_name_unexpected".into());
@@ -597,12 +1246,16 @@ impl FileWorkspaceRuntime {
                         }
                     }
                 }
-                if request.action != TransferAction::Trash && conflict(&name, &reserved)? {
+                if !matches!(
+                    request.action,
+                    TransferAction::Trash | TransferAction::SystemTrash
+                ) && conflict(&name, &reserved)?
+                {
                     return Err("transfer_target_exists".into());
                 }
                 let operation_directory = if matches!(
                     request.action,
-                    TransferAction::Rename | TransferAction::Trash
+                    TransferAction::Rename | TransferAction::Trash | TransferAction::SystemTrash
                 ) {
                     source_path.parent().ok_or("transfer_source_invalid")?
                 } else {
@@ -619,7 +1272,10 @@ impl FileWorkspaceRuntime {
                         return Err("transfer_rename_same_directory_required".into());
                     }
                 }
-                let target = if request.action == TransferAction::Trash {
+                let target = if matches!(
+                    request.action,
+                    TransferAction::Trash | TransferAction::SystemTrash
+                ) {
                     source_path.to_path_buf()
                 } else {
                     target_for_name(&name)?
@@ -714,21 +1370,30 @@ impl FileWorkspaceRuntime {
             rows,
         })
     }
+    #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
     pub(crate) fn take_transfer(
         &self,
         request: TransferExecuteRequest,
     ) -> Result<ExecuteMovesRequest, String> {
+        self.take_transfer_with_sources(request)
+            .map(|(execution, _)| execution)
+    }
+
+    pub(crate) fn take_transfer_with_sources(
+        &self,
+        request: TransferExecuteRequest,
+    ) -> Result<(ExecuteMovesRequest, Vec<Source>), String> {
         self.ensure_live()?;
         if !request.confirmed {
             return Err("transfer_confirmation_required".into());
         }
-        let plan = {
+        let (plan, selection_sources) = {
             let mut state = self
                 .inner
                 .transfers
                 .lock()
                 .map_err(|_| "transfer_state_unavailable")?;
-            match state.previews.remove(&request.preview_id) {
+            let plan = match state.previews.remove(&request.preview_id) {
                 Some(plan) => plan,
                 None => {
                     #[cfg(test)]
@@ -738,7 +1403,14 @@ impl FileWorkspaceRuntime {
                     );
                     return Err("operation_preview_stale".into());
                 }
-            }
+            };
+            let selection_sources = plan
+                .ticket_ids
+                .iter()
+                .filter_map(|ticket_id| state.sources.get(ticket_id).cloned())
+                .filter(|source| source.browse_selection.is_some())
+                .collect::<Vec<_>>();
+            (plan, selection_sources)
         };
         let mut validated_trees = HashMap::<String, String>::new();
         for guard in &plan.trees {
@@ -761,9 +1433,12 @@ impl FileWorkspaceRuntime {
             }
             revalidation?;
         }
-        Ok(ExecuteMovesRequest {
-            operations: plan.operations,
-        })
+        Ok((
+            ExecuteMovesRequest {
+                operations: plan.operations,
+            },
+            selection_sources,
+        ))
     }
 
     fn resolve_transfer_destination(
@@ -834,6 +1509,7 @@ fn action_name(action: TransferAction) -> &'static str {
         TransferAction::Duplicate => "duplicate",
         TransferAction::Rename => "rename",
         TransferAction::Trash => "move_to_trash",
+        TransferAction::SystemTrash => "move_to_system_trash",
         TransferAction::CreateDirectory => "create_directory",
         TransferAction::CreateFile => "create_file",
     }
@@ -889,7 +1565,10 @@ fn snapshot(
             .and_then(|name| name.to_str())
             .ok_or("transfer_target_invalid")?,
     )?;
-    let source = if matches!(action, TransferAction::Rename | TransferAction::Trash) {
+    let source = if matches!(
+        action,
+        TransferAction::Rename | TransferAction::Trash | TransferAction::SystemTrash
+    ) {
         validate_namespace_entry_path(source)?
     } else {
         validate_transfer_source_path(source)?
@@ -936,7 +1615,10 @@ fn snapshot(
     {
         return Err("transfer_directory_into_itself".into());
     }
-    let nearest_identity = if matches!(action, TransferAction::Rename | TransferAction::Trash) {
+    let nearest_identity = if matches!(
+        action,
+        TransferAction::Rename | TransferAction::Trash | TransferAction::SystemTrash
+    ) {
         let canonical_source_parent = source
             .parent()
             .ok_or("transfer_source_invalid")?
@@ -968,15 +1650,10 @@ fn snapshot(
     {
         return Err("transfer_move_same_directory".into());
     }
-    let target_identity = if action == TransferAction::Trash {
-        "safe-trash-target"
-    } else {
-        "filesystem-target"
-    };
-    let target_path_identity = if action == TransferAction::Trash {
-        target_identity.to_string()
-    } else {
-        normalize_path(target)
+    let target_path_identity = match action {
+        TransferAction::Trash => "safe-trash-target".to_string(),
+        TransferAction::SystemTrash => "system-trash-target".to_string(),
+        _ => normalize_path(target),
     };
     let digest = blake3::hash(
         format!(
@@ -1011,6 +1688,7 @@ pub(crate) fn ensure_transfer_source_content_ready(path: &Path) -> Result<(), St
 }
 
 #[cfg(any(target_os = "macos", test, feature = "native-qa"))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn make_operation(
     file_id: &str,
     source: &Path,
@@ -1037,10 +1715,10 @@ fn make_operation_with_tree_fingerprint(
         action,
         validated_tree_fingerprint,
     )?;
-    let target_path = if action == TransferAction::Trash {
-        safe_trash_operation_target(source, &id)
-    } else {
-        normalize_path(target)
+    let target_path = match action {
+        TransferAction::Trash => safe_trash_operation_target(source, &id),
+        TransferAction::SystemTrash => system_trash_operation_target(),
+        _ => normalize_path(target),
     };
     Ok(OperationPreviewRequest {
         id,
@@ -1098,6 +1776,7 @@ fn revalidate_with_tree_fingerprint(
         "duplicate" => TransferAction::Duplicate,
         "rename" => TransferAction::Rename,
         "move_to_trash" => TransferAction::Trash,
+        "move_to_system_trash" => TransferAction::SystemTrash,
         _ => return Err("operation_preview_stale".into()),
     };
     let destination_root = decode_transfer_root(&operation.id).inspect_err(|_| {
@@ -1110,10 +1789,12 @@ fn revalidate_with_tree_fingerprint(
     let source = Path::new(&operation.source_path);
     if action == TransferAction::Trash
         && operation.target_path != safe_trash_operation_target(source, &operation.id)
+        || action == TransferAction::SystemTrash
+            && operation.target_path != system_trash_operation_target()
     {
         return Err("operation_preview_stale".into());
     }
-    let snapshot_target = if action == TransferAction::Trash {
+    let snapshot_target = if matches!(action, TransferAction::Trash | TransferAction::SystemTrash) {
         source.to_path_buf()
     } else {
         PathBuf::from(&operation.target_path)
@@ -1296,6 +1977,15 @@ pub(crate) fn execute(
             context.actual_path_observer,
         );
     }
+    if operation.operation_type == "move_to_system_trash" {
+        return move_to_system_trash_with_safety(
+            operation.source_path.clone(),
+            context.app_data_dir,
+            context.expected_identity,
+            context.cancel_flag,
+            context.phase_observer,
+        );
+    }
     let source = validate_transfer_source_path(Path::new(&operation.source_path))?;
     let target_path = Path::new(&operation.target_path);
     let target_parent_path = target_path
@@ -1457,6 +2147,60 @@ fn safe_trash_operation_target(source: &Path, operation_id: &str) -> String {
     )
 }
 
+fn system_trash_operation_target() -> String {
+    if cfg!(target_os = "windows") {
+        "System Recycle Bin".into()
+    } else {
+        "System Trash".into()
+    }
+}
+
+fn basket_entry_status(
+    path: &Path,
+    is_directory: bool,
+    expected: &FileIdentityFingerprint,
+) -> String {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_dir() != is_directory || metadata.file_type().is_symlink() {
+                return "changed".into();
+            }
+            match file_namespace_fingerprint(path) {
+                Ok(current) if current == *expected => "available".into(),
+                _ => "changed".into(),
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut ancestor = path.parent();
+            while let Some(candidate) = ancestor {
+                if let Ok(metadata) = std::fs::symlink_metadata(candidate) {
+                    if metadata.is_dir() {
+                        if let Ok(identity) =
+                            crate::fs_safety::capture_source_object_identity(candidate)
+                        {
+                            return if identity.platform_volume_id != expected.platform_volume_id {
+                                "offline".into()
+                            } else {
+                                "unavailable".into()
+                            };
+                        }
+                    }
+                }
+                ancestor = candidate.parent();
+            }
+            "offline".into()
+        }
+        Err(_) => "unavailable".into(),
+    }
+}
+
+fn basket_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_secs().min(i64::MAX as u64) as i64)
+        .unwrap_or(0)
+}
+
 fn capture_external_sources(paths: Vec<String>) -> Result<Vec<Source>, String> {
     let mut captured = Vec::new();
     let mut seen = HashSet::new();
@@ -1555,7 +2299,47 @@ fn make_captured_source(
         identity,
         relative_path,
         tree_guard,
+        browse_selection: None,
     })
+}
+
+pub(crate) fn complete_browse_selection_batch(
+    runtime: &FileWorkspaceRuntime,
+    sources: &[Source],
+    logs: &[OperationLogDto],
+) {
+    let mut groups = HashMap::<(String, String), Vec<BrowseSelectionCompletion>>::new();
+    for source in sources {
+        let Some(origin) = &source.browse_selection else {
+            continue;
+        };
+        let successful_removal = logs.iter().any(|log| {
+            transfer_target_key(Path::new(&log.path_before))
+                == transfer_target_key(Path::new(&source.ticket.path))
+                && log.status == "success"
+                && matches!(
+                    log.operation_type.as_str(),
+                    "move" | "move_to_trash" | "move_to_system_trash"
+                )
+        });
+        groups
+            .entry((origin.session_id.clone(), origin.snapshot_id.clone()))
+            .or_default()
+            .push(BrowseSelectionCompletion {
+                path: origin.path.clone(),
+                identity: origin.identity.clone(),
+                removed: successful_removal,
+            });
+    }
+    for ((session_id, snapshot_id), completed) in groups {
+        // The next page call performs the same full identity check and reports
+        // a stale snapshot if an outside change raced with this journal batch.
+        let _ = runtime.inner.browse.complete_selection_snapshot_batch(
+            &session_id,
+            &snapshot_id,
+            &completed,
+        );
+    }
 }
 
 pub(crate) fn directory_tree_snapshot(root: &Path) -> Result<String, String> {
@@ -1785,7 +2569,7 @@ pub(crate) async fn execute_registered<R: Runtime>(
     let app_data_dir = app.path().app_data_dir().ok();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        let request = runtime.take_transfer(request)?;
+        let (request, selection_sources) = runtime.take_transfer_with_sources(request)?;
         let paths = request
             .operations
             .iter()
@@ -1793,7 +2577,7 @@ pub(crate) async fn execute_registered<R: Runtime>(
             .collect::<Vec<_>>();
         let db = &runtime.inner.database;
         let emitter = TauriOperationProgressEmitter::new(app.clone());
-        reconciliation::with_reconciliation_wake(&app, db, &paths, || {
+        let result = reconciliation::with_reconciliation_wake(&app, db, &paths, || {
             execute_moves_with_persistence_with_progress_and_app_data(
                 db,
                 request,
@@ -1802,10 +2586,340 @@ pub(crate) async fn execute_registered<R: Runtime>(
                 app_data_dir,
                 None,
             )
-        })
+        })?;
+        complete_browse_selection_batch(&runtime, &selection_sources, &result.logs);
+        Ok(result)
     })
     .await
     .map_err(|e| format!("transfer_execution_failed:{e}"))?
+}
+
+pub(crate) async fn create_zip_registered<R: Runtime>(
+    app: AppHandle<R>,
+    runtime: FileWorkspaceRuntime,
+    cancel: &OperationCancellationToken,
+    request: ZipCreateRequest,
+) -> Result<ExecuteMovesResult, String> {
+    let guard = cancel.begin()?;
+    let cancel_flag = Arc::clone(&cancel.cancel);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let sources = runtime.zip_sources(&request.ticket_ids)?;
+        let output = validate_target_path(Path::new(&request.output_path))?;
+        if !output
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+        {
+            return Err("zip_output_extension_required".into());
+        }
+        let output_path = normalize_path(&output);
+        let source_path = normalize_path(&sources[0].path);
+        let source_names = sources
+            .iter()
+            .map(|source| {
+                source
+                    .path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("item")
+            })
+            .collect::<Vec<_>>();
+        let source_summary = if source_names.len() == 1 {
+            source_names[0].to_string()
+        } else {
+            format!("{} ({} items)", source_names[0], source_names.len())
+        };
+        let batch_id = new_job_id("operation-batch");
+        let created_at = current_timestamp_ms().to_string();
+        let mut log = make_archive_operation_log(
+            &batch_id,
+            &created_at,
+            "zip_create",
+            source_path,
+            output_path.clone(),
+            source_summary,
+            Path::new(&output_path)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("archive.zip")
+                .to_string(),
+        );
+        apply_source_fingerprint(&mut log, &sources[0].identity);
+        let db = &runtime.inner.database;
+        db.save_operation_logs(&batch_id, std::slice::from_ref(&log))
+            .map_err(|error| format!("zip_history_prepare_failed:{error}"))?;
+        let paths = sources
+            .iter()
+            .map(|source| normalize_path(&source.path))
+            .chain(std::iter::once(output_path.clone()))
+            .collect::<Vec<_>>();
+        let emitter = TauriOperationProgressEmitter::new(app.clone());
+        emit_zip_progress(
+            &emitter,
+            &batch_id,
+            archive::ZipProgress {
+                phase: "preparing".into(),
+                ..Default::default()
+            },
+        );
+        let mut last_progress_at = std::time::Instant::now();
+        let result = reconciliation::with_reconciliation_wake(&app, db, &paths, || {
+            archive::create_zip(
+                &sources,
+                &output,
+                request.compression_level,
+                &cancel_flag,
+                |progress| {
+                    if zip_progress_is_due(&progress, last_progress_at) {
+                        emit_zip_progress(&emitter, &batch_id, progress);
+                        last_progress_at = std::time::Instant::now();
+                    }
+                },
+            )
+        });
+        match result {
+            Ok(output) => {
+                emit_terminal_zip_progress(&emitter, &batch_id, "completed");
+                if let Ok(output_identity) = file_namespace_fingerprint(&output) {
+                    apply_target_fingerprint(&mut log, &output_identity);
+                }
+                log.status = "success".into();
+                log.operation_phase = "completed".into();
+                log.path_after = normalize_path(&output);
+                log.target_path = log.path_after.clone();
+                log.error_message = None;
+                db.save_operation_logs(&batch_id, std::slice::from_ref(&log))
+                    .map_err(|error| {
+                        format!("zip_history_finalize_failed:{}:{error}", log.path_after)
+                    })?;
+                Ok(ExecuteMovesResult {
+                    logs: vec![log],
+                    batch_id,
+                })
+            }
+            Err(error) => {
+                emit_terminal_zip_progress(&emitter, &batch_id, "failed");
+                log.status = "failed".into();
+                log.operation_phase = if error == "transfer_cancelled" {
+                    "rolled_back".into()
+                } else {
+                    "completed".into()
+                };
+                log.error_message = Some(error.clone());
+                db.save_operation_logs(&batch_id, std::slice::from_ref(&log))
+                    .map_err(|save_error| {
+                        format!("{error}; zip_history_finalize_failed:{save_error}")
+                    })?;
+                Err(error)
+            }
+        }
+    })
+    .await
+    .map_err(|error| format!("zip_create_task_failed:{error}"))?
+}
+
+pub(crate) async fn extract_zip_registered<R: Runtime>(
+    app: AppHandle<R>,
+    runtime: FileWorkspaceRuntime,
+    cancel: &OperationCancellationToken,
+    request: ZipExtractRequest,
+) -> Result<ExecuteMovesResult, String> {
+    let guard = cancel.begin()?;
+    let cancel_flag = Arc::clone(&cancel.cancel);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let source = runtime.zip_source(&request.ticket_id)?;
+        let same_name_target = matches!(request.target, ZipExtractTarget::SameNameFolder);
+        let destination = match request.target {
+            ZipExtractTarget::Here => archive::validate_destination_directory(
+                source.path.parent().ok_or("zip_archive_parent_invalid")?,
+            )?,
+            ZipExtractTarget::SameNameFolder => archive::same_name_extract_path(&source.path)?,
+            ZipExtractTarget::ChosenDirectory => {
+                archive::validate_destination_directory(Path::new(
+                    request
+                        .destination_directory
+                        .as_deref()
+                        .ok_or("zip_destination_directory_required")?,
+                ))?
+            }
+        };
+        let source_path = normalize_path(&source.path);
+        let destination_path = normalize_path(&destination);
+        let name = source
+            .path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or("zip_archive_name_invalid")?
+            .to_string();
+        let batch_id = new_job_id("operation-batch");
+        let created_at = current_timestamp_ms().to_string();
+        let mut log = make_archive_operation_log(
+            &batch_id,
+            &created_at,
+            "zip_extract",
+            source_path.clone(),
+            destination_path.clone(),
+            name,
+            destination
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("folder")
+                .to_string(),
+        );
+        apply_source_fingerprint(&mut log, &source.identity);
+        let db = &runtime.inner.database;
+        db.save_operation_logs(&batch_id, std::slice::from_ref(&log))
+            .map_err(|error| format!("zip_history_prepare_failed:{error}"))?;
+        let paths = vec![source_path, destination_path.clone()];
+        let emitter = TauriOperationProgressEmitter::new(app.clone());
+        emit_zip_progress(
+            &emitter,
+            &batch_id,
+            archive::ZipProgress {
+                phase: "preparing".into(),
+                ..Default::default()
+            },
+        );
+        let mut last_progress_at = std::time::Instant::now();
+        let mut same_name_directory_created = false;
+        let result = reconciliation::with_reconciliation_wake(&app, db, &paths, || {
+            if same_name_target {
+                same_name_directory_created = archive::ensure_extract_destination(&destination)?;
+                archive::validate_destination_directory(&destination)?;
+            }
+            archive::extract_zip(
+                &source.path,
+                &source.identity,
+                &destination,
+                request.conflict_policy,
+                &cancel_flag,
+                |progress| {
+                    if zip_progress_is_due(&progress, last_progress_at) {
+                        emit_zip_progress(&emitter, &batch_id, progress);
+                        last_progress_at = std::time::Instant::now();
+                    }
+                },
+            )
+        });
+        let result = match result {
+            Err(error)
+                if same_name_directory_created && !error.starts_with("zip_extract_partial:") =>
+            {
+                Err(format!(
+                    "zip_extract_partial:destination_folder_created:{error}"
+                ))
+            }
+            result => result,
+        };
+        match result {
+            Ok(_) => {
+                emit_terminal_zip_progress(&emitter, &batch_id, "completed");
+                log.status = "success".into();
+                log.operation_phase = "completed".into();
+                log.error_message = None;
+                db.save_operation_logs(&batch_id, std::slice::from_ref(&log))
+                    .map_err(|error| {
+                        format!("zip_history_finalize_failed:{}:{error}", log.path_after)
+                    })?;
+                Ok(ExecuteMovesResult {
+                    logs: vec![log],
+                    batch_id,
+                })
+            }
+            Err(error) => {
+                emit_terminal_zip_progress(&emitter, &batch_id, "failed");
+                log.status = "failed".into();
+                log.operation_phase = if error.starts_with("zip_extract_partial:") {
+                    "manual_review".into()
+                } else {
+                    "rolled_back".into()
+                };
+                log.error_message = Some(error.clone());
+                db.save_operation_logs(&batch_id, std::slice::from_ref(&log))
+                    .map_err(|save_error| {
+                        format!("{error}; zip_history_finalize_failed:{save_error}")
+                    })?;
+                Err(error)
+            }
+        }
+    })
+    .await
+    .map_err(|error| format!("zip_extract_task_failed:{error}"))?
+}
+
+fn make_archive_operation_log(
+    batch_id: &str,
+    created_at: &str,
+    operation_type: &str,
+    source_path: String,
+    target_path: String,
+    old_name: String,
+    new_name: String,
+) -> OperationLogDto {
+    let operation = OperationPreviewRequest {
+        id: new_job_id(operation_type),
+        file_id: super::RECOVERY_ACTION_FILE_ID.into(),
+        operation_type: operation_type.into(),
+        source_path,
+        target_path: target_path.clone(),
+        old_name: old_name.clone(),
+        new_name,
+        is_executable: Some(true),
+    };
+    let mut log = make_operation_log(
+        batch_id,
+        created_at,
+        0,
+        &operation,
+        "pending",
+        None,
+        target_path,
+    );
+    log.can_undo = false;
+    log.can_restore = false;
+    log.restore_status = "not_restored".into();
+    log.operation_phase = "prepared".into();
+    log
+}
+
+fn emit_zip_progress(
+    emitter: &impl OperationProgressEmitter,
+    batch_id: &str,
+    progress: archive::ZipProgress,
+) {
+    emitter.emit_progress(OperationProgressPayload {
+        kind: "execute".into(),
+        batch_id: batch_id.to_string(),
+        processed: progress.processed_bytes,
+        total: progress.total_bytes,
+        current_path: progress.current_path,
+        phase: Some(progress.phase),
+        processed_items: Some(progress.processed_items),
+        total_items: Some(progress.total_items),
+        processed_bytes: Some(progress.processed_bytes),
+        total_bytes: Some(progress.total_bytes),
+    });
+}
+
+fn zip_progress_is_due(progress: &archive::ZipProgress, last_emit: std::time::Instant) -> bool {
+    progress.processed_items >= progress.total_items
+        || last_emit.elapsed() >= std::time::Duration::from_millis(200)
+}
+
+fn emit_terminal_zip_progress(
+    emitter: &impl OperationProgressEmitter,
+    batch_id: &str,
+    phase: &str,
+) {
+    emit_zip_progress(
+        emitter,
+        batch_id,
+        archive::ZipProgress {
+            phase: phase.to_string(),
+            ..Default::default()
+        },
+    );
 }
 
 #[cfg(test)]

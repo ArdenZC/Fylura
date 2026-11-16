@@ -15,6 +15,7 @@ const defaultFormatSettingsError = (error: unknown) => readableError(error);
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   closeBehavior: "ask",
   folderNamingLanguage: "en",
+  deleteDestination: "fylura_trash",
   defaultScanFolders: [],
   restoreRetentionDays: 30,
   launchAtLogin: false,

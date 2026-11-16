@@ -12,7 +12,7 @@ import {
   restoreIntentMatchesResolution,
   restoreEligibility,
   reconcileRestorableOperationSelection,
-  latestUndoBatch,
+  operationBatchUndoEligibility,
   selectionForOperationBatch
 } from "../src/views/history/historyModel";
 
@@ -112,13 +112,17 @@ describe("history restore truth model", () => {
     expect(resolveHistoryBatchState([log("first"), log("failed", { status: "failed", can_restore: false })])).toBe("partial");
   });
 
-  it("uses only the latest operation batch for one-step undo", () => {
-    const older = log("older", { batch_id: "older", created_at: "1710000000000" });
-    const latest = log("latest", { batch_id: "latest", created_at: "1710000001000" });
-    const latestSecond = log("latest-second", { batch_id: "latest", created_at: "1710000001000", can_restore: false });
-    expect(latestUndoBatch([older, latest, latestSecond]).map((item) => item.id)).toEqual(["latest", "latest-second"]);
-    const nonRestorable = log("latest-unsafe", { batch_id: "unsafe", created_at: "1710000002000", can_restore: false });
-    expect(latestUndoBatch([older, latest, nonRestorable]).map((item) => item.id)).toEqual(["latest-unsafe"]);
+  it("permits shortcut undo only for a complete, wholly restorable operation batch", () => {
+    const first = log("latest", { batch_id: "latest" });
+    const second = log("latest-second", { batch_id: "latest" });
+    const complete = { batch_id: "latest", expected_count: 2, actual_count: 2, is_complete: true, logs: [first, second] };
+    expect(operationBatchUndoEligibility(complete)).toEqual({ executable: true, reason: null, blockedCount: 0 });
+    expect(operationBatchUndoEligibility({ ...complete, is_complete: false })).toEqual({ executable: false, reason: "incomplete", blockedCount: 0 });
+
+    const blocked = { ...second, can_restore: false };
+    expect(operationBatchUndoEligibility({ ...complete, logs: [first, blocked] })).toEqual({ executable: false, reason: "unrestorable", blockedCount: 1 });
+    const restored: OperationLog = { ...first, can_restore: false, restore_status: "restored" };
+    expect(operationBatchUndoEligibility({ ...complete, logs: [restored, second] })).toEqual({ executable: false, reason: "unrestorable", blockedCount: 1 });
   });
 
   it("keeps pending and explicit no-op states distinct from generic skipped work", () => {

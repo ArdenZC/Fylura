@@ -61,7 +61,13 @@ pub(crate) fn execute_preview_operation_with_app_data(
         ))
     } else {
         match operation.operation_type.as_str() {
-            "copy" | "move" | "rename" | "move_to_trash" | "create_directory" | "create_file"
+            "copy"
+            | "move"
+            | "rename"
+            | "move_to_trash"
+            | "move_to_system_trash"
+            | "create_directory"
+            | "create_file"
                 if operation.id.starts_with("op-transfer-") =>
             {
                 manual_transfer::execute(operation, context)
@@ -124,6 +130,13 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 &operation.id,
                 context.phase_observer,
                 context.actual_path_observer,
+            ),
+            "move_to_system_trash" => move_to_system_trash_with_safety(
+                operation.source_path.clone(),
+                context.app_data_dir,
+                context.expected_identity,
+                context.cancel_flag,
+                context.phase_observer,
             ),
             other => Err(FileMutationError::Validation(format!(
                 "Unsupported operation type: {other}"

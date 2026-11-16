@@ -167,6 +167,26 @@ fn table_snapshot(conn: &Connection, table: &str) -> Vec<Vec<String>> {
         .expect("collect legacy table snapshot")
 }
 
+fn legacy_operation_batch_snapshot(conn: &Connection) -> Vec<(String, i64, String)> {
+    let mut statement = conn
+        .prepare("SELECT id, created_at, status FROM operation_batches ORDER BY rowid")
+        .expect("prepare legacy operation batch snapshot");
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .expect("query legacy operation batches")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect legacy operation batch snapshot")
+}
+
+fn operation_batches_columns(conn: &Connection) -> Vec<String> {
+    conn.prepare("PRAGMA table_info(operation_batches)")
+        .expect("inspect operation batch columns")
+        .query_map([], |row| row.get(1))
+        .expect("query operation batch columns")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect operation batch columns")
+}
+
 fn full_schema_snapshot(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
     let mut statement = conn
         .prepare(
@@ -324,6 +344,7 @@ fn schema37_legacy_schema_snapshot(
             !p0_names.contains(&name.as_str())
                 && !source_writer_names.contains(&name.as_str())
                 && !schema42_identities.contains(&(kind.as_str(), name.as_str(), table.as_str()))
+                && !(kind == "table" && name == "operation_batches")
         })
         .collect()
 }
@@ -409,6 +430,18 @@ fn seed_legacy_contract_rows(conn: &Connection) {
             '/legacy/source.txt', '/legacy/target.txt', 'source.txt', 'target.txt',
             'success', 100, '/legacy/source.txt', '/legacy/target.txt',
             'source.txt', 'target.txt'
+        );
+        INSERT INTO operation_batches (id, created_at, status)
+        VALUES ('legacy-pruned-operation-batch', 100, 'completed');
+        INSERT INTO operation_logs (
+            id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+            status, created_at, path_before, path_after, name_before, name_after
+        ) VALUES (
+            'legacy-pruned-operation-log', 'legacy-pruned-operation-batch', 'move',
+            '/legacy/pruned-source.txt', '/legacy/pruned-target.txt',
+            'pruned-source.txt', 'pruned-target.txt', 'success', 200,
+            '/legacy/pruned-source.txt', '/legacy/pruned-target.txt',
+            'pruned-source.txt', 'pruned-target.txt'
         );
         INSERT INTO organization_plans (
             id, title, status, source_kind, source_snapshot_revision,
@@ -1651,6 +1684,11 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     drop(db);
     let conn = Connection::open(&path).expect("seed schema 37 preservation fixture");
     drop_schema42_for_historical_fixture(&conn);
+    conn.execute_batch(
+        "ALTER TABLE operation_batches DROP COLUMN is_complete;
+         ALTER TABLE operation_batches DROP COLUMN item_count;",
+    )
+    .expect("restore pre-schema-48 operation batch columns");
     seed_legacy_contract_rows(&conn);
     drop_identity_foundation(&conn, 37);
 
@@ -1666,7 +1704,6 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
         "content_run_items",
         "content_artifacts",
         "content_catalog",
-        "operation_batches",
         "operation_logs",
         "organization_plans",
         "organization_plan_items",
@@ -1675,6 +1712,7 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
         .iter()
         .map(|table| (*table, table_snapshot(&conn, table)))
         .collect::<Vec<_>>();
+    let before_operation_batches = legacy_operation_batch_snapshot(&conn);
     let before_schema = schema37_legacy_schema_snapshot(&conn);
     let before_fts = fts_rows_matching(&conn, "migrationtoken");
     assert_eq!(before_fts.len(), 1);
@@ -1696,6 +1734,43 @@ fn p0_t02_schema_37_migration_preserves_representative_legacy_user_facts_and_fts
     for (table, expected) in before_rows {
         assert_eq!(table_snapshot(&conn, table), expected, "{table} changed");
     }
+    assert_eq!(
+        legacy_operation_batch_snapshot(&conn),
+        before_operation_batches,
+        "legacy operation batch facts changed"
+    );
+    assert_eq!(
+        operation_batches_columns(&conn),
+        ["id", "created_at", "status", "item_count", "is_complete"]
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT item_count FROM operation_batches WHERE id = 'legacy-operation-batch'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .expect("read backfilled legacy operation batch count"),
+        1
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT is_complete FROM operation_batches WHERE id = 'legacy-operation-batch'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .expect("read verified legacy operation batch completeness"),
+        1
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT item_count, is_complete FROM operation_batches \
+             WHERE id = 'legacy-pruned-operation-batch'",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        )
+        .expect("read safely classified legacy pruned batch"),
+        (1, 0)
+    );
     assert_eq!(schema37_legacy_schema_snapshot(&conn), before_schema);
     assert_schema42_signatures_and_dormant_state(&conn);
     assert_eq!(fts_rows_matching(&conn, "migrationtoken"), before_fts);

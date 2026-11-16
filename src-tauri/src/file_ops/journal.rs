@@ -126,7 +126,7 @@ pub(crate) fn persist_pending_operation_journal(
             })?;
             let needs_source_claim = !matches!(
                 operation.operation_type.as_str(),
-                "copy" | "duplicate" | "create_directory" | "create_file"
+                "copy" | "duplicate" | "create_directory" | "create_file" | "move_to_system_trash"
             );
             let claim_path = needs_source_claim
                 .then(|| {
@@ -212,7 +212,7 @@ fn ensure_macos_mutation_eligible_before_journal(
     // sentinel target as a path.
     let target_parent = if matches!(
         operation.operation_type.as_str(),
-        "move_to_trash" | "permanent_delete"
+        "move_to_trash" | "move_to_system_trash" | "permanent_delete"
     ) {
         source
             .parent()
@@ -299,8 +299,8 @@ pub(crate) fn make_operation_log(
     actual_target_path: String,
 ) -> OperationLogDto {
     let success = status == "success";
-    let trash_operation = operation.operation_type == "move_to_trash";
-    let system_trash = trash_operation && actual_target_path == "Recycle Bin";
+    let system_trash = operation.operation_type == "move_to_system_trash"
+        || operation.operation_type == "move_to_trash" && actual_target_path == "Recycle Bin";
     let source_preserving_copy = matches!(operation.operation_type.as_str(), "copy" | "duplicate");
     let irreversible_operation = operation.operation_type == "permanent_delete";
     let can_restore = success

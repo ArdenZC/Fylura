@@ -38,6 +38,7 @@ import "./browseMode.css";
 export function BrowseMode() {
   const query = usePaneQuerySelector();
   const pane = usePane();
+  const currentPath = pane?.routingHint ?? "";
   const [breadcrumbHost, setBreadcrumbHost] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => { setBreadcrumbHost(pane ? document.getElementById(`wb-crumbs-${pane.id}`) : null); }, [pane?.id]);
   const { controller, state } = useFileLibraryExperience();
@@ -49,7 +50,7 @@ export function BrowseMode() {
     catch { return false; }
   });
   const { platform } = useCommandContext();
-  const source = useBrowseSourceOwner({ controller, state, t, platform });
+  const source = useBrowseSourceOwner({ controller, state, t, platform, showHidden });
   useBrowseManagementSurface(source);
   // Keep row geometry stable between the two clicks of a double-click.
   useEffect(() => setRevealError(null), [source.sessionId, source.currentPathRef?.id]);
@@ -92,7 +93,7 @@ export function BrowseMode() {
     ...source,
     entries: visibleEntries,
     collection: visibleCollection,
-    selectAllLoaded: () => source.selectIds(visibleEntries.map((entry) => entry.entryRef.entryId)),
+    selectCurrentPage: source.selectCurrentPage,
     invertSelection: () => source.selectIds(visibleEntries
       .filter((entry) => !source.selectedIds.has(entry.entryRef.entryId))
       .map((entry) => entry.entryRef.entryId)),
@@ -101,15 +102,12 @@ export function BrowseMode() {
 
   const changeHiddenVisibility = useCallback((next: boolean) => {
     try { window.localStorage.setItem("fylura.files.showHidden", String(next)); } catch { /* Display preference remains usable for this session. */ }
+    source.clearSelection();
     if (!next) {
-      const visibleSelection = source.entries
-        .filter((entry) => !entry.isHidden && source.selectedIds.has(entry.entryRef.entryId))
-        .map((entry) => entry.entryRef.entryId);
-      source.selectIds(visibleSelection);
       if (source.entries.some((entry) => entry.isHidden && entry.entryRef.entryId === source.focusedId)) source.setFocusedId(null);
     }
     setShowHidden(next);
-  }, [source.entries, source.focusedId, source.selectIds, source.selectedIds, source.setFocusedId]);
+  }, [source.clearSelection, source.entries, source.focusedId, source.setFocusedId]);
   const focusedPreviewSource = useMemo(() => {
     const entry = source.entries.find((item) => item.entryRef.entryId === source.focusedId);
     if (!showHidden && entry?.isHidden) return null;
@@ -303,8 +301,9 @@ export function BrowseMode() {
         : null;
   const selectionText = source.selectedCount === 0
     ? t("browseSelectionNone")
-    : t("browseSelectionLoaded").replace("{count}", String(source.selectedCount));
-
+    : source.directorySelection
+      ? t("browseSelectionDirectory").replace("{count}", source.selectedCount.toLocaleString())
+      : t("browseSelectionLoaded").replace("{count}", String(source.selectedCount));
   function handleListEscape() {
     if (contextMenu) {
       closeContextMenu("escape");
@@ -367,6 +366,16 @@ export function BrowseMode() {
       label: t(action === "basket" ? "fmAddBasket" : action === "copy" ? "fmCopy" : action === "cut" ? "fmCut" : action === "paste" ? "fmPaste" : "fmMove"),
       action: () => { closeContextMenu(action === "paste" || action === "move" ? "dialog-handoff" : "action"); useFileManagementStore.getState().requestAction(action); }
     })),
+    { label: t("fmCompressSelection"), action: () => {
+      source.selectEntry(contextMenu.entry.entryRef.entryId, "replace");
+      closeContextMenu("dialog-handoff");
+      requestAnimationFrame(() => useFileManagementStore.getState().requestAction("zip_create"));
+    } },
+    ...(contextMenu.entry.entryKind === "file" && /\.zip$/i.test(contextMenu.entry.displayName) ? [{ label: t("fmExtractZip"), action: () => {
+      source.selectEntry(contextMenu.entry.entryRef.entryId, "replace");
+      closeContextMenu("dialog-handoff");
+      requestAnimationFrame(() => useFileManagementStore.getState().requestAction("zip_extract"));
+    } }] : []),
     {
       label: t("fmRename"),
       action: () => {
@@ -380,6 +389,13 @@ export function BrowseMode() {
       action: () => {
         closeContextMenu("dialog-handoff");
         requestAnimationFrame(() => useFileManagementStore.getState().requestAction("trash"));
+      }
+    },
+    {
+      label: t("fmSystemDelete"),
+      action: () => {
+        closeContextMenu("dialog-handoff");
+        requestAnimationFrame(() => useFileManagementStore.getState().requestAction("system_trash"));
       }
     },
     {
@@ -398,14 +414,17 @@ export function BrowseMode() {
     }
   ];
   const backgroundContextItems = backgroundMenu === null ? [] : [
+    { label: t("fmPaste"), action: () => { setBackgroundMenu(null); useFileManagementStore.getState().requestAction("paste"); } },
     { label: t("fmNewFile"), action: () => { setBackgroundMenu(null); useFileManagementStore.getState().requestAction("create_file"); } },
     { label: t("fmNewFolder"), action: () => {
       setBackgroundMenu(null);
       useFileManagementStore.getState().requestAction("create_directory");
     } },
-    { label: t("fmSelectLoaded"), action: () => { source.selectAllLoaded(); setBackgroundMenu(null); } },
+    { label: t("fmSelectPageCount").replace("{count}", source.currentPageCount.toLocaleString()), action: () => { source.selectCurrentPage(); setBackgroundMenu(null); } },
+    { label: t("fmSelectDirectory"), action: () => { source.selectAllDirectory(); setBackgroundMenu(null); } },
     { label: t("fmInvertSelection"), action: () => { source.invertSelection(); setBackgroundMenu(null); } },
     { label: t("fmClearSelection"), action: () => { source.clearSelection(); setBackgroundMenu(null); } },
+    ...(currentPath ? [{ label: t("fmCopyPath"), action: () => { const path = currentPath; setBackgroundMenu(null); void copyTextToClipboard(path); } }] : []),
     { label: t("browseRefresh"), action: () => { setBackgroundMenu(null); void source.refreshEnumeration(); } }
   ];
   const navigateUp = () => {
@@ -626,7 +645,7 @@ export function BrowseMode() {
         loadedCount={source.loadedCount}
         totalCount={source.knownCount}
         selectionCount={source.selectedCount}
-        selectionScope={source.selectedCount === 0 ? "none" : "loaded"}
+        selectionScope={source.selectedCount === 0 ? "none" : source.directorySelection ? "directory" : "loaded"}
         selectedSize={selectedSize}
         statusText={[changeStatusText ?? statusText].filter(Boolean).join(" · ")}
         sourceText={`${source.browse.location.displayName} · ${completion === "complete" ? t("browseEnumerationCompleteShort") : t("browseEnumerationPartialShort")}`}

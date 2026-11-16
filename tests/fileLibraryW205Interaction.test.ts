@@ -91,6 +91,7 @@ function browseSource(entries: ReturnType<typeof adaptBrowseEntry>[], overrides:
     loadNextPage: vi.fn(async () => undefined),
     selectEntry: vi.fn(),
     selectAllLoaded: vi.fn(),
+    selectAllDirectory: vi.fn(),
     clearSelection: vi.fn(),
     setFocusedId: vi.fn(),
     ...overrides
@@ -155,7 +156,7 @@ describe("W2-05 interaction convergence", () => {
     expect(library.source).toBe("library");
     expect(library.capabilities.selectAll).toBe("all_matching");
     expect(browse.source).toBe("browse");
-    expect(browse.capabilities.selectAll).toBe("loaded");
+    expect(browse.capabilities.selectAll).toBe("all_matching");
     expect(library.entryAt(0)?.source).toBe("library");
     expect(browse.entryAt(0)?.source).toBe("browse");
     expect(selectionIntentFromModifiers({ shiftKey: true, metaKey: false, ctrlKey: false })).toBe("range");
@@ -177,7 +178,7 @@ describe("W2-05 interaction convergence", () => {
     expect(projection.entryAt(99_999)).toBeUndefined();
   });
 
-  it("routes Browse Select All to loaded entries only and preserves source-local range/toggle", () => {
+  it("routes Browse Ctrl/Cmd+A to the directory scope and preserves source-local range/toggle", () => {
     const entries = ["browse-1", "browse-2", "browse-3"].map((id) => adaptBrowseEntry(browseEntry(id)));
     const source = browseSource(entries, { hasMore: true, enumerationState: "partial" });
     const projection = createBrowseInteractionProjection(source);
@@ -187,7 +188,7 @@ describe("W2-05 interaction convergence", () => {
     projection.actions.select(entries[1]!, 1, "toggle");
     projection.actions.select(entries[2]!, 2, "range");
 
-    expect(source.selectAllLoaded).toHaveBeenCalledTimes(1);
+    expect(source.selectAllDirectory).toHaveBeenCalledTimes(1);
     expect(source.selectEntry).toHaveBeenNthCalledWith(1, "browse-2", "toggle");
     expect(source.selectEntry).toHaveBeenNthCalledWith(2, "browse-3", "range");
   });

@@ -452,6 +452,65 @@ pub(crate) fn move_to_trash_with_safety(
     })
 }
 
+pub(crate) fn move_to_system_trash_with_safety(
+    source_path: String,
+    app_data_dir: Option<&Path>,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    cancel_flag: Option<&AtomicBool>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<FileOperationResult, FileMutationError> {
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = (
+            source_path,
+            app_data_dir,
+            expected_identity,
+            cancel_flag,
+            phase_observer,
+        );
+        Err(FileMutationError::Validation(
+            "system_trash_unsupported_on_platform".into(),
+        ))
+    }
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
+        ensure_general_file_operation_allowed(&source)?;
+        if cancel_flag.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+            return Err(FileMutationError::Atomic(
+                crate::fs_safety::AtomicMoveError::Cancelled,
+            ));
+        }
+        if let Some(expected) = expected_identity {
+            let actual = crate::fs_safety::capture_identity(&source, cancel_flag)
+                .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+            if !crate::fs_safety::identity_matches(expected, &actual) {
+                return Err(FileMutationError::Validation(
+                    "operation_preview_stale".into(),
+                ));
+            }
+        }
+        trash::delete(&source).map_err(|error| {
+            FileMutationError::Validation(format!("system_trash_failed: {error}"))
+        })?;
+        if let Some(observer) = phase_observer {
+            observer(crate::fs_safety::FileOperationEvent::Phase(
+                "target_committed".to_string(),
+            ))
+            .map_err(FileMutationError::Atomic)?;
+        }
+        Ok(FileOperationResult {
+            operation: "move_to_system_trash".into(),
+            source_path: normalize_path(&source),
+            target_path: if cfg!(target_os = "windows") {
+                "System Recycle Bin".into()
+            } else {
+                "System Trash".into()
+            },
+        })
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn copy_file_with_identity(
     source_path: String,
@@ -1120,4 +1179,37 @@ pub(crate) fn general_file_operation_protected_roots_for_os(os: &str) -> Vec<Pat
     }
 
     roots
+}
+
+#[cfg(all(test, not(any(target_os = "windows", target_os = "macos"))))]
+mod unsupported_system_trash_tests {
+    use super::move_to_system_trash_with_safety;
+    use crate::ids::new_job_id;
+
+    #[test]
+    fn unsupported_system_trash_fails_without_removing_the_source() {
+        let path = std::env::temp_dir().join(format!(
+            "fylura-system-trash-unsupported-{}.txt",
+            new_job_id("test")
+        ));
+        std::fs::write(&path, "preserve me").expect("write fixture");
+
+        let error = move_to_system_trash_with_safety(
+            path.to_string_lossy().into_owned(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect_err("unsupported platform must fail closed");
+
+        assert!(error
+            .to_string()
+            .contains("system_trash_unsupported_on_platform"));
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("source remains"),
+            "preserve me"
+        );
+        std::fs::remove_file(path).expect("cleanup fixture");
+    }
 }

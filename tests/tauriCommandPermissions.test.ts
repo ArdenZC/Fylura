@@ -201,8 +201,17 @@ const explicitContracts: CommandContract[] = [
       "file_workspace_eject_volume",
       "file_workspace_native_drag_out",
       "file_workspace_transfer_capture",
+      "file_workspace_transfer_capture_selection_page",
+      "file_workspace_basket_add",
+      "file_workspace_basket_page",
+      "file_workspace_basket_capture",
+      "file_workspace_basket_remove",
+      "file_workspace_basket_clear",
+      "file_workspace_basket_reconcile_moves",
       "file_workspace_transfer_preview",
       "file_workspace_transfer_execute",
+      "file_workspace_zip_create",
+      "file_workspace_zip_extract",
       "file_workspace_places",
       "file_workspace_browse_open",
       "file_workspace_browse_reveal",
@@ -210,6 +219,8 @@ const explicitContracts: CommandContract[] = [
       "file_workspace_browse_restore",
       "file_workspace_location_browse",
       "file_workspace_browse_start_enumeration",
+      "file_workspace_browse_selection_snapshot_create",
+      "file_workspace_browse_selection_snapshot_release",
       "file_workspace_browse_next_page",
       "file_workspace_browse_cancel_enumeration",
       "file_workspace_browse_release_page",
@@ -269,6 +280,9 @@ const explicitContracts: CommandContract[] = [
     "get_operation_previews_for_selection",
     "get_stats_summary",
     "get_operation_logs",
+    "get_operation_batch",
+    "get_latest_operation_batch",
+    "get_operation_logs_by_ids",
     "get_rule_catalog_state",
     "list_user_rules_v2",
   ]),
@@ -673,8 +687,17 @@ describe("Tauri command permission contract", () => {
       "file_workspace_eject_volume",
       "file_workspace_native_drag_out",
       "file_workspace_transfer_capture",
+      "file_workspace_transfer_capture_selection_page",
+      "file_workspace_basket_add",
+      "file_workspace_basket_page",
+      "file_workspace_basket_capture",
+      "file_workspace_basket_remove",
+      "file_workspace_basket_clear",
+      "file_workspace_basket_reconcile_moves",
       "file_workspace_transfer_preview",
       "file_workspace_transfer_execute",
+      "file_workspace_zip_create",
+      "file_workspace_zip_extract",
       "file_workspace_places",
       "file_workspace_browse_open",
       "file_workspace_browse_reveal",
@@ -682,6 +705,8 @@ describe("Tauri command permission contract", () => {
       "file_workspace_browse_restore",
       "file_workspace_location_browse",
       "file_workspace_browse_start_enumeration",
+      "file_workspace_browse_selection_snapshot_create",
+      "file_workspace_browse_selection_snapshot_release",
       "file_workspace_browse_next_page",
       "file_workspace_browse_cancel_enumeration",
       "file_workspace_browse_release_page",
@@ -717,13 +742,13 @@ describe("Tauri command permission contract", () => {
       "file_workspace_preview_dispose",
     ]);
 
-    expect(commands).toHaveLength(35);
+    expect(commands).toHaveLength(46);
     for (const command of commands) {
       const parsed = functionBody(fileWorkspaceCommandsSource, command);
       expect(parsed, `${command} function body`).not.toBeNull();
       expect(fileWorkspaceCommandsSource).toMatch(new RegExp(`pub async fn ${command}\\b`));
-      if (command === "file_workspace_transfer_execute") {
-        expect(parsed?.body).toContain("execute_registered(");
+      if (["file_workspace_transfer_execute", "file_workspace_zip_create", "file_workspace_zip_extract"].includes(command)) {
+        expect(parsed?.body).toContain(command === "file_workspace_zip_create" ? "create_zip_registered(" : command === "file_workspace_zip_extract" ? "extract_zip_registered(" : "execute_registered(");
       } else if (directCancellationCommands.has(command) || directProjectionCommands.has(command)) {
         expect(parsed?.body).not.toContain("spawn_runtime(");
       } else {

@@ -445,6 +445,7 @@ function keyboardInteractionModel(source: "library" | "browse") {
     loadNextPage: async () => undefined,
     selectEntry: selectionCalls.select,
     selectAllLoaded: selectionCalls.selectAll,
+    selectAllDirectory: selectionCalls.selectAll,
     clearSelection: selectionCalls.clearSelection,
     setFocusedId: vi.fn((id: string | null) => {
       focusedId.value = id;

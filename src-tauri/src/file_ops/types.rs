@@ -121,6 +121,15 @@ pub struct OperationLogDto {
     pub restore_claim_full_hash: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct OperationLogBatchDto {
+    pub batch_id: String,
+    pub expected_count: usize,
+    pub actual_count: usize,
+    pub is_complete: bool,
+    pub logs: Vec<OperationLogDto>,
+}
+
 fn default_operation_phase() -> String {
     "completed".to_string()
 }

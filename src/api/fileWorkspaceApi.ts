@@ -11,6 +11,9 @@ import type {
   BrowseRetainPathRequest,
   BrowseRestoreRequest,
   BrowseSessionRequest,
+  BrowseSelectionSnapshotInfo,
+  BrowseSelectionSnapshotReleaseRequest,
+  BrowseSelectionSnapshotRequest,
   BrowseStartEnumerationRequest,
   ChangePendingRequest,
   ChangePendingResponse,
@@ -37,6 +40,8 @@ export interface FileWorkspaceApi {
   browseRestore(request: BrowseRestoreRequest): Promise<BrowseOpenResponse>;
   locationBrowse(request: LocationBrowseRequest): Promise<BrowseOpenResponse>;
   browseStartEnumeration(request: BrowseStartEnumerationRequest): Promise<BrowsePage>;
+  browseSelectionSnapshotCreate?(request: BrowseSelectionSnapshotRequest): Promise<BrowseSelectionSnapshotInfo>;
+  browseSelectionSnapshotRelease?(request: BrowseSelectionSnapshotReleaseRequest): Promise<void>;
   browseNextPage(request: BrowseNextPageRequest): Promise<BrowsePage>;
   browseCancel(request: BrowseCancelRequest): Promise<void>;
   browseReleasePage(request: BrowseReleasePageRequest): Promise<void>;
@@ -149,6 +154,8 @@ export const fileWorkspaceApi: FileWorkspaceApi = {
   browseRestore: (request) => command("file_workspace_browse_restore", request),
   locationBrowse: (request) => command("file_workspace_location_browse", request),
   browseStartEnumeration: (request) => command("file_workspace_browse_start_enumeration", request),
+  browseSelectionSnapshotCreate: (request) => command("file_workspace_browse_selection_snapshot_create", request),
+  browseSelectionSnapshotRelease: (request) => command("file_workspace_browse_selection_snapshot_release", request),
   browseNextPage: (request) => command("file_workspace_browse_next_page", request),
   browseCancel: (request) => command("file_workspace_browse_cancel_enumeration", request),
   browseReleasePage: (request) => command("file_workspace_browse_release_page", request),

@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory = $true)][string]$EvidencePath,
     [int]$FileCount = 100000,
     [int]$Repetitions = 3,
-    [ValidateSet(512, 1024, 2048, 4096, 8192)][int]$CandidatePersistBatch = 4096
+    [ValidateSet(512, 1024, 2048, 4096, 8192)][int]$CandidatePersistBatch = 2048
 )
 
 $ErrorActionPreference = 'Stop'

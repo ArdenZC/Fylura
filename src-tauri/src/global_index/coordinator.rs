@@ -1012,7 +1012,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
             );
             let staging_elapsed = staging_started.elapsed();
             self.write_timings
-                .entry(volume_id)
+                .entry(volume_id.clone())
                 .or_default()
                 .record_deferred(timing, staging_elapsed);
             match append_result {

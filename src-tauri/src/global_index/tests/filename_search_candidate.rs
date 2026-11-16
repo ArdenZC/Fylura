@@ -184,6 +184,16 @@ fn transient_filename_catalog_searches_before_rowids_and_respects_scope_fence() 
     assert!(!snapshot.index_status.collection_complete);
     assert_eq!(snapshot.index_status.processed_entries, 4);
     assert_eq!(snapshot.index_status.total_entries, 4);
+    let short_prefix = db
+        .search_global_entries_snapshot("tr", 20, 0)
+        .expect("two-character filename prefixes use compact postings");
+    assert_eq!(short_prefix.results.len(), 1);
+    assert_eq!(short_prefix.results[0].path, included.path);
+    let exact_name = db
+        .search_global_entries_snapshot("transient-report-budget.txt", 20, 0)
+        .expect("exact filename query uses compact prefix postings");
+    assert_eq!(exact_name.results.len(), 1);
+    assert_eq!(exact_name.results[0].path, included.path);
     assert!(
         crate::global_index::commands::filter_live_transient_search_results(
             &db,

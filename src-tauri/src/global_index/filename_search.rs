@@ -207,8 +207,19 @@ struct TransientFilenameCatalog {
     strings: PackedStrings,
     source_provider: u32,
     entries: Vec<TransientFilenameEntry>,
-    by_id: HashMap<[u8; 32], usize>,
-    by_name: BTreeMap<String, Vec<u32>>,
+    name_prefix_postings: usize,
+    filename_gram_postings: usize,
+    path_gram_postings: usize,
+    path_directory_postings: usize,
+    // Keep one compact key per ID. The full digest remains in the entry and
+    // the rare 64-bit hash collisions are stored in a correctness-preserving
+    // overflow map.
+    by_id: HashMap<u64, u32>,
+    by_id_collisions: HashMap<[u8; 32], u32>,
+    // Prefix postings replace a BTreeMap<String, Vec<_>> entry for every
+    // distinct filename. Each filename contributes at most three integer
+    // keys (one, two and three Unicode scalar values).
+    by_name_prefix: HashMap<u64, Vec<u32>>,
     by_extension: BTreeMap<String, Vec<u32>>,
     // Filename postings are append-only and validated against current text.
     by_filename_gram: HashMap<u64, Vec<u32>>,
@@ -297,16 +308,20 @@ impl FilenameSearchManager {
         let Some(digest) = transient_id_digest(entry_id) else {
             return false;
         };
+        let key = transient_id_hash(&digest);
         self.transient_catalogs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
             .any(|catalog| {
-                catalog
+                let catalog = catalog
                     .read()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                catalog
                     .by_id
-                    .contains_key(&digest)
+                    .get(&key)
+                    .is_some_and(|index| catalog.entries[*index as usize].id_digest == digest)
+                    || catalog.by_id_collisions.contains_key(&digest)
             })
     }
 
@@ -350,12 +365,17 @@ impl FilenameSearchManager {
                 strings,
                 source_provider,
                 by_id,
-                by_name,
+                by_id_collisions,
+                by_name_prefix,
+                name_prefix_postings,
                 by_extension,
                 by_filename_gram,
+                filename_gram_postings,
                 by_path_directory,
                 path_directories,
                 by_path_gram,
+                path_gram_postings,
+                path_directory_postings,
                 visible_unpersisted_entries,
                 ..
             } = &mut *catalog;
@@ -381,31 +401,36 @@ impl FilenameSearchManager {
                         path_directories,
                         by_path_directory,
                         by_path_gram,
+                        path_gram_postings,
                     )?
                 } else {
                     INVALID_TRANSIENT_STRING_ID
                 };
                 let value =
                     transient_filename_entry(strings, id, input, parent_directory_index, decision)?;
-                if let Some(index) = by_id.get(&id).copied() {
-                    let previous_visible = catalog_entries[index].visible;
-                    remove_transient_key(
-                        by_name,
-                        strings.get(catalog_entries[index].normalized_name as usize),
-                        index as u32,
-                    );
+                let id_hash = transient_id_hash(&id);
+                let index = by_id
+                    .get(&id_hash)
+                    .copied()
+                    .filter(|index| catalog_entries[*index as usize].id_digest == id)
+                    .or_else(|| by_id_collisions.get(&id).copied());
+                if let Some(index) = index {
+                    let index_usize = index as usize;
+                    let previous_visible = catalog_entries[index_usize].visible;
                     remove_transient_key(
                         by_extension,
-                        strings.get(catalog_entries[index].normalized_extension as usize),
-                        index as u32,
+                        strings.get(catalog_entries[index_usize].normalized_extension as usize),
+                        index,
                     );
-                    if catalog_entries[index].parent_directory_index != INVALID_TRANSIENT_STRING_ID
+                    if catalog_entries[index_usize].parent_directory_index
+                        != INVALID_TRANSIENT_STRING_ID
                     {
-                        path_directories[catalog_entries[index].parent_directory_index as usize]
+                        path_directories
+                            [catalog_entries[index_usize].parent_directory_index as usize]
                             .entries
-                            .retain(|candidate| *candidate != index as u32);
+                            .retain(|candidate| *candidate != index);
                     }
-                    catalog_entries[index] = value;
+                    catalog_entries[index_usize] = value;
                     if previous_visible && !visible {
                         *visible_unpersisted_entries =
                             visible_unpersisted_entries.saturating_sub(1);
@@ -413,70 +438,84 @@ impl FilenameSearchManager {
                         *visible_unpersisted_entries =
                             visible_unpersisted_entries.saturating_add(1);
                     }
-                    if catalog_entries[index].visible {
-                        insert_transient_key(
-                            by_name,
-                            strings
-                                .get(catalog_entries[index].normalized_name as usize)
-                                .to_owned(),
-                            index as u32,
-                        );
+                    if catalog_entries[index_usize].visible {
+                        for key in transient_name_prefix_keys(
+                            strings.get(catalog_entries[index_usize].normalized_name as usize),
+                        )
+                        .into_iter()
+                        .flatten()
+                        {
+                            by_name_prefix.entry(key).or_default().push(index);
+                            *name_prefix_postings = (*name_prefix_postings).saturating_add(1);
+                        }
                         insert_transient_key(
                             by_extension,
                             strings
-                                .get(catalog_entries[index].normalized_extension as usize)
+                                .get(catalog_entries[index_usize].normalized_extension as usize)
                                 .to_owned(),
-                            index as u32,
+                            index,
                         );
-                        if catalog_entries[index].parent_directory_index
+                        if catalog_entries[index_usize].parent_directory_index
                             != INVALID_TRANSIENT_STRING_ID
                         {
                             path_directories
-                                [catalog_entries[index].parent_directory_index as usize]
+                                [catalog_entries[index_usize].parent_directory_index as usize]
                                 .entries
-                                .push(index as u32);
+                                .push(index);
+                            *path_directory_postings = (*path_directory_postings).saturating_add(1);
                         }
                         for gram in transient_filename_grams(
-                            strings.get(catalog_entries[index].normalized_name as usize),
-                            strings.get(catalog_entries[index].normalized_extension as usize),
+                            strings.get(catalog_entries[index_usize].normalized_name as usize),
+                            strings.get(catalog_entries[index_usize].normalized_extension as usize),
                         ) {
-                            by_filename_gram.entry(gram).or_default().push(index as u32);
+                            by_filename_gram.entry(gram).or_default().push(index);
+                            *filename_gram_postings = (*filename_gram_postings).saturating_add(1);
                         }
                     }
                 } else {
-                    let index = catalog_entries.len();
-                    by_id.insert(id, index);
+                    let index_usize = catalog_entries.len();
+                    let index =
+                        u32::try_from(index_usize).map_err(|_| "transient_catalog_entry_limit")?;
+                    if by_id.contains_key(&id_hash) {
+                        by_id_collisions.insert(id, index);
+                    } else {
+                        by_id.insert(id_hash, index);
+                    }
                     catalog_entries.push(value);
-                    if catalog_entries[index].visible {
+                    if catalog_entries[index_usize].visible {
                         *visible_unpersisted_entries =
                             visible_unpersisted_entries.saturating_add(1);
-                        insert_transient_key(
-                            by_name,
-                            strings
-                                .get(catalog_entries[index].normalized_name as usize)
-                                .to_owned(),
-                            index as u32,
-                        );
+                        for key in transient_name_prefix_keys(
+                            strings.get(catalog_entries[index_usize].normalized_name as usize),
+                        )
+                        .into_iter()
+                        .flatten()
+                        {
+                            by_name_prefix.entry(key).or_default().push(index);
+                            *name_prefix_postings = (*name_prefix_postings).saturating_add(1);
+                        }
                         insert_transient_key(
                             by_extension,
                             strings
-                                .get(catalog_entries[index].normalized_extension as usize)
+                                .get(catalog_entries[index_usize].normalized_extension as usize)
                                 .to_owned(),
-                            index as u32,
+                            index,
                         );
-                        if catalog_entries[index].parent_directory_index
+                        if catalog_entries[index_usize].parent_directory_index
                             != INVALID_TRANSIENT_STRING_ID
                         {
                             path_directories
-                                [catalog_entries[index].parent_directory_index as usize]
+                                [catalog_entries[index_usize].parent_directory_index as usize]
                                 .entries
-                                .push(index as u32);
+                                .push(index);
+                            *path_directory_postings = (*path_directory_postings).saturating_add(1);
                         }
                         for gram in transient_filename_grams(
-                            strings.get(catalog_entries[index].normalized_name as usize),
-                            strings.get(catalog_entries[index].normalized_extension as usize),
+                            strings.get(catalog_entries[index_usize].normalized_name as usize),
+                            strings.get(catalog_entries[index_usize].normalized_extension as usize),
                         ) {
-                            by_filename_gram.entry(gram).or_default().push(index as u32);
+                            by_filename_gram.entry(gram).or_default().push(index);
+                            *filename_gram_postings = (*filename_gram_postings).saturating_add(1);
                         }
                     }
                 }
@@ -861,22 +900,21 @@ impl FilenameSearchManager {
             }
             found_active_catalog = true;
 
-            if let Some(indices) = catalog.by_name.get(&normalized_query) {
-                for index in indices {
-                    let entry = &catalog.entries[*index as usize];
-                    push_transient_entry(&catalog, &mut heap, target, &mut seen, 0, entry);
-                }
-            }
-            for (key, indices) in catalog.by_name.range(normalized_query.clone()..) {
-                if !key.starts_with(&normalized_query) {
-                    break;
-                }
-                if key == &normalized_query {
-                    continue;
-                }
-                for index in indices {
-                    let entry = &catalog.entries[*index as usize];
-                    push_transient_entry(&catalog, &mut heap, target, &mut seen, 1, entry);
+            if normalized_query.chars().count() < 3 {
+                let prefix_key = transient_name_prefix_search_key(&normalized_query);
+                if let Some(prefix_key) = prefix_key {
+                    if let Some(indices) = catalog.by_name_prefix.get(&prefix_key) {
+                        for index in indices {
+                            let entry = &catalog.entries[*index as usize];
+                            let name = catalog.strings.get(entry.normalized_name as usize);
+                            if entry.visible && name.starts_with(&normalized_query) {
+                                let tier = if name == normalized_query { 0 } else { 1 };
+                                push_transient_entry(
+                                    &catalog, &mut heap, target, &mut seen, tier, entry,
+                                );
+                            }
+                        }
+                    }
                 }
             }
             if let Some(indices) = catalog.by_extension.get(&normalized_query) {
@@ -909,7 +947,14 @@ impl FilenameSearchManager {
                     let normalized_name = catalog.strings.get(entry.normalized_name as usize);
                     let normalized_extension =
                         catalog.strings.get(entry.normalized_extension as usize);
-                    if normalized_name.contains(&normalized_query) {
+                    if normalized_name.starts_with(&normalized_query) {
+                        let tier = if normalized_name == normalized_query {
+                            0
+                        } else {
+                            1
+                        };
+                        push_transient_entry(&catalog, &mut heap, target, &mut seen, tier, entry);
+                    } else if normalized_name.contains(&normalized_query) {
                         let tier = 4 + filename_match_class(normalized_name, &normalized_query)
                             .unwrap_or(SUBSTRING_CLASS);
                         push_transient_entry(&catalog, &mut heap, target, &mut seen, tier, entry);
@@ -1591,6 +1636,7 @@ fn transient_path_directory_index(
     directories: &mut Vec<TransientPathDirectory>,
     by_directory: &mut HashMap<u64, Vec<u32>>,
     by_gram: &mut HashMap<u64, Vec<u32>>,
+    gram_postings: &mut usize,
 ) -> Result<u32, &'static str> {
     let separator_index = path.rfind(['\\', '/']);
     let original_path = separator_index.map_or("", |index| &path[..index]);
@@ -1620,6 +1666,7 @@ fn transient_path_directory_index(
     grams.dedup();
     for gram in grams {
         by_gram.entry(gram).or_default().push(index);
+        *gram_postings = (*gram_postings).saturating_add(1);
     }
     by_directory.entry(hash).or_default().push(index);
     directories.push(TransientPathDirectory {
@@ -1820,6 +1867,31 @@ fn transient_string_hash(value: &str) -> u64 {
     hasher.finish()
 }
 
+fn transient_id_hash(digest: &[u8; 32]) -> u64 {
+    u64::from_le_bytes(
+        digest[..8]
+            .try_into()
+            .expect("digest prefix has eight bytes"),
+    )
+}
+
+fn transient_name_prefix_keys(value: &str) -> [Option<u64>; 2] {
+    let mut keys = [None; 2];
+    let mut key = 0u64;
+    for (index, character) in value.chars().take(2).enumerate() {
+        key = (key << 21) | u64::from(character as u32);
+        keys[index] = Some(key);
+    }
+    keys
+}
+
+fn transient_name_prefix_search_key(value: &str) -> Option<u64> {
+    transient_name_prefix_keys(value)
+        .into_iter()
+        .flatten()
+        .last()
+}
+
 fn transient_catalog_allocated_bytes(catalog: &TransientFilenameCatalog) -> usize {
     let mut bytes = catalog
         .strings
@@ -1829,7 +1901,19 @@ fn transient_catalog_allocated_bytes(catalog: &TransientFilenameCatalog) -> usiz
             catalog
                 .by_id
                 .capacity()
-                .saturating_mul(std::mem::size_of::<([u8; 32], usize)>() + 1),
+                .saturating_mul(std::mem::size_of::<(u64, u32)>() + 1),
+        )
+        .saturating_add(
+            catalog
+                .by_id_collisions
+                .capacity()
+                .saturating_mul(std::mem::size_of::<([u8; 32], u32)>() + 1),
+        )
+        .saturating_add(
+            catalog
+                .by_name_prefix
+                .capacity()
+                .saturating_mul(std::mem::size_of::<(u64, Vec<u32>)>() + 1),
         )
         .saturating_add(
             catalog
@@ -1855,30 +1939,31 @@ fn transient_catalog_allocated_bytes(catalog: &TransientFilenameCatalog) -> usiz
                 .capacity()
                 .saturating_mul(std::mem::size_of::<TransientPathDirectory>()),
         );
-    for indices in catalog
-        .by_filename_gram
-        .values()
-        .chain(catalog.by_path_gram.values())
-        .chain(catalog.by_path_directory.values())
-    {
-        bytes = bytes.saturating_add(
-            indices
-                .capacity()
-                .max(4)
-                .saturating_mul(std::mem::size_of::<u32>()),
-        );
-    }
-    for directory in &catalog.path_directories {
-        bytes = bytes.saturating_add(
-            directory
-                .entries
-                .capacity()
-                .max(4)
-                .saturating_mul(std::mem::size_of::<u32>()),
-        );
-    }
-    for (key, indices) in catalog.by_name.iter().chain(catalog.by_extension.iter()) {
-        // BTree nodes, String/Vec headers and allocator size-class overhead.
+    // Vec growth is geometric. Two slots per posting plus four initially
+    // reserved slots per hash bucket conservatively bounds each postings map
+    // without rescanning every posting on every MFT batch.
+    bytes = bytes
+        .saturating_add(estimated_posting_bytes(
+            catalog.name_prefix_postings,
+            catalog.by_name_prefix.capacity(),
+        ))
+        .saturating_add(estimated_posting_bytes(
+            catalog.filename_gram_postings,
+            catalog.by_filename_gram.capacity(),
+        ))
+        .saturating_add(estimated_posting_bytes(
+            catalog.path_gram_postings,
+            catalog.by_path_gram.capacity(),
+        ))
+        .saturating_add(estimated_posting_bytes(
+            catalog.path_directories.len(),
+            catalog.by_path_directory.capacity(),
+        ))
+        .saturating_add(estimated_posting_bytes(
+            catalog.path_directory_postings,
+            catalog.path_directories.capacity(),
+        ));
+    for (key, indices) in &catalog.by_extension {
         bytes = bytes
             .saturating_add(key.capacity())
             .saturating_add(
@@ -1890,6 +1975,12 @@ fn transient_catalog_allocated_bytes(catalog: &TransientFilenameCatalog) -> usiz
             .saturating_add(128);
     }
     bytes
+}
+
+fn estimated_posting_bytes(postings: usize, buckets: usize) -> usize {
+    postings
+        .saturating_mul(std::mem::size_of::<u32>() * 2)
+        .saturating_add(buckets.saturating_mul(std::mem::size_of::<u32>() * 4))
 }
 
 fn transient_filename_grams(name: &str, extension: &str) -> Vec<u64> {

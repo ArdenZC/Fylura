@@ -134,6 +134,8 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("run_trigger_matrix:");
     expect(workflow).toContain("github.event_name == 'workflow_dispatch' && inputs.run_trigger_matrix");
     expect(workflow).toContain("github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')");
+    expect(workflow).toContain("filename_file_count:");
+    expect(workflow).toContain("inputs.filename_file_count != '1000000'");
   });
 
   it("compares the filename-first path against SQLite using the same Release binary", () => {
@@ -146,8 +148,9 @@ describe("Global Index performance workflow routing", () => {
     expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
     expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
     expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
-    expect(filenameFirstQualification).toContain("durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le 10000000");
-    expect(filenameFirstQualification).toContain("completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le 10000000 -and $allCandidateCompleteCatalogsReady");
+    expect(filenameFirstQualification).toContain("$performanceTargetSeconds = if ($FileCount -ge 1000000) { 60 } else { 10 }");
+    expect(filenameFirstQualification).toContain("durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $performanceTargetMicroseconds");
+    expect(filenameFirstQualification).toContain("completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $performanceTargetMicroseconds -and $allCandidateCompleteCatalogsReady");
     expect(filenameFirstQualification).toContain("completeTransientSearchBeforeDurableFts");
     expect(filenameFirstQualification).toContain("collectionCompleteWhenTransientReady");
     expect(filenameFirstQualification).toContain("fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet");

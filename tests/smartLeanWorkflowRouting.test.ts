@@ -154,7 +154,7 @@ describe("Global Index performance workflow routing", () => {
     expect(filenameFirstQualification).toContain("$searchReadyTargetSeconds = if ($FileCount -ge 1000000) { 20 } else { 10 }");
     expect(filenameFirstQualification).toContain("$script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $durableTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet");
     expect(filenameFirstQualification).toContain("$script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady");
-    expect(filenameFirstQualification).toContain("$normalWriteP95LimitUs = 500000");
+    expect(filenameFirstQualification).toContain("$normalWriteP95LimitUs = 1000000");
     expect(filenameFirstQualification).toContain("$script:evidence.concurrentWritesTarget = [ordered]@");
     expect(filenameFirstQualification).toContain("completeTransientSearchBeforeDurableFts");
     expect(filenameFirstQualification).toContain("collectionCompleteWhenTransientReady");

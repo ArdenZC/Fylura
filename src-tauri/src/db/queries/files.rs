@@ -24,13 +24,17 @@ use std::{
 use sysinfo::Disks;
 
 const RESTORE_FINALIZATION_MAX_ATTEMPTS: usize = 3;
-const FILE_UPSERT_BUSY_SNAPSHOT_RETRIES: usize = 3;
+const FILE_UPSERT_CONTENTION_RETRIES: usize = 10;
+const FILE_UPSERT_CONTENTION_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
 
-fn is_file_upsert_busy_snapshot(error: &DbError) -> bool {
+fn is_file_upsert_contention(error: &DbError) -> bool {
     matches!(
         error,
         DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _))
-            if code.extended_code == rusqlite::ffi::SQLITE_BUSY_SNAPSHOT
+            if matches!(
+                code.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            )
     )
 }
 
@@ -201,20 +205,26 @@ impl Database {
         if files.is_empty() {
             return Ok(());
         }
-        for attempt in 0..=FILE_UPSERT_BUSY_SNAPSHOT_RETRIES {
+        let retry_deadline = std::time::Instant::now() + FILE_UPSERT_CONTENTION_RETRY_WINDOW;
+        for attempt in 0..=FILE_UPSERT_CONTENTION_RETRIES {
             match self.insert_files_once(files) {
                 Err(error)
-                    if attempt < FILE_UPSERT_BUSY_SNAPSHOT_RETRIES
-                        && is_file_upsert_busy_snapshot(&error) =>
+                    if attempt < FILE_UPSERT_CONTENTION_RETRIES
+                        && std::time::Instant::now() < retry_deadline
+                        && is_file_upsert_contention(&error) =>
                 {
                     // This transaction reads existing row identity before it
                     // writes. In WAL mode, a concurrent index writer can
-                    // commit between those statements and invalidate the read
-                    // snapshot. The busy handler cannot upgrade that stale
-                    // snapshot; dropping the whole transaction and retrying
+                    // hold the single writer slot while these reads are in
+                    // progress. Dropping the whole transaction and retrying
                     // from a fresh snapshot is safe because all effects are
-                    // database-local and transactional.
-                    std::thread::sleep(std::time::Duration::from_millis(5 << attempt));
+                    // database-local and transactional. Backoff and retries
+                    // stop after a one-second window; the original error is
+                    // returned if contention persists.
+                    let backoff = std::time::Duration::from_millis(1u64 << attempt);
+                    let remaining =
+                        retry_deadline.saturating_duration_since(std::time::Instant::now());
+                    std::thread::sleep(backoff.min(remaining));
                 }
                 result => return result,
             }
@@ -2281,6 +2291,33 @@ impl Database {
             by_lifecycle,
             last_scanned_at: last_mtime.map(unix_seconds_to_iso),
         })
+    }
+}
+
+#[cfg(test)]
+mod file_upsert_contention_tests {
+    use super::{is_file_upsert_contention, DbError};
+    use rusqlite::{ffi, Error, ErrorCode};
+
+    #[test]
+    fn retries_only_sqlite_busy_or_locked_errors() {
+        for code in [ffi::SQLITE_BUSY, ffi::SQLITE_LOCKED] {
+            let error = DbError::Sqlite(Error::SqliteFailure(ffi::Error::new(code), None));
+            assert!(is_file_upsert_contention(&error), "{error:?}");
+        }
+
+        let constraint = DbError::Sqlite(Error::SqliteFailure(
+            ffi::Error::new(ffi::SQLITE_CONSTRAINT),
+            None,
+        ));
+        assert_eq!(
+            match &constraint {
+                DbError::Sqlite(Error::SqliteFailure(code, _)) => code.code,
+                _ => unreachable!(),
+            },
+            ErrorCode::ConstraintViolation
+        );
+        assert!(!is_file_upsert_contention(&constraint));
     }
 }
 

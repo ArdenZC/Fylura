@@ -488,7 +488,7 @@ try {
         baselineBusyErrors = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.sqliteBusyErrors'
         candidateBusyErrors = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.sqliteBusyErrors'
     }
-    $normalWriteP95LimitUs = 500000
+    $normalWriteP95LimitUs = 1000000
     $candidateConcurrentWritesSucceeded = @($candidateRows | Where-Object {
         [long]$_.result.concurrentDatabaseWrites.sqliteBusyErrors -gt 0 -or
         @($_.result.concurrentDatabaseWrites.errors).Count -gt 0

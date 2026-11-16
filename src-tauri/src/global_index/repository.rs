@@ -1530,6 +1530,18 @@ impl Database {
                     canonical_writer,
                 )?;
                 timing.record_decisions += decisions_started.elapsed();
+                if fts_bulk_build_active {
+                    // Keep each durable filename row and its restartable FTS
+                    // postings in the same bounded transaction. The source
+                    // remains hidden from durable search until the final
+                    // cursor publish, while ordinary shared-db durability is
+                    // unchanged.
+                    let fts_started = Instant::now();
+                    let fts_batch_size =
+                        batch_size.min(INITIAL_MFT_FTS_BUILD_BATCH_SIZE as usize) as i64;
+                    persist_initial_fts_batch_tx(&transaction, volume_id, fts_batch_size)?;
+                    timing.fts_bulk_build += fts_started.elapsed();
+                }
                 let commit_started = Instant::now();
                 transaction.commit()?;
                 timing.commit += commit_started.elapsed();
@@ -2993,6 +3005,65 @@ fn begin_initial_global_source_fts_bulk_build(
     timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
     timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
     Ok(start_bulk_build)
+}
+
+/// Advance a fresh source's restartable FTS cursor inside the same bounded
+/// transaction that inserted the corresponding global entries. The bulk flag
+/// stays set until every initial entry batch is durable, so this never
+/// publishes a partial source to durable search.
+fn persist_initial_fts_batch_tx(
+    transaction: &Transaction<'_>,
+    volume_id: &str,
+    batch_size: i64,
+) -> Result<(), DbError> {
+    let (is_building, cursor): (bool, i64) = transaction.query_row(
+        "SELECT fts_bulk_build, fts_bulk_cursor
+         FROM global_volumes WHERE id=?1",
+        [volume_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if !is_building {
+        return Err(DbError::Validation(
+            "global_index_initial_fts_build_lost_before_batch".into(),
+        ));
+    }
+    let inserted = transaction.execute(
+        "INSERT INTO global_entries_fts(rowid, name, path, extension)
+         SELECT rowid, name, path, extension
+         FROM global_entries
+         WHERE volume_id=?1 AND rowid>?2
+         ORDER BY rowid
+         LIMIT ?3",
+        params![volume_id, cursor, batch_size],
+    )?;
+    if inserted == 0 {
+        return Ok(());
+    }
+    let next_cursor: i64 = transaction.query_row(
+        "SELECT MAX(rowid) FROM (
+            SELECT rowid FROM global_entries
+            WHERE volume_id=?1 AND rowid>?2
+            ORDER BY rowid LIMIT ?3
+         )",
+        params![volume_id, cursor, batch_size],
+        |row| row.get(0),
+    )?;
+    if next_cursor <= cursor {
+        return Err(DbError::Validation(
+            "global_index_initial_fts_cursor_did_not_advance".into(),
+        ));
+    }
+    let changed = transaction.execute(
+        "UPDATE global_volumes SET fts_bulk_cursor=?2
+         WHERE id=?1 AND fts_bulk_build=1 AND fts_bulk_cursor=?3",
+        params![volume_id, next_cursor, cursor],
+    )?;
+    if changed != 1 {
+        return Err(DbError::Validation(
+            "global_index_initial_fts_cursor_update_lost".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn continue_fts_bulk_build(

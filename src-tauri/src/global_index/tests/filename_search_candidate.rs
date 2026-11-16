@@ -522,7 +522,7 @@ fn new_source_transient_persistence_builds_fts_and_source_facts_in_batches() {
         .expect("persist rows and build their FTS postings");
     assert_eq!(persisted, 2);
     assert!(timing.fts_bulk_build > std::time::Duration::ZERO);
-    assert!(timing.sqlite_transactions >= 5);
+    assert_eq!(timing.sqlite_transactions, 4);
 
     let connection = db.conn().expect("open durable source verification");
     let stats: (i64, i64, i64, i64) = connection

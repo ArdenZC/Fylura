@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedCandidateSha,
     [Parameter(Mandatory = $true)][string]$EvidencePath,
     [int]$FileCount = 100000,
-    [int]$Repetitions = 3
+    [int]$Repetitions = 3,
+    [ValidateSet(512, 4096, 8192)][int]$CandidatePersistBatch = 4096
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,6 +30,7 @@ $candidateProbeExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Candidat
 $BaselineRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $BaselineRoot).Path)
 $CandidateRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CandidateRoot).Path)
 $EvidencePath = [IO.Path]::GetFullPath($EvidencePath)
+$script:candidatePersistBatch = $CandidatePersistBatch
 $searchReadyTargetSeconds = if ($FileCount -ge 1000000) { 20 } else { 10 }
 $durableTargetSeconds = if ($FileCount -ge 1000000) { 60 } else { 30 }
 $fullSourceTargetSeconds = if ($FileCount -ge 1000000) { 90 } else { 60 }
@@ -40,7 +42,7 @@ $evidenceDirectory = Split-Path -Parent $EvidencePath
 $traceDirectory = Join-Path $evidenceDirectory 'traces'
 $script:evidence = [ordered]@{
     status = 'RUNNING'
-    comparison = 'same_release_binary_sqlite_8192_vs_filename_first_catalog_4096'
+    comparison = "same_release_binary_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)"
     baselineSha = $ExpectedBaselineSha
     candidateSha = $ExpectedCandidateSha
     fileCount = $FileCount
@@ -148,7 +150,7 @@ function Invoke-Probe(
     foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
     $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
     $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = $FilenameFirstMode
-    $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = '4096'
+    $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = [string]$script:candidatePersistBatch
     $startInfo.Environment['ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'
     $startInfo.Environment['ZC_GLOBAL_INDEX_QA_TRACE'] = $TracePath
 
@@ -375,6 +377,7 @@ try {
                 fullIndexUs = $run.result.fullIndexUs
                 peakWorkingSetBytes = $run.peakWorkingSetBytes
                 peakPrivateBytes = $run.peakPrivateBytes
+                candidatePersistBatch = $script:candidatePersistBatch
                 writerStages = $run.stages.writer
                 mftStages = $run.stages.mft
                 result = $run.result
@@ -526,7 +529,7 @@ try {
         candidateSqliteTransactionCount = Get-Average $candidateRows.ToArray() 'stages.writer.sqlite_transactions'
         baselineWalCheckpointUs = Get-Average $baselineRows.ToArray() 'stages.writer.wal_checkpoint_us'
         candidateWalCheckpointUs = Get-Average $candidateRows.ToArray() 'stages.writer.wal_checkpoint_us'
-        ftsTiming = 'Both modes keep production FTS triggers enabled. Trigger maintenance is included in entry_upsert_us; candidate uses bounded 4096-row transactions and does not run a full-table FTS rebuild.'
+        ftsTiming = "Both modes keep production FTS triggers enabled. Trigger maintenance is included in entry_upsert_us; candidate uses bounded $($script:candidatePersistBatch)-row transactions and does not run a full-table FTS rebuild."
     }
     $allCandidateFirstSearchTargetsMet = @($candidateRows | Where-Object {
         [double]$_.result.firstSearchableUs -gt $searchReadyTargetMicroseconds

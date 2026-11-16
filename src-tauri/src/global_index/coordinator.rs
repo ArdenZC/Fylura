@@ -2040,7 +2040,10 @@ mod tests {
 
     #[test]
     fn initial_mft_persist_batch_scales_with_source_size_and_honors_override() {
-        assert_eq!(initial_mft_persist_batch_size_for_count(100_000, None), 4_096);
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(100_000, None),
+            4_096
+        );
         assert_eq!(
             initial_mft_persist_batch_size_for_count(1_000_000, None),
             8_192

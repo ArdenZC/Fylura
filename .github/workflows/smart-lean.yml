@@ -393,7 +393,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $probe = Join-Path $PWD 'src-tauri/target/release/zb05-global-index-qa.exe'
-          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 -BaselineProbeExe $probe -CandidateProbeExe $probe -BaselineRoot $PWD -CandidateRoot $PWD -ExpectedBaselineSha $env:CANDIDATE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA -EvidencePath $env:EVIDENCE_PATH -FileCount ([int]$env:FILENAME_FIRST_FILE_COUNT) -Repetitions ([int]$env:FILENAME_FIRST_REPETITIONS) -CandidatePersistBatch ([int]$env:FILENAME_FIRST_PERSIST_BATCH_SIZE)
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 -BaselineProbeExe $probe -CandidateProbeExe $probe -BaselineRoot $PWD -CandidateRoot $PWD -ExpectedBaselineSha $env:CANDIDATE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA -EvidencePath $env:EVIDENCE_PATH -FileCount ([int]$env:FILENAME_FIRST_FILE_COUNT) -Repetitions ([int]$env:FILENAME_FIRST_REPETITIONS) -CandidatePersistBatch $env:FILENAME_FIRST_PERSIST_BATCH_SIZE
           if ($LASTEXITCODE -ne 0) { throw "real NTFS filename-first pair failed with exit code $LASTEXITCODE" }
       - name: Summarize native result and performance target status
         if: always()

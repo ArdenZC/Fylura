@@ -39,6 +39,20 @@ pub struct BrowseLaunchRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowseShellMenuRequest {
+    pub entry_refs: Vec<BrowseEntryRef>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseShellMenuResponse {
+    /// True means Shell accepted a selected menu command. Third-party work
+    /// may continue asynchronously and remains outside Fylura operation logs.
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowseOpenRequest {
     pub platform: WorkspacePlatform,
     pub routing_hint: String,

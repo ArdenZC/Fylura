@@ -945,7 +945,7 @@ describe("workflow lane and governance wiring", () => {
       ["quality-windows", "performance-workspace-foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
       ["quality-windows", "performance-preview-platform", "needs.change-scope.outputs.perf_preview_platform"],
       ["quality-windows", "build-windows", "needs.change-scope.outputs.release_sensitive"],
-      ["quality-windows", "package-windows", "needs.change-scope.outputs.full_validation"],
+      ["quality-windows", "package-windows", "needs.change-scope.outputs.package_sensitive"],
       ["quality-windows", "package-smoke", "needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true'"],
       ["quality-windows", "dependency-audit", "needs.change-scope.outputs.dependency_sensitive"],
       ["quality-macos", "frontend-quality", "needs.change-scope.outputs.frontend_changed"],

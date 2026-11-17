@@ -104,6 +104,39 @@ pub async fn file_workspace_browse_launch<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn file_workspace_browse_shell_menu<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: tauri::AppHandle<R>,
+    runtime: State<'_, FileWorkspaceRuntimeOwner>,
+    request: super::types::BrowseShellMenuRequest,
+) -> Result<super::types::BrowseShellMenuResponse, String> {
+    require_main_window(&window)?;
+    let runtime = runtime.acquire_for_window(&window)?;
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        let owner_hwnd = window
+            .hwnd()
+            .map_err(|_| "shell_menu_owner_unavailable".to_string())?
+            .0 as usize;
+        let resource_dir = app.path().resource_dir().ok();
+        return spawn_runtime(
+            runtime.clone(),
+            "workspace_browse_shell_menu",
+            move |runtime| {
+                runtime.open_windows_shell_menu(request, owner_hwnd, resource_dir.as_deref())
+            },
+        )
+        .await;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, runtime, request);
+        Err("shell_menu_platform_unsupported".into())
+    }
+}
+
+#[tauri::command]
 pub async fn file_workspace_browse_open<R: Runtime>(
     window: WebviewWindow<R>,
     runtime: State<'_, FileWorkspaceRuntimeOwner>,

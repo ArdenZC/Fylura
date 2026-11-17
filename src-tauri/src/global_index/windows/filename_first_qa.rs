@@ -597,8 +597,8 @@ pub fn run_initial(
         let status = db.global_index_status()?;
         first_searchable_us = Some(full_index_us);
         first_search_complete = Some(status.collection_complete);
-        first_search_processed_entries = Some(status.processed_entries);
-        first_search_total_entries = Some(status.total_entries);
+        first_search_processed_entries = u128::try_from(status.processed_entries).ok();
+        first_search_total_entries = u128::try_from(status.total_entries).ok();
     }
     let first_searchable_us =
         first_searchable_us.ok_or("target filename never became searchable")?;

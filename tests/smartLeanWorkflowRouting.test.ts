@@ -24,8 +24,12 @@ describe("Global Index performance workflow routing", () => {
     expect(prBlock).toContain("types: [labeled]");
     expect(routes).toEqual([
       "src-tauri/src/global_index/index_scope/**",
+      "src-tauri/src/db/connection.rs",
+      "src-tauri/src/db/queries/files.rs",
       "src-tauri/src/db/schema_index_coverage.rs",
       "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/filename_search.rs",
       "src-tauri/src/global_index/coordinator.rs",
       "src-tauri/src/global_index/models.rs",
       "src-tauri/src/global_index/windows/mod.rs",
@@ -35,6 +39,7 @@ describe("Global Index performance workflow routing", () => {
       "src-tauri/src/global_index/windows/usn.rs",
       "src-tauri/src/global_index/windows/fallback.rs",
       "src-tauri/src/global_index/windows/smart_lean_qa.rs",
+      "src-tauri/src/global_index/windows/filename_first_qa.rs",
       "src-tauri/src/global_index/macos/spotlight.rs",
       "src-tauri/src/global_index/macos/fsevents.rs",
       "src-tauri/src/global_index/macos/smart_lean_qa.rs",
@@ -45,11 +50,16 @@ describe("Global Index performance workflow routing", () => {
       "src-tauri/src/global_index/index_scope/native.rs",
       "src-tauri/src/global_index/index_scope/repository.rs",
       "src-tauri/src/global_index/index_scope/tests.rs",
+      "src-tauri/src/db/connection.rs",
+      "src-tauri/src/db/queries/files.rs",
       "src-tauri/src/db/schema_index_coverage.rs",
       "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/filename_search.rs",
       "src-tauri/src/global_index/coordinator.rs",
       "src-tauri/src/global_index/models.rs",
       "src-tauri/src/global_index/windows/mft.rs",
+      "src-tauri/src/global_index/windows/filename_first_qa.rs",
       "src-tauri/src/global_index/macos/spotlight.rs",
       "scripts/qualifySmartLeanMacos.sh",
     ]) {
@@ -57,10 +67,8 @@ describe("Global Index performance workflow routing", () => {
     }
   });
 
-  it("keeps pure search, UI and activation edits out of the expensive workflow", () => {
+  it("keeps UI and activation edits out of the expensive workflow", () => {
     for (const file of [
-      "src-tauri/src/global_index/search.rs",
-      "src-tauri/src/global_index/filename_search.rs",
       "src-tauri/src/global_index/commands.rs",
       "src-tauri/src/global_index/windows/volumes.rs",
       "src-tauri/src/global_index/tests/search_source_authorization.rs",
@@ -94,7 +102,7 @@ describe("Global Index performance workflow routing", () => {
 
   it("keeps master/candidate release comparisons manual and preserves bounded sizes", () => {
     expect(workflow).toContain("  workflow_dispatch:");
-    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair]");
+    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair, filename_first_diagnostics]");
     expect(workflow).toContain("default: '100000'");
     expect(workflow).toContain("options: ['1000', '100000', '200000']");
     expect(baselineJob).toContain("if: github.event_name == 'workflow_dispatch' && inputs.mode == 'master_candidate'");

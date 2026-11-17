@@ -886,7 +886,7 @@ fn move_path_to_system_trash_with_safety(
     let operation_key = blake3::hash(
         format!(
             "{}\0{}",
-            crate::path_identity::normalize_for_compare(&source),
+            crate::path_identity::normalize_for_compare(source),
             operation_id
         )
         .as_bytes(),

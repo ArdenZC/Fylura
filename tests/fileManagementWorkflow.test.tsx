@@ -92,7 +92,7 @@ beforeEach(() => {
   mocks.defaultDeleteDestination = "fylura_trash";
   refresh.mockClear();clear.mockClear();mocks.close.mockClear();mocks.refreshHistory.mockClear();mocks.cancelOperations.mockClear();
 });
-afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
+afterEach(async () => { vi.useRealTimers(); await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
 describe("File Library manual management workflow", () => {
   it("copies a large directory selection to a chosen destination in bounded batches", async () => {
     const allTickets: TransferTicket[] = Array.from({ length: 1001 }, (_, index) => ({
@@ -301,7 +301,7 @@ describe("File Library manual management workflow", () => {
     await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown",{key:"v",ctrlKey:modifier === "Control",metaKey:modifier === "Meta",bubbles:true,cancelable:true})); });
     await settle();
     expect(document.querySelector('[aria-modal="true"]')).toBeNull();
-    expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",skip:[],keepBoth:[]});
+    expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",destinationEntry:undefined,skip:[],keepBoth:[],overwrite:[]});
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(refresh).toHaveBeenCalledOnce();expect(clear).toHaveBeenCalledOnce();expect(mocks.close).toHaveBeenCalled();
   });
@@ -340,6 +340,7 @@ describe("File Library manual management workflow", () => {
       destinationDirectory: "C:/Source",
       skip: [],
       keepBoth: ["one", "two"],
+      overwrite: [],
     });
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "duplicate-preview", confirmed: true });
     expect(useFileManagementStore.getState().results.every((log) => log.operation_type === "duplicate")).toBe(true);
@@ -435,7 +436,7 @@ describe("File Library manual management workflow", () => {
     expect(useFileManagementStore.getState().clipboard?.action).toBe("move");
     await click(`${t("fmPaste")} (1)`);
 
-    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["folder"], action: "move", destinationDirectory: "C:/Target", skip: [], keepBoth: [] });
+    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["folder"], action: "move", destinationDirectory: "C:/Target", skip: [], keepBoth: [], overwrite: [] });
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "folder-move-preview", confirmed: true });
   });
   it("executes a Windows cross-volume folder Move through the shared Move Preview", async () => {
@@ -444,7 +445,7 @@ describe("File Library manual management workflow", () => {
     await render();
     await click(`${t("fmPaste")} (1)`);
 
-    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["folder"], action: "move", destinationDirectory: "E:/Target", skip: [], keepBoth: [] });
+    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["folder"], action: "move", destinationDirectory: "E:/Target", skip: [], keepBoth: [], overwrite: [] });
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "folder-move-preview", confirmed: true });
   });
   it("shows backend progress and unknown bytes while a transfer is running", async () => {
@@ -474,6 +475,34 @@ describe("File Library manual management workflow", () => {
     await act(async () => { resolve({ batch_id: "batch", logs: result(["failed", "failed"]) }); });
     await settle();
   });
+  it("returns transfer ETA to calculating when byte progress stalls", async () => {
+    useFileManagementStore.setState({ clipboard: { action: "copy", tickets } });
+    let resolve!: (value: any) => void;
+    vi.mocked(api.executeTransfer).mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    await render();
+    await click(`${t("fmPaste")} (2)`);
+    vi.useFakeTimers();
+    const publishProgress = async (processedItems: number, processedBytes: number) => {
+      useOperationQueueStore.setState({ operationProgress: {
+        kind: "execute", batchId: "batch", processed: processedItems, total: 2,
+        currentPath: "C:/Source/large.bin", phase: "copying", processedItems, totalItems: 2,
+        processedBytes, totalBytes: 1000
+      } });
+      await act(async () => { root.render(<FileManagementToolbar/>); });
+    };
+    await publishProgress(1, 100);
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskEtaComputing"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    await publishProgress(2, 200);
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskSpeed"));
+    expect(document.querySelector(".fm-task-progress")?.textContent).not.toContain(t("fmTaskEtaComputing"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+    expect(document.querySelector(".fm-task-progress")?.textContent).not.toContain(t("fmTaskSpeed"));
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskEtaComputing"));
+    vi.useRealTimers();
+    await act(async () => { resolve({ batch_id: "batch", logs: result(["failed", "failed"]) }); });
+    await settle();
+  });
   it("shows recovered Journal work for review and only retries a rolled-back item with fresh capture", async () => {
     const interrupted: OperationLog = { ...result(["failed", "success"])[0]!, status: "manual_review", operation_phase: "source_cleanup_pending", error_message: "target_committed_source_cleanup_pending" };
     useOperationQueueStore.setState({ operationLogs: [interrupted] });
@@ -490,7 +519,7 @@ describe("File Library manual management workflow", () => {
     vi.mocked(api.captureTransfer).mockResolvedValueOnce([tickets[0]!]);
     await click(t("fmRetrySafe"));
     expect(api.captureTransfer).toHaveBeenCalledWith({ externalPaths: ["C:/Source/one.txt"] });
-    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["one"], action: "copy", destinationDirectory: "C:/Target", skip: [], keepBoth: [] });
+    expect(api.previewTransfer).toHaveBeenCalledWith({ ticketIds: ["one"], action: "copy", destinationDirectory: "C:/Target", skip: [], keepBoth: [], overwrite: [] });
   });
   it("keeps recovery-required results distinct from failed operations", async () => {
     const logs = result(["success", "manual_review"]);
@@ -650,6 +679,24 @@ describe("File Library manual management workflow", () => {
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"fresh-keep-both",confirmed:true});
   });
 
+  it("applies Overwrite to all conflicts and executes the fresh plan without another confirmation", async () => {
+    useFileManagementStore.setState({ clipboard: { action:"copy", tickets } });
+    const first = plan();
+    first.rows.forEach((row) => { row.preview = null; row.error = "transfer_target_exists"; });
+    const fresh = plan();
+    fresh.id = "fresh-overwrite";
+    vi.mocked(api.previewTransfer).mockReset().mockResolvedValueOnce(first).mockResolvedValueOnce(fresh);
+    await render(); await click(`${t("fmPaste")} (2)`);
+    expect(document.querySelector('[aria-modal="true"]')).toBeTruthy();
+    await click(t("fmOverwrite"));
+    await click(t("fmApplyChoices"));
+    expect(api.previewTransfer).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      ticketIds: ["one", "two"], skip: [], keepBoth: [], overwrite: ["one", "two"]
+    }));
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "fresh-overwrite", confirmed: true });
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  });
+
   it("creates a folder through automatic Preview and execution without a second confirmation", async () => {
     useFileManagementStore.setState({ surface: () => ({ signature: "browse", count: 0, browse: { sessionId: "browse", pathRef: { id: "root" } }, routingHint: "C:/Browse", refresh, clear }) });
     vi.mocked(api.previewTransfer).mockResolvedValueOnce(actionPlan(tickets[0]!, "create_directory", "C:/Browse", "New Folder"));
@@ -662,7 +709,7 @@ describe("File Library manual management workflow", () => {
 
     expect(api.captureTransfer).not.toHaveBeenCalled();
     expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({
-      ticketIds: [], action: "create_directory", destinationDirectory: "C:/Browse", newName: "New Folder", skip: [], keepBoth: []
+      ticketIds: [], action: "create_directory", destinationDirectory: "C:/Browse", newName: "New Folder", skip: [], keepBoth: [], overwrite: []
     }));
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-create_directory", confirmed: true });
     expect(document.querySelector("[aria-modal=true]")).toBeNull();
@@ -710,7 +757,7 @@ describe("File Library manual management workflow", () => {
     await click(t("fmSafeDelete"));
 
     expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({
-      ticketIds: ["one"], action: "trash", destinationDirectory: "C:/Source", skip: [], keepBoth: []
+      ticketIds: ["one"], action: "trash", destinationDirectory: "C:/Source", skip: [], keepBoth: [], overwrite: []
     }));
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-trash", confirmed: true });
     expect(document.querySelector("[aria-modal=true]")).toBeNull();
@@ -726,7 +773,7 @@ describe("File Library manual management workflow", () => {
     await settle();
     expect(api.captureTransfer).toHaveBeenCalledWith({ selection: { kind: "explicit", fileIds: ["managed-one"] } });
     expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({
-      ticketIds: ["one"], action: "system_trash", destinationDirectory: "C:/Source", skip: [], keepBoth: []
+      ticketIds: ["one"], action: "system_trash", destinationDirectory: "C:/Source", skip: [], keepBoth: [], overwrite: []
     }));
     expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-system_trash", confirmed: true });
     expect(document.querySelector('[role="alert"]')).toBeNull();
@@ -749,7 +796,7 @@ describe("File Library manual management workflow", () => {
     await act(async () => useFileManagementStore.getState().requestAction("copy_other"));
     expect(api.captureTransfer).toHaveBeenCalledWith({selection:source.selection});
     await settle();
-    expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",destinationBrowse:{sessionId:"right-session",pathRef:{id:"right-root"}},skip:[],keepBoth:[]});
+    expect(api.previewTransfer).toHaveBeenCalledWith({ticketIds:["one","two"],action:"copy",destinationDirectory:"C:/Target",destinationEntry:undefined,destinationBrowse:{sessionId:"right-session",pathRef:{id:"right-root"}},skip:[],keepBoth:[],overwrite:[]});
     expect(api.executeTransfer).toHaveBeenCalledWith({previewId:"authority-preview",confirmed:true});
     expect(document.querySelector('[aria-modal="true"]')).toBeNull();
     expect(beforeMutation).toHaveBeenCalledOnce();

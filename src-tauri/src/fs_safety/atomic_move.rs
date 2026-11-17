@@ -51,6 +51,8 @@ pub struct AtomicMoveOutcome {
 pub enum AtomicMoveError {
     #[error("target_exists")]
     TargetExists,
+    #[error("transfer_target_changed")]
+    TargetIdentityChanged,
     #[error("source_missing")]
     SourceMissing,
     #[error("source_changed")]
@@ -1147,10 +1149,36 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(any(test, feature = "native-qa"))]
 pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
     source: &Path,
     target: &Path,
     expected_source_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_source_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    operation_id: &str,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_replace_with_expected_target_identity(
+        source,
+        target,
+        expected_source_identity,
+        None,
+        planned_source_claim_path,
+        cancel,
+        operation_id,
+        observer,
+        actual_path_observer,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn atomic_replace_with_expected_target_identity(
+    source: &Path,
+    target: &Path,
+    expected_source_identity: Option<&identity::ExpectedFileIdentity>,
+    expected_target_identity: Option<&identity::ExpectedFileIdentity>,
     planned_source_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     operation_id: &str,
@@ -1169,6 +1197,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
                     coordinated_source,
                     coordinated_target,
                     expected_source_identity,
+                    expected_target_identity,
                     planned_source_claim_path,
                     cancel,
                     operation_id,
@@ -1184,6 +1213,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
             source,
             target,
             expected_source_identity,
+            expected_target_identity,
             planned_source_claim_path,
             cancel,
             operation_id,
@@ -1198,6 +1228,7 @@ fn atomic_replace_uncoordinated(
     source: &Path,
     target: &Path,
     expected_source_identity: Option<&identity::ExpectedFileIdentity>,
+    expected_target_identity: Option<&identity::ExpectedFileIdentity>,
     planned_source_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     _operation_id: &str,
@@ -1236,6 +1267,11 @@ fn atomic_replace_uncoordinated(
     }
     let target_identity =
         identity::capture_namespace_identity(target, cancel).map_err(map_identity_error)?;
+    if expected_target_identity
+        .is_some_and(|expected| !identity::identity_matches(expected, &target_identity))
+    {
+        return Err(AtomicMoveError::TargetIdentityChanged);
+    }
     // The backup name must be derivable from the durable operation paths after
     // a restart.  The preview operation id is not persisted independently of
     // the batch log, so including it here would make replacement recovery
@@ -1355,9 +1391,30 @@ fn atomic_replace_uncoordinated(
 }
 
 pub(crate) fn replacement_backup_path(source: &Path, target: &Path) -> std::path::PathBuf {
+    replacement_backup_path_with_key(source, target, true)
+}
+
+#[cfg(windows)]
+pub(crate) fn legacy_replacement_backup_path(source: &Path, target: &Path) -> std::path::PathBuf {
+    replacement_backup_path_with_key(source, target, false)
+}
+
+fn replacement_backup_path_with_key(
+    source: &Path,
+    target: &Path,
+    normalize_key: bool,
+) -> std::path::PathBuf {
     let source = replacement_namespace_path(source);
     let target = replacement_namespace_path(target);
-    let key = format!("{}\0{}", source.display(), target.display());
+    let key = if normalize_key {
+        format!(
+            "{}\0{}",
+            crate::path_identity::normalize_for_compare(&source),
+            crate::path_identity::normalize_for_compare(&target)
+        )
+    } else {
+        format!("{}\0{}", source.display(), target.display())
+    };
     let digest = blake3::hash(key.as_bytes()).to_hex().to_string();
     let parent = target.parent().unwrap_or(&target);
     let backup_name = format!(".zen-canvas-replace-{}", &digest[..24]);
@@ -1387,7 +1444,20 @@ fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
 
 #[cfg(not(target_os = "macos"))]
 fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
-    path.to_path_buf()
+    #[cfg(windows)]
+    {
+        let Some(name) = path.file_name() else {
+            return path.to_path_buf();
+        };
+        path.parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .map(|parent| parent.join(name))
+            .unwrap_or_else(|| path.to_path_buf())
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1697,6 +1767,36 @@ mod tests {
         ));
         fs::create_dir_all(&path).expect("fixture");
         path
+    }
+
+    #[test]
+    fn replacement_backup_name_is_stable_across_windows_path_spellings() {
+        let actual_source = Path::new(r"\\?\C:\Users\Runner\Stage.txt");
+        let journal_source = Path::new(r"c:\users\runner\stage.txt");
+        let actual_target = Path::new(r"\\?\C:\Users\Runner\Target.txt");
+        let journal_target = Path::new(r"C:\users\runner\target.txt");
+
+        assert_eq!(
+            replacement_backup_path(actual_source, actual_target).file_name(),
+            replacement_backup_path(journal_source, journal_target).file_name()
+        );
+    }
+
+    #[test]
+    fn legacy_replacement_backup_name_rebuilds_from_normalized_journal_paths() {
+        let root = fixture("replacement-journal-paths");
+        let source = root.join("Stage.txt");
+        let target = root.join("Target.txt");
+        let journal_source =
+            std::path::PathBuf::from(crate::path_identity::normalize_path(&source));
+        let journal_target =
+            std::path::PathBuf::from(crate::path_identity::normalize_path(&target));
+
+        assert_eq!(
+            legacy_replacement_backup_path(&source, &target).file_name(),
+            legacy_replacement_backup_path(&journal_source, &journal_target).file_name()
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]

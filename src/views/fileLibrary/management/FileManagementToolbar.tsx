@@ -14,7 +14,7 @@ import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
 import { groupOperationLogs, isSystemTrashOperation, operationBatchUndoEligibility, type OperationHistoryBatch } from "../../history/historyModel";
 import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/tw";
 import { formatBytes } from "../../../utils/format";
-import { localizedStableError, readableError } from "../../../utils/viewHelpers";
+import { localizedStableError, normalizePathLike, readableError } from "../../../utils/viewHelpers";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { playExitGhost, playOverlayEnter, playOverlayExit, prefersReducedMotion } from "../../../utils/motion";
 import { CountBadge } from "../../../components/motion/CountBadge";
@@ -224,7 +224,7 @@ export function FileManagementToolbar() {
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const [plan, setPlan] = useState<TransferPreview | null>(null);
   const [conflictTicketIds, setConflictTicketIds] = useState<string[]>([]);
-  const [skip, setSkip] = useState<string[]>([]); const [keepBoth, setKeepBoth] = useState<string[]>([]);
+  const [skip, setSkip] = useState<string[]>([]); const [keepBoth, setKeepBoth] = useState<string[]>([]); const [overwrite, setOverwrite] = useState<string[]>([]);
   const operationLogs = useOperationQueueStore((store) => store.operationLogs);
   const operationProgress = useOperationQueueStore((store) => store.operationProgress);
   const activeOperationKind = useOperationQueueStore((store) => store.activeOperationKind);
@@ -257,7 +257,7 @@ export function FileManagementToolbar() {
     if (transferRef.current?.id !== task.id) setTransfer(task.intent);
     setPlan(task.preview);
     setConflictTicketIds(task.conflictTicketIds);
-    setSkip(task.skip); setKeepBoth(task.keepBoth);
+    setSkip(task.skip); setKeepBoth(task.keepBoth); setOverwrite(task.overwrite);
   }, [state.activeTransferTask, state.transferActive]);
   useEffect(() => {
     const task = useFileManagementStore.getState().activeTransferTask;
@@ -564,15 +564,15 @@ export function FileManagementToolbar() {
       });
     }
   }
-  function recordDirectoryBulkBatch(logs: OperationLog[], attempted: number, skipped = 0, failedWithoutLogs = 0) {
+  function recordDirectoryBulkBatch(logs: OperationLog[], attempted: number, skipped = 0, failedWithoutLogs = 0, summary?: { succeeded: number; failed: number }) {
     const bulk = directoryBulkTransfer.current;
     if (!bulk) return;
     bulk.processed += attempted;
     bulk.skipped += skipped;
     bulk.failed += failedWithoutLogs;
-    bulk.succeeded += logs.filter((log) => log.status === "success").length;
+    bulk.succeeded += summary?.succeeded ?? logs.filter((log) => log.status === "success").length;
     bulk.skipped += logs.filter((log) => log.status === "skipped").length;
-    bulk.failed += logs.filter((log) => log.status !== "success" && log.status !== "skipped").length;
+    bulk.failed += summary?.failed ?? logs.filter((log) => log.status !== "success" && log.status !== "skipped").length;
     bulk.logs = [...bulk.logs, ...logs].slice(-1000);
     useFileManagementStore.setState({ results: bulk.logs });
   }
@@ -645,15 +645,15 @@ export function FileManagementToolbar() {
       await finishDirectoryBulk(value);
     }
   }
-  function recordBasketBulkBatch(logs: OperationLog[], attempted: number, skipped = 0, failedWithoutLogs = 0) {
+  function recordBasketBulkBatch(logs: OperationLog[], attempted: number, skipped = 0, failedWithoutLogs = 0, summary?: { succeeded: number; failed: number }) {
     const bulk = basketBulkTransfer.current;
     if (!bulk) return;
     bulk.processed += attempted;
     bulk.skipped += skipped;
     bulk.failed += failedWithoutLogs;
-    bulk.succeeded += logs.filter((log) => log.status === "success").length;
+    bulk.succeeded += summary?.succeeded ?? logs.filter((log) => log.status === "success").length;
     bulk.skipped += logs.filter((log) => log.status === "skipped").length;
-    bulk.failed += logs.filter((log) => log.status !== "success" && log.status !== "skipped").length;
+    bulk.failed += summary?.failed ?? logs.filter((log) => log.status !== "success" && log.status !== "skipped").length;
     bulk.logs = [...bulk.logs, ...logs].slice(-1000);
     useFileManagementStore.setState({ results: bulk.logs });
   }
@@ -744,13 +744,13 @@ export function FileManagementToolbar() {
     }
     return true;
   }
-  async function startTransfer(intent: TransferIntent, nextSkip: string[], nextKeepBoth: string[]) {
+  async function startTransfer(intent: TransferIntent, nextSkip: string[], nextKeepBoth: string[], nextOverwrite: string[]) {
     const store = useFileManagementStore.getState();
     if (!store.transferActive || store.activeTransferId !== intent.id || !intent.tickets.every((ticket) => store.transferTicketIds.includes(ticket.id))) return;
     cancelRequested.current = false; executionSent.current = false;
     setError(""); setNotice("");
     useFileManagementStore.setState({ transferRunning: true, transferOpen: false });
-    useFileManagementStore.setState((current) => ({ activeTransferTask: current.activeTransferTask?.id === intent.id ? { ...current.activeTransferTask, intent, phase: "preview", cancelRequested: false, preview: null, conflictTicketIds: [], skip: nextSkip, keepBoth: nextKeepBoth } : current.activeTransferTask }));
+    useFileManagementStore.setState((current) => ({ activeTransferTask: current.activeTransferTask?.id === intent.id ? { ...current.activeTransferTask, intent, phase: "preview", cancelRequested: false, preview: null, conflictTicketIds: [], skip: nextSkip, keepBoth: nextKeepBoth, overwrite: nextOverwrite } : current.activeTransferTask }));
     let preserveConflict = false;
     let continueDirectoryBulk = false;
     let continueBasketBulk = false;
@@ -784,6 +784,7 @@ export function FileManagementToolbar() {
         newNames: intent.newNames,
         skip: nextSkip,
         keepBoth: nextKeepBoth,
+        overwrite: nextOverwrite,
       }, {
         preview: (request) => api.previewTransfer(request),
         isCurrent: () => transferContextIsCurrent(intent),
@@ -806,7 +807,7 @@ export function FileManagementToolbar() {
         setPreviewPage(Math.floor(Math.max(0, intent.tickets.findIndex((ticket) => ticket.id === outcome.ticketIds[0])) / PAGE_SIZE));
         const statuses = { ...useFileManagementStore.getState().statuses };
         outcome.ticketIds.forEach((id) => { statuses[id] = t("fmConflict"); });
-        useFileManagementStore.setState((current) => ({ statuses, transferOpen: true, transferRunning: false, activeTransferTask: current.activeTransferTask?.id === intent.id ? { ...current.activeTransferTask, phase: "awaiting_conflict", preview: outcome.preview, conflictTicketIds: outcome.ticketIds, skip: nextSkip, keepBoth: nextKeepBoth } : current.activeTransferTask }));
+        useFileManagementStore.setState((current) => ({ statuses, transferOpen: true, transferRunning: false, activeTransferTask: current.activeTransferTask?.id === intent.id ? { ...current.activeTransferTask, phase: "awaiting_conflict", preview: outcome.preview, conflictTicketIds: outcome.ticketIds, skip: nextSkip, keepBoth: nextKeepBoth, overwrite: nextOverwrite } : current.activeTransferTask }));
         return;
       }
       if (outcome.kind === "failed") {
@@ -855,13 +856,40 @@ export function FileManagementToolbar() {
       const rows = acceptedPlan.rows.filter((row) => !row.skipped && row.preview);
       const succeeded = new Set<string>(); const statuses = { ...useFileManagementStore.getState().statuses };
       acceptedPlan.rows.filter((row) => row.skipped).forEach((row) => { statuses[row.ticketId] = t("fmSkipped"); });
-      rows.forEach((row, index) => {
-        const log = result.logs[index];
-        statuses[row.ticketId] = log?.status === "success" ? t("fmSucceeded") : log?.status === "skipped" ? t("fmSkipped")
-          : log?.status === "manual_review" || log?.status === "pending" ? t("fmTaskNeedsReview")
-            : log?.error_message ? localizedStableError(log.error_message, t) : t("fmFailed");
-        if (log?.status === "success") succeeded.add(row.ticketId);
+      const ticketLogs = rows.map((row) => {
+        const ticket = intent.tickets.find((item) => item.id === row.ticketId);
+        const root = ticket ? normalizePathLike(ticket.path) : "";
+        const belongs = (path?: string) => {
+          if (!root || !path) return false;
+          const candidate = normalizePathLike(path);
+          return candidate === root || candidate.startsWith(`${root}/`);
+        };
+        const logs = result.logs.filter((log) => belongs(log.source_path) || belongs(log.path_before));
+        const allSucceeded = logs.length > 0 && logs.every((log) => log.status === "success");
+        const allSkipped = logs.length > 0 && logs.every((log) => log.status === "skipped");
+        const hasFailure = logs.length === 0 || logs.some((log) => log.status !== "success" && log.status !== "skipped");
+        const succeededCount = logs.filter((log) => log.status === "success").length;
+        const firstFailure = logs.find((log) => log.status !== "success" && log.status !== "skipped");
+        if (allSucceeded) {
+          statuses[row.ticketId] = t("fmSucceeded");
+          succeeded.add(row.ticketId);
+        } else if (allSkipped) {
+          statuses[row.ticketId] = t("fmSkipped");
+        } else if (logs.some((log) => log.status === "manual_review" || log.status === "pending")) {
+          statuses[row.ticketId] = t("fmTaskNeedsReview");
+        } else if (succeededCount > 0 && hasFailure) {
+          statuses[row.ticketId] = t("fmTaskPartial");
+        } else {
+          statuses[row.ticketId] = firstFailure?.error_message
+            ? localizedStableError(firstFailure.error_message, t)
+            : t("fmFailed");
+        }
+        return { row, logs, allSucceeded, hasFailure };
       });
+      const logicalSummary = {
+        succeeded: ticketLogs.filter((item) => item.allSucceeded).length,
+        failed: ticketLogs.filter((item) => item.hasFailure).length,
+      };
       const current = useFileManagementStore.getState();
       const directoryBulk = isDirectoryBulk() ? directoryBulkTransfer.current : null;
       const basketBulk = isBasketBulk() ? basketBulkTransfer.current : null;
@@ -869,7 +897,9 @@ export function FileManagementToolbar() {
         recordDirectoryBulkBatch(
           result.logs,
           intent.tickets.length,
-          acceptedPlan.rows.filter((row) => row.skipped).length
+          acceptedPlan.rows.filter((row) => row.skipped).length,
+          0,
+          logicalSummary
         );
         continueDirectoryBulk = !transferCancelRequested();
         if (!continueDirectoryBulk) finishBulkError = new Error("transfer_cancelled");
@@ -880,7 +910,9 @@ export function FileManagementToolbar() {
         recordBasketBulkBatch(
           result.logs,
           intent.tickets.length,
-          acceptedPlan.rows.filter((row) => row.skipped).length
+          acceptedPlan.rows.filter((row) => row.skipped).length,
+          0,
+          logicalSummary
         );
         continueBasketBulk = !transferCancelRequested();
         if (!continueBasketBulk) finishBulkError = new Error("transfer_cancelled");
@@ -1039,10 +1071,10 @@ export function FileManagementToolbar() {
       totalItems: createAction ? null : options.batchProgress?.total ?? tickets.length,
       progressOffset: options.batchProgress?.offset ?? 0,
       phase: "preview", cancelRequested: false,
-      preview: null, conflictTicketIds: [], skip: [], keepBoth: []
+      preview: null, conflictTicketIds: [], skip: [], keepBoth: [], overwrite: []
     } });
-    setTransfer(intent); setPlan(null); setConflictTicketIds([]); setSkip([]); setKeepBoth(initialKeepBoth); setPreviewPage(0); setResultPage(0);
-    void startTransfer(intent, [], initialKeepBoth);
+    setTransfer(intent); setPlan(null); setConflictTicketIds([]); setSkip([]); setKeepBoth(initialKeepBoth); setOverwrite([]); setPreviewPage(0); setResultPage(0);
+    void startTransfer(intent, [], initialKeepBoth, []);
   }
   function dismissNotice() {
     setError(""); setNotice("");
@@ -1051,7 +1083,7 @@ export function FileManagementToolbar() {
     const active = transferRef.current;
     const store = useFileManagementStore.getState();
     if (store.transferRunning) return;
-    cancelRequested.current = true; clearTransferState(active ?? undefined); setSkip([]); setKeepBoth([]);
+    cancelRequested.current = true; clearTransferState(active ?? undefined); setSkip([]); setKeepBoth([]); setOverwrite([]);
     if (active) releaseTransient(active);
     else if (store.activeTransferTask && (store.activeTransferTask.origin === "selection" || store.activeTransferTask.origin === "external" || store.activeTransferTask.origin === "basket")) void releaseUnused(store.transferTicketIds).catch(() => {});
   }
@@ -1349,15 +1381,22 @@ export function FileManagementToolbar() {
         return;
       }
       if (!eligibility.executable) {
-        setNotice(t("fmUndoBatchBlocked").replace("{count}", eligibility.blockedCount.toLocaleString()));
+        setNotice(t("fmUndoBatchBlocked")
+          .replace("{count}", eligibility.blockedCount.toLocaleString())
+          .replace("{failed}", eligibility.failedCount.toLocaleString()));
         return;
       }
-      const intent = await queue.prepareOperationRestoreIntent(latestBatch.logs.map((log) => log.id));
+      const intent = await queue.prepareOperationRestoreIntent(eligibility.eligible.map((log) => log.id));
       if (!intent) throw Error("restore_no_executable_selected");
       const outcome = await queue.confirmOperationRestore(intent.sessionId);
       if (outcome.status !== "executed") {
         throw Error(outcome.status === "rejected" ? outcome.message : "history_restore_eligibility_changed");
       }
+      const restoreSummary = useOperationQueueStore.getState().lastRestoreSummary;
+      setNotice(t("fmUndoBatchResult")
+        .replace("{restored}", String(restoreSummary?.restored ?? 0))
+        .replace("{failed}", String((restoreSummary?.failed ?? 0) + (restoreSummary?.missing ?? 0) + (restoreSummary?.canceled ?? 0) + eligibility.failedCount))
+        .replace("{unundoable}", String(eligibility.blockedCount)));
     });
   }
   const actionsRef = useRef({ collect, paste, moveSelection, renameSelection, createDirectory, trashSelection, undoLastOperation, showZipCreateDialog, showZipExtractDialog });
@@ -1440,7 +1479,7 @@ export function FileManagementToolbar() {
   const pasteDisabled = busy || state.transferActive || !surface || (!isTauri() && !state.clipboard?.tickets.length);
   const conflictRows = plan?.rows.filter((row) => conflictTicketIds.includes(row.ticketId)) ?? [];
   const nameConflict = (transfer?.action === "rename" && !transfer.newNames) || transfer?.action === "create_directory" || transfer?.action === "create_file";
-  const conflictsResolved = conflictTicketIds.length > 0 && conflictTicketIds.every((id) => skip.includes(id) || keepBoth.includes(id));
+  const conflictsResolved = conflictTicketIds.length > 0 && conflictTicketIds.every((id) => skip.includes(id) || keepBoth.includes(id) || overwrite.includes(id));
   const panelTitle = t(state.basketOpen ? "fmBasket" : panel === "places" ? "fmPlaces" : panel === "results" ? "fmResultsSummary" : panel === "tasks" ? "fmTasks" : "fmMore");
   const resultDestination = parentPath(state.results.find((log) => log.status === "success" && log.path_after)?.path_after ?? "");
   const resultsSummary = `${t("fmResults")} · ${state.results.filter((log) => log.status === "success").length}/${state.results.length}`;
@@ -1462,23 +1501,31 @@ export function FileManagementToolbar() {
   const rateSample = useRef<{ batchId: string; at: number; bytes: number; rate: number | null } | null>(null);
   useEffect(() => {
     const progress = liveTaskProgress;
-    if (!progress || progress.processedBytes === undefined || progress.totalBytes === undefined || progress.totalBytes <= progress.processedBytes) {
+    if (!progress || progress.phase !== "copying" || progress.processedBytes === undefined || progress.totalBytes === undefined || progress.totalBytes <= progress.processedBytes) {
       rateSample.current = null;
       setTransferRate(null);
       return;
     }
     const at = performance.now();
     const previous = rateSample.current;
-    if (previous?.batchId === progress.batchId && at - previous.at >= 350 && progress.processedBytes >= previous.bytes) {
+    if (previous?.batchId === progress.batchId && progress.processedBytes < previous.bytes) {
+      rateSample.current = { batchId: progress.batchId, at, bytes: progress.processedBytes, rate: null };
+      setTransferRate(null);
+    } else if (previous?.batchId === progress.batchId && at - previous.at >= 350) {
       const instantRate = (progress.processedBytes - previous.bytes) / ((at - previous.at) / 1000);
-      const rate = instantRate > 0 ? previous.rate === null ? instantRate : previous.rate * 0.65 + instantRate * 0.35 : previous.rate;
+      const rate = instantRate > 0 ? previous.rate === null ? instantRate : previous.rate * 0.65 + instantRate * 0.35 : null;
       rateSample.current = { batchId: progress.batchId, at, bytes: progress.processedBytes, rate };
       setTransferRate(rate);
     } else if (previous?.batchId !== progress.batchId) {
       rateSample.current = { batchId: progress.batchId, at, bytes: progress.processedBytes, rate: null };
       setTransferRate(null);
     }
-  }, [liveTaskProgress?.batchId, liveTaskProgress?.processedBytes, liveTaskProgress?.totalBytes]);
+    const stallTimeout = window.setTimeout(() => {
+      rateSample.current = null;
+      setTransferRate(null);
+    }, 1500);
+    return () => window.clearTimeout(stallTimeout);
+  }, [liveTaskProgress?.batchId, liveTaskProgress?.phase, liveTaskProgress?.processedItems, liveTaskProgress?.processedBytes, liveTaskProgress?.totalBytes, liveTaskProgress?.totalItems]);
   const taskOperationStatus = (log: OperationLog, live: boolean) => log.status === "success" ? t("fmTaskCompleted")
     : log.status === "skipped" ? t("fmTaskSkipped")
       : log.status === "manual_review" || log.status === "pending" && !live ? t("fmTaskNeedsReview")
@@ -1486,6 +1533,7 @@ export function FileManagementToolbar() {
   const taskPhaseLabel = (phase?: string) => {
     const keys: Record<string, string> = {
       prepared: "fmTaskPhasePrepared", source_claimed: "fmTaskPhaseSourceClaimed", copying: "fmTaskPhaseCopying",
+      cloning: "fmTaskPhaseCloning",
       compressing: "fmTaskPhaseCompressing", extracting: "fmTaskPhaseExtracting",
       target_committed: "fmTaskPhaseTargetCommitted", source_cleanup_pending: "fmTaskPhaseCleanupPending",
       preparing: "fmTaskPhasePreparing", verify_source: "fmTaskPhaseVerifying",
@@ -1499,19 +1547,28 @@ export function FileManagementToolbar() {
   const taskProgressDetails = (progress: typeof liveTaskProgress) => {
     if (!progress) return "";
     const parts: string[] = [];
+    if (progress.total > 0) {
+      parts.push(`${progress.processed}/${progress.total} ${t("fmTaskItems")}`);
+    }
     if (progress.processedItems !== undefined) {
       parts.push(progress.totalItems === undefined
-        ? progress.processedItems + " " + t("fmTaskItems")
-        : progress.processedItems + "/" + progress.totalItems + " " + t("fmTaskItems"));
+        ? progress.processedItems + " " + t("fmTaskFiles")
+        : progress.processedItems + "/" + progress.totalItems + " " + t("fmTaskFiles"));
     }
     if (progress.processedBytes !== undefined) {
       parts.push(progress.totalBytes === undefined
         ? formatBytes(progress.processedBytes) + " " + t("fmTaskBytesTransferred")
         : formatBytes(progress.processedBytes) + " / " + formatBytes(progress.totalBytes));
-      if (progress.totalBytes !== undefined && transferRate !== null && transferRate > 0 && progress.processedBytes < progress.totalBytes) {
-        parts.push(`${t("fmTaskSpeed")}: ${formatBytes(transferRate)}/s`);
-        parts.push(`${t("fmTaskEta")}: ${formatTransferEta((progress.totalBytes - progress.processedBytes) / transferRate)}`);
+      if (progress.phase === "copying" && progress.totalBytes !== undefined && progress.processedBytes < progress.totalBytes) {
+        if (transferRate !== null && transferRate > 0) {
+          parts.push(`${t("fmTaskSpeed")}: ${formatBytes(transferRate)}/s`);
+          parts.push(`${t("fmTaskEta")}: ${formatTransferEta((progress.totalBytes - progress.processedBytes) / transferRate)}`);
+        } else {
+          parts.push(`${t("fmTaskEta")}: ${t("fmTaskEtaComputing")}`);
+        }
       }
+    } else {
+      parts.push(t("fmTaskBytesUnknown"));
     }
     return parts.join(" · ");
   };
@@ -1531,14 +1588,21 @@ export function FileManagementToolbar() {
   const resolution = (id: string, value: string) => {
     setSkip((current) => value === "skip" ? [...new Set([...current, id])] : current.filter((item) => item !== id));
     setKeepBoth((current) => value === "both" ? [...new Set([...current, id])] : current.filter((item) => item !== id));
+    setOverwrite((current) => value === "overwrite" ? [...new Set([...current, id])] : current.filter((item) => item !== id));
   };
-  function applyConflictResolution(value: "skip" | "both") {
+  function applyConflictResolution(value: "skip" | "both" | "overwrite") {
     if (value === "skip") {
       setSkip((current) => [...new Set([...current.filter((id) => !conflictTicketIds.includes(id)), ...conflictTicketIds])]);
       setKeepBoth((current) => current.filter((id) => !conflictTicketIds.includes(id)));
-    } else {
+      setOverwrite((current) => current.filter((id) => !conflictTicketIds.includes(id)));
+    } else if (value === "both") {
       setKeepBoth((current) => [...new Set([...current.filter((id) => !conflictTicketIds.includes(id)), ...conflictTicketIds])]);
       setSkip((current) => current.filter((id) => !conflictTicketIds.includes(id)));
+      setOverwrite((current) => current.filter((id) => !conflictTicketIds.includes(id)));
+    } else {
+      setOverwrite((current) => [...new Set([...current.filter((id) => !conflictTicketIds.includes(id)), ...conflictTicketIds])]);
+      setSkip((current) => current.filter((id) => !conflictTicketIds.includes(id)));
+      setKeepBoth((current) => current.filter((id) => !conflictTicketIds.includes(id)));
     }
   }
   function retryNameConflict() {
@@ -1549,7 +1613,7 @@ export function FileManagementToolbar() {
     setTransfer(retry);
     setPlan(null);
     setConflictTicketIds([]);
-    void startTransfer(retry, [], []);
+    void startTransfer(retry, [], [], []);
   }
   const placeGroup = (favorite: boolean) => <section className="fm-place-group">
     <h3>{t(favorite ? "fmFavorites" : "fmRecent")}</h3>
@@ -1720,19 +1784,21 @@ export function FileManagementToolbar() {
           <span>{t("fmApplyToAll")}</span>
           <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("skip")}>{t("fmSkip")}</button>
           {transfer.action !== "rename" ? <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("both")}>{t("fmKeepBothShort")}</button> : null}
+          {["copy", "move", "duplicate"].includes(transfer.action) ? <button className={buttonSecondary} disabled={state.transferRunning} onClick={() => applyConflictResolution("overwrite")}>{t("fmOverwrite")}</button> : null}
         </div>}
       </header>
       <div className="fm-dialog-body">
         {nameConflict ? <label className="fm-destination">{t(transfer.action === "rename" ? "fmNewName" : transfer.action === "create_file" ? "fmFileName" : "fmFolderName")}<input ref={nameInputRef} value={newName} onChange={(event) => setNewName(event.target.value)} /></label> : <ul className="fm-preview fm-conflicts">{conflictRows.map((row) => {
           const ticket = transfer.tickets.find((item) => item.id === row.ticketId);
           if (!ticket) return null;
-          const value = skip.includes(ticket.id) ? "skip" : keepBoth.includes(ticket.id) ? "both" : "";
+          const value = skip.includes(ticket.id) ? "skip" : keepBoth.includes(ticket.id) ? "both" : overwrite.includes(ticket.id) ? "overwrite" : "";
           return <li key={ticket.id}>
             <div className="fm-preview-file"><File size={17}/><div><strong>{ticket.relativePath || ticket.name}</strong><p className="fm-path" title={ticket.path}>{ticket.path}</p><p className="fm-item-error">{t("fmConflict")}</p></div></div>
             <select aria-label={`${ticket.name} · ${t("fmResolution")}`} disabled={state.transferRunning} value={value} onChange={(event) => resolution(ticket.id, event.target.value)}>
               <option value="">{t("fmChooseResolution")}</option>
               <option value="skip">{t("fmSkip")}</option>
               {transfer.action !== "rename" ? <option value="both">{t("fmKeepBothShort")}</option> : null}
+              {["copy", "move", "duplicate"].includes(transfer.action) ? <option value="overwrite">{t("fmOverwrite")}</option> : null}
             </select>
           </li>;
         })}</ul>}
@@ -1741,7 +1807,7 @@ export function FileManagementToolbar() {
         <p className="fm-muted">{t(nameConflict ? "fmConflictsRepreview" : "fmConflictsRepreview")}</p>
         <div className="fm-toolbar fm-confirm-bar">
           <button className={buttonSecondary} disabled={state.transferRunning} onClick={closeTransfer}>{t("fmCancel")}</button>
-          <button className={buttonPrimary} disabled={(nameConflict ? !newName.trim() : !conflictsResolved) || state.transferRunning} onClick={() => nameConflict ? retryNameConflict() : void startTransfer(transfer, skip, keepBoth)}>{nameConflict ? t(transfer.action === "rename" ? "fmRename" : transfer.action === "create_file" ? "fmNewFile" : "fmNewFolder") : t("fmApplyChoices")}</button>
+          <button className={buttonPrimary} disabled={(nameConflict ? !newName.trim() : !conflictsResolved) || state.transferRunning} onClick={() => nameConflict ? retryNameConflict() : void startTransfer(transfer, skip, keepBoth, overwrite)}>{nameConflict ? t(transfer.action === "rename" ? "fmRename" : transfer.action === "create_file" ? "fmNewFile" : "fmNewFolder") : t("fmApplyChoices")}</button>
         </div>
       </footer>
     </section></div></ModalPortal>}

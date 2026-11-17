@@ -801,6 +801,7 @@ pub(crate) fn replace_file_with_identity(
     source_path: String,
     target_path: String,
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    expected_target_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     cancel_flag: Option<&AtomicBool>,
     planned_claim_path: Option<&Path>,
     operation_id: &str,
@@ -820,10 +821,11 @@ pub(crate) fn replace_file_with_identity(
     }
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    crate::fs_safety::atomic_move::atomic_replace_with_claim_path_and_observer_with_actual_paths(
+    crate::fs_safety::atomic_move::atomic_replace_with_expected_target_identity(
         &source,
         &target,
         expected_identity,
+        expected_target_identity,
         planned_claim_path,
         cancel_flag,
         operation_id,
@@ -881,9 +883,16 @@ fn move_path_to_system_trash_with_safety(
         FileMutationError::Validation(FileOpError::TargetParentMissing.to_string())
     })?;
     let trash_root = source_parent.join(".zen-canvas-trash");
-    let operation_key = blake3::hash(format!("{}\0{}", source.display(), operation_id).as_bytes())
-        .to_hex()
-        .to_string();
+    let operation_key = blake3::hash(
+        format!(
+            "{}\0{}",
+            crate::path_identity::normalize_for_compare(source),
+            operation_id
+        )
+        .as_bytes(),
+    )
+    .to_hex()
+    .to_string();
     let target_parent = trash_root.join("operations").join(&operation_key[..24]);
     crate::fs_safety::create_directory_chain_no_links(&target_parent).map_err(|error| {
         FileMutationError::Validation(format!("safe trash parent rejected: {error}"))
@@ -924,7 +933,7 @@ fn move_path_to_system_trash_with_safety(
     Ok((actual_source, actual_target))
 }
 
-fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err(FileOpError::RelativePath.to_string());
     }

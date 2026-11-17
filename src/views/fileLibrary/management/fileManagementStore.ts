@@ -103,6 +103,7 @@ export interface ActiveTransferTask {
   conflictTicketIds: string[];
   skip: string[];
   keepBoth: string[];
+  overwrite: string[];
 }
 interface ManagementState {
   owner: string | null;

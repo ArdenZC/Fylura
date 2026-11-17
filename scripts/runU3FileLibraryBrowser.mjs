@@ -111,9 +111,12 @@ try {
   await actions.first().getByRole("button", { name: "Copy to other pane", exact: true }).click();
   let dialog = page.getByRole("dialog");
   await dialog.getByText(/The batch is paused\. No file changes have been made\./u).waitFor();
-  assert.match(await dialog.innerText(), /Existing files will never be overwritten/u);
+  assert.match(await dialog.innerText(), /A target is replaced only after you choose Overwrite/u);
   assert.equal(await dialog.getByRole("button", { name: "Apply choices and continue", exact: true }).isEnabled(), false);
   await screenshot("04-conflict-dialog.png");
+  await dialog.getByRole("button", { name: "Overwrite", exact: true }).click();
+  assert.equal(await dialog.locator('select[aria-label^="Document"]').nth(0).inputValue(), "overwrite");
+  assert.equal(await dialog.locator('select[aria-label^="Document"]').nth(1).inputValue(), "overwrite");
   await dialog.locator('select[aria-label^="Document"]').nth(0).selectOption("both");
   await dialog.locator('select[aria-label^="Document"]').nth(1).selectOption("skip");
   assert.equal(await dialog.getByRole("button", { name: "Apply choices and continue", exact: true }).isEnabled(), true);

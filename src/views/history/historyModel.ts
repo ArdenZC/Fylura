@@ -90,8 +90,8 @@ export function operationTypeLabel(log: OperationLog, t: Translator) {
   if (log.operation_type === "move") return t("operationMove");
   if (log.operation_type === "rename") return t("operationRename");
   if (log.operation_type === "move_rename") return t("operationMoveRename");
-  if (log.operation_type === "copy") return t("operationCopy");
-  if (log.operation_type === "duplicate") return t("operationDuplicate");
+  if (log.operation_type === "copy" || log.operation_type === "copy_replace") return t("operationCopy");
+  if (log.operation_type === "duplicate" || log.operation_type === "duplicate_replace") return t("operationDuplicate");
   if (log.operation_type === "replace") return t("operationReplace");
   if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
   if (log.operation_type === "move_to_trash") return t("operationMoveToFyluraTrash");
@@ -453,12 +453,20 @@ export function operationBatchUndoEligibility(batch: OperationLogBatch) {
     || batch.expected_count !== batch.actual_count
     || batch.logs.length !== batch.actual_count
     || batch.expected_count === 0) {
-    return { executable: false, reason: "incomplete" as const, blockedCount: 0 };
+    return { executable: false, reason: "incomplete" as const, blockedCount: 0, failedCount: 0, eligible: [] as OperationLog[], succeededCount: 0 };
   }
-  const blockedCount = batch.logs.filter((log) => !restoreEligibility(log).executable).length;
-  return blockedCount > 0
-    ? { executable: false, reason: "unrestorable" as const, blockedCount }
-    : { executable: true, reason: null, blockedCount: 0 };
+  const eligible = batch.logs.filter((log) => restoreEligibility(log).executable);
+  const succeededCount = batch.logs.filter((log) => log.status === "success").length;
+  const failedCount = batch.logs.filter((log) => log.status !== "success" && log.status !== "skipped").length;
+  const blockedCount = succeededCount - eligible.length;
+  return {
+    executable: eligible.length > 0,
+    reason: eligible.length > 0 ? null : "unrestorable" as const,
+    blockedCount,
+    failedCount,
+    succeededCount,
+    eligible,
+  };
 }
 
 export function resolveHistoryBatchExecutionState(logs: readonly OperationLog[]): HistoryExecutionState {

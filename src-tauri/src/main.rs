@@ -58,6 +58,21 @@ fn main() {
         std::process::exit(0);
     }
 
+    #[cfg(all(windows, feature = "native-qa"))]
+    if launch_args
+        .get(1)
+        .is_some_and(|argument| argument == "--global-index-filename-first-service-mode-qa")
+    {
+        let result = fylura_tauri::global_index::windows::filename_first_qa::run_service_mode_probe(
+            &launch_args[2..],
+        );
+        if let Err(error) = result {
+            eprintln!("Global Index Service mode QA failed: {error}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+
     #[cfg(feature = "native-qa")]
     if launch_args
         .get(1)

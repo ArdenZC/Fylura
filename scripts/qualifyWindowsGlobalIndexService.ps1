@@ -81,6 +81,8 @@ $script:evidence = [ordered]@{
     baselineFixtureSearchFound = $false
     ipcBatchFixtureFileCount = 0
     serviceBatchingQualification = $null
+    filenameFirstServiceModeMatrix = @()
+    serviceModeAfterMatrix = $null
     independentManifest = $null
     crossDirectoryMove = $null
     createLatencyMs = $null
@@ -114,6 +116,145 @@ $script:qualificationVhdAttached = $false
 $script:failureMessage = $null
 $script:cleanupFailure = $false
 $script:baselineStartedAt = $null
+
+function Set-TaskServiceFilenameFirstMode([string]$Mode) {
+    $registryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName"
+    if ($Mode -eq 'unset') {
+        Remove-ItemProperty -LiteralPath $registryPath -Name Environment -ErrorAction SilentlyContinue
+        return
+    }
+    if ($Mode -ne 'enabled') { throw "unsupported task service mode: $Mode" }
+    New-ItemProperty -LiteralPath $registryPath -Name Environment -PropertyType MultiString -Value @(
+        'ZC_GLOBAL_INDEX_FILENAME_FIRST=1'
+    ) -Force | Out-Null
+}
+
+function Start-TaskService {
+    $start = Invoke-ServiceControl @('start', $serviceName)
+    if ($start.ExitCode -ne 0) {
+        throw "StartService failed; exact SCM output (exit=$($start.ExitCode)): $($start.Output)"
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    $service = $null
+    do {
+        $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+        if ($service -and $service.State -eq 'Running' -and $service.ProcessId -gt 0) { break }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $service -or $service.State -ne 'Running' -or $service.ProcessId -le 0) {
+        $state = if ($service) { "state=$($service.State) win32ExitCode=$($service.ExitCode) serviceSpecificExitCode=$($service.ServiceSpecificExitCode)" } else { 'service record unavailable' }
+        throw "task-owned service did not reach Running within 45 seconds; $state"
+    }
+    $expectedImagePath = ('"' + $CandidateExe + '" --index-service')
+    if ($service.PathName.Trim() -ine $expectedImagePath) {
+        throw "task-owned service ImagePath mismatch: expected=$expectedImagePath actual=$($service.PathName)"
+    }
+    $serviceImage = Get-ProcessImage ([int]$service.ProcessId)
+    if (-not $serviceImage.Equals($CandidateExe, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "task-owned service current_exe mismatch: expected=$CandidateExe actual=$serviceImage"
+    }
+    $script:serviceProcessId = [int]$service.ProcessId
+    return $service
+}
+
+function Stop-TaskService {
+    $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    if (-not $service -or $service.State -eq 'Stopped') { return }
+    $stop = Invoke-ServiceControl @('stop', $serviceName)
+    $deadline = [DateTime]::UtcNow.AddSeconds(25)
+    do {
+        Start-Sleep -Milliseconds 250
+        $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    } while ($service -and $service.State -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline)
+    if ($service -and $service.State -ne 'Stopped') {
+        throw "task-owned service did not stop for mode change: scExit=$($stop.ExitCode) output=$($stop.Output)"
+    }
+}
+
+function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label) {
+    $reportPath = Join-Path $taskRoot "filename-first-service-mode-$Label.json"
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $CandidateExe
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add('--global-index-filename-first-service-mode-qa')
+    $startInfo.ArgumentList.Add($reportPath)
+    $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
+    if ($DesktopMode -eq 'enabled') {
+        $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = '1'
+    } elseif ($DesktopMode -eq 'unset') {
+        $startInfo.Environment.Remove('ZC_GLOBAL_INDEX_FILENAME_FIRST') | Out-Null
+    } else {
+        throw "unsupported desktop service mode: $DesktopMode"
+    }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) { throw "failed to start installed-service mode probe: $Label" }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit(30000)) {
+        $process.Kill($true)
+        throw "installed-service mode probe timed out: $Label"
+    }
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+        throw "installed-service mode probe failed: label=$Label exit=$($process.ExitCode) stdout=$stdout stderr=$stderr"
+    }
+    $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+    $report | Add-Member -NotePropertyName desktopProcessId -NotePropertyValue ([long]$process.Id)
+    return $report
+}
+
+function Test-InstalledServiceFilenameFirstModeMatrix {
+    $machineSetting = [Environment]::GetEnvironmentVariable('ZC_GLOBAL_INDEX_FILENAME_FIRST', 'Machine')
+    if (-not [string]::IsNullOrEmpty($machineSetting)) {
+        throw "host machine environment sets ZC_GLOBAL_INDEX_FILENAME_FIRST; cannot prove an unset SCM service: $machineSetting"
+    }
+    $cases = @(
+        [pscustomobject]@{ name = 'both_unset'; service = 'unset'; desktop = 'unset'; expectedOk = $true; expectedMode = $false },
+        [pscustomobject]@{ name = 'both_enabled'; service = 'enabled'; desktop = 'enabled'; expectedOk = $true; expectedMode = $true },
+        [pscustomobject]@{ name = 'desktop_enabled_service_unset'; service = 'unset'; desktop = 'enabled'; expectedOk = $false; expectedMode = $true },
+        [pscustomobject]@{ name = 'desktop_unset_service_enabled'; service = 'enabled'; desktop = 'unset'; expectedOk = $false; expectedMode = $false }
+    )
+    $results = [Collections.Generic.List[object]]::new()
+    Stop-TaskService
+    foreach ($case in $cases) {
+        Set-TaskServiceFilenameFirstMode $case.service
+        $caseService = Start-TaskService
+        $probe = Invoke-ServiceModeProbe $case.desktop $case.name
+        if ([bool]$probe.desktopFilenameFirstEnabled -ne [bool]$case.expectedMode) {
+            throw "desktop experiment mode was not captured as expected for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        if ([bool]$probe.responseOk -ne [bool]$case.expectedOk) {
+            throw "installed service mode response mismatch for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        if ($case.expectedOk -and $probe.errorCode) {
+            throw "matching installed service mode returned an error for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        if (-not $case.expectedOk -and $probe.errorCode -ne 'index_filename_first_config_mismatch') {
+            throw "mismatched installed service mode was not rejected explicitly for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        $results.Add([ordered]@{
+            name = $case.name
+            serviceMode = $case.service
+            desktopMode = $case.desktop
+            responseOk = [bool]$probe.responseOk
+            errorCode = $probe.errorCode
+            serviceStatus = $probe.serviceStatus
+            desktopFilenameFirstEnabled = [bool]$probe.desktopFilenameFirstEnabled
+            desktopProcessId = [long]$probe.desktopProcessId
+            serviceProcessId = [long]$script:serviceProcessId
+            serviceImagePath = $caseService.PathName
+        })
+        Stop-TaskService
+    }
+    Set-TaskServiceFilenameFirstMode 'unset'
+    $service = Start-TaskService
+    return [pscustomobject]@{ results = @($results.ToArray()); service = $service }
+}
 
 function Invoke-ServiceControl([string[]]$Arguments) {
     $output = (& sc.exe @Arguments 2>&1 | Out-String).Trim()
@@ -572,9 +713,22 @@ try {
         throw "service current_exe mismatch: candidate=$CandidateExe service=$serviceCurrentExe"
     }
 
-    # Same installed executable / actual v4 service pipe; no force-direct test.
+    $modeMatrix = Test-InstalledServiceFilenameFirstModeMatrix
+    $service = $modeMatrix.service
+    $script:evidence.filenameFirstServiceModeMatrix = $modeMatrix.results
+    $script:serviceProcessId = [int]$service.ProcessId
+    $script:evidence.serviceModeAfterMatrix = 'unset'
+
+    # Same installed executable / actual v5 service pipe; no force-direct test.
     $recoveryReport = Join-Path $taskRoot "service-recovery.json"
-    $recoveryProcess = Start-Process -FilePath $CandidateExe -ArgumentList @("--global-index-recovery-qa", $profileRoot, $script:evidence.expectedQualificationSourceId, $recoveryReport) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $taskRoot "recovery-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "recovery-stdout.log")
+    $recoveryClientMode = [Environment]::GetEnvironmentVariable('ZC_GLOBAL_INDEX_FILENAME_FIRST', 'Process')
+    Remove-Item Env:ZC_GLOBAL_INDEX_FILENAME_FIRST -ErrorAction SilentlyContinue
+    try {
+        $recoveryProcess = Start-Process -FilePath $CandidateExe -ArgumentList @("--global-index-recovery-qa", $profileRoot, $script:evidence.expectedQualificationSourceId, $recoveryReport) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $taskRoot "recovery-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "recovery-stdout.log")
+    } finally {
+        if ($null -eq $recoveryClientMode) { Remove-Item Env:ZC_GLOBAL_INDEX_FILENAME_FIRST -ErrorAction SilentlyContinue }
+        else { $env:ZC_GLOBAL_INDEX_FILENAME_FIRST = $recoveryClientMode }
+    }
     try {
         if (-not $recoveryProcess.WaitForExit(180000)) { throw "installed service recovery regression timed out" }
         if ($recoveryProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $recoveryReport)) { throw "installed service recovery regression failed: $(Get-Content -LiteralPath (Join-Path $taskRoot 'recovery-stderr.log') -Raw)" }

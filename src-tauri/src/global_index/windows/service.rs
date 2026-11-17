@@ -9,8 +9,8 @@
 use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
 use serde::{Deserialize, Serialize};
 
-pub const IPC_PROTOCOL_VERSION: u16 = 4;
-pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\Fylura.GlobalIndex.v4";
+pub const IPC_PROTOCOL_VERSION: u16 = 5;
+pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\Fylura.GlobalIndex.v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +40,11 @@ pub struct IndexServiceRequest {
     pub command: IndexServiceCommand,
     #[serde(default)]
     pub source: Option<GlobalVolume>,
+    /// The desktop process and SCM-launched service have separate environments.
+    /// Bind every IPC request to the desktop's opt-in so a misconfigured
+    /// installation cannot run half of the experimental indexing path.
+    #[serde(default)]
+    pub filename_first_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -134,6 +139,22 @@ impl IndexServiceRequest {
             request_id: uuid::Uuid::new_v4().to_string(),
             command,
             source,
+            filename_first_enabled: crate::global_index::filename_first_experimental_enabled(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_filename_first_mode(
+        command: IndexServiceCommand,
+        source: Option<GlobalVolume>,
+        filename_first_enabled: bool,
+    ) -> Self {
+        Self {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            request_id: uuid::Uuid::new_v4().to_string(),
+            command,
+            source,
+            filename_first_enabled,
         }
     }
 }
@@ -1405,6 +1426,7 @@ mod tests {
             request_id: "request".to_string(),
             command: IndexServiceCommand::Status,
             source: None,
+            filename_first_enabled: false,
         };
         assert_eq!(
             validate_request(&request),
@@ -1434,7 +1456,7 @@ mod tests {
         assert_eq!(
             validate_request(&legacy_request),
             Err("unsupported_index_service_protocol".to_string()),
-            "protocol rejection must happen before an old request can enter the v4 service"
+            "protocol rejection must happen before an old request can enter the v5 service"
         );
 
         let current_request = IndexServiceRequest {
@@ -1442,10 +1464,10 @@ mod tests {
             ..legacy_request
         };
         // The service-host authorization test exercises the next boundary:
-        // after a structurally valid v4 envelope, it rejects this source
+        // after a structurally valid v5 envelope, it rejects this source
         // before provider discovery or index work.
         validate_request(&current_request)
-            .expect("v4 validates the envelope before runtime authorization");
+            .expect("v5 validates the envelope before runtime authorization");
     }
 
     #[test]
@@ -1463,23 +1485,25 @@ mod tests {
     }
 
     #[test]
-    fn v4_service_protocol_and_event_frame_shape_remain_stable() {
-        assert_eq!(IPC_PROTOCOL_VERSION, 4);
-        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\Fylura.GlobalIndex.v4");
+    fn v5_service_protocol_and_event_frame_shape_remain_stable() {
+        assert_eq!(IPC_PROTOCOL_VERSION, 5);
+        assert_eq!(INDEX_SERVICE_PIPE, r"\\.\pipe\Fylura.GlobalIndex.v5");
 
         let request = IndexServiceRequest {
             protocol_version: IPC_PROTOCOL_VERSION,
             request_id: "request-1".to_string(),
             command: IndexServiceCommand::Status,
             source: None,
+            filename_first_enabled: false,
         };
         assert_eq!(
-            serde_json::to_value(request).expect("serialize v4 request"),
+            serde_json::to_value(request).expect("serialize v5 request"),
             serde_json::json!({
-                "protocol_version": 4,
+                "protocol_version": 5,
                 "request_id": "request-1",
                 "command": "status",
                 "source": null,
+                "filename_first_enabled": false,
             })
         );
 

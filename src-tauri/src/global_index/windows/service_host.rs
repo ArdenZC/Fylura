@@ -40,6 +40,10 @@ pub const INDEX_SERVICE_NAME: &str = "FyluraGlobalIndex";
 pub const INDEX_SERVICE_DISPLAY_NAME: &str = "Fylura Global Index";
 const SERVICE_DELETE_ACCESS: u32 = 0x0001_0000;
 
+fn filename_first_modes_match(desktop_enabled: bool, service_enabled: bool) -> bool {
+    desktop_enabled == service_enabled
+}
+
 static SERVICE_CONTEXT: OnceLock<Arc<ServiceRuntime>> = OnceLock::new();
 static SERVICE_STATUS_HANDLE_VALUE: AtomicUsize = AtomicUsize::new(0);
 
@@ -148,6 +152,29 @@ impl ServiceRuntime {
         request: IndexServiceRequest,
         connection: &mut dyn IndexServiceConnection,
     ) -> Result<(), String> {
+        let service_filename_first_enabled =
+            crate::global_index::filename_first_experimental_enabled();
+        #[cfg(feature = "native-qa")]
+        crate::global_index::qa_trace::record(&format!(
+            "index_service_filename_first_mode desktop_enabled={} service_enabled={}",
+            request.filename_first_enabled, service_filename_first_enabled
+        ));
+        if !filename_first_modes_match(
+            request.filename_first_enabled,
+            service_filename_first_enabled,
+        ) {
+            return connection.send_response(self.response(
+                &request,
+                false,
+                Some("index_filename_first_config_mismatch"),
+                Some(format!(
+                    "desktop filename-first opt-in ({}) does not match installed service opt-in ({})",
+                    request.filename_first_enabled, service_filename_first_enabled
+                )),
+                Some(crate::global_index::models::INDEX_STATUS_ERROR.to_string()),
+            ));
+        }
+
         match request.command.clone() {
             IndexServiceCommand::Status => connection.send_response(self.response(
                 &request,
@@ -962,6 +989,69 @@ mod tests {
     use super::*;
     use crate::global_index::models::INDEX_STATUS_DISCOVERED;
 
+    #[derive(Default)]
+    struct CapturedResponseConnection(Option<IndexServiceResponse>);
+
+    impl IndexServiceConnection for CapturedResponseConnection {
+        fn send_event(&mut self, _event: IndexServiceEvent) -> Result<(), String> {
+            Err("unexpected event in service mode check".into())
+        }
+
+        fn send_response(&mut self, response: IndexServiceResponse) -> Result<(), String> {
+            self.0 = Some(response);
+            Ok(())
+        }
+
+        fn read_lookup_response(
+            &mut self,
+            _expected_lookup_id: &str,
+        ) -> Result<IndexServiceLookupResponse, String> {
+            Err("unexpected lookup in service mode check".into())
+        }
+    }
+
+    #[test]
+    fn filename_first_service_mode_requires_identical_desktop_and_scm_opt_ins() {
+        for (desktop, service, expected_match) in [
+            (false, false, true),
+            (true, true, true),
+            (false, true, false),
+            (true, false, false),
+        ] {
+            assert_eq!(
+                filename_first_modes_match(desktop, service),
+                expected_match,
+                "desktop={desktop} service={service}"
+            );
+        }
+    }
+
+    #[test]
+    fn service_host_reports_mode_mismatch_before_dispatching_any_command() {
+        let service_mode = crate::global_index::filename_first_experimental_enabled();
+        let request = IndexServiceRequest::new_with_filename_first_mode(
+            IndexServiceCommand::Status,
+            None,
+            !service_mode,
+        );
+        let mut connection = CapturedResponseConnection::default();
+
+        ServiceRuntime::new()
+            .handle_request(request, &mut connection)
+            .expect("write the mode-mismatch response");
+
+        let response = connection.0.expect("service response");
+        assert!(!response.ok);
+        assert_eq!(
+            response.error_code.as_deref(),
+            Some("index_filename_first_config_mismatch")
+        );
+        assert_eq!(
+            response.status.as_deref(),
+            Some(crate::global_index::models::INDEX_STATUS_ERROR)
+        );
+    }
+
     #[test]
     fn pipe_sink_defers_metadata_only_for_enabled_initial_mft_work() {
         let initial = IndexServiceCommand::StartInitialIndex {
@@ -985,6 +1075,7 @@ mod tests {
             request_id: request_id.to_string(),
             command,
             source: None,
+            filename_first_enabled: false,
         }
     }
 

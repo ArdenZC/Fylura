@@ -15,6 +15,7 @@ const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
 const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 128 * 1024;
 const INITIAL_MFT_LARGE_SOURCE_THRESHOLD: usize = 16_384;
 const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(150);
+const GENERIC_FTS_BULK_WRITER_HANDOFF: Duration = Duration::from_millis(25);
 const INITIAL_MFT_WAL_RESTART_BATCH_INTERVAL: usize = 4;
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
@@ -1731,9 +1732,9 @@ impl Database {
                 // `yield_now` can immediately reschedule this indexing thread
                 // on Windows. Leave a scheduling window long enough for a
                 // normal writer's bounded BEGIN wait to expire and retry into
-                // the gap before the next indexing batch. The 25ms handoff
-                // still let a sustained large-source writer reacquire SQLite's
-                // single WAL writer slot before Files/Settings transactions.
+                // the gap before the next indexing batch. This longer delay is
+                // confined to the initial Windows MFT writer; generic FTS
+                // batches use the shorter handoff below.
                 std::thread::sleep(INITIAL_MFT_WRITER_HANDOFF);
 
                 if enlarged_writer_cache
@@ -3585,9 +3586,10 @@ fn continue_fts_bulk_build_with_cancellation(
         if inserted == 0 {
             break;
         }
-        // As above, hand the single WAL writer to ordinary work between FTS
-        // batches; this cost is small compared with each batch's write work.
-        std::thread::sleep(INITIAL_MFT_WRITER_HANDOFF);
+        // Keep the generic FTS/recovery path on its short fairness window.
+        // The longer delay is specific to initial Windows MFT persistence,
+        // where the native writer repeatedly wins the writer slot otherwise.
+        std::thread::sleep(GENERIC_FTS_BULK_WRITER_HANDOFF);
     }
     Ok(())
 }
@@ -3797,4 +3799,12 @@ fn map_global_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalEntry> {
 
 fn bool_to_i64(value: bool) -> i64 {
     i64::from(value)
+}
+
+#[cfg(test)]
+#[test]
+fn generic_fts_handoff_stays_short_and_independent_from_initial_mft() {
+    assert_eq!(INITIAL_MFT_WRITER_HANDOFF, Duration::from_millis(150));
+    assert_eq!(GENERIC_FTS_BULK_WRITER_HANDOFF, Duration::from_millis(25));
+    assert!(GENERIC_FTS_BULK_WRITER_HANDOFF < INITIAL_MFT_WRITER_HANDOFF);
 }

@@ -141,7 +141,7 @@ impl Drop for CoordinatorTestDb {
 }
 
 #[test]
-fn p1_service_sqlite_busy_survives_ipc_v4_and_is_not_service_busy() {
+fn p1_service_sqlite_busy_survives_ipc_v5_and_is_not_service_busy() {
     let runtime = runtime(Provider {
         gate: None,
         fault: Some("sqlite_busy"),

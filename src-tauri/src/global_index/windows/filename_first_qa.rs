@@ -2,6 +2,7 @@
 //! The caller supplies an isolated profile and a task-created NTFS fixture.
 
 use super::mft::{open_volume, query_journal};
+use super::service::{IndexServiceCommand, IndexServiceRequest};
 use super::WindowsGlobalIndexProvider;
 use crate::db::{Database, DbError, InsertFileRequest};
 use crate::global_index::coordinator::{GlobalIndexProvider, GlobalIndexSink};
@@ -16,6 +17,30 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::CloseHandle;
+
+/// Disposable qualification probe that sends the desktop process's mode to
+/// the SCM-installed service over the production named-pipe protocol.
+pub fn run_service_mode_probe(args: &[String]) -> Result<(), Box<dyn Error>> {
+    if args.len() != 1 {
+        return Err("usage: --global-index-filename-first-service-mode-qa <report-path>".into());
+    }
+    let report_path = PathBuf::from(&args[0]);
+    if !report_path.is_absolute() {
+        return Err("service mode QA report path must be absolute".into());
+    }
+    let request = IndexServiceRequest::new(IndexServiceCommand::Status, None);
+    let response = super::service::call_index_service(&request)
+        .map_err(|error| format!("installed Global Index Service mode probe failed: {error}"))?;
+    let report = json!({
+        "desktopFilenameFirstEnabled": request.filename_first_enabled,
+        "responseOk": response.ok,
+        "errorCode": response.error_code,
+        "serviceStatus": response.status,
+        "protocolVersion": response.protocol_version,
+    });
+    std::fs::write(report_path, serde_json::to_vec_pretty(&report)?)?;
+    Ok(())
+}
 
 #[derive(Clone, Copy)]
 struct DiagnosticScenario {

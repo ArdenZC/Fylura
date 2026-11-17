@@ -249,7 +249,13 @@ pub(crate) fn execute_moves_with_persistence_and_expected_identity(
         }
         if matches!(
             operation.operation_type.as_str(),
-            "move_to_trash" | "move_to_system_trash" | "copy" | "duplicate" | "permanent_delete"
+            "move_to_trash"
+                | "move_to_system_trash"
+                | "copy"
+                | "duplicate"
+                | "copy_replace"
+                | "duplicate_replace"
+                | "permanent_delete"
         ) || operation.file_id == super::RECOVERY_ACTION_FILE_ID
         {
             continue;

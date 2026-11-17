@@ -143,7 +143,7 @@ fn u1_batch_collects_managed_and_disposed_browse_sources_then_copies_with_journa
     assert!(result
         .logs
         .iter()
-        .all(|l| l.status == "success" && !l.can_restore));
+        .all(|l| l.status == "success" && l.can_restore && l.can_undo));
     assert_eq!(
         fs::read(target.join("original.txt")).unwrap(),
         b"owned fixture"
@@ -187,7 +187,7 @@ fn file_management_duplicate_copies_in_place_and_preserves_source() {
     assert_eq!(result.logs.len(), 1);
     assert_eq!(result.logs[0].operation_type, "duplicate");
     assert_eq!(result.logs[0].status, "success");
-    assert!(!result.logs[0].can_restore);
+    assert!(result.logs[0].can_restore && result.logs[0].can_undo);
     assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
     assert_eq!(
         fs::read(source_directory.join("original (2).txt")).unwrap(),
@@ -339,6 +339,13 @@ fn fl42_explicit_overwrite_supports_copy_move_duplicate_and_restore() {
         assert!(result.logs[0].can_restore, "{:?}", result.logs[0]);
         assert_eq!(fs::read(&target).unwrap(), b"owned fixture");
         assert_eq!(f.source.exists(), action != TransferAction::Move);
+        if action != TransferAction::Move {
+            assert_eq!(
+                f.db.get_file_library_detail(&f.id).unwrap().path,
+                normalize_path(&f.source),
+                "Copy and Duplicate must leave the indexed source at its original path"
+            );
+        }
 
         let app_data = f.root.join("app-data");
         fs::create_dir(&app_data).unwrap();
@@ -1638,7 +1645,7 @@ fn fl20_external_directory_copy_preserves_nested_paths_and_rejects_stale_tree_pr
         result
             .logs
             .iter()
-            .all(|log| log.status == "success" && !log.can_restore),
+            .all(|log| log.status == "success" && log.can_restore && log.can_undo),
         "unexpected external copy journal state: {:?}",
         result.logs
     );

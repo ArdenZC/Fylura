@@ -2108,11 +2108,11 @@ mod tests {
             .expect("copy directory with progress");
         }
 
-        let copying = observed
+        let transfer_progress = observed
             .iter()
             .filter_map(|event| match event {
                 crate::fs_safety::FileOperationEvent::Progress(progress)
-                    if progress.stage == "copying" =>
+                    if matches!(progress.stage.as_str(), "copying" | "cloning") =>
                 {
                     Some(progress)
                 }
@@ -2120,18 +2120,37 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert!(
-            copying.len() >= 3,
-            "large-file progress must update in chunks"
+            !transfer_progress.is_empty(),
+            "copy or clone must emit byte progress"
         );
-        assert!(copying.windows(2).all(|pair| {
+        assert!(transfer_progress.windows(2).all(|pair| {
             pair[0].processed_bytes <= pair[1].processed_bytes
                 && pair[0].processed_items <= pair[1].processed_items
         }));
-        assert!(copying.iter().all(|progress| {
+        assert!(transfer_progress.iter().all(|progress| {
             progress.total_bytes == Some(payload.len() as u64)
                 && progress.processed_bytes <= payload.len() as u64
         }));
-        let completed_copy = copying.last().expect("final copy counters");
+        let copying = transfer_progress
+            .iter()
+            .filter(|progress| progress.stage == "copying")
+            .collect::<Vec<_>>();
+        let cloning = transfer_progress
+            .iter()
+            .filter(|progress| progress.stage == "cloning")
+            .collect::<Vec<_>>();
+        if cloning.is_empty() {
+            assert!(
+                copying.len() >= 3,
+                "streamed large-file progress must update in chunks"
+            );
+        } else {
+            assert!(
+                copying.iter().all(|progress| progress.processed_bytes == 0),
+                "cloned bytes must not be reported as streamed-copy progress"
+            );
+        }
+        let completed_copy = transfer_progress.last().expect("final copy counters");
         assert_eq!(completed_copy.processed_bytes, payload.len() as u64);
         assert_eq!(completed_copy.total_bytes, Some(payload.len() as u64));
         assert_eq!(completed_copy.processed_items, 3);

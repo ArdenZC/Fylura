@@ -14,11 +14,26 @@ const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
 const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 128 * 1024;
 const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(25);
+const INITIAL_MFT_WAL_RESTART_BATCH_INTERVAL: usize = 4;
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
     conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     })
+}
+
+fn restart_wal_checkpoint_without_waiting_for_readers(
+    conn: &Connection,
+) -> rusqlite::Result<(i64, i64, i64)> {
+    let previous_busy_timeout =
+        conn.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, u64>(0))?;
+    conn.busy_timeout(Duration::ZERO)?;
+    let checkpoint = conn.query_row("PRAGMA wal_checkpoint(RESTART)", [], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    });
+    let restore_timeout = conn.busy_timeout(Duration::from_millis(previous_busy_timeout));
+    restore_timeout?;
+    checkpoint
 }
 
 fn sqlite_wal_file_bytes(database_path: &Path) -> u64 {
@@ -1423,6 +1438,8 @@ impl Database {
             conn.query_row("PRAGMA cache_size", [], |row| row.get::<_, i64>(0))?;
         let previous_cache_spill =
             conn.query_row("PRAGMA cache_spill", [], |row| row.get::<_, i64>(0))?;
+        let previous_wal_autocheckpoint =
+            conn.query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))?;
         // Keep the bounded entry+FTS batch in SQLite's page cache. The
         // connection's normal 2 MiB cache spills dirty index pages into WAL
         // before commit; disabling spill for this bounded writer prevents
@@ -1446,16 +1463,24 @@ impl Database {
             }
             return Err(error.into());
         }
-        // Keep the shared database's automatic checkpoint policy. The QA
-        // trace samples WAL frames after each commit so a pinned reader can be
-        // distinguished from cache spill or a large but checkpointed WAL.
+        // For large initial loads, let several committed batches share the
+        // WAL before restarting it. SQLite's per-transaction PASSIVE
+        // autocheckpoint rewrites hot global-entry and FTS pages to the main
+        // database after every batch, while the WAL itself cannot be reused
+        // until its readers release their snapshots. RESTART checkpoints are
+        // scheduled below with a zero busy timeout; if a reader is active,
+        // the committed data remains safe and the next interval retries.
+        if enlarged_writer_cache {
+            if let Err(error) = conn.pragma_update(None, "wal_autocheckpoint", 0) {
+                let _ = conn.pragma_update(None, "journal_size_limit", previous_journal_size_limit);
+                let _ = conn.pragma_update(None, "cache_spill", previous_cache_spill);
+                let _ = conn.pragma_update(None, "cache_size", previous_cache_size);
+                return Err(error.into());
+            }
+        }
+        // The QA trace records both the normal shared policy and the
+        // connection-local policy used by the bounded initial writer.
         let qa_trace_active = crate::global_index::qa_trace::is_enabled();
-        let wal_autocheckpoint = if qa_trace_active {
-            conn.query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))
-                .unwrap_or(-1)
-        } else {
-            0
-        };
         if qa_trace_active {
             let cache_size = conn
                 .query_row("PRAGMA cache_size", [], |row| row.get::<_, i64>(0))
@@ -1466,8 +1491,13 @@ impl Database {
             let journal_size_limit = conn
                 .query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))
                 .unwrap_or(-1);
+            let wal_autocheckpoint = conn
+                .query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1);
             crate::global_index::qa_trace::record(&format!(
-                "global_index_initial_writer_config wal_autocheckpoint={wal_autocheckpoint} cache_size_pages={cache_size} cache_spill={cache_spill} journal_size_limit={journal_size_limit}"
+                "global_index_initial_writer_config wal_autocheckpoint_before={} wal_autocheckpoint_during={} cache_size_pages={cache_size} cache_spill={cache_spill} journal_size_limit={journal_size_limit}",
+                previous_wal_autocheckpoint,
+                wal_autocheckpoint,
             ));
         }
         let canonical_writer = canonical_scope_decision_writes();
@@ -1676,6 +1706,50 @@ impl Database {
                 // writer slot before the next bounded indexing batch.
                 std::thread::sleep(INITIAL_MFT_WRITER_HANDOFF);
 
+                if enlarged_writer_cache
+                    && batches_committed % INITIAL_MFT_WAL_RESTART_BATCH_INTERVAL == 0
+                {
+                    let wal_bytes_before_restart = if qa_trace_active {
+                        sqlite_wal_file_bytes(self.path())
+                    } else {
+                        0
+                    };
+                    let checkpoint_started = Instant::now();
+                    let checkpoint = restart_wal_checkpoint_without_waiting_for_readers(&conn);
+                    let checkpoint_elapsed = checkpoint_started.elapsed();
+                    timing.wal_checkpoint += checkpoint_elapsed;
+                    let wal_bytes_after_restart = if qa_trace_active {
+                        sqlite_wal_file_bytes(self.path())
+                    } else {
+                        0
+                    };
+                    match checkpoint {
+                        Ok((busy, log_frames, checkpointed_frames)) => {
+                            if qa_trace_active {
+                                crate::global_index::qa_trace::record(&format!(
+                                    "global_index_wal_checkpoint mode=restart batch={} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={}",
+                                    batches_committed,
+                                    checkpoint_elapsed.as_micros(),
+                                    wal_bytes_before_restart,
+                                    wal_bytes_after_restart,
+                                ));
+                            }
+                            if busy != 0 || log_frames != checkpointed_frames {
+                                log::debug!(
+                                    target: "global_index::repository",
+                                    "deferred initial-index WAL restart because a reader or writer is active: busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames}"
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                target: "global_index::repository",
+                                "initial-index WAL restart checkpoint failed: {error}"
+                            );
+                        }
+                    }
+                }
+
                 offset += entries.len();
                 processed_entries += entries.len();
             }
@@ -1696,8 +1770,32 @@ impl Database {
         } else {
             0
         };
+        let mut checkpoint_mode = "passive";
         let checkpoint_started = Instant::now();
-        let checkpoint_result = passive_wal_checkpoint(&conn);
+        let checkpoint_result = if enlarged_writer_cache {
+            match restart_wal_checkpoint_without_waiting_for_readers(&conn) {
+                Ok((busy, log_frames, checkpointed_frames))
+                    if busy == 0 && log_frames == checkpointed_frames =>
+                {
+                    checkpoint_mode = "restart";
+                    Ok((busy, log_frames, checkpointed_frames))
+                }
+                Ok(_) => {
+                    checkpoint_mode = "passive_after_restart_busy";
+                    passive_wal_checkpoint(&conn)
+                }
+                Err(error) => {
+                    log::warn!(
+                        target: "global_index::repository",
+                        "final initial-index WAL restart checkpoint failed; trying a passive checkpoint: {error}"
+                    );
+                    checkpoint_mode = "passive_after_restart_error";
+                    passive_wal_checkpoint(&conn)
+                }
+            }
+        } else {
+            passive_wal_checkpoint(&conn)
+        };
         timing.wal_checkpoint += checkpoint_started.elapsed();
         let wal_bytes_after_checkpoint = if qa_trace_active {
             sqlite_wal_file_bytes(self.path())
@@ -1708,10 +1806,12 @@ impl Database {
             conn.pragma_update(None, "journal_size_limit", previous_journal_size_limit);
         let restore_cache_size = conn.pragma_update(None, "cache_size", previous_cache_size);
         let restore_cache_spill = conn.pragma_update(None, "cache_spill", previous_cache_spill);
+        let restore_wal_autocheckpoint =
+            conn.pragma_update(None, "wal_autocheckpoint", previous_wal_autocheckpoint);
         match checkpoint_result {
             Ok((busy, log_frames, checkpointed_frames)) => {
                 crate::global_index::qa_trace::record(&format!(
-                    "global_index_wal_checkpoint mode=passive busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={}",
+                    "global_index_wal_checkpoint mode={checkpoint_mode} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={}",
                     timing.wal_checkpoint.as_micros(),
                     wal_bytes_before_checkpoint,
                     wal_bytes_after_checkpoint
@@ -1743,12 +1843,19 @@ impl Database {
                         "failed to restore SQLite cache spill policy after initial index error: {restore_error}"
                     );
                 }
+                if let Err(restore_error) = restore_wal_autocheckpoint {
+                    log::warn!(
+                        target: "global_index::repository",
+                        "failed to restore SQLite automatic WAL checkpoint policy after initial index error: {restore_error}"
+                    );
+                }
                 return Err(error);
             }
         };
         restore_cache_size?;
         restore_journal_size_limit?;
         restore_cache_spill?;
+        restore_wal_autocheckpoint?;
         debug_assert_eq!(processed_entries, entry_count);
         if has_eligible_pending_work {
             self.notify_managed_ai_work();

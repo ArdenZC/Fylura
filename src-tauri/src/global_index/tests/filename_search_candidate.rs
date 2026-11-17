@@ -788,7 +788,13 @@ fn transient_persistence_sqlite_full_restores_connection_and_recovers_on_reopen(
         .complete_transient_catalog("gv_disk_full", &owner.operation_id)
         .expect("complete transient catalog");
 
-    let (page_count, previous_max_page_count, previous_cache_size, previous_journal_size_limit) = {
+    let (
+        page_count,
+        previous_max_page_count,
+        previous_cache_size,
+        previous_journal_size_limit,
+        previous_wal_autocheckpoint,
+    ) = {
         let connection = db.conn().expect("read SQLite defaults before failure");
         let page_count = connection
             .query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))
@@ -802,11 +808,15 @@ fn transient_persistence_sqlite_full_restores_connection_and_recovers_on_reopen(
         let previous_journal_size_limit = connection
             .query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))
             .expect("read current SQLite journal limit");
+        let previous_wal_autocheckpoint = connection
+            .query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))
+            .expect("read current SQLite automatic checkpoint policy");
         (
             page_count,
             previous_max_page_count,
             previous_cache_size,
             previous_journal_size_limit,
+            previous_wal_autocheckpoint,
         )
     };
     db.for_each_test_connection(|connection| {
@@ -843,8 +853,11 @@ fn transient_persistence_sqlite_full_restores_connection_and_recovers_on_reopen(
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
+        let wal_autocheckpoint =
+            connection.query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))?;
         assert_eq!(cache_size, previous_cache_size);
         assert_eq!(journal_size_limit, previous_journal_size_limit);
+        assert_eq!(wal_autocheckpoint, previous_wal_autocheckpoint);
         let (active_rows, fts_bulk_build): (i64, bool) = connection
             .query_row(
                 "SELECT (SELECT COUNT(*) FROM global_entries WHERE volume_id='gv_disk_full'),

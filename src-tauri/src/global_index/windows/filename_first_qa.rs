@@ -73,6 +73,43 @@ fn live_result_visible(
     Ok(crate::global_index::commands::revalidated_global_entry(db, &result.id).is_ok())
 }
 
+fn durable_source_fts_ready(
+    conn: &Connection,
+    source_id: &str,
+    expected_fixture_file_count: usize,
+) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM global_volumes
+            WHERE id=?1 AND entry_count >= ?2
+              AND fts_bulk_build=0 AND fts_bulk_cursor=0
+        )",
+        rusqlite::params![source_id, expected_fixture_file_count as i64],
+        |row| row.get(0),
+    )
+}
+
+fn durable_fts_marker_visible(
+    conn: &Connection,
+    source_id: &str,
+    complete_query: &str,
+    complete_expected_path: &str,
+) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM global_entries_fts
+            JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid
+            WHERE global_entries_fts MATCH ?1
+              AND ge.volume_id=?2
+              AND ge.path_normalized=?3
+              AND ge.is_stale=0
+        )",
+        rusqlite::params![complete_query, source_id, complete_expected_path],
+        |row| row.get(0),
+    )
+}
+
 pub fn run_initial(
     profile: &Path,
     source_id: &str,
@@ -248,29 +285,18 @@ pub fn run_initial(
             // after the source has published its completed cursor.
             next_durable_fts_probe = Instant::now() + Duration::from_millis(250);
             durable_readiness_probe_count = durable_readiness_probe_count.saturating_add(1);
-            let source_fts_ready = durable_connection.query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM global_volumes
-                    WHERE id=?1 AND entry_count >= ?2
-                      AND fts_bulk_build=0 AND fts_bulk_cursor=0
-                )",
-                rusqlite::params![source_id, expected_fixture_file_count as i64],
-                |row| row.get::<_, bool>(0),
+            let source_fts_ready = durable_source_fts_ready(
+                &durable_connection,
+                source_id,
+                expected_fixture_file_count,
             )?;
             if source_fts_ready {
                 durable_fts_match_probe_count = durable_fts_match_probe_count.saturating_add(1);
-                let final_marker_visible = durable_connection.query_row(
-                    "SELECT EXISTS(
-                        SELECT 1
-                        FROM global_entries_fts
-                        JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid
-                        WHERE global_entries_fts MATCH ?1
-                          AND ge.volume_id=?2
-                          AND ge.path_normalized=?3
-                          AND ge.is_stale=0
-                    )",
-                    rusqlite::params![complete_query, source_id, complete_expected_path],
-                    |row| row.get::<_, bool>(0),
+                let final_marker_visible = durable_fts_marker_visible(
+                    &durable_connection,
+                    source_id,
+                    complete_query,
+                    &complete_expected_path,
                 )?;
                 if final_marker_visible {
                     durable_filename_index_us = Some(started.elapsed().as_micros());
@@ -326,6 +352,23 @@ pub fn run_initial(
         .map_err(|_| "native MFT qualification worker panicked")?
         .map_err(|error| format!("native MFT qualification failed: {error}"))?;
     let full_index_us = started.elapsed().as_micros();
+    // The worker can finish between two 250 ms readiness polls. Recheck the
+    // durable marker after joining it so a successful complete FTS build is
+    // not reported as missing merely because the final poll was skipped.
+    if durable_filename_index_us.is_none() {
+        durable_readiness_probe_count = durable_readiness_probe_count.saturating_add(1);
+        if durable_source_fts_ready(&durable_connection, source_id, expected_fixture_file_count)? {
+            durable_fts_match_probe_count = durable_fts_match_probe_count.saturating_add(1);
+            if durable_fts_marker_visible(
+                &durable_connection,
+                source_id,
+                complete_query,
+                &complete_expected_path,
+            )? {
+                durable_filename_index_us = Some(started.elapsed().as_micros());
+            }
+        }
+    }
     peak_database_bytes_with_wal = peak_database_bytes_with_wal
         .max(file_size(&database_path).saturating_add(file_size(&sidecar(&database_path, "-wal"))));
     if let Some((working_set, private_bytes)) = process_memory_sample() {
@@ -344,8 +387,29 @@ pub fn run_initial(
     if peak_working_set_bytes == 0 || peak_private_bytes == 0 {
         return Err("Windows process memory counters were unavailable during qualification".into());
     }
-    let durable_filename_index_us = durable_filename_index_us
-        .ok_or("complete task fixture was not visible through durable FTS")?;
+    let durable_filename_index_us = durable_filename_index_us.ok_or_else(|| {
+        let (entry_count, fts_bulk_build, fts_bulk_cursor, marker_visible): (i64, bool, i64, bool) =
+            durable_connection
+                .query_row(
+                    "SELECT entry_count, fts_bulk_build, fts_bulk_cursor,
+                         EXISTS(
+                             SELECT 1
+                             FROM global_entries_fts
+                             JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid
+                             WHERE global_entries_fts MATCH ?2
+                               AND ge.volume_id=global_volumes.id
+                               AND ge.path_normalized=?3
+                               AND ge.is_stale=0
+                         )
+                     FROM global_volumes WHERE id=?1",
+                    rusqlite::params![source_id, complete_query, complete_expected_path],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .unwrap_or((-1, true, -1, false));
+        format!(
+            "complete task fixture was not visible through durable FTS after worker completion: entry_count={entry_count} fts_bulk_build={fts_bulk_build} fts_bulk_cursor={fts_bulk_cursor} marker_visible={marker_visible}"
+        )
+    })?;
     let indexed_source = db
         .get_global_volume(source_id)?
         .ok_or("authorized source disappeared after indexing")?;

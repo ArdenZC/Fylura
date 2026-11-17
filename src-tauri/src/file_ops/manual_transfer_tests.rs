@@ -341,8 +341,10 @@ fn fl42_explicit_overwrite_supports_copy_move_duplicate_and_restore() {
         assert_eq!(f.source.exists(), action != TransferAction::Move);
         if action != TransferAction::Move {
             assert_eq!(
-                f.db.get_file_library_detail(&f.id).unwrap().path,
-                normalize_path(&f.source),
+                crate::path_identity::normalize_for_compare(Path::new(
+                    &f.db.get_file_library_detail(&f.id).unwrap().path,
+                )),
+                crate::path_identity::normalize_for_compare(&f.source),
                 "Copy and Duplicate must leave the indexed source at its original path"
             );
         }
@@ -540,7 +542,7 @@ fn fl42_overwrite_rejects_type_mismatch_and_target_identity_changes() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn fl42_move_directory_cleanup_only_allows_empty_retirement_sessions() {
+fn fl42_move_directory_cleanup_preserves_private_retirement_and_trash_entries() {
     let f = Fixture::new();
     let source = f.root.join("empty-merge-source");
     fs::create_dir(&source).unwrap();
@@ -555,14 +557,32 @@ fn fl42_move_directory_cleanup_only_allows_empty_retirement_sessions() {
     let retained_claim = session.join(format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4()));
     fs::write(&retained_claim, b"preserve claim").unwrap();
     assert!(source_directory_is_empty_after_move(&source).unwrap());
+
+    let nested_trash = source.join(".zen-canvas-trash/operations/0123456789abcdef01234567/nested");
+    fs::create_dir_all(&nested_trash).unwrap();
+    fs::write(
+        nested_trash.join("preserved.txt"),
+        b"preserve nested undo data",
+    )
+    .unwrap();
+    assert!(source_directory_is_empty_after_move(&source).unwrap());
+
     fs::remove_file(retained_claim).unwrap();
-    fs::write(source.join("user.txt"), b"preserve user data").unwrap();
+    let user_data = source.join("user.txt");
+    fs::write(&user_data, b"preserve user data").unwrap();
+    assert!(!source_directory_is_empty_after_move(&source).unwrap());
+    fs::remove_file(user_data).unwrap();
+    fs::write(
+        source.join(".zen-canvas-trash/random.txt"),
+        b"unknown private entry",
+    )
+    .unwrap();
     assert!(!source_directory_is_empty_after_move(&source).unwrap());
 }
 
 #[cfg(not(target_os = "macos"))]
 #[test]
-fn fl42_move_directory_cleanup_preserves_only_private_claims() {
+fn fl42_move_directory_cleanup_preserves_only_private_move_artifacts() {
     let f = Fixture::new();
     let source = f.root.join("claim-only-merge-source");
     fs::create_dir(&source).unwrap();
@@ -570,8 +590,25 @@ fn fl42_move_directory_cleanup_preserves_only_private_claims() {
     fs::write(&retained_claim, b"preserve claim").unwrap();
     assert!(source_directory_is_empty_after_move(&source).unwrap());
 
+    let nested_trash = source.join(".zen-canvas-trash/operations/0123456789abcdef01234567/nested");
+    fs::create_dir_all(&nested_trash).unwrap();
+    fs::write(
+        nested_trash.join("preserved.txt"),
+        b"preserve nested undo data",
+    )
+    .unwrap();
+    assert!(source_directory_is_empty_after_move(&source).unwrap());
+
     fs::remove_file(retained_claim).unwrap();
-    fs::write(source.join("user.txt"), b"preserve user data").unwrap();
+    let user_data = source.join("user.txt");
+    fs::write(&user_data, b"preserve user data").unwrap();
+    assert!(!source_directory_is_empty_after_move(&source).unwrap());
+    fs::remove_file(user_data).unwrap();
+    fs::write(
+        source.join(".zen-canvas-trash/random.txt"),
+        b"unknown private entry",
+    )
+    .unwrap();
     assert!(!source_directory_is_empty_after_move(&source).unwrap());
 }
 

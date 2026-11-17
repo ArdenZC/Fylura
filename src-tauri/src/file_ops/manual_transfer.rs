@@ -1990,9 +1990,9 @@ fn make_directory_merge_noop(
     })
 }
 
-// Directory merge may leave undo claims inside the emptied source root. The
-// final Safe Trash step preserves those private claims with the root; reject
-// any user entry or non-claim artifact before moving the root.
+// Directory merge may leave undo claims and nested Safe Trash entries inside
+// the emptied source root. The final Safe Trash step preserves them with the
+// root; reject any user entry or unrecognized artifact before moving it.
 pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, String> {
     let entries = std::fs::read_dir(path)
         .map_err(|error| error.to_string())?
@@ -2015,60 +2015,109 @@ pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, 
                     suffix.len() == 24 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
                 })
     };
-
     #[cfg(target_os = "macos")]
-    {
-        if entries.len() != 1
-            || entries[0].file_name() != std::ffi::OsStr::new(".zen-canvas-retirement")
-            || !entries[0]
-                .file_type()
-                .map_err(|error| error.to_string())?
-                .is_dir()
-        {
+    let mut saw_retirement_root = false;
+    for entry in entries {
+        let name = entry.file_name();
+        if name == std::ffi::OsStr::new(".zen-canvas-retirement") {
+            #[cfg(not(target_os = "macos"))]
             return Ok(false);
-        }
-        for session in std::fs::read_dir(entries[0].path()).map_err(|error| error.to_string())? {
-            let session = session.map_err(|error| error.to_string())?;
-            if !session
-                .file_type()
-                .map_err(|error| error.to_string())?
-                .is_dir()
-                || session
-                    .file_name()
-                    .to_str()
-                    .is_none_or(|name| uuid::Uuid::parse_str(name).is_err())
+            #[cfg(target_os = "macos")]
             {
-                return Ok(false);
-            }
-            for claim in std::fs::read_dir(session.path()).map_err(|error| error.to_string())? {
-                let claim = claim.map_err(|error| error.to_string())?;
-                if !claim
-                    .file_type()
-                    .map_err(|error| error.to_string())?
-                    .is_file()
-                    || !is_private_claim_name(&claim.file_name())
+                if saw_retirement_root
+                    || !entry
+                        .file_type()
+                        .map_err(|error| error.to_string())?
+                        .is_dir()
                 {
                     return Ok(false);
                 }
+                saw_retirement_root = true;
+                for session in std::fs::read_dir(entry.path()).map_err(|error| error.to_string())? {
+                    let session = session.map_err(|error| error.to_string())?;
+                    if !session
+                        .file_type()
+                        .map_err(|error| error.to_string())?
+                        .is_dir()
+                        || session
+                            .file_name()
+                            .to_str()
+                            .is_none_or(|name| uuid::Uuid::parse_str(name).is_err())
+                    {
+                        return Ok(false);
+                    }
+                    for claim in
+                        std::fs::read_dir(session.path()).map_err(|error| error.to_string())?
+                    {
+                        let claim = claim.map_err(|error| error.to_string())?;
+                        if !claim
+                            .file_type()
+                            .map_err(|error| error.to_string())?
+                            .is_file()
+                            || !is_private_claim_name(&claim.file_name())
+                        {
+                            return Ok(false);
+                        }
+                    }
+                }
             }
-        }
-        Ok(true)
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        for entry in entries {
+        } else if name == std::ffi::OsStr::new(".zen-canvas-trash") {
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+                || !safe_trash_root_contains_only_operations(&entry.path())?
+            {
+                return Ok(false);
+            }
+        } else {
+            #[cfg(target_os = "macos")]
+            return Ok(false);
+            #[cfg(not(target_os = "macos"))]
             if !entry
                 .file_type()
                 .map_err(|error| error.to_string())?
                 .is_file()
-                || !is_private_claim_name(&entry.file_name())
+                || !is_private_claim_name(&name)
             {
                 return Ok(false);
             }
         }
-        Ok(true)
     }
+    Ok(true)
+}
+
+fn safe_trash_root_contains_only_operations(path: &Path) -> Result<bool, String> {
+    let entries = std::fs::read_dir(path)
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    if entries.is_empty() {
+        return Ok(true);
+    }
+    if entries.len() != 1
+        || entries[0].file_name() != std::ffi::OsStr::new("operations")
+        || !entries[0]
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_dir()
+    {
+        return Ok(false);
+    }
+    for operation in std::fs::read_dir(entries[0].path()).map_err(|error| error.to_string())? {
+        let operation = operation.map_err(|error| error.to_string())?;
+        if !operation
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_dir()
+            || operation.file_name().to_str().is_none_or(|name| {
+                name.len() != 24 || !name.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<DirectoryIdentity, String> {
@@ -2744,9 +2793,16 @@ fn create_file_operation(directory: &Path, name: &str) -> Result<OperationPrevie
 }
 
 fn safe_trash_operation_target(source: &Path, operation_id: &str) -> String {
-    let operation_key = blake3::hash(format!("{}\0{}", source.display(), operation_id).as_bytes())
-        .to_hex()
-        .to_string();
+    let operation_key = blake3::hash(
+        format!(
+            "{}\0{}",
+            crate::path_identity::normalize_for_compare(source),
+            operation_id
+        )
+        .as_bytes(),
+    )
+    .to_hex()
+    .to_string();
     normalize_path(
         &source
             .parent()

@@ -1391,13 +1391,30 @@ fn atomic_replace_uncoordinated(
 }
 
 pub(crate) fn replacement_backup_path(source: &Path, target: &Path) -> std::path::PathBuf {
+    replacement_backup_path_with_key(source, target, true)
+}
+
+#[cfg(windows)]
+pub(crate) fn legacy_replacement_backup_path(source: &Path, target: &Path) -> std::path::PathBuf {
+    replacement_backup_path_with_key(source, target, false)
+}
+
+fn replacement_backup_path_with_key(
+    source: &Path,
+    target: &Path,
+    normalize_key: bool,
+) -> std::path::PathBuf {
     let source = replacement_namespace_path(source);
     let target = replacement_namespace_path(target);
-    let key = format!(
-        "{}\0{}",
-        crate::path_identity::normalize_for_compare(&source),
-        crate::path_identity::normalize_for_compare(&target)
-    );
+    let key = if normalize_key {
+        format!(
+            "{}\0{}",
+            crate::path_identity::normalize_for_compare(&source),
+            crate::path_identity::normalize_for_compare(&target)
+        )
+    } else {
+        format!("{}\0{}", source.display(), target.display())
+    };
     let digest = blake3::hash(key.as_bytes()).to_hex().to_string();
     let parent = target.parent().unwrap_or(&target);
     let backup_name = format!(".zen-canvas-replace-{}", &digest[..24]);

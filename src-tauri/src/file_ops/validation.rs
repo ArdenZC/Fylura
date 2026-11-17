@@ -883,9 +883,16 @@ fn move_path_to_system_trash_with_safety(
         FileMutationError::Validation(FileOpError::TargetParentMissing.to_string())
     })?;
     let trash_root = source_parent.join(".zen-canvas-trash");
-    let operation_key = blake3::hash(format!("{}\0{}", source.display(), operation_id).as_bytes())
-        .to_hex()
-        .to_string();
+    let operation_key = blake3::hash(
+        format!(
+            "{}\0{}",
+            crate::path_identity::normalize_for_compare(&source),
+            operation_id
+        )
+        .as_bytes(),
+    )
+    .to_hex()
+    .to_string();
     let target_parent = trash_root.join("operations").join(&operation_key[..24]);
     crate::fs_safety::create_directory_chain_no_links(&target_parent).map_err(|error| {
         FileMutationError::Validation(format!("safe trash parent rejected: {error}"))

@@ -840,10 +840,20 @@ pub(crate) fn replacement_backup_identity_result(
 }
 
 pub(crate) fn replacement_backup_path_for_log(log: &OperationLogDto) -> PathBuf {
-    crate::fs_safety::atomic_move::replacement_backup_path(
-        Path::new(&log.path_before),
-        Path::new(&log.path_after),
-    )
+    let source = Path::new(&log.path_before);
+    let target = Path::new(&log.path_after);
+    let current = crate::fs_safety::atomic_move::replacement_backup_path(source, target);
+    if replacement_backup_identity_result(log, &current).is_ok() {
+        return current;
+    }
+    #[cfg(windows)]
+    {
+        let legacy = crate::fs_safety::atomic_move::legacy_replacement_backup_path(source, target);
+        if replacement_backup_identity_result(log, &legacy).is_ok() {
+            return legacy;
+        }
+    }
+    current
 }
 
 pub(crate) fn operation_restore_original_identity_result(

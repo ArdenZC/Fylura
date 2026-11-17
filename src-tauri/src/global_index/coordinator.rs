@@ -487,10 +487,10 @@ struct DatabaseIndexSink {
     write_timings: HashMap<String, SourceWriteTimings>,
 }
 
-#[derive(Clone)]
 struct SourceOperationContext {
     kind: SourceOperationKind,
     provider: String,
+    scope_observation: super::coverage::ObservationCache,
 }
 
 #[derive(Debug, Default)]
@@ -900,6 +900,7 @@ impl GlobalIndexSink for DatabaseIndexSink {
             SourceOperationContext {
                 kind,
                 provider: source.provider.clone(),
+                scope_observation: super::coverage::ObservationCache::default(),
             },
         );
         self.write_timings
@@ -1044,7 +1045,19 @@ impl GlobalIndexSink for DatabaseIndexSink {
         if self.deferred_initial_sources.contains(&volume_id) {
             let (visible, policy_revision, timing) = self
                 .db
-                .preflight_global_entries_batch_owned(entries, &owner)
+                .preflight_global_entries_batch_owned(
+                    entries,
+                    &owner,
+                    &mut self
+                        .operation_context
+                        .get_mut(&volume_id)
+                        .ok_or_else(|| {
+                            GlobalIndexError::ServiceProtocol(
+                                "source context missing during filename preflight".into(),
+                            )
+                        })?
+                        .scope_observation,
+                )
                 .map_err(Self::map_owned_write_error)?;
             let staging_started = Instant::now();
             let append_result = self.db.filename_search.append_transient_catalog(

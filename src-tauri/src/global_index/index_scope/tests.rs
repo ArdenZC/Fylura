@@ -156,6 +156,46 @@ fn native_false_exclusion_oracle_preserves_user_files() {
 }
 
 #[test]
+fn mft_scope_directory_proofs_are_reused_only_for_the_same_source_policy() {
+    let mut f = Fixture::new();
+    f.source.mount_path = f.root.to_string_lossy().into_owned();
+    f.source.provider = crate::global_index::PROVIDER_WINDOWS_MFT_USN.into();
+    let first = f.file("docs/first.txt");
+    let second = f.file("docs/second.txt");
+    let policy = CoveragePolicy::default();
+    let mut cache = ObservationCache::default();
+
+    assert_eq!(
+        observe_batch_cached(&policy, &f.source, std::slice::from_ref(&first), &mut cache),
+        observe_batch(&policy, &f.source, std::slice::from_ref(&first))
+    );
+    assert_eq!(cache.cached_directory_count(), 1);
+    assert_eq!(
+        observe_batch_cached(
+            &policy,
+            &f.source,
+            std::slice::from_ref(&second),
+            &mut cache
+        ),
+        observe_batch(&policy, &f.source, std::slice::from_ref(&second))
+    );
+    assert_eq!(cache.cached_directory_count(), 1);
+
+    let mut changed_policy = policy;
+    changed_policy.revision += 1;
+    assert_eq!(
+        observe_batch_cached(
+            &changed_policy,
+            &f.source,
+            std::slice::from_ref(&second),
+            &mut cache,
+        ),
+        observe_batch(&changed_policy, &f.source, std::slice::from_ref(&second))
+    );
+    assert_eq!(cache.cached_directory_count(), 1);
+}
+
+#[test]
 fn native_system_temporary_root_is_excluded_without_excluding_tmp_named_folders() {
     let source_root = std::env::temp_dir();
     let fixture_root = source_root.join(format!("zen-smart-lean-temp-{}", uuid::Uuid::new_v4()));

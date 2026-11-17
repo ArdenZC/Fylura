@@ -1816,6 +1816,7 @@ impl Database {
         &self,
         entries: &[GlobalEntryInput],
         owner: &SourceOperationOwner,
+        observation_cache: &mut super::coverage::ObservationCache,
     ) -> Result<(Vec<super::coverage::Decision>, u64, GlobalIndexBatchTiming), DbError> {
         let mut timing = GlobalIndexBatchTiming::default();
         if entries.is_empty() {
@@ -1857,7 +1858,8 @@ impl Database {
         let policy = super::coverage::load_policy(&policy_conn)?;
         timing.coverage_policy_load = policy_load_started.elapsed();
         let coverage_started = Instant::now();
-        let decisions = super::coverage::observe_batch(&policy, &source, entries);
+        let decisions =
+            super::coverage::observe_batch_cached(&policy, &source, entries, observation_cache);
         timing.coverage_evaluation = coverage_started.elapsed();
         if decisions
             .iter()

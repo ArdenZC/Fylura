@@ -320,6 +320,52 @@ struct DirectoryFacts {
     explicit_rule: Option<bool>,
     rule_uncertain: bool,
 }
+
+const SCOPE_OBSERVATION_DIRECTORY_CACHE_LIMIT: usize = 4_096;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ObservationCacheKey {
+    source_id: String,
+    stable_volume_id: String,
+    mount_path: String,
+    platform: String,
+    provider: String,
+    policy_revision: u64,
+    policy_mode: CoverageMode,
+}
+
+/// Reuses directory proofs only within one authorized MFT source operation.
+/// The native volume identity and policy revision are checked for every IPC
+/// batch before this cache is consulted; ordinary Scope callers keep the
+/// original per-batch freshness behavior.
+#[derive(Default)]
+pub(crate) struct ObservationCache {
+    key: Option<ObservationCacheKey>,
+    directories: HashMap<(PathBuf, String), DirectoryFacts>,
+}
+
+impl ObservationCache {
+    fn prepare(&mut self, policy: &CoveragePolicy, source: &GlobalVolume) {
+        let key = ObservationCacheKey {
+            source_id: source.id.clone(),
+            stable_volume_id: source.stable_volume_id.clone(),
+            mount_path: source.mount_path.clone(),
+            platform: source.platform.clone(),
+            provider: source.provider.clone(),
+            policy_revision: policy.revision,
+            policy_mode: policy.mode,
+        };
+        if self.key.as_ref() != Some(&key) {
+            self.directories.clear();
+            self.key = Some(key);
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn cached_directory_count(&self) -> usize {
+        self.directories.len()
+    }
+}
 fn parent_identity_matches(expected: &str, actual: Option<&str>) -> bool {
     if expected.starts_with("mac:dev:") {
         return actual == Some(expected);
@@ -364,10 +410,37 @@ pub(crate) fn observe_batch(
     source: &GlobalVolume,
     entries: &[GlobalEntryInput],
 ) -> Vec<Decision> {
+    observe_batch_with_context(policy, source, entries, &mut HashMap::new())
+}
+
+pub(crate) fn observe_batch_cached(
+    policy: &CoveragePolicy,
+    source: &GlobalVolume,
+    entries: &[GlobalEntryInput],
+    cache: &mut ObservationCache,
+) -> Vec<Decision> {
+    if source.platform != "windows"
+        || source.provider != crate::global_index::PROVIDER_WINDOWS_MFT_USN
+        || policy.mode != CoverageMode::SmartLean
+    {
+        cache.key = None;
+        cache.directories.clear();
+        return observe_batch(policy, source, entries);
+    }
+    cache.prepare(policy, source);
+    observe_batch_with_context(policy, source, entries, &mut cache.directories)
+}
+
+fn observe_batch_with_context(
+    policy: &CoveragePolicy,
+    source: &GlobalVolume,
+    entries: &[GlobalEntryInput],
+    contexts: &mut HashMap<(PathBuf, String), DirectoryFacts>,
+) -> Vec<Decision> {
     // Identity-proven directory context lives only in this immutable source /
-    // policy batch. Native parent IDs bind the key; source/policy/mount changes
-    // cannot reuse previous batches. Path admission remains per candidate.
-    let mut contexts = HashMap::<(PathBuf, String), DirectoryFacts>::new();
+    // policy context. Native parent IDs bind each key; the operation-scoped
+    // MFT cache is reset when the source mount or policy revision changes.
+    // Path and source authorization admission remain per candidate/batch.
     let root = Path::new(&source.mount_path);
     let boundaries = protected_roots(root);
     let caches = known_cache_roots(root);
@@ -415,7 +488,7 @@ pub(crate) fn observe_batch(
             } else {
                 &entry.parent_platform_file_id
             };
-            if contexts.len() >= 4096 {
+            if contexts.len() >= SCOPE_OBSERVATION_DIRECTORY_CACHE_LIMIT {
                 contexts.clear();
             }
             let facts = contexts

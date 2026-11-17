@@ -404,6 +404,7 @@ fn transfer_execution_advances_directory_selection_using_journaled_successes() {
             new_name: None,
             new_names: Default::default(),
             keep_both: Vec::new(),
+            overwrite: Vec::new(),
             skip: Vec::new(),
         })
         .expect("preview exact first batch");
@@ -484,6 +485,7 @@ fn system_trash_preview_is_available_only_on_supported_platforms_and_does_not_mu
         new_name: None,
         new_names: Default::default(),
         keep_both: Vec::new(),
+        overwrite: Vec::new(),
         skip: Vec::new(),
     });
     if cfg!(any(target_os = "windows", target_os = "macos")) {

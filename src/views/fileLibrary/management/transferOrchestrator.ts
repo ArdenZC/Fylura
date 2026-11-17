@@ -16,6 +16,7 @@ export interface TransferOrchestrationRequest {
   newNames?: Record<string, string>;
   skip: string[];
   keepBoth: string[];
+  overwrite: string[];
 }
 
 export type TransferOrchestrationOutcome<TResult> =
@@ -36,6 +37,7 @@ export interface TransferOrchestrationPorts<TResult> {
     newNames?: Record<string, string>;
     skip: string[];
     keepBoth: string[];
+    overwrite: string[];
   }) => Promise<TransferPreview>;
   isCurrent: () => boolean;
   beforeExecute: () => Promise<void>;
@@ -70,12 +72,14 @@ export async function orchestrateTransfer<TResult>(
     ...(request.newNames === undefined ? {} : { newNames: request.newNames }),
     skip: request.skip,
     keepBoth: request.keepBoth,
+    overwrite: request.overwrite,
   });
   if (!ports.isCurrent()) return { kind: "stale" };
 
   const expected = new Set(createAction ? [request.action === "create_file" ? "create-file" : "create-directory"] : request.tickets.map((ticket) => ticket.id));
   const skip = new Set(request.skip);
   const keepBoth = new Set(request.keepBoth);
+  const overwrite = new Set(request.overwrite);
   const seen = new Set<string>();
   const errors: string[] = [];
   const conflicts: string[] = [];
@@ -99,6 +103,7 @@ export async function orchestrateTransfer<TResult>(
     if (row.error) {
       if (isTargetConflict(row.error) && !skip.has(row.ticketId)) {
         if (keepBoth.has(row.ticketId)) errors.push("transfer_keep_both_conflict_persisted");
+        else if (overwrite.has(row.ticketId)) errors.push("transfer_overwrite_conflict_persisted");
         else conflicts.push(row.ticketId);
       } else {
         errors.push(row.error);

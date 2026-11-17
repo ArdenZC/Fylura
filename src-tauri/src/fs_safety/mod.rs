@@ -67,6 +67,7 @@ pub(crate) type PhaseObserver<'a> =
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) struct DirectoryTransferProgress {
     stage: String,
+    last_emitted_stage: String,
     processed_items: u64,
     total_items: Option<u64>,
     processed_bytes: u64,
@@ -82,6 +83,7 @@ impl DirectoryTransferProgress {
     pub(crate) fn new(stage: &str) -> Self {
         Self {
             stage: stage.to_string(),
+            last_emitted_stage: String::new(),
             processed_items: 0,
             total_items: None,
             processed_bytes: 0,
@@ -101,6 +103,7 @@ impl DirectoryTransferProgress {
         observer: &mut Option<&mut PhaseObserver<'_>>,
     ) -> Result<(), AtomicMoveError> {
         self.stage = stage.to_string();
+        self.last_emitted_stage.clear();
         self.processed_items = 0;
         self.total_items = total_items;
         self.processed_bytes = 0;
@@ -133,6 +136,11 @@ impl DirectoryTransferProgress {
         self.emit_if_due(observer)
     }
 
+    pub(crate) fn set_stage(&mut self, stage: &str) {
+        self.stage.clear();
+        self.stage.push_str(stage);
+    }
+
     pub(crate) fn finish(
         &mut self,
         observer: &mut Option<&mut PhaseObserver<'_>>,
@@ -159,7 +167,8 @@ impl DirectoryTransferProgress {
         &mut self,
         observer: &mut Option<&mut PhaseObserver<'_>>,
     ) -> Result<(), AtomicMoveError> {
-        if self.processed_items.saturating_sub(self.last_emitted_items) >= 10
+        if self.stage != self.last_emitted_stage
+            || self.processed_items.saturating_sub(self.last_emitted_items) >= 10
             || self.processed_bytes.saturating_sub(self.last_emitted_bytes) >= 8 * 1024 * 1024
             || self.last_emit_at.elapsed() >= Duration::from_millis(200)
         {
@@ -185,6 +194,7 @@ impl DirectoryTransferProgress {
         self.last_emit_at = Instant::now();
         self.last_emitted_items = self.processed_items;
         self.last_emitted_bytes = self.processed_bytes;
+        self.last_emitted_stage.clone_from(&self.stage);
         Ok(())
     }
 }

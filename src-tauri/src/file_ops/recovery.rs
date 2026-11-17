@@ -485,6 +485,28 @@ pub(crate) fn is_directory_move_log(log: &OperationLogDto) -> bool {
                 .is_ok_and(|metadata| metadata.is_dir()))
 }
 
+pub(crate) fn is_copy_operation_log(log: &OperationLogDto) -> bool {
+    matches!(
+        log.operation_type.as_str(),
+        "copy" | "duplicate" | "copy_replace" | "duplicate_replace"
+    )
+}
+
+pub(crate) fn is_copy_replacement_log(log: &OperationLogDto) -> bool {
+    matches!(
+        log.operation_type.as_str(),
+        "copy_replace" | "duplicate_replace"
+    )
+}
+
+pub(crate) fn is_directory_copy_log(log: &OperationLogDto) -> bool {
+    is_copy_operation_log(log)
+        && crate::file_ops::manual_transfer::directory_tree_journal_fingerprint(
+            log.target_full_hash.as_deref(),
+        )
+        .is_some()
+}
+
 pub(crate) fn directory_move_tree_fingerprint(log: &OperationLogDto) -> Option<&str> {
     crate::file_ops::manual_transfer::directory_tree_journal_fingerprint(
         log.target_full_hash.as_deref(),
@@ -517,6 +539,19 @@ pub(crate) fn expected_restore_identity_from_log(
             modified_ns: None,
             platform_volume_id,
             platform_file_id,
+            sample_hash: log.source_quick_hash.clone(),
+            full_hash: log.source_full_hash.clone(),
+        });
+    }
+    if is_copy_operation_log(log) {
+        return Some(crate::fs_safety::ExpectedFileIdentity {
+            size: log.source_size?,
+            modified_ns: log
+                .source_modified_ns
+                .as_deref()
+                .and_then(|value| value.parse::<i128>().ok()),
+            platform_volume_id: log.source_platform_volume_id.clone(),
+            platform_file_id: log.source_platform_file_id.clone(),
             sample_hash: log.source_quick_hash.clone(),
             full_hash: log.source_full_hash.clone(),
         });
@@ -729,8 +764,15 @@ pub(crate) fn operation_restore_identity_result(
             "restore source identity does not match the operation journal",
         ));
     }
-    if is_directory_move_log(log) {
-        let Some(expected_tree) = directory_move_tree_fingerprint(log) else {
+    if is_directory_move_log(log) || is_directory_copy_log(log) {
+        let expected_tree = if is_directory_move_log(log) {
+            directory_move_tree_fingerprint(log)
+        } else {
+            crate::file_ops::manual_transfer::directory_tree_journal_fingerprint(
+                log.target_full_hash.as_deref(),
+            )
+        };
+        let Some(expected_tree) = expected_tree else {
             return Err(crate::recovery::RecoveryFailure::new(
                 crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
                 "directory restore source tree proof is missing",
@@ -798,10 +840,20 @@ pub(crate) fn replacement_backup_identity_result(
 }
 
 pub(crate) fn replacement_backup_path_for_log(log: &OperationLogDto) -> PathBuf {
-    crate::fs_safety::atomic_move::replacement_backup_path(
-        Path::new(&log.path_before),
-        Path::new(&log.path_after),
-    )
+    let source = Path::new(&log.path_before);
+    let target = Path::new(&log.path_after);
+    let current = crate::fs_safety::atomic_move::replacement_backup_path(source, target);
+    if replacement_backup_identity_result(log, &current).is_ok() {
+        return current;
+    }
+    #[cfg(windows)]
+    {
+        let legacy = crate::fs_safety::atomic_move::legacy_replacement_backup_path(source, target);
+        if replacement_backup_identity_result(log, &legacy).is_ok() {
+            return legacy;
+        }
+    }
+    current
 }
 
 pub(crate) fn operation_restore_original_identity_result(
@@ -938,6 +990,23 @@ pub(crate) fn operation_restore_final_identity_check(
         operation_restore_original_identity_result(log, Path::new(&log.path_before))?;
         replacement_backup_identity_result(log, Path::new(&log.path_after))?;
         return Ok(());
+    }
+    if is_copy_replacement_log(log) {
+        replacement_backup_identity_result(log, Path::new(&log.path_after))?;
+        return Ok(());
+    }
+    if is_copy_operation_log(log) {
+        return match fs::symlink_metadata(&log.path_after) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Ok(_) => Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::RestoreSourcePathReappeared,
+                "copied target still exists after undo; preserve it and review the operation",
+            )),
+            Err(error) => Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+                format!("copied target absence could not be verified: {error}"),
+            )),
+        };
     }
     let source = Path::new(&log.path_after);
     match fs::symlink_metadata(source) {

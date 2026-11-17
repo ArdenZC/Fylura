@@ -615,6 +615,9 @@ impl Database {
         if log.operation_type == "replace" {
             return self.finalize_successful_replace_restore(log);
         }
+        if crate::file_ops::is_copy_replacement_log(log) {
+            return self.finalize_successful_copy_replacement_restore(log);
+        }
         if log.restore_status != "restored" || log.restore_phase != "completed" {
             return Err(DbError::Validation(
                 "successful restore finalization requires restore_status=restored and restore_phase=completed"
@@ -1000,6 +1003,61 @@ impl Database {
             )?;
         }
         super::library::bump_library_query_revision_in_transaction(&tx)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn finalize_successful_copy_replacement_restore(
+        &self,
+        log: &OperationLogDto,
+    ) -> Result<(), DbError> {
+        if log.restore_status != "restored" || log.restore_phase != "completed" {
+            return Err(DbError::Validation(
+                "successful copy replacement restore finalization requires restore_status=restored and restore_phase=completed"
+                    .to_string(),
+            ));
+        }
+        crate::file_ops::validate_operation_restore_final_identity(log)
+            .map_err(DbError::Validation)?;
+
+        // Copy replacement Undo restores the prior destination object at the
+        // same path, so its indexed row did not move. Finalize only the log.
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        crate::file_ops::validate_operation_restore_final_identity(log)
+            .map_err(DbError::Validation)?;
+        let finalized = tx.execute(
+            r#"
+            UPDATE operation_logs
+            SET status = 'success',
+                error_message = NULL,
+                can_restore = 0,
+                restored_at = ?2,
+                restore_status = 'restored',
+                restore_error = NULL,
+                can_undo = 0,
+                restore_phase = 'completed',
+                restore_claim_path = NULL,
+                restore_claim_created_at = NULL,
+                restore_claim_platform_file_id = NULL,
+                restore_claim_platform_volume_id = NULL,
+                restore_claim_full_hash = NULL
+            WHERE id = ?1
+            "#,
+            params![
+                log.id,
+                log.restored_at
+                    .as_deref()
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .unwrap_or_else(current_unix_seconds)
+            ],
+        )?;
+        if finalized != 1 {
+            return Err(DbError::Validation(format!(
+                "restore journal row disappeared during finalization: {}",
+                log.id
+            )));
+        }
         tx.commit()?;
         Ok(())
     }

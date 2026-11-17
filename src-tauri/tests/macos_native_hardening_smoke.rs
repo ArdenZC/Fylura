@@ -52,7 +52,7 @@ struct CancelAfterDirectoryProgress {
 
 impl OperationProgressEmitter for CancelAfterDirectoryProgress {
     fn emit_progress(&self, payload: OperationProgressPayload) {
-        if payload.phase.as_deref() == Some("copying")
+        if matches!(payload.phase.as_deref(), Some("copying" | "cloning"))
             && payload.processed_items.unwrap_or_default() >= 10
         {
             self.triggered

@@ -169,6 +169,8 @@ pub struct TransferPreviewRequest {
     #[serde(default)]
     pub keep_both: Vec<String>,
     #[serde(default)]
+    pub overwrite: Vec<String>,
+    #[serde(default)]
     pub skip: Vec<String>,
 }
 #[derive(Serialize)]
@@ -982,6 +984,7 @@ impl FileWorkspaceRuntime {
                 || !request.new_names.is_empty()
                 || request.destination_entry.is_some()
                 || !request.keep_both.is_empty()
+                || !request.overwrite.is_empty()
                 || !request.skip.is_empty()
             {
                 return Err(invalid_request.into());
@@ -1052,6 +1055,7 @@ impl FileWorkspaceRuntime {
             if (!single_name && !batch_names)
                 || request.destination_entry.is_some()
                 || !request.keep_both.is_empty()
+                || !request.overwrite.is_empty()
                 || (!batch_names && !request.skip.is_empty())
             {
                 return Err("transfer_rename_selection_invalid".into());
@@ -1062,6 +1066,7 @@ impl FileWorkspaceRuntime {
                 || !request.new_names.is_empty()
                 || request.destination_entry.is_some()
                 || !request.keep_both.is_empty()
+                || !request.overwrite.is_empty()
                 || !request.skip.is_empty())
         {
             return Err("transfer_trash_request_invalid".into());
@@ -1071,6 +1076,7 @@ impl FileWorkspaceRuntime {
                 || !request.new_names.is_empty()
                 || request.destination_entry.is_some()
                 || !request.keep_both.is_empty()
+                || !request.overwrite.is_empty()
                 || !request.skip.is_empty())
         {
             return Err("transfer_trash_request_invalid".into());
@@ -1250,13 +1256,6 @@ impl FileWorkspaceRuntime {
                         }
                     }
                 }
-                if !matches!(
-                    request.action,
-                    TransferAction::Trash | TransferAction::SystemTrash
-                ) && conflict(&name, &reserved)?
-                {
-                    return Err("transfer_target_exists".into());
-                }
                 let operation_directory = if matches!(
                     request.action,
                     TransferAction::Rename | TransferAction::Trash | TransferAction::SystemTrash
@@ -1284,6 +1283,49 @@ impl FileWorkspaceRuntime {
                 } else {
                     target_for_name(&name)?
                 };
+                let mut overwrite_identity = None;
+                let mut merge_directory = false;
+                if !matches!(
+                    request.action,
+                    TransferAction::Trash | TransferAction::SystemTrash
+                ) {
+                    let target_key = transfer_target_key(&target);
+                    let reserved_collision = reserved.contains(&target_key);
+                    let target_exists = path_entry_exists(&target)?;
+                    if reserved_collision {
+                        return Err("transfer_target_exists".into());
+                    }
+                    if target_exists {
+                        if !request.overwrite.contains(&id)
+                            || !matches!(
+                                request.action,
+                                TransferAction::Copy
+                                    | TransferAction::Move
+                                    | TransferAction::Duplicate
+                            )
+                        {
+                            return Err("transfer_target_exists".into());
+                        }
+                        let source_metadata = std::fs::symlink_metadata(source_path)
+                            .map_err(|error| error.to_string())?;
+                        let target_metadata = std::fs::symlink_metadata(&target)
+                            .map_err(|error| error.to_string())?;
+                        if source_metadata.is_dir() != target_metadata.is_dir()
+                            || !(source_metadata.is_dir()
+                                || source_metadata.is_file() && target_metadata.is_file())
+                        {
+                            return Err("transfer_conflict_type_mismatch".into());
+                        }
+                        if source_metadata.is_dir() {
+                            merge_directory = true;
+                        } else {
+                            overwrite_identity = Some(
+                                crate::fs_safety::capture_namespace_identity_only(&target, None)
+                                    .map_err(|error| error.to_string())?,
+                            );
+                        }
+                    }
+                }
                 let validated_tree_fingerprint = source
                     .tree_guard
                     .as_ref()
@@ -1311,18 +1353,47 @@ impl FileWorkspaceRuntime {
                 // The guard above has already enumerated this exact source
                 // tree. Reuse that verified fingerprint to bind the new
                 // operation ID instead of repeating the full walk.
-                let operation = make_operation_with_tree_fingerprint(
-                    &source.file_id,
-                    source_path,
-                    operation_directory,
-                    &target,
-                    request.action,
-                    validated_tree_fingerprint,
-                )?;
-                let preview = preview_dto(&operation);
-                #[cfg(windows)]
-                {
-                    reserved_copy_bytes = required_bytes;
+                let mut planned = if merge_directory {
+                    build_directory_merge_operations(
+                        &source.file_id,
+                        source_path,
+                        &target,
+                        &directory,
+                        request.action,
+                    )?
+                } else {
+                    let mut operation = make_operation_with_tree_fingerprint(
+                        &source.file_id,
+                        source_path,
+                        operation_directory,
+                        &target,
+                        request.action,
+                        validated_tree_fingerprint,
+                    )?;
+                    if let Some(identity) = overwrite_identity.as_ref() {
+                        operation.operation_type = match request.action {
+                            TransferAction::Move => "replace",
+                            TransferAction::Copy => "copy_replace",
+                            TransferAction::Duplicate => "duplicate_replace",
+                            _ => return Err("transfer_target_exists".into()),
+                        }
+                        .into();
+                        operation.id = bind_overwrite_identity(&operation.id, identity)?;
+                    }
+                    vec![operation]
+                };
+                if merge_directory && request.action == TransferAction::Move {
+                    planned.push(make_empty_directory_trash_operation(source_path)?);
+                }
+                if planned.is_empty() {
+                    planned.push(make_directory_merge_noop(
+                        &source.file_id,
+                        source_path,
+                        &target,
+                    )?);
+                }
+                if operations.len().saturating_add(planned.len()) > LIMIT {
+                    return Err("transfer_operation_limit_1000".into());
                 }
                 if matches!(
                     request.action,
@@ -1330,7 +1401,20 @@ impl FileWorkspaceRuntime {
                 ) {
                     reserved.insert(transfer_target_key(&target));
                 }
-                operations.push(operation);
+                let preview = preview_dto(&planned[0]);
+                #[cfg(windows)]
+                {
+                    reserved_copy_bytes = required_bytes;
+                }
+                for operation in planned {
+                    if matches!(
+                        request.action,
+                        TransferAction::Copy | TransferAction::Move | TransferAction::Duplicate
+                    ) {
+                        reserved.insert(transfer_target_key(Path::new(&operation.target_path)));
+                    }
+                    operations.push(operation);
+                }
                 Ok(preview)
             })();
             rows.push(match result {
@@ -1694,8 +1778,6 @@ pub(crate) fn ensure_transfer_source_content_ready(path: &Path) -> Result<(), St
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", test, feature = "native-qa"))]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn make_operation(
     file_id: &str,
     source: &Path,
@@ -1746,6 +1828,298 @@ fn make_operation_with_tree_fingerprint(
         is_executable: Some(true),
     })
 }
+
+fn build_directory_merge_operations(
+    file_id: &str,
+    source_root: &Path,
+    target_root: &Path,
+    destination_root: &Path,
+    action: TransferAction,
+) -> Result<Vec<OperationPreviewRequest>, String> {
+    fn visit(
+        file_id: &str,
+        source_dir: &Path,
+        target_dir: &Path,
+        destination_root: &Path,
+        action: TransferAction,
+        output: &mut Vec<OperationPreviewRequest>,
+    ) -> Result<(), String> {
+        let mut entries = std::fs::read_dir(source_dir)
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            if output.len() >= LIMIT {
+                return Err("transfer_operation_limit_1000".into());
+            }
+            let source = entry.path();
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| "transfer_target_invalid")?;
+            validate_safe_file_name(&name)?;
+            let target = target_dir.join(&name);
+            let source_metadata =
+                std::fs::symlink_metadata(&source).map_err(|error| error.to_string())?;
+            if !source_metadata.is_dir() && !source_metadata.is_file() {
+                return Err("symlink_or_reparse_point".into());
+            }
+            match std::fs::symlink_metadata(&target) {
+                Ok(target_metadata) => {
+                    if source_metadata.is_dir() != target_metadata.is_dir()
+                        || !(source_metadata.is_dir()
+                            || source_metadata.is_file() && target_metadata.is_file())
+                    {
+                        return Err("transfer_conflict_type_mismatch".into());
+                    }
+                    if source_metadata.is_dir() {
+                        visit(file_id, &source, &target, destination_root, action, output)?;
+                        if action == TransferAction::Move {
+                            output.push(make_empty_directory_trash_operation(&source)?);
+                        }
+                    } else {
+                        let identity =
+                            crate::fs_safety::capture_namespace_identity_only(&target, None)
+                                .map_err(|error| error.to_string())?;
+                        let mut operation =
+                            make_operation(file_id, &source, destination_root, &target, action)?;
+                        operation.operation_type = match action {
+                            TransferAction::Move => "replace",
+                            TransferAction::Copy => "copy_replace",
+                            TransferAction::Duplicate => "duplicate_replace",
+                            _ => return Err("transfer_action_invalid".into()),
+                        }
+                        .into();
+                        operation.id = bind_overwrite_identity(&operation.id, &identity)?;
+                        output.push(operation);
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    output.push(make_operation(
+                        file_id,
+                        &source,
+                        destination_root,
+                        &target,
+                        action,
+                    )?);
+                }
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        Ok(())
+    }
+
+    let mut operations = Vec::new();
+    visit(
+        file_id,
+        source_root,
+        target_root,
+        destination_root,
+        action,
+        &mut operations,
+    )?;
+    Ok(operations)
+}
+
+fn make_empty_directory_trash_operation(source: &Path) -> Result<OperationPreviewRequest, String> {
+    let identity = file_namespace_fingerprint(source)?;
+    let file_id = identity
+        .platform_file_id
+        .as_deref()
+        .ok_or("transfer_identity_unavailable")?;
+    let volume_id = identity
+        .platform_volume_id
+        .as_deref()
+        .ok_or("transfer_identity_unavailable")?;
+    let digest = blake3::hash(
+        format!(
+            "empty-merge-directory:v1:{}:{volume_id}:{file_id}",
+            normalize_path(source)
+        )
+        .as_bytes(),
+    );
+    let id = format!("op-transfer-empty-dir-trash-{}", digest.to_hex());
+    let target = safe_trash_operation_target(source, &id);
+    let name = source
+        .file_name()
+        .ok_or("transfer_source_invalid")?
+        .to_string_lossy()
+        .into_owned();
+    Ok(OperationPreviewRequest {
+        id,
+        file_id: super::RECOVERY_ACTION_FILE_ID.into(),
+        operation_type: "move_empty_directory_to_trash".into(),
+        source_path: normalize_path(source),
+        target_path: target,
+        old_name: name.clone(),
+        new_name: name,
+        is_executable: Some(true),
+    })
+}
+
+fn make_directory_merge_noop(
+    file_id: &str,
+    source: &Path,
+    target: &Path,
+) -> Result<OperationPreviewRequest, String> {
+    let identity = file_namespace_fingerprint(source)?;
+    let target_identity = file_namespace_fingerprint(target)?;
+    let digest = blake3::hash(
+        format!(
+            "directory-merge-noop:v1:{}:{}:{identity:?}:{target_identity:?}",
+            normalize_path(source),
+            normalize_path(target)
+        )
+        .as_bytes(),
+    );
+    let name = source
+        .file_name()
+        .ok_or("transfer_source_invalid")?
+        .to_string_lossy()
+        .into_owned();
+    Ok(OperationPreviewRequest {
+        id: format!("op-transfer-merge-noop-{}", digest.to_hex()),
+        file_id: file_id.into(),
+        operation_type: "no_op".into(),
+        source_path: normalize_path(source),
+        target_path: normalize_path(target),
+        old_name: name.clone(),
+        new_name: name,
+        is_executable: Some(true),
+    })
+}
+
+// Directory merge may leave undo claims and nested Safe Trash entries inside
+// the emptied source root. The final Safe Trash step preserves them with the
+// root; reject any user entry or unrecognized artifact before moving it.
+pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, String> {
+    let entries = std::fs::read_dir(path)
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    if entries.is_empty() {
+        return Ok(true);
+    }
+
+    let is_private_claim_name = |name: &std::ffi::OsStr| {
+        let Some(name) = name.to_str() else {
+            return false;
+        };
+        name.strip_prefix(".zen-canvas-claim-")
+            .and_then(|suffix| uuid::Uuid::parse_str(suffix).ok())
+            .is_some()
+            || name
+                .strip_prefix(".zen-canvas-replace-")
+                .is_some_and(|suffix| {
+                    suffix.len() == 24 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+    };
+    #[cfg(target_os = "macos")]
+    let mut saw_retirement_root = false;
+    for entry in entries {
+        let name = entry.file_name();
+        if name == std::ffi::OsStr::new(".zen-canvas-retirement") {
+            #[cfg(not(target_os = "macos"))]
+            return Ok(false);
+            #[cfg(target_os = "macos")]
+            {
+                if saw_retirement_root
+                    || !entry
+                        .file_type()
+                        .map_err(|error| error.to_string())?
+                        .is_dir()
+                {
+                    return Ok(false);
+                }
+                saw_retirement_root = true;
+                for session in std::fs::read_dir(entry.path()).map_err(|error| error.to_string())? {
+                    let session = session.map_err(|error| error.to_string())?;
+                    if !session
+                        .file_type()
+                        .map_err(|error| error.to_string())?
+                        .is_dir()
+                        || session
+                            .file_name()
+                            .to_str()
+                            .is_none_or(|name| uuid::Uuid::parse_str(name).is_err())
+                    {
+                        return Ok(false);
+                    }
+                    for claim in
+                        std::fs::read_dir(session.path()).map_err(|error| error.to_string())?
+                    {
+                        let claim = claim.map_err(|error| error.to_string())?;
+                        if !claim
+                            .file_type()
+                            .map_err(|error| error.to_string())?
+                            .is_file()
+                            || !is_private_claim_name(&claim.file_name())
+                        {
+                            return Ok(false);
+                        }
+                    }
+                }
+            }
+        } else if name == std::ffi::OsStr::new(".zen-canvas-trash") {
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+                || !safe_trash_root_contains_only_operations(&entry.path())?
+            {
+                return Ok(false);
+            }
+        } else {
+            #[cfg(target_os = "macos")]
+            return Ok(false);
+            #[cfg(not(target_os = "macos"))]
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_file()
+                || !is_private_claim_name(&name)
+            {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn safe_trash_root_contains_only_operations(path: &Path) -> Result<bool, String> {
+    let entries = std::fs::read_dir(path)
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    if entries.is_empty() {
+        return Ok(true);
+    }
+    if entries.len() != 1
+        || entries[0].file_name() != std::ffi::OsStr::new("operations")
+        || !entries[0]
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_dir()
+    {
+        return Ok(false);
+    }
+    for operation in std::fs::read_dir(entries[0].path()).map_err(|error| error.to_string())? {
+        let operation = operation.map_err(|error| error.to_string())?;
+        if !operation
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_dir()
+            || operation.file_name().to_str().is_none_or(|name| {
+                name.len() != 24 || !name.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<DirectoryIdentity, String> {
     revalidate_with_tree_fingerprint(operation, None)
 }
@@ -1754,6 +2128,56 @@ fn revalidate_with_tree_fingerprint(
     operation: &OperationPreviewRequest,
     validated_tree_fingerprint: Option<&str>,
 ) -> Result<DirectoryIdentity, String> {
+    if operation.operation_type == "move_empty_directory_to_trash" {
+        let source = Path::new(&operation.source_path);
+        let metadata = std::fs::symlink_metadata(source).map_err(|error| error.to_string())?;
+        if operation.file_id != super::RECOVERY_ACTION_FILE_ID || !metadata.is_dir() {
+            return Err("operation_preview_stale".into());
+        }
+        let identity = file_namespace_fingerprint(source)?;
+        let file_id = identity
+            .platform_file_id
+            .as_deref()
+            .ok_or("transfer_identity_unavailable")?;
+        let volume_id = identity
+            .platform_volume_id
+            .as_deref()
+            .ok_or("transfer_identity_unavailable")?;
+        let digest = blake3::hash(
+            format!(
+                "empty-merge-directory:v1:{}:{volume_id}:{file_id}",
+                normalize_path(source)
+            )
+            .as_bytes(),
+        );
+        if operation.id != format!("op-transfer-empty-dir-trash-{}", digest.to_hex())
+            || operation.target_path != safe_trash_operation_target(source, &operation.id)
+        {
+            return Err("operation_preview_stale".into());
+        }
+        return Ok(VerifiedDirectory::open_existing(
+            source.parent().ok_or("transfer_source_invalid")?,
+        )
+        .map_err(|error| error.to_string())?
+        .identity()
+        .clone());
+    }
+    if operation.operation_type == "no_op" {
+        let source = Path::new(&operation.source_path);
+        let target = Path::new(&operation.target_path);
+        if operation.file_id.trim().is_empty()
+            || !std::fs::symlink_metadata(source).is_ok_and(|metadata| metadata.is_dir())
+            || !std::fs::symlink_metadata(target).is_ok_and(|metadata| metadata.is_dir())
+        {
+            return Err("operation_preview_stale".into());
+        }
+        return Ok(VerifiedDirectory::open_existing(
+            source.parent().ok_or("transfer_source_invalid")?,
+        )
+        .map_err(|error| error.to_string())?
+        .identity()
+        .clone());
+    }
     if matches!(
         operation.operation_type.as_str(),
         "create_directory" | "create_file"
@@ -1781,11 +2205,32 @@ fn revalidate_with_tree_fingerprint(
         "copy" => TransferAction::Copy,
         "move" => TransferAction::Move,
         "duplicate" => TransferAction::Duplicate,
+        "replace" => TransferAction::Move,
+        "copy_replace" => TransferAction::Copy,
+        "duplicate_replace" => TransferAction::Duplicate,
         "rename" => TransferAction::Rename,
         "move_to_trash" => TransferAction::Trash,
         "move_to_system_trash" => TransferAction::SystemTrash,
         _ => return Err("operation_preview_stale".into()),
     };
+    let (base_id, overwrite_identity) = split_overwrite_identity(&operation.id)?;
+    let overwrite_operation = matches!(
+        operation.operation_type.as_str(),
+        "replace" | "copy_replace" | "duplicate_replace"
+    );
+    if overwrite_operation != overwrite_identity.is_some() {
+        return Err("operation_preview_stale".into());
+    }
+    if let Some(expected) = overwrite_identity.as_ref() {
+        let actual = crate::fs_safety::capture_namespace_identity_only(
+            Path::new(&operation.target_path),
+            None,
+        )
+        .map_err(|_| "transfer_target_changed")?;
+        if !crate::fs_safety::identity_matches(expected, &actual) {
+            return Err("transfer_target_changed".into());
+        }
+    }
     let destination_root = decode_transfer_root(&operation.id).inspect_err(|_| {
         #[cfg(test)]
         eprintln!(
@@ -1814,7 +2259,7 @@ fn revalidate_with_tree_fingerprint(
         action,
         validated_tree_fingerprint,
     )?;
-    if id != operation.id {
+    if id != base_id {
         #[cfg(test)]
         eprintln!(
             "transfer stale at take: id changed old={} new={}",
@@ -1835,10 +2280,64 @@ fn encode_path_for_transfer_id(path: &str) -> String {
     encoded
 }
 
+fn decode_hex(value: &str) -> Result<Vec<u8>, String> {
+    if value.is_empty() || !value.len().is_multiple_of(2) {
+        return Err("operation_preview_stale".into());
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = (pair[0] as char)
+                .to_digit(16)
+                .ok_or("operation_preview_stale")?;
+            let low = (pair[1] as char)
+                .to_digit(16)
+                .ok_or("operation_preview_stale")?;
+            Ok(((high << 4) | low) as u8)
+        })
+        .collect()
+}
+
+fn bind_overwrite_identity(
+    base_id: &str,
+    identity: &crate::fs_safety::ExpectedFileIdentity,
+) -> Result<String, String> {
+    let payload = base_id
+        .strip_prefix("op-transfer-")
+        .ok_or("operation_preview_stale")?;
+    let encoded = serde_json::to_vec(identity).map_err(|_| "operation_preview_stale")?;
+    Ok(format!(
+        "op-transfer-overwrite-{payload}-{}",
+        encode_path_for_transfer_id(
+            std::str::from_utf8(&encoded).map_err(|_| "operation_preview_stale")?
+        )
+    ))
+}
+
+fn split_overwrite_identity(
+    id: &str,
+) -> Result<(String, Option<crate::fs_safety::ExpectedFileIdentity>), String> {
+    let Some(payload) = id.strip_prefix("op-transfer-overwrite-") else {
+        return Ok((id.to_string(), None));
+    };
+    let (base, encoded_identity) = payload.rsplit_once('-').ok_or("operation_preview_stale")?;
+    let bytes = decode_hex(encoded_identity)?;
+    let identity = serde_json::from_slice(&bytes).map_err(|_| "operation_preview_stale")?;
+    Ok((format!("op-transfer-{base}"), Some(identity)))
+}
+
+pub(crate) fn overwrite_target_identity_from_id(
+    id: &str,
+) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    split_overwrite_identity(id).ok()?.1
+}
+
 fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
-    let (version, payload) = if let Some(payload) = id.strip_prefix("op-transfer-v5-") {
+    let (base_id, _) = split_overwrite_identity(id)?;
+    let (version, payload) = if let Some(payload) = base_id.strip_prefix("op-transfer-v5-") {
         (5, payload)
-    } else if let Some(payload) = id.strip_prefix("op-transfer-v4-") {
+    } else if let Some(payload) = base_id.strip_prefix("op-transfer-v4-") {
         (4, payload)
     } else {
         return Err("operation_preview_stale".into());
@@ -1886,8 +2385,11 @@ fn decode_transfer_root(id: &str) -> Result<PathBuf, String> {
 }
 
 pub(crate) fn transfer_directory_tree_fingerprint(id: &str) -> Option<&str> {
-    let marker = id.rfind("op-transfer-v5-")?;
-    let payload = id.get(marker + "op-transfer-v5-".len()..)?;
+    let payload = if let Some(payload) = id.strip_prefix("op-transfer-overwrite-") {
+        payload.rsplit_once('-')?.0.strip_prefix("v5-")?
+    } else {
+        id.strip_prefix("op-transfer-v5-")?
+    };
     let (digest, payload) = payload.split_once('-')?;
     let (fingerprint, encoded_path) = payload.split_once('-')?;
     (digest.len() == 64
@@ -1913,6 +2415,15 @@ pub(crate) fn directory_tree_journal_fingerprint(value: Option<&str>) -> Option<
     let fingerprint = value?.strip_prefix(DIRECTORY_TREE_JOURNAL_PREFIX)?;
     (fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .then_some(fingerprint)
+}
+
+pub(crate) fn copy_replace_staging_path(operation: &OperationPreviewRequest) -> PathBuf {
+    let target = Path::new(&operation.target_path);
+    let digest = blake3::hash(operation.id.as_bytes()).to_hex().to_string();
+    target
+        .parent()
+        .unwrap_or_else(|| Path::new("/"))
+        .join(format!(".zen-canvas-stage-copy-replace-{}", &digest[..24]))
 }
 
 pub(crate) fn execute(
@@ -1943,6 +2454,154 @@ pub(crate) fn execute(
         return Err(FileMutationError::Atomic(
             crate::fs_safety::AtomicMoveError::Cancelled,
         ));
+    }
+    if operation.operation_type == "no_op" {
+        return Ok(FileOperationResult {
+            operation: "no_op".into(),
+            source_path: operation.source_path.clone(),
+            target_path: operation.target_path.clone(),
+        });
+    }
+    if operation.operation_type == "move_empty_directory_to_trash" {
+        if !source_directory_is_empty_after_move(Path::new(&operation.source_path))
+            .map_err(FileMutationError::Validation)?
+        {
+            return Err(FileMutationError::Validation(
+                "transfer_directory_not_empty".into(),
+            ));
+        }
+        let source = Path::new(&operation.source_path);
+        let mut identity =
+            crate::fs_safety::capture_namespace_identity_only(source, context.cancel_flag)
+                .map_err(|error| match error {
+                    crate::fs_safety::IdentityError::Cancelled => {
+                        FileMutationError::Atomic(crate::fs_safety::AtomicMoveError::Cancelled)
+                    }
+                    error => FileMutationError::Validation(error.to_string()),
+                })?;
+        if context.expected_identity.is_some_and(|expected| {
+            expected.platform_file_id != identity.platform_file_id
+                || expected.platform_volume_id != identity.platform_volume_id
+        }) {
+            return Err(FileMutationError::Validation(
+                "transfer_source_changed".into(),
+            ));
+        }
+        // Child moves intentionally change directory metadata. Capture its
+        // current namespace size while retaining the preview-bound file ID.
+        revalidate(operation).map_err(FileMutationError::Validation)?;
+        identity.modified_ns = None;
+        identity.sample_hash = None;
+        identity.full_hash = None;
+        return move_to_trash_with_safety(
+            operation.source_path.clone(),
+            context.app_data_dir,
+            Some(&identity),
+            context.planned_claim_path,
+            &operation.id,
+            context.phase_observer,
+            context.actual_path_observer,
+        );
+    }
+    if operation.operation_type == "replace" {
+        return replace_file_with_identity(
+            operation.source_path.clone(),
+            operation.target_path.clone(),
+            context.expected_identity,
+            overwrite_target_identity_from_id(&operation.id).as_ref(),
+            context.cancel_flag,
+            context.planned_claim_path,
+            &operation.id,
+            context.phase_observer,
+            context.actual_path_observer,
+        );
+    }
+    if matches!(
+        operation.operation_type.as_str(),
+        "copy_replace" | "duplicate_replace"
+    ) {
+        let source = validate_transfer_source_path(Path::new(&operation.source_path))?;
+        let target = validate_existing_target_path(Path::new(&operation.target_path))?;
+        let target_parent = target
+            .parent()
+            .ok_or_else(|| FileMutationError::Validation("transfer_target_invalid".into()))?;
+        let parent_identity = VerifiedDirectory::open_existing(target_parent)
+            .map_err(|error| FileMutationError::Validation(error.to_string()))?
+            .identity()
+            .clone();
+        let staging = copy_replace_staging_path(operation);
+        if path_entry_exists(&staging).map_err(FileMutationError::Validation)? {
+            return Err(FileMutationError::Validation(
+                "transfer_replace_stage_exists".into(),
+            ));
+        }
+        let copy_kind = if operation.operation_type == "duplicate_replace" {
+            "duplicate"
+        } else {
+            "copy"
+        };
+        let mut phase_observer = context.phase_observer;
+        {
+            let mut staging_observer = |event| {
+                if matches!(
+                    &event,
+                    crate::fs_safety::FileOperationEvent::Phase(phase)
+                        if phase == "target_committed" || phase == "completed"
+                ) {
+                    return Ok(());
+                }
+                if let Some(observer) = phase_observer.as_deref_mut() {
+                    observer(event)
+                } else {
+                    Ok(())
+                }
+            };
+            crate::fs_safety::atomic_move::atomic_copy_with_verified_destination(
+                &source,
+                &staging,
+                copy_kind,
+                context.expected_identity,
+                None,
+                context.cancel_flag,
+                Some(&mut staging_observer),
+                None,
+                Some(&parent_identity),
+            )
+            .map_err(FileMutationError::Atomic)?;
+        }
+        let staged_namespace =
+            crate::fs_safety::capture_namespace_identity_only(&staging, context.cancel_flag)
+                .map_err(|error| FileMutationError::Validation(error.to_string()))?;
+        let mut staged_identity = staged_namespace.clone();
+        if let Some(source_identity) = context.expected_identity {
+            staged_identity.sample_hash = source_identity.sample_hash.clone();
+            staged_identity.full_hash = source_identity.full_hash.clone();
+        }
+        return match replace_file_with_identity(
+            normalize_path(&staging),
+            normalize_path(&target),
+            Some(&staged_identity),
+            overwrite_target_identity_from_id(&operation.id).as_ref(),
+            context.cancel_flag,
+            None,
+            &operation.id,
+            phase_observer,
+            context.actual_path_observer,
+        ) {
+            Ok(_) => Ok(FileOperationResult {
+                operation: operation.operation_type.clone(),
+                source_path: normalize_path(&source),
+                target_path: normalize_path(&target),
+            }),
+            Err(error) => {
+                if crate::fs_safety::capture_namespace_identity_only(&staging, None).is_ok_and(
+                    |actual| crate::fs_safety::identity_matches(&staged_namespace, &actual),
+                ) {
+                    let _ = std::fs::remove_file(&staging);
+                }
+                Err(error)
+            }
+        };
     }
     if operation.operation_type == "create_directory" {
         return create_directory_with_safety(
@@ -2140,9 +2799,16 @@ fn create_file_operation(directory: &Path, name: &str) -> Result<OperationPrevie
 }
 
 fn safe_trash_operation_target(source: &Path, operation_id: &str) -> String {
-    let operation_key = blake3::hash(format!("{}\0{}", source.display(), operation_id).as_bytes())
-        .to_hex()
-        .to_string();
+    let operation_key = blake3::hash(
+        format!(
+            "{}\0{}",
+            crate::path_identity::normalize_for_compare(source),
+            operation_id
+        )
+        .as_bytes(),
+    )
+    .to_hex()
+    .to_string();
     normalize_path(
         &source
             .parent()

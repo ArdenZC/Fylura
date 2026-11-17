@@ -63,6 +63,11 @@ pub(crate) fn execute_preview_operation_with_app_data(
         match operation.operation_type.as_str() {
             "copy"
             | "move"
+            | "replace"
+            | "copy_replace"
+            | "duplicate_replace"
+            | "move_empty_directory_to_trash"
+            | "no_op"
             | "rename"
             | "move_to_trash"
             | "move_to_system_trash"
@@ -108,6 +113,7 @@ pub(crate) fn execute_preview_operation_with_app_data(
                 operation.source_path.clone(),
                 operation.target_path.clone(),
                 context.expected_identity,
+                manual_transfer::overwrite_target_identity_from_id(&operation.id).as_ref(),
                 context.cancel_flag,
                 context.planned_claim_path,
                 &operation.id,

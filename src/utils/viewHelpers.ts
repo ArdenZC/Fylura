@@ -327,6 +327,9 @@ export function committedLifecycleRecoveryFailure(error: unknown): string | null
 
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
+  if (message.startsWith("transfer_conflict_type_mismatch")) return t("fmConflictTypeMismatch");
+  if (message.startsWith("transfer_overwrite_conflict_persisted") || message.startsWith("transfer_target_changed")) return t("fmOverwriteConflictChanged");
+  if (message.startsWith("transfer_operation_limit_1000")) return t("fmTransferOperationLimit");
   const windowsGlobalIndexError = message.replace(/^provider error:\s*/i, "");
   if (windowsGlobalIndexError === "windows_global_index_unstable_volume_identity") {
     return t("globalIndexErrorWindowsStableIdentity");

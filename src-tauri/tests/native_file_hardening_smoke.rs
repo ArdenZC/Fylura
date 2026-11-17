@@ -1006,7 +1006,7 @@ fn native_file_hardening_smoke() {
     assert!(same_copy_result
         .logs
         .iter()
-        .all(|log| log.source_claim_path.is_none() && !log.can_restore));
+        .all(|log| log.source_claim_path.is_none() && log.can_restore && log.can_undo));
     assert!(
         same_file_source.is_file(),
         "same-volume Copy must retain its source"
@@ -1046,7 +1046,7 @@ fn native_file_hardening_smoke() {
     .expect("execute ordinary Duplicate");
     assert_eq!(duplicate_result.logs[0].status, "success");
     assert!(duplicate_result.logs[0].source_claim_path.is_none());
-    assert!(!duplicate_result.logs[0].can_restore);
+    assert!(duplicate_result.logs[0].can_restore && duplicate_result.logs[0].can_undo);
     assert!(
         same_file_source.is_file(),
         "Duplicate must retain its source"
@@ -1371,7 +1371,7 @@ fn native_file_hardening_smoke() {
         assert!(cross_copy_result
             .logs
             .iter()
-            .all(|log| log.source_claim_path.is_none() && !log.can_restore));
+            .all(|log| log.source_claim_path.is_none() && log.can_restore && log.can_undo));
         assert!(
             cross_copy_result
                 .logs

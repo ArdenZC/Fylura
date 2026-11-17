@@ -1444,7 +1444,20 @@ fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
 
 #[cfg(not(target_os = "macos"))]
 fn replacement_namespace_path(path: &Path) -> std::path::PathBuf {
-    path.to_path_buf()
+    #[cfg(windows)]
+    {
+        let Some(name) = path.file_name() else {
+            return path.to_path_buf();
+        };
+        path.parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .map(|parent| parent.join(name))
+            .unwrap_or_else(|| path.to_path_buf())
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1767,6 +1780,23 @@ mod tests {
             replacement_backup_path(actual_source, actual_target).file_name(),
             replacement_backup_path(journal_source, journal_target).file_name()
         );
+    }
+
+    #[test]
+    fn legacy_replacement_backup_name_rebuilds_from_normalized_journal_paths() {
+        let root = fixture("replacement-journal-paths");
+        let source = root.join("Stage.txt");
+        let target = root.join("Target.txt");
+        let journal_source =
+            std::path::PathBuf::from(crate::path_identity::normalize_path(&source));
+        let journal_target =
+            std::path::PathBuf::from(crate::path_identity::normalize_path(&target));
+
+        assert_eq!(
+            legacy_replacement_backup_path(&source, &target).file_name(),
+            legacy_replacement_backup_path(&journal_source, &journal_target).file_name()
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]

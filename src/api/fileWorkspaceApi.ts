@@ -200,3 +200,10 @@ export function revealBrowseEntry(entryRef: import("../types/fileWorkspace").Bro
 export function launchBrowseEntry(entryRef: import("../types/fileWorkspace").BrowseEntryRef, action: "open" | "open_with" = "open"): Promise<void> {
   return invokeCommand("file_workspace_browse_launch", { request: { entryRef, action } });
 }
+
+/** Opens the native Windows Shell menu for current backend-owned Browse refs. */
+export function openBrowseWindowsShellMenu(
+  entryRefs: readonly import("../types/fileWorkspace").BrowseEntryRef[],
+): Promise<{ selected: boolean }> {
+  return invokeCommand("file_workspace_browse_shell_menu", { request: { entryRefs } });
+}

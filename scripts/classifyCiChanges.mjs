@@ -175,6 +175,9 @@ function isPackagePath(path) {
   return path === "package.json"
     || path === "package-lock.json"
     || path === "src-tauri/tauri.conf.json"
+    || path === "src-tauri/tauri.windows.package.conf.json"
+    || path === "scripts/buildwindowspackage.mjs"
+    || path === "scripts/buildwindowsshellmenuhelper.mjs"
     || path.startsWith("src-tauri/icons/")
     || path.startsWith("installer/");
 }

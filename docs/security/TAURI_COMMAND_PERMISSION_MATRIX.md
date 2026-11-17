@@ -67,6 +67,7 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `file_workspace_places` | `main_state_mutation` | main | Store navigation hints in existing SQLite settings and recheck availability | default | yes | U1 transfer regressions |
 | `file_workspace_browse_reveal` | `main_state_mutation` | main | Resolve a live opaque Browse entry for read-only OS Reveal; no renderer path or execution | default | yes | U4 Browse reveal ownership tests |
 | `file_workspace_browse_launch` | `main_state_mutation` | main | Explicit OS Open/Open with for a current opaque Browse ref; native association/app chooser, live identity revalidation, no renderer paths or app arguments | default | yes | Browse launch ownership/type/staleness and permission tests |
+| `file_workspace_browse_shell_menu` | `main_state_mutation` | main | Opens an isolated Windows Shell menu for current same-folder BrowseEntryRefs only; backend checks live physical identities and protected paths before handing paths over versioned stdin IPC; no renderer paths or executable commands; Shell operations remain outside Fylura Journal/Restore | default | yes | Browse Shell-menu ownership, selection and Windows helper IPC tests |
 | `file_workspace_browse_open` | `main_state_mutation` | main | Admit one user-intent Browse location, or a backend-revalidated Global Index result parent, into fresh opaque session refs | default | yes | W1-10 integration tests |
 | `file_workspace_browse_restore` | `main_state_mutation` | main | Re-resolve a non-authoritative Browse restore locator into fresh opaque refs | default | yes | W1-10 integration tests |
 | `file_workspace_location_browse` | `main_state_mutation` | main | Re-admit one backend-owned LocationRef into a fresh Browse session without renderer path authority | default | yes | W2-R3 integration tests |
@@ -97,6 +98,15 @@ existing Main-only capture/preview/confirm/execute permission boundary.
 | `file_workspace_preview_asset_request` | `main_state_mutation` | main | Read one bounded Preview asset by exact session/request/sourceVersion-bound opaque token | default | yes | W3-01 asset transport tests |
 | `list_user_tags` | `read_only` | main | Read durable File Library user tags | default | no | File Library V2 tag tests |
 | `create_user_tag` | `main_state_mutation` | main | Create a durable File Library user tag | default | yes | File Library V2 tag tests |
+
+The Windows Shell menu uses the classic `IContextMenu` family and forwards
+`IContextMenu2/3` menu messages inside a short-lived same-user helper process.
+This isolates a Shell extension crash from Fylura; it is not a sandbox, and an
+extension can still access files available to that user. Fylura rechecks Browse
+physical identity immediately before `InvokeCommand`, but the Shell API is
+path-based so a narrow TOCTOU window remains. Extensions registered only via
+the Windows 11 `IExplorerCommand` surface are outside this classic-menu
+compatibility contract.
 | `update_user_tag` | `main_state_mutation` | main | Update a durable File Library user tag | default | yes | File Library V2 tag tests |
 | `delete_user_tag` | `main_state_mutation` | main | Delete a durable File Library user tag with usage confirmation | default | yes | File Library V2 tag tests |
 | `file_library_personal_metadata` | `main_state_mutation` | main | Read/list and CAS-edit identity-bound managed notes and favorites; no filesystem writes | default | yes | U4 personal metadata tests |

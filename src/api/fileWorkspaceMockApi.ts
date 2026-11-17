@@ -32,6 +32,7 @@ const FILE_WORKSPACE_COMMANDS = new Set([
   "file_workspace_browse_open",
   "file_workspace_browse_reveal",
   "file_workspace_browse_launch",
+  "file_workspace_browse_shell_menu",
   "file_workspace_browse_restore",
   "file_workspace_location_browse",
   "file_workspace_browse_start_enumeration",
@@ -454,6 +455,14 @@ export async function mockFileWorkspaceInvoke<T>(
       if (request?.action !== "open" && request?.action !== "open_with") throw new Error("invalid_launch_action");
       resolveManagementMockEntry(request?.entryRef as import("../types/fileWorkspace").EntryRef);
       throw new Error("browser_mock_launch_unavailable");
+    case "file_workspace_browse_shell_menu":
+      if (!Array.isArray(request?.entryRefs) || request.entryRefs.length === 0) {
+        throw new Error("shell_menu_selection_invalid");
+      }
+      for (const entryRef of request.entryRefs) {
+        resolveManagementMockEntry(entryRef as import("../types/fileWorkspace").EntryRef);
+      }
+      throw new Error("browser_mock_shell_menu_unavailable");
     case "file_workspace_browse_reveal":
       resolveManagementMockEntry(request?.entryRef as import("../types/fileWorkspace").EntryRef);
       throw new Error("browser_mock_reveal_unavailable");

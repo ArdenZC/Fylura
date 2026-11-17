@@ -11,6 +11,7 @@ import { windowsReleaseFeatures } from "./windowsReleaseFeatures.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nativeBuildScript = path.join(repositoryRoot, "scripts", "buildWindowsPreviewHandler.mjs");
+const shellHelperBuildScript = path.join(repositoryRoot, "scripts", "buildWindowsShellMenuHelper.mjs");
 const packageConfig = path.join(
   repositoryRoot,
   "src-tauri",
@@ -52,6 +53,7 @@ try {
     // CLI 2.11.2 blob, applies reviewed lifecycle call-site changes, and then
     // routes generated metadata/delete failures to the same synchronous owner.
     run(process.execPath, [nativeBuildScript]);
+    run(process.execPath, [shellHelperBuildScript, "--release"]);
     if (!fs.existsSync(packageResourcePath)) {
       throw new Error(`Expected package staging DLL is missing: ${packageResourcePath}`);
     }

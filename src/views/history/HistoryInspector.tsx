@@ -291,9 +291,9 @@ export function HistoryInspector({
                     {recoveryError && recoveryBusyId === "" && <p className="text-[var(--zc-danger-text)]" role="alert">{localizedRestoreMessage(recoveryError, t)}</p>}
                   </div>}
                 </div>
-                <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(log)}>
+                {!isSystemTrashOperation(log) && <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(log)}>
                   <ExternalLink size={15} />
-                </button>
+                </button>}
               </div>
             </div>
           );

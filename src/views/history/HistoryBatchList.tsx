@@ -5,7 +5,7 @@ import type { OperationLog } from "../../types/domain";
 import { formatCount } from "../../i18n";
 import { cn, selectedFocusSurface } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
-import { historyTime, isNoOpLog, isRestorableLog, type OperationHistoryBatch } from "./historyModel";
+import { historyTime, isRestorableLog, operationTypeLabel, type OperationHistoryBatch } from "./historyModel";
 
 function executionStateLabel(batch: OperationHistoryBatch, t: Translator) {
   if (batch.executionState === "partial") return t("historyStatusPartial");
@@ -26,22 +26,6 @@ function restoreStateLabel(batch: OperationHistoryBatch, t: Translator) {
   if (batch.restoreState === "restore_canceled") return t("historyStatusRestoreCanceled");
   if (batch.restoreState === "not_restored") return t("historyStatusNotRestored");
   return t("historyStatusUnavailable");
-}
-
-function operationSourceLabel(log: OperationLog | undefined, t: Translator) {
-  if (!log) return t("historyOperationSourceUnknown");
-  if (isNoOpLog(log)) return t("historyStatusNoOp");
-  if (log.operation_type === "move") return t("operationMove");
-  if (log.operation_type === "rename") return t("operationRename");
-  if (log.operation_type === "move_rename") return t("operationMoveRename");
-  if (log.operation_type === "copy") return t("operationCopy");
-  if (log.operation_type === "duplicate") return t("operationDuplicate");
-  if (log.operation_type === "replace") return t("operationReplace");
-  if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
-  if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
-  if (log.operation_type === "create_directory") return t("operationCreateDirectory");
-  if (log.operation_type === "create_file") return t("operationCreateFile");
-  return t("historyOperationSourceUnknown");
 }
 
 function BatchStateIcon({ state }: { state: OperationHistoryBatch["state"] }) {
@@ -164,7 +148,7 @@ export function HistoryBatchList({
                 {first ? compactPath(formatDisplayPath(first.path_after || first.target_path), 88) : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
-                {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {operationSourceLabel(first, t)} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
+                {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {first ? operationTypeLabel(first, t) : t("historyOperationSourceUnknown")} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
               {(batch.failed > 0 || batch.skipped > 0 || batch.pending > 0 || batch.noOp > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{batch.failed > 0 ? `${t("historyStatusFailed")}: ${batch.failed}` : ""}{batch.skipped > 0 ? ` · ${t("historyStatusSkipped")}: ${batch.skipped}` : ""}{batch.pending > 0 ? ` · ${t("historyStatusPending")}: ${batch.pending}` : ""}{batch.noOp > 0 ? ` · ${t("historyStatusNoOp")}: ${batch.noOp}` : ""}</span>}
             </div>

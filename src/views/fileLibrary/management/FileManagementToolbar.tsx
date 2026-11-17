@@ -11,7 +11,7 @@ import type { OperationLog, OperationPreview } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { useChromeContext, useI18nContext, useNavigationContext, useSettingsContext } from "../../../contexts/AppContexts";
 import { useOperationQueueStore } from "../../../store/useOperationQueueStore";
-import { groupOperationLogs, operationBatchUndoEligibility, type OperationHistoryBatch } from "../../history/historyModel";
+import { groupOperationLogs, isSystemTrashOperation, operationBatchUndoEligibility, type OperationHistoryBatch } from "../../history/historyModel";
 import { buttonGhost, buttonPrimary, buttonSecondary, cn } from "../../../utils/tw";
 import { formatBytes } from "../../../utils/format";
 import { localizedStableError, readableError } from "../../../utils/viewHelpers";
@@ -1639,9 +1639,21 @@ export function FileManagementToolbar() {
         {!operationTaskBatches.length && !state.activeTransferTask && <p className="fm-empty">{t("fmTaskNoHistory")}</p>}
         <ul className="fm-task-list">{operationTaskBatches.map((batch) => {
           const live = activeOperationKind === "execute" && operationProgress?.batchId === batch.id;
+          const firstOperation = batch.logs[0];
+          const operationLabel = firstOperation && isSystemTrashOperation(firstOperation)
+            ? t("fmSystemDelete")
+            : firstOperation?.operation_type === "move_to_trash"
+              ? t("fmSafeDelete")
+              : firstOperation?.operation_type === "move"
+                ? t("fmMove")
+                : firstOperation?.operation_type === "duplicate"
+                  ? t("fmDuplicate")
+                  : firstOperation?.operation_type === "copy"
+                    ? t("fmCopy")
+                    : firstOperation?.operation_type ?? "";
           return <li key={batch.id} className="fm-task-entry">
             <div className="fm-task-heading"><strong>{taskBatchStatus(batch, live, t)}</strong><span>{batch.total} · {t("fmTaskItems")}</span></div>
-            <p className="fm-path" title={batch.logs[0]?.source_path}>{batch.logs[0]?.operation_type === "move" ? t("fmMove") : batch.logs[0]?.operation_type === "duplicate" ? t("fmDuplicate") : batch.logs[0]?.operation_type === "copy" ? t("fmCopy") : batch.logs[0]?.operation_type}</p>
+            <p className="fm-path" title={firstOperation?.source_path}>{operationLabel}</p>
             <details><summary>{batch.success}/{batch.total} · {batch.failed ? `${batch.failed} ${t("fmTaskFailed")}` : ""}</summary>
               <ul className="fm-task-items">{batch.logs.map((log) => <li key={log.id}>
                 <div className="fm-task-heading"><strong>{log.name_after || log.name_before}</strong><span>{taskOperationStatus(log, live)}</span></div>

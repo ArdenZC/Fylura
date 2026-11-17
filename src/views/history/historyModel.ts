@@ -5,6 +5,7 @@ import type {
   OperationLog,
   OperationLogBatch
 } from "../../types/domain";
+import type { Translator } from "../../types/ui";
 
 /**
  * Restore eligibility is deliberately ordered to mirror the Rust restore
@@ -76,6 +77,27 @@ export function isRestorableLog(log: OperationLog) {
 export function isNoOpLog(log: OperationLog) {
   const normalized = log.operation_type.trim().toLocaleLowerCase().replace(/[\s-]+/g, "_");
   return normalized === "no_op" || normalized === "noop" || normalized === "unchanged";
+}
+
+export function isSystemTrashOperation(log: OperationLog) {
+  return log.operation_type === "move_to_system_trash"
+    || log.operation_type === "move_to_trash" && log.path_after === "Recycle Bin";
+}
+
+export function operationTypeLabel(log: OperationLog, t: Translator) {
+  if (isNoOpLog(log)) return t("historyStatusNoOp");
+  if (isSystemTrashOperation(log)) return t("operationMoveToSystemTrash");
+  if (log.operation_type === "move") return t("operationMove");
+  if (log.operation_type === "rename") return t("operationRename");
+  if (log.operation_type === "move_rename") return t("operationMoveRename");
+  if (log.operation_type === "copy") return t("operationCopy");
+  if (log.operation_type === "duplicate") return t("operationDuplicate");
+  if (log.operation_type === "replace") return t("operationReplace");
+  if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
+  if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
+  if (log.operation_type === "create_directory") return t("operationCreateDirectory");
+  if (log.operation_type === "create_file") return t("operationCreateFile");
+  return t("historyOperationSourceUnknown");
 }
 
 function uniqueIds(selectedIds: ReadonlySet<string> | readonly string[]) {

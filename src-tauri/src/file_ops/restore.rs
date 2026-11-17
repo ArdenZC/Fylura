@@ -1,3 +1,4 @@
+use super::manual_transfer::{make_operation, TransferAction};
 use super::*;
 
 #[cfg(any(test, feature = "native-qa", target_os = "macos"))]
@@ -592,7 +593,8 @@ fn restore_copy_operation_with_persistence(
             );
         }
         let backup_identity =
-            match crate::fs_safety::capture_namespace_identity(&backup, cancel_flag) {
+            match crate::fs_safety::capture_namespace_identity(&backup, Some(cancel_flag.as_ref()))
+            {
                 Ok(identity) => identity,
                 Err(error) => {
                     return mark_restore_manual_review(
@@ -697,7 +699,8 @@ fn restore_replacement_operation_log_with_observer(
     if let Err(failure) = replacement_backup_identity_result(log, &backup) {
         return mark_restore_manual_review(log, failure.message());
     }
-    let backup_identity = match crate::fs_safety::capture_namespace_identity(&backup, cancel_flag) {
+    let backup_identity = match crate::fs_safety::capture_namespace_identity(&backup, cancel_flag)
+    {
         Ok(identity) => identity,
         Err(error) => {
             return mark_restore_manual_review(

@@ -926,7 +926,7 @@ fn move_path_to_system_trash_with_safety(
     Ok((actual_source, actual_target))
 }
 
-fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn validate_existing_target_path(path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err(FileOpError::RelativePath.to_string());
     }

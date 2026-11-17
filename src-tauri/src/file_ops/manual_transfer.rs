@@ -2442,7 +2442,7 @@ pub(crate) fn execute(
             staged_identity.sample_hash = source_identity.sample_hash.clone();
             staged_identity.full_hash = source_identity.full_hash.clone();
         }
-        match replace_file_with_identity(
+        return match replace_file_with_identity(
             normalize_path(&staging),
             normalize_path(&target),
             Some(&staged_identity),
@@ -2466,7 +2466,7 @@ pub(crate) fn execute(
                 }
                 Err(error)
             }
-        }
+        };
     }
     if operation.operation_type == "create_directory" {
         return create_directory_with_safety(

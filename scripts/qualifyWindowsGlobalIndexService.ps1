@@ -116,6 +116,7 @@ $script:qualificationVhdAttached = $false
 $script:failureMessage = $null
 $script:cleanupFailure = $false
 $script:baselineStartedAt = $null
+$script:serviceModeProbeSequence = 0
 
 function Set-TaskServiceFilenameFirstMode([string]$Mode) {
     $registryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName"
@@ -171,8 +172,10 @@ function Stop-TaskService {
     }
 }
 
-function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label) {
-    $reportPath = Join-Path $taskRoot "filename-first-service-mode-$Label.json"
+function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label, [string]$Command = 'status') {
+    $script:serviceModeProbeSequence++
+    $reportName = 'filename-first-service-mode-{0:D2}-{1}-{2}.json' -f $script:serviceModeProbeSequence, $Label, $Command
+    $reportPath = Join-Path $taskRoot $reportName
     if ($DesktopMode -notin @('enabled', 'unset')) { throw "unsupported desktop service mode: $DesktopMode" }
     $lastFailure = $null
     for ($attempt = 1; $attempt -le 20; $attempt++) {
@@ -184,6 +187,8 @@ function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label) {
         $startInfo.RedirectStandardError = $true
         $startInfo.ArgumentList.Add('--global-index-filename-first-service-mode-qa')
         $startInfo.ArgumentList.Add($reportPath)
+        $startInfo.ArgumentList.Add($profileRoot)
+        $startInfo.ArgumentList.Add($Command)
         $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
         if ($DesktopMode -eq 'enabled') {
             $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = '1'
@@ -220,8 +225,8 @@ function Test-InstalledServiceFilenameFirstModeMatrix {
     $cases = @(
         [pscustomobject]@{ name = 'both_unset'; service = 'unset'; desktop = 'unset'; expectedOk = $true; expectedMode = $false },
         [pscustomobject]@{ name = 'both_enabled'; service = 'enabled'; desktop = 'enabled'; expectedOk = $true; expectedMode = $true },
-        [pscustomobject]@{ name = 'desktop_enabled_service_unset'; service = 'unset'; desktop = 'enabled'; expectedOk = $false; expectedMode = $true },
-        [pscustomobject]@{ name = 'desktop_unset_service_enabled'; service = 'enabled'; desktop = 'unset'; expectedOk = $false; expectedMode = $false }
+        [pscustomobject]@{ name = 'desktop_enabled_service_unset'; service = 'unset'; desktop = 'enabled'; expectedOk = $true; expectedMode = $true },
+        [pscustomobject]@{ name = 'desktop_unset_service_enabled'; service = 'enabled'; desktop = 'unset'; expectedOk = $true; expectedMode = $false }
     )
     $results = [Collections.Generic.List[object]]::new()
     Stop-TaskService
@@ -252,7 +257,54 @@ function Test-InstalledServiceFilenameFirstModeMatrix {
             desktopProcessId = [long]$probe.desktopProcessId
             serviceProcessId = [long]$script:serviceProcessId
             serviceImagePath = $caseService.PathName
+            pauseResponseOk = $null
+            pauseStatus = $null
+            indexCommandRejections = @()
         })
+        $caseEvidence = $results[$results.Count - 1]
+        if ($case.service -ne $case.desktop) {
+            $pauseProbe = Invoke-ServiceModeProbe $case.desktop $case.name 'pause'
+            if (-not $pauseProbe.responseOk -or $pauseProbe.errorCode -or $pauseProbe.serviceStatus -ne 'paused') {
+                throw "Pause failed despite the experiment mismatch for $($case.name): $($pauseProbe | ConvertTo-Json -Compress)"
+            }
+            $caseEvidence.pauseResponseOk = [bool]$pauseProbe.responseOk
+            $caseEvidence.pauseStatus = $pauseProbe.serviceStatus
+
+            $indexResults = [Collections.Generic.List[object]]::new()
+            foreach ($command in @('start_initial_index', 'rebuild', 'resume_incremental_sync')) {
+                $beforeStatus = Invoke-ServiceModeProbe $case.desktop $case.name 'status'
+                if (-not $beforeStatus.responseOk -or $beforeStatus.serviceStatus -ne 'paused') {
+                    throw "mismatched Status query failed or service state changed before $command ($($case.name)): $($beforeStatus | ConvertTo-Json -Compress)"
+                }
+
+                $indexProbe = Invoke-ServiceModeProbe $case.desktop $case.name $command
+                if ($indexProbe.responseOk -or $indexProbe.errorCode -ne 'index_filename_first_config_mismatch') {
+                    throw "index command was not rejected for the experiment mismatch ($($case.name), $command): $($indexProbe | ConvertTo-Json -Compress)"
+                }
+                if (-not $indexProbe.sideEffectFree) {
+                    throw "rejected index command changed task-owned source/index data ($($case.name), $command): $($indexProbe | ConvertTo-Json -Compress)"
+                }
+
+                $afterStatus = Invoke-ServiceModeProbe $case.desktop $case.name 'status'
+                if (-not $afterStatus.responseOk -or $afterStatus.serviceStatus -ne 'paused') {
+                    throw "rejected index command changed service state ($($case.name), $command): $($afterStatus | ConvertTo-Json -Compress)"
+                }
+                $indexResults.Add([ordered]@{
+                    command = $command
+                    responseOk = [bool]$indexProbe.responseOk
+                    errorCode = $indexProbe.errorCode
+                    sideEffectFree = [bool]$indexProbe.sideEffectFree
+                    entryCountBefore = [long]$indexProbe.entryCountBefore
+                    entryCountAfter = [long]$indexProbe.entryCountAfter
+                    activeEntryCountBefore = [long]$indexProbe.activeEntryCountBefore
+                    activeEntryCountAfter = [long]$indexProbe.activeEntryCountAfter
+                    sourceSnapshotUnchanged = [bool]$indexProbe.sourceSnapshotUnchanged
+                    serviceStatusBefore = $beforeStatus.serviceStatus
+                    serviceStatusAfter = $afterStatus.serviceStatus
+                })
+            }
+            $caseEvidence.indexCommandRejections = @($indexResults.ToArray())
+        }
         Stop-TaskService
     }
     Set-TaskServiceFilenameFirstMode 'unset'

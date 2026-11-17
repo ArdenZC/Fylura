@@ -44,6 +44,15 @@ fn filename_first_modes_match(desktop_enabled: bool, service_enabled: bool) -> b
     desktop_enabled == service_enabled
 }
 
+fn command_requires_filename_first_mode_match(command: &IndexServiceCommand) -> bool {
+    matches!(
+        command,
+        IndexServiceCommand::StartInitialIndex { .. }
+            | IndexServiceCommand::Rebuild { .. }
+            | IndexServiceCommand::ResumeIncrementalSync { .. }
+    )
+}
+
 static SERVICE_CONTEXT: OnceLock<Arc<ServiceRuntime>> = OnceLock::new();
 static SERVICE_STATUS_HANDLE_VALUE: AtomicUsize = AtomicUsize::new(0);
 
@@ -75,6 +84,10 @@ struct ServiceLifecycleState {
 
 impl ServiceRuntime {
     fn new() -> Self {
+        Self::with_provider(Box::new(DirectWindowsGlobalIndexProvider::new()))
+    }
+
+    fn with_provider(provider: Box<dyn GlobalIndexProvider>) -> Self {
         Self {
             stop: Arc::new(AtomicBool::new(false)),
             cancel: Arc::new(AtomicBool::new(false)),
@@ -84,7 +97,7 @@ impl ServiceRuntime {
                 last_error: None,
             }),
             operation_lock: Mutex::new(()),
-            provider: Box::new(DirectWindowsGlobalIndexProvider::new()),
+            provider,
         }
     }
 
@@ -159,10 +172,12 @@ impl ServiceRuntime {
             "index_service_filename_first_mode desktop_enabled={} service_enabled={}",
             request.filename_first_enabled, service_filename_first_enabled
         ));
-        if !filename_first_modes_match(
-            request.filename_first_enabled,
-            service_filename_first_enabled,
-        ) {
+        if command_requires_filename_first_mode_match(&request.command)
+            && !filename_first_modes_match(
+                request.filename_first_enabled,
+                service_filename_first_enabled,
+            )
+        {
             return connection.send_response(self.response(
                 &request,
                 false,
@@ -989,6 +1004,56 @@ mod tests {
     use super::*;
     use crate::global_index::models::INDEX_STATUS_DISCOVERED;
 
+    #[derive(Clone, Default)]
+    struct ProviderCalls {
+        discoveries: Arc<std::sync::atomic::AtomicUsize>,
+        initial_indices: Arc<std::sync::atomic::AtomicUsize>,
+        incremental_syncs: Arc<std::sync::atomic::AtomicUsize>,
+        pauses: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    struct CountingProvider(ProviderCalls);
+
+    impl GlobalIndexProvider for CountingProvider {
+        fn discover_sources(&self) -> Result<Vec<GlobalSourceDescriptor>, GlobalIndexError> {
+            self.0.discoveries.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+
+        fn start_initial_index(
+            &self,
+            _source: &GlobalSourceDescriptor,
+            _sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.0.initial_indices.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn resume_incremental_sync(
+            &self,
+            _source: &GlobalSourceDescriptor,
+            _sink: &mut dyn GlobalIndexSink,
+            _cancel: &AtomicBool,
+        ) -> Result<(), GlobalIndexError> {
+            self.0.incremental_syncs.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn pause(&self) -> Result<(), GlobalIndexError> {
+            self.0.pauses.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn status(&self) -> Result<String, GlobalIndexError> {
+            Ok("counting-test-provider".into())
+        }
+
+        fn shutdown(&self) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+    }
+
     #[derive(Default)]
     struct CapturedResponseConnection(Option<IndexServiceResponse>);
 
@@ -1027,29 +1092,134 @@ mod tests {
     }
 
     #[test]
-    fn service_host_reports_mode_mismatch_before_dispatching_any_command() {
+    fn service_host_rejects_mismatched_index_commands_before_any_side_effect() {
         let service_mode = crate::global_index::filename_first_experimental_enabled();
-        let request = IndexServiceRequest::new_with_filename_first_mode(
+        let source = authorized_test_source();
+
+        for command in [
+            IndexServiceCommand::StartInitialIndex {
+                source_id: source.id.clone(),
+            },
+            IndexServiceCommand::Rebuild {
+                source_id: source.id.clone(),
+            },
+            IndexServiceCommand::ResumeIncrementalSync {
+                source_id: source.id.clone(),
+            },
+        ] {
+            let calls = ProviderCalls::default();
+            let runtime = ServiceRuntime::with_provider(Box::new(CountingProvider(calls.clone())));
+            let request = IndexServiceRequest::new_with_filename_first_mode(
+                command,
+                Some(source.clone()),
+                !service_mode,
+            );
+            super::super::service::validate_request(&request)
+                .expect("mismatch fixture remains a valid v5 authorized-source envelope");
+            assert_ne!(request.filename_first_enabled, service_mode);
+
+            let mut connection = CapturedResponseConnection::default();
+            runtime
+                .handle_request(request, &mut connection)
+                .expect("write the mismatch response");
+
+            let response = connection.0.expect("service response");
+            assert!(!response.ok);
+            assert_eq!(
+                response.error_code.as_deref(),
+                Some("index_filename_first_config_mismatch")
+            );
+            assert_eq!(
+                response.status.as_deref(),
+                Some(crate::global_index::models::INDEX_STATUS_ERROR)
+            );
+            assert_eq!(runtime.status(), "starting");
+            assert!(!runtime.busy.load(Ordering::Acquire));
+            assert!(!runtime.cancel.load(Ordering::Acquire));
+            assert_eq!(calls.discoveries.load(Ordering::SeqCst), 0);
+            assert_eq!(calls.initial_indices.load(Ordering::SeqCst), 0);
+            assert_eq!(calls.incremental_syncs.load(Ordering::SeqCst), 0);
+            assert_eq!(calls.pauses.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[test]
+    fn status_and_pause_remain_available_when_filename_first_modes_differ() {
+        let service_mode = crate::global_index::filename_first_experimental_enabled();
+        let calls = ProviderCalls::default();
+        let runtime = ServiceRuntime::with_provider(Box::new(CountingProvider(calls.clone())));
+
+        for command in [IndexServiceCommand::Status, IndexServiceCommand::Pause] {
+            let request = IndexServiceRequest::new_with_filename_first_mode(
+                command.clone(),
+                None,
+                !service_mode,
+            );
+            super::super::service::validate_request(&request)
+                .expect("status and pause remain valid control requests");
+            assert_ne!(request.filename_first_enabled, service_mode);
+
+            let mut connection = CapturedResponseConnection::default();
+            runtime
+                .handle_request(request, &mut connection)
+                .expect("mismatched opt-in must not block control commands");
+
+            let response = connection.0.expect("service response");
+            assert!(response.ok);
+            assert_eq!(response.error_code, None);
+            assert_eq!(
+                response.status.as_deref(),
+                Some(if matches!(command, IndexServiceCommand::Pause) {
+                    INDEX_STATUS_PAUSED
+                } else {
+                    "starting"
+                })
+            );
+        }
+
+        assert!(runtime.cancel.load(Ordering::Acquire));
+        assert_eq!(runtime.status(), INDEX_STATUS_PAUSED);
+        assert_eq!(calls.discoveries.load(Ordering::SeqCst), 0);
+        assert_eq!(calls.initial_indices.load(Ordering::SeqCst), 0);
+        assert_eq!(calls.incremental_syncs.load(Ordering::SeqCst), 0);
+        assert_eq!(calls.pauses.load(Ordering::SeqCst), 1);
+
+        let status_after_pause = IndexServiceRequest::new_with_filename_first_mode(
             IndexServiceCommand::Status,
             None,
             !service_mode,
         );
         let mut connection = CapturedResponseConnection::default();
+        runtime
+            .handle_request(status_after_pause, &mut connection)
+            .expect("status remains available after pause with mismatched opt-in");
+        let response = connection.0.expect("status response");
+        assert!(response.ok);
+        assert_eq!(response.status.as_deref(), Some(INDEX_STATUS_PAUSED));
+    }
 
-        ServiceRuntime::new()
-            .handle_request(request, &mut connection)
-            .expect("write the mode-mismatch response");
-
-        let response = connection.0.expect("service response");
-        assert!(!response.ok);
-        assert_eq!(
-            response.error_code.as_deref(),
-            Some("index_filename_first_config_mismatch")
-        );
-        assert_eq!(
-            response.status.as_deref(),
-            Some(crate::global_index::models::INDEX_STATUS_ERROR)
-        );
+    fn authorized_test_source() -> GlobalVolume {
+        GlobalVolume {
+            id: "volume-test".into(),
+            platform: "windows".into(),
+            stable_volume_id: "stable-test-volume".into(),
+            display_name: "Test volume".into(),
+            mount_path: "Z:\\".into(),
+            filesystem_type: "NTFS".into(),
+            drive_kind: "fixed".into(),
+            enabled: true,
+            scope_authorization_state: SCOPE_AUTHORIZATION_AUTHORIZED.into(),
+            provider: PROVIDER_WINDOWS_MFT_USN.into(),
+            index_status: INDEX_STATUS_DISCOVERED.into(),
+            last_error: None,
+            journal_id: None,
+            journal_cursor: None,
+            last_full_index_at: None,
+            last_incremental_sync_at: None,
+            entry_count: 0,
+            created_at: 0,
+            updated_at: 0,
+        }
     }
 
     #[test]

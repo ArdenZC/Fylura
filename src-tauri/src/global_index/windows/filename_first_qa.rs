@@ -6,7 +6,9 @@ use super::service::{IndexServiceCommand, IndexServiceRequest};
 use super::WindowsGlobalIndexProvider;
 use crate::db::{Database, DbError, InsertFileRequest};
 use crate::global_index::coordinator::{GlobalIndexProvider, GlobalIndexSink};
-use crate::global_index::models::{normalize_path, unix_now, INDEX_STATUS_READY};
+use crate::global_index::models::{
+    normalize_path, unix_now, INDEX_STATUS_READY, SCOPE_AUTHORIZATION_AUTHORIZED,
+};
 use crate::global_index::GlobalSourceDescriptor;
 use rusqlite::Connection;
 use serde_json::{json, Value};
@@ -21,22 +23,87 @@ use windows_sys::Win32::Foundation::CloseHandle;
 /// Disposable qualification probe that sends the desktop process's mode to
 /// the SCM-installed service over the production named-pipe protocol.
 pub fn run_service_mode_probe(args: &[String]) -> Result<(), Box<dyn Error>> {
-    if args.len() != 1 {
-        return Err("usage: --global-index-filename-first-service-mode-qa <report-path>".into());
+    if args.len() != 3 {
+        return Err("usage: --global-index-filename-first-service-mode-qa <report-path> <profile-root> <command>".into());
     }
     let report_path = PathBuf::from(&args[0]);
-    if !report_path.is_absolute() {
-        return Err("service mode QA report path must be absolute".into());
+    let profile_root = PathBuf::from(&args[1]);
+    if !report_path.is_absolute() || !profile_root.is_absolute() {
+        return Err("service mode QA report and profile paths must be absolute".into());
     }
-    let request = IndexServiceRequest::new(IndexServiceCommand::Status, None);
+    validate_task_profile_boundary(&profile_root)?;
+    let db = Database::open(profile_root.join("fylura.sqlite3"))?;
+    let enabled_sources = db
+        .list_global_volumes()?
+        .into_iter()
+        .filter(|volume| volume.enabled)
+        .collect::<Vec<_>>();
+    if enabled_sources.len() != 1 {
+        return Err("service mode QA requires exactly one enabled task-owned source".into());
+    }
+    let volume = enabled_sources
+        .into_iter()
+        .next()
+        .expect("one enabled source");
+    if volume.scope_authorization_state != SCOPE_AUTHORIZATION_AUTHORIZED {
+        return Err("service mode QA source must retain explicit index authorization".into());
+    }
+    let source_id = volume.id.clone();
+    validate_task_profile_source(&source_id, &db)?;
+    let command_name = args[2].as_str();
+    let (command, source) = match command_name {
+        "status" => (IndexServiceCommand::Status, None),
+        "pause" => (IndexServiceCommand::Pause, None),
+        "start_initial_index" => (
+            IndexServiceCommand::StartInitialIndex {
+                source_id: source_id.clone(),
+            },
+            Some(volume.clone()),
+        ),
+        "rebuild" => (
+            IndexServiceCommand::Rebuild {
+                source_id: source_id.clone(),
+            },
+            Some(volume.clone()),
+        ),
+        "resume_incremental_sync" => (
+            IndexServiceCommand::ResumeIncrementalSync {
+                source_id: source_id.clone(),
+            },
+            Some(volume.clone()),
+        ),
+        _ => return Err(format!("unsupported service mode QA command: {command_name}").into()),
+    };
+    let before_volume = db
+        .get_global_volume(&source_id)?
+        .ok_or("task-owned QA source disappeared before request")?;
+    let (before_total_entries, before_active_entries) =
+        db.native_qa_global_entry_counts(&source_id)?;
+    let request = IndexServiceRequest::new(command, source);
     let response = super::service::call_index_service(&request)
         .map_err(|error| format!("installed Global Index Service mode probe failed: {error}"))?;
+    let after_volume = db
+        .get_global_volume(&source_id)?
+        .ok_or("task-owned QA source disappeared after request")?;
+    let (after_total_entries, after_active_entries) =
+        db.native_qa_global_entry_counts(&source_id)?;
+    let source_snapshot_unchanged = before_volume == after_volume;
+    let entry_counts_unchanged = before_total_entries == after_total_entries
+        && before_active_entries == after_active_entries;
     let report = json!({
+        "command": command_name,
         "desktopFilenameFirstEnabled": request.filename_first_enabled,
         "responseOk": response.ok,
         "errorCode": response.error_code,
         "serviceStatus": response.status,
         "protocolVersion": response.protocol_version,
+        "sourceSnapshotUnchanged": source_snapshot_unchanged,
+        "entryCountsUnchanged": entry_counts_unchanged,
+        "sideEffectFree": source_snapshot_unchanged && entry_counts_unchanged,
+        "entryCountBefore": before_total_entries,
+        "activeEntryCountBefore": before_active_entries,
+        "entryCountAfter": after_total_entries,
+        "activeEntryCountAfter": after_active_entries,
     });
     std::fs::write(report_path, serde_json::to_vec_pretty(&report)?)?;
     Ok(())
@@ -77,6 +144,13 @@ fn diagnostic_scenario() -> Result<DiagnosticScenario, Box<dyn Error>> {
 }
 
 fn verify_task_profile(profile: &Path, source_id: &str) -> Result<Database, Box<dyn Error>> {
+    validate_task_profile_boundary(profile)?;
+    let db = Database::open(profile.join("fylura.sqlite3"))?;
+    validate_task_profile_source(source_id, &db)?;
+    Ok(db)
+}
+
+fn validate_task_profile_boundary(profile: &Path) -> Result<(), Box<dyn Error>> {
     let task = profile.parent().ok_or("missing task profile boundary")?;
     let runner = std::env::var_os("RUNNER_TEMP").ok_or("RUNNER_TEMP required")?;
     if !profile.is_absolute()
@@ -90,7 +164,10 @@ fn verify_task_profile(profile: &Path, source_id: &str) -> Result<Database, Box<
                 .into(),
         );
     }
-    let db = Database::open(profile.join("fylura.sqlite3"))?;
+    Ok(())
+}
+
+fn validate_task_profile_source(source_id: &str, db: &Database) -> Result<(), Box<dyn Error>> {
     let enabled = db
         .list_global_volumes()?
         .into_iter()
@@ -106,7 +183,7 @@ fn verify_task_profile(profile: &Path, source_id: &str) -> Result<Database, Box<
                 .into(),
         );
     }
-    Ok(db)
+    Ok(())
 }
 
 fn descriptor(db: &Database, source_id: &str) -> Result<GlobalSourceDescriptor, Box<dyn Error>> {

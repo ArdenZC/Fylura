@@ -41,7 +41,7 @@ pub struct IndexServiceRequest {
     #[serde(default)]
     pub source: Option<GlobalVolume>,
     /// The desktop process and SCM-launched service have separate environments.
-    /// Bind every IPC request to the desktop's opt-in so a misconfigured
+    /// Indexing requests carry the desktop's opt-in so a misconfigured
     /// installation cannot run half of the experimental indexing path.
     #[serde(default)]
     pub filename_first_enabled: bool,

@@ -3,6 +3,9 @@
 //! the runner supplies a task-owned trace path.
 
 #[cfg(feature = "native-qa")]
+static TRACE_FILE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+#[cfg(feature = "native-qa")]
 pub(crate) fn record(event: &str) {
     use std::fs::OpenOptions;
     use std::io::Write;
@@ -10,18 +13,30 @@ pub(crate) fn record(event: &str) {
     let Some(path) = std::env::var_os("ZC_GLOBAL_INDEX_QA_TRACE") else {
         return;
     };
-    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
+    // The Service and IPC probe share the same configured trace base path.
+    // Give each process its own file to avoid cross-process append interleaving;
+    // serialize threads within a process so each diagnostic event remains one
+    // parseable line. Both behaviors exist only in native-qa builds.
+    let pid = std::process::id();
+    let mut process_path = std::ffi::OsString::from(path);
+    process_path.push(format!(".pid-{pid}.log"));
+    let _guard = TRACE_FILE_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(process_path)
+    else {
         return;
     };
     let timestamp_us = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_micros();
-    let _ = writeln!(
-        file,
-        "timestamp_us={timestamp_us} pid={} {event}",
-        std::process::id()
-    );
+    let line = format!("timestamp_us={timestamp_us} pid={pid} {event}\n");
+    let _ = file.write_all(line.as_bytes());
 }
 
 #[cfg(feature = "native-qa")]

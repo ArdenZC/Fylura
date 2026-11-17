@@ -384,15 +384,29 @@ function Convert-TraceEventLine([string]$Line, [string]$EventName) {
     return [pscustomobject]$event
 }
 
+function Get-TraceFiles([string]$Path) {
+    $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        $files.Add((Get-Item -LiteralPath $Path))
+    }
+    foreach ($file in (Get-ChildItem -Path "${Path}.pid-*.log" -File -ErrorAction SilentlyContinue)) {
+        $files.Add($file)
+    }
+    return $files.ToArray()
+}
+
 function Get-TraceEvents([string]$Path, [string]$EventName) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    $traceFiles = @(Get-TraceFiles $Path)
+    if ($traceFiles.Count -eq 0) { return @() }
     $events = [System.Collections.Generic.List[object]]::new()
-    foreach ($line in (Get-Content -LiteralPath $Path)) {
-        if ($line -match "(?:^|\s)$([regex]::Escape($EventName))\s") {
-            $events.Add((Convert-TraceEventLine $line $EventName))
+    foreach ($traceFile in $traceFiles) {
+        foreach ($line in (Get-Content -LiteralPath $traceFile.FullName)) {
+            if ($line -match "(?:^|\s)$([regex]::Escape($EventName))(?:\s|$)") {
+                $events.Add((Convert-TraceEventLine $line $EventName))
+            }
         }
     }
-    return $events.ToArray()
+    return @($events.ToArray() | Sort-Object { [long]$_.timestamp_us })
 }
 
 function Get-TraceEvent([string]$Path, [string]$EventName) {
@@ -526,7 +540,7 @@ try {
             } finally {
                 Stop-TaskIndexService
             }
-            $serviceRouteEvents = @(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -match '(?:^|\s)windows_service_route_ok$' })
+            $serviceRouteEvents = @(Get-TraceEvents $trace 'windows_service_route_ok')
             if ($serviceRouteEvents.Count -lt 1) {
                 throw "$side initial run $repetition did not complete a Windows Service named-pipe route; Direct fallback is not accepted"
             }
@@ -543,7 +557,7 @@ try {
                 throw "$side initial run $repetition used the wrong filename-first mode: expected=$expectedFilenameFirstMode actual=$($run.result.filenameFirstEnabled)"
             }
             if (-not $run.stages.mft -or -not $run.stages.writer) {
-                throw "$side initial run $repetition omitted MFT or repository stage timings"
+                throw "$side initial run $repetition omitted MFT or repository stage timings: mft=$([bool]$run.stages.mft) writer=$([bool]$run.stages.writer) traceFiles=$(@(Get-TraceFiles $trace).Count)"
             }
             if (-not $run.result.restartedSearchVisible -or -not $run.result.restartedCompleteCoverageSearchVisible) {
                 throw "$side initial run $repetition did not persist the tested filenames across restart"
@@ -604,7 +618,9 @@ try {
             $lastProfiles[$side] = $profile
             $lastSourceIds[$side] = $prepared.targetSourceId
             New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null
-            Copy-Item -LiteralPath $trace -Destination (Join-Path $traceDirectory "$side-$DiagnosticScenario-$repetition.log") -Force
+            foreach ($traceFile in (Get-TraceFiles $trace)) {
+                Copy-Item -LiteralPath $traceFile.FullName -Destination (Join-Path $traceDirectory $traceFile.Name) -Force
+            }
         }
     }
 
@@ -634,13 +650,15 @@ try {
         } finally {
             Stop-TaskIndexService
         }
-        if (@(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -match '(?:^|\s)windows_service_route_ok$' }).Count -lt 1) {
+        if (@(Get-TraceEvents $trace 'windows_service_route_ok').Count -lt 1) {
             throw "$side incremental operation did not complete a Windows Service named-pipe route"
         }
         if (-not $run.result.restartCorrect -or -not $run.result.movedVisible -or -not $run.result.oldMoveHidden) { throw "$side incremental add/rename/move/delete failed restart validation" }
         $incremental[$side] = $run.result
         New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null
-        Copy-Item -LiteralPath $trace -Destination (Join-Path $traceDirectory "$side-incremental.log") -Force
+        foreach ($traceFile in (Get-TraceFiles $trace)) {
+            Copy-Item -LiteralPath $traceFile.FullName -Destination (Join-Path $traceDirectory $traceFile.Name) -Force
+        }
     }
 
     $baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'
@@ -883,7 +901,7 @@ try {
     }
     try {
         if (Test-Path -LiteralPath $taskRoot -PathType Container) {
-            $traceFiles = @(Get-ChildItem -LiteralPath $taskRoot -Filter '*trace.log' -File -ErrorAction SilentlyContinue)
+            $traceFiles = @(Get-ChildItem -LiteralPath $taskRoot -Filter '*trace.log*' -File -ErrorAction SilentlyContinue)
             if ($traceFiles.Count -gt 0) {
                 New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null
                 foreach ($traceFile in $traceFiles) {

@@ -283,11 +283,33 @@ function Initialize-QualificationProfile {
     $script:evidence.expectedQualificationSourceId = [string]$prepared.targetSourceId
 }
 
-function Get-TraceLines {
-    if (Test-Path -LiteralPath $tracePath) {
-        return @(Get-Content -LiteralPath $tracePath -ErrorAction SilentlyContinue)
+function Get-TraceFiles {
+    $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    if (Test-Path -LiteralPath $tracePath -PathType Leaf) {
+        $files.Add((Get-Item -LiteralPath $tracePath))
     }
-    return @()
+    foreach ($file in (Get-ChildItem -Path "${tracePath}.pid-*.log" -File -ErrorAction SilentlyContinue)) {
+        $files.Add($file)
+    }
+    return $files.ToArray()
+}
+
+function Get-TraceLines {
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($file in (Get-TraceFiles)) {
+        foreach ($line in (Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue)) {
+            $lines.Add($line)
+        }
+    }
+    return @($lines.ToArray() | Sort-Object {
+        if ($_ -match '^timestamp_us=(\d+)') { [long]$Matches[1] } else { 0L }
+    })
+}
+
+function Clear-TraceFiles {
+    foreach ($file in (Get-TraceFiles)) {
+        Clear-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-TraceCounts {
@@ -504,11 +526,12 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct native qualification failed" }
     $script:evidence.smartLeanDirect = $directJson | ConvertFrom-Json
-    if (Test-Path -LiteralPath $tracePath -PathType Leaf) {
-        $script:evidence.nativeMftTrace = @(Get-Content -LiteralPath $tracePath)
+    $nativeMftTrace = @(Get-TraceLines)
+    if ($nativeMftTrace.Count -gt 0) {
+        $script:evidence.nativeMftTrace = $nativeMftTrace
         $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
         New-Item -ItemType Directory -Path $retainedEvidenceDirectory -Force | Out-Null
-        Copy-Item -LiteralPath $tracePath -Destination (Join-Path $retainedEvidenceDirectory "mft-initial-index-timing.log") -Force
+        $nativeMftTrace | Set-Content -LiteralPath (Join-Path $retainedEvidenceDirectory "mft-initial-index-timing.log")
     }
     if (-not $DirectOnly) {
     $serviceImagePath = '"' + $CandidateExe + '" --index-service'
@@ -556,7 +579,7 @@ try {
         if (-not $recoveryProcess.WaitForExit(180000)) { throw "installed service recovery regression timed out" }
         if ($recoveryProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $recoveryReport)) { throw "installed service recovery regression failed: $(Get-Content -LiteralPath (Join-Path $taskRoot 'recovery-stderr.log') -Raw)" }
         $script:evidence.recovery = Get-Content -LiteralPath $recoveryReport -Raw | ConvertFrom-Json
-        $recoveryTrace = @(Get-Content -LiteralPath $tracePath)
+        $recoveryTrace = @(Get-TraceLines)
         # The instrumented Service exchange writes batching counters into the
         # recovery process trace. The background client's route trace above
         # only confirms routing and may be observed before the Service has
@@ -593,9 +616,9 @@ try {
         }
         $script:evidence.serviceBatchingQualification = $ipcBatchEvidence
         if ($recoveryTrace -cnotcontains "windows_recovery_rebuild_admitted") { throw "recovery did not pass the existing Background admission gate" }
-        Copy-Item -LiteralPath $tracePath -Destination (Join-Path $taskRoot "recovery-trace.log")
+        $recoveryTrace | Set-Content -LiteralPath (Join-Path $taskRoot "recovery-trace.log")
         # Keep original background-client route/idle accounting independent.
-        Clear-Content -LiteralPath $tracePath
+        Clear-TraceFiles
         if (-not $script:evidence.recovery.pausedViaPipe -or -not $script:evidence.recovery.rebuildRequiredViaPipe -or $script:evidence.recovery.nextAdmittedRebuildCount -ne 1 -or $script:evidence.recovery.finalStatus -ne "ready") { throw "installed service recovery proof incomplete" }
         # Retain only the bounded recovery evidence outside the disposable task root.
         $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
@@ -612,8 +635,9 @@ try {
             Copy-Item -LiteralPath $recoveryReport -Destination (Join-Path $retainedEvidenceDirectory "service-recovery.json") -Force
         }
         $recoveryTracePath = Join-Path $taskRoot "recovery-trace.log"
-        if (-not (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) -and (Test-Path -LiteralPath $tracePath -PathType Leaf)) {
-            Copy-Item -LiteralPath $tracePath -Destination $recoveryTracePath
+        $partialRecoveryTrace = @(Get-TraceLines)
+        if (-not (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) -and $partialRecoveryTrace.Count -gt 0) {
+            $partialRecoveryTrace | Set-Content -LiteralPath $recoveryTracePath
         }
         if (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) {
             Copy-Item -LiteralPath $recoveryTracePath -Destination (Join-Path $retainedEvidenceDirectory "recovery-trace.log") -Force

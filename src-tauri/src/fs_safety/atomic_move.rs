@@ -1149,6 +1149,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(any(test, feature = "native-qa"))]
 pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
     source: &Path,
     target: &Path,

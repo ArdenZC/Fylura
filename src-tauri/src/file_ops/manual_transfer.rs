@@ -2151,7 +2151,7 @@ fn encode_path_for_transfer_id(path: &str) -> String {
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, String> {
-    if value.is_empty() || value.len() % 2 != 0 {
+    if value.is_empty() || !value.len().is_multiple_of(2) {
         return Err("operation_preview_stale".into());
     }
     value
@@ -2407,33 +2407,34 @@ pub(crate) fn execute(
             "copy"
         };
         let mut phase_observer = context.phase_observer;
-        let mut staging_observer = |event| {
-            if matches!(
-                &event,
-                crate::fs_safety::FileOperationEvent::Phase(phase)
-                    if phase == "target_committed" || phase == "completed"
-            ) {
-                return Ok(());
-            }
-            if let Some(observer) = phase_observer.as_deref_mut() {
-                observer(event)
-            } else {
-                Ok(())
-            }
-        };
-        crate::fs_safety::atomic_move::atomic_copy_with_verified_destination(
-            &source,
-            &staging,
-            copy_kind,
-            context.expected_identity,
-            None,
-            context.cancel_flag,
-            Some(&mut staging_observer),
-            None,
-            Some(&parent_identity),
-        )
-        .map_err(FileMutationError::Atomic)?;
-        drop(staging_observer);
+        {
+            let mut staging_observer = |event| {
+                if matches!(
+                    &event,
+                    crate::fs_safety::FileOperationEvent::Phase(phase)
+                        if phase == "target_committed" || phase == "completed"
+                ) {
+                    return Ok(());
+                }
+                if let Some(observer) = phase_observer.as_deref_mut() {
+                    observer(event)
+                } else {
+                    Ok(())
+                }
+            };
+            crate::fs_safety::atomic_move::atomic_copy_with_verified_destination(
+                &source,
+                &staging,
+                copy_kind,
+                context.expected_identity,
+                None,
+                context.cancel_flag,
+                Some(&mut staging_observer),
+                None,
+                Some(&parent_identity),
+            )
+            .map_err(FileMutationError::Atomic)?;
+        }
         let staged_namespace =
             crate::fs_safety::capture_namespace_identity_only(&staging, context.cancel_flag)
                 .map_err(|error| FileMutationError::Validation(error.to_string()))?;

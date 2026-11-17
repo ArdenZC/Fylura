@@ -14,6 +14,7 @@ pub fn restore_moves_with_persistence(
     )
 }
 
+#[cfg(any(test, feature = "native-qa", target_os = "macos"))]
 pub(crate) fn restore_moves_with_persistence_with_progress(
     db: &Database,
     request: RestoreMovesRequest,

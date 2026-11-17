@@ -297,6 +297,18 @@ describe("CI change routing", () => {
     expect(scope.performance_any).toBe(false);
   });
 
+  it("routes Windows Shell helper package inputs to an NSIS package build", () => {
+    for (const changedPath of [
+      "src-tauri/tauri.windows.package.conf.json",
+      "scripts/buildWindowsPackage.mjs",
+      "scripts/buildWindowsShellMenuHelper.mjs",
+    ]) {
+      const scope = route([changedPath]);
+      expect(scope.package_sensitive, changedPath).toBe(true);
+      expect(scope.full_validation, changedPath).toBe(false);
+    }
+  });
+
   it("reserves all-domain checks for the shared CI/benchmark orchestrator", () => {
     for (const file of [
       ".github/workflows/ci-full.yml",

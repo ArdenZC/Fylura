@@ -6,7 +6,7 @@ import { NoticeBanner, SearchField, StateBlock } from "../../shared/ui";
 import { useCommandContext, useI18nContext } from "../../../contexts/AppContexts";
 import type { BrowseSortSpec, LocationDescriptor } from "../../../types/fileWorkspace";
 import type { BrowsePresentationEntry } from "../presentation/contracts";
-import { launchBrowseEntry, revealBrowseEntry } from "../../../api/fileWorkspaceApi";
+import { launchBrowseEntry, openBrowseWindowsShellMenu, revealBrowseEntry } from "../../../api/fileWorkspaceApi";
 import { cn } from "../../../utils/tw";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import {
@@ -44,6 +44,8 @@ export function BrowseMode() {
   const { controller, state } = useFileLibraryExperience();
   const { language, t } = useI18nContext();
   const [revealError, setRevealError] = useState<string | null>(null);
+  const [shellMenuPending, setShellMenuPending] = useState(false);
+  const [shellMenuSlow, setShellMenuSlow] = useState(false);
   const [backgroundMenu, setBackgroundMenu] = useState<{ x: number; y: number } | null>(null);
   const [showHidden, setShowHidden] = useState(() => {
     try { return window.localStorage.getItem("fylura.files.showHidden") === "true"; }
@@ -338,6 +340,41 @@ export function BrowseMode() {
     }
   }
 
+  function openWindowsSystemMenu(entry: import("../presentation/contracts").BrowsePresentationEntry) {
+    const selectedRefs = source.selectedEntryRefs;
+    const targetIsSelected = selectedRefs.some((ref) => ref.entryId === entry.entryRef.entryId
+      && ref.browseSessionId === entry.entryRef.browseSessionId);
+    const entryRefs = targetIsSelected ? selectedRefs : [entry.entryRef];
+    closeContextMenu("action");
+    setRevealError(null);
+    setShellMenuPending(true);
+    setShellMenuSlow(false);
+    const slowTimer = window.setTimeout(() => setShellMenuSlow(true), 5000);
+    let shouldRefresh = false;
+    void openBrowseWindowsShellMenu(entryRefs)
+      .then((response) => {
+        shouldRefresh = response.selected;
+      })
+      .catch((error: unknown) => {
+        // An error may follow a partially completed Shell verb, so refresh
+        // even though Fylura cannot report or journal that operation's result.
+        shouldRefresh = true;
+        setRevealError(error instanceof Error && error.message === "shell_menu_selection_mixed_folders"
+          ? t("browseShellMenuMixedFolders")
+          : error instanceof Error && error.message === "shell_menu_already_open"
+            ? t("browseShellMenuAlreadyOpen")
+            : t("browseShellMenuUnavailable"));
+      })
+      .finally(() => {
+        window.clearTimeout(slowTimer);
+        setShellMenuPending(false);
+        setShellMenuSlow(false);
+        // Shell verbs may change the directory outside Fylura's journal. A
+        // fresh enumeration is the only result claim Fylura makes here.
+        if (shouldRefresh) void source.refreshEnumeration().catch(() => undefined);
+      });
+  }
+
   function sortByColumn(field: BrowseSortSpec["field"]) {
     source.setSort({ field,
       direction: source.query.sort?.field === field && source.query.sort.direction === "asc" ? "desc" : "asc",
@@ -354,6 +391,18 @@ export function BrowseMode() {
       setRevealError(null);
       void launchBrowseEntry(contextMenu.entry.entryRef, "open_with").catch(() => setRevealError(t("browseLaunchUnavailable")));
     } }] : []),
+    ...(platform === "win32" ? [{
+      label: t("browseWindowsSystemMenu"),
+      disabled: source.directorySelection !== null
+        || source.selectedCount > source.selectedEntryRefs.length
+        || source.selectedCount > 256,
+      title: source.directorySelection !== null
+        || source.selectedCount > source.selectedEntryRefs.length
+        || source.selectedCount > 256
+        ? t("browseShellMenuSelectionLimit")
+        : undefined,
+      action: () => openWindowsSystemMenu(contextMenu.entry),
+    }] : []),
     { label: t("browseReveal"), action: () => {
       closeContextMenu("action");
       setRevealError(null);
@@ -518,6 +567,7 @@ export function BrowseMode() {
                 </NoticeBanner>
               ) : null}
               {revealError ? <NoticeBanner tone="warning" title={revealError} /> : null}
+              {shellMenuPending && shellMenuSlow ? <NoticeBanner tone="info" title={t("browseShellMenuStillWorking")} /> : null}
               {viewMode === "columns" ? <BrowseColumnView
                 source={source}
                 interaction={interaction}

@@ -1875,7 +1875,7 @@ jobs:
   package-windows:
     name: Package NSIS (${{ matrix.validation_lane }})
     needs: [change-scope, validation-plan]
-    if: ${{ needs.change-scope.outputs.full_validation == 'true' }}
+    if: ${{ needs.change-scope.outputs.package_sensitive == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -2160,7 +2160,7 @@ jobs:
           VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
           LANE_JOB_RESULTS_DIRECTORY: ${{ runner.temp }}/ci-lane-results
           MATRIX_JOB_EXPECTATIONS: >-
-            {"frontend-quality":"${{ needs.change-scope.outputs.frontend_changed }}","rust-windows":"${{ needs.change-scope.outputs.rust_changed }}","windows-native-preview-handler":"${{ needs.change-scope.outputs.windows_native_preview_handler_changed }}","performance-prepare":"${{ needs.change-scope.outputs.performance_any }}","performance-search":"${{ needs.change-scope.outputs.perf_search }}","performance-scan-schema":"${{ needs.change-scope.outputs.perf_scan_schema }}","performance-library-content":"${{ needs.change-scope.outputs.perf_library_content }}","performance-intelligence":"${{ needs.change-scope.outputs.perf_intelligence }}","performance-workspace-foundation":"${{ needs.change-scope.outputs.perf_workspace_foundation }}","performance-preview-platform":"${{ needs.change-scope.outputs.perf_preview_platform }}","build-windows":"${{ needs.change-scope.outputs.release_sensitive }}","package-windows":"${{ needs.change-scope.outputs.full_validation }}","package-smoke":"${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}","dependency-audit":"${{ needs.change-scope.outputs.dependency_sensitive }}"}
+            {"frontend-quality":"${{ needs.change-scope.outputs.frontend_changed }}","rust-windows":"${{ needs.change-scope.outputs.rust_changed }}","windows-native-preview-handler":"${{ needs.change-scope.outputs.windows_native_preview_handler_changed }}","performance-prepare":"${{ needs.change-scope.outputs.performance_any }}","performance-search":"${{ needs.change-scope.outputs.perf_search }}","performance-scan-schema":"${{ needs.change-scope.outputs.perf_scan_schema }}","performance-library-content":"${{ needs.change-scope.outputs.perf_library_content }}","performance-intelligence":"${{ needs.change-scope.outputs.perf_intelligence }}","performance-workspace-foundation":"${{ needs.change-scope.outputs.perf_workspace_foundation }}","performance-preview-platform":"${{ needs.change-scope.outputs.perf_preview_platform }}","build-windows":"${{ needs.change-scope.outputs.release_sensitive }}","package-windows":"${{ needs.change-scope.outputs.package_sensitive }}","package-smoke":"${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}","dependency-audit":"${{ needs.change-scope.outputs.dependency_sensitive }}"}
         run: env -u GITHUB_TOKEN -u CI_GITHUB_TOKEN -u GH_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_APP_TOKEN -u GH_APP_TOKEN -u ACTIONS_RUNTIME_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u AUTHORIZATION -u BEARER_TOKEN node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify Windows gate dependencies
         env:
@@ -2172,7 +2172,7 @@ jobs:
           NATIVE_FILESYSTEM_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.rust_changed == 'true' || needs.change-scope.outputs.windows_native_filesystem_smoke_changed == 'true' }}
           GLOBAL_INDEX_SERVICE_EXPECTED: ${{ needs.change-scope.outputs.windows_global_index_service_qualification_changed }}
           BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
-          PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}
+          PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.package_sensitive }}
           PACKAGE_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
           AUDIT_EXPECTED: ${{ needs.change-scope.outputs.dependency_sensitive }}
           FRONTEND: ${{ needs.frontend-quality.result }}

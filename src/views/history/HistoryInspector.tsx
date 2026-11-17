@@ -13,6 +13,8 @@ import {
   type CleanupPreviewState,
   historyTime,
   isNoOpLog,
+  isSystemTrashOperation,
+  operationTypeLabel,
   isRestorableCleanupTrashItem,
   restoreEligibility,
   type OperationHistoryBatch
@@ -108,21 +110,6 @@ function batchStateLabel(value: OperationHistoryBatch["executionState"] | Operat
   if (value === "restore_failed") return t("historyStatusRestoreFailed");
   if (value === "not_restored") return t("historyStatusNotRestored");
   return t("historyStatusUnavailable");
-}
-
-export function operationTypeLabel(log: OperationLog, t: Translator) {
-  if (isNoOpLog(log)) return t("historyStatusNoOp");
-  if (log.operation_type === "move") return t("operationMove");
-  if (log.operation_type === "rename") return t("operationRename");
-  if (log.operation_type === "move_rename") return t("operationMoveRename");
-  if (log.operation_type === "copy") return t("operationCopy");
-  if (log.operation_type === "duplicate") return t("operationDuplicate");
-  if (log.operation_type === "replace") return t("operationReplace");
-  if (log.operation_type === "permanent_delete") return t("operationPermanentDelete");
-  if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
-  if (log.operation_type === "create_directory") return t("operationCreateDirectory");
-  if (log.operation_type === "create_file") return t("operationCreateFile");
-  return t("historyOperationSourceUnknown");
 }
 
 function operationCurrentPath(log: OperationLog) {
@@ -252,7 +239,8 @@ export function HistoryInspector({
           const needsRestoreLocationReview = ["missingSource", "backendBlocked", "restoreFailed", "manualReview"].includes(eligibility.reason);
           const currentPath = operationCurrentPath(log);
           const originalPath = operationOriginalPath(log);
-          const rawError = log.restore_error || log.error_message;
+          const systemTrashCompleted = isSystemTrashOperation(log) && log.status === "success";
+          const rawError = systemTrashCompleted ? log.error_message : log.restore_error || log.error_message;
           const technical = technicalOpen.has(log.id);
           return (
             <div className={cn(rowSurface, "grid gap-2")} key={log.id} role="listitem">
@@ -282,6 +270,7 @@ export function HistoryInspector({
                     <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{restoreEligibilityLabel(log, t)}</span>
                     {rawError && <button type="button" className="text-[var(--zc-primary)]" aria-expanded={technical} onClick={() => toggleTechnical(log.id)}>{technical ? t("historyRestoreHideTechnical") : t("historyRestoreShowTechnical")}</button>}
                   </div>
+                  {systemTrashCompleted && <p className="mt-1 text-xs text-[var(--muted)]">{t("historySystemTrashRestoreNote")}</p>}
                   {revealError[log.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[log.id]}</p>}
                   {rawError && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{localizedRestoreMessage(rawError, t)}</p>}
                   {technical && log.restore_claim_path && <div className="mt-2 flex min-w-0 items-center gap-2 rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]"><span className="shrink-0 font-semibold">{t("historyRestoreClaimPath")}:</span><button type="button" className="min-w-0 break-words text-left font-mono underline [overflow-wrap:anywhere]" title={formatDisplayPath(log.restore_claim_path)} onClick={() => void revealClaim(log)}>{formatDisplayPath(log.restore_claim_path)}</button></div>}
@@ -302,9 +291,9 @@ export function HistoryInspector({
                     {recoveryError && recoveryBusyId === "" && <p className="text-[var(--zc-danger-text)]" role="alert">{localizedRestoreMessage(recoveryError, t)}</p>}
                   </div>}
                 </div>
-                <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(log)}>
+                {!isSystemTrashOperation(log) && <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(log)}>
                   <ExternalLink size={15} />
-                </button>
+                </button>}
               </div>
             </div>
           );

@@ -195,7 +195,7 @@ pub struct CancellationToken {
 struct CancellationState {
     cancelled: AtomicBool,
     external_flags: Vec<Arc<AtomicBool>>,
-    waiter_signal: Mutex<Option<Weak<Condvar>>>,
+    waiter_signal: Mutex<Option<Weak<SchedulerInner>>>,
 }
 
 impl Default for CancellationToken {
@@ -230,12 +230,28 @@ impl CancellationToken {
     }
 
     pub fn cancel(&self) {
-        self.inner.cancelled.store(true, Ordering::Release);
-        if let Ok(signal) = self.inner.waiter_signal.lock() {
-            if let Some(signal) = signal.as_ref().and_then(Weak::upgrade) {
-                signal.notify_all();
-            }
+        self.cancel_without_notification();
+        let scheduler = self
+            .inner
+            .waiter_signal
+            .lock()
+            .ok()
+            .and_then(|signal| signal.as_ref().and_then(Weak::upgrade));
+        if let Some(scheduler) = scheduler {
+            // Pair the cancellation predicate with the same mutex used by the
+            // condition-variable waiter. Without this lock, cancellation can
+            // notify after the waiter's last predicate check but before it
+            // actually sleeps, losing the wake and hanging shutdown forever.
+            let _state = scheduler
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            scheduler.changed.notify_all();
         }
+    }
+
+    fn cancel_without_notification(&self) {
+        self.inner.cancelled.store(true, Ordering::Release);
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -247,12 +263,12 @@ impl CancellationToken {
                 .any(|flag| flag.load(Ordering::Acquire))
     }
 
-    fn attach_waiter_signal(&self, signal: &Arc<Condvar>) {
+    fn attach_waiter_signal(&self, scheduler: &Arc<SchedulerInner>) {
         if let Ok(mut waiter_signal) = self.inner.waiter_signal.lock() {
-            *waiter_signal = Some(Arc::downgrade(signal));
+            *waiter_signal = Some(Arc::downgrade(scheduler));
         }
         if self.is_cancelled() {
-            signal.notify_all();
+            scheduler.changed.notify_all();
         }
     }
 
@@ -717,7 +733,7 @@ impl WorkScheduler {
         cancellation: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<(), AcquireError> {
-        cancellation.attach_waiter_signal(&self.inner.changed);
+        cancellation.attach_waiter_signal(&self.inner);
         let mut state = self
             .inner
             .state
@@ -788,9 +804,7 @@ impl WorkScheduler {
             return Err(AcquireError::QueueFull);
         }
         let cancellation = request.cancellation.clone();
-        request
-            .cancellation
-            .attach_waiter_signal(&self.inner.changed);
+        request.cancellation.attach_waiter_signal(&self.inner);
         let queued = QueuedRequest {
             sequence: next_sequence(&mut state),
             request,
@@ -892,9 +906,7 @@ impl WorkScheduler {
             state.metrics.total_rejections += 1;
             return Err(AcquireError::QueueFull);
         }
-        request
-            .cancellation
-            .attach_waiter_signal(&self.inner.changed);
+        request.cancellation.attach_waiter_signal(&self.inner);
         let sequence = next_sequence(&mut state);
         state.queue.push_back(QueuedRequest {
             sequence,
@@ -1224,13 +1236,13 @@ impl WorkScheduler {
         let mut active_cancellations = 0;
         for queued in &state.queue {
             if matches(Some(&queued.request), None) {
-                queued.request.cancellation.cancel();
+                queued.request.cancellation.cancel_without_notification();
                 count += 1;
             }
         }
         for active in state.active.values() {
             if matches(None, Some(active)) {
-                active.cancellation.cancel();
+                active.cancellation.cancel_without_notification();
                 count += 1;
                 active_cancellations += 1;
             }
@@ -1987,6 +1999,65 @@ mod tests {
             .expect("replacement lease");
         assert_eq!(replacement.request_id(), "replacement");
         drop(replacement);
+        assert_eq!(scheduler.snapshot().queued, 0);
+    }
+
+    #[test]
+    fn cancellation_waker_synchronizes_with_the_scheduler_condition_mutex() {
+        let scheduler = Arc::new(test_scheduler(1));
+        let cancellation = CancellationToken::new();
+        let scheduler_state = scheduler.inner.state.lock().expect("scheduler state");
+        cancellation.attach_waiter_signal(&scheduler.inner);
+
+        let waiter_cancellation = cancellation.clone();
+        let waiter_scheduler = Arc::clone(&scheduler);
+        let (waiter_started_tx, waiter_started_rx) = mpsc::channel();
+        let (waiter_result_tx, waiter_result_rx) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            waiter_started_tx.send(()).expect("waiter start signal");
+            waiter_result_tx
+                .send(
+                    waiter_scheduler.acquire(
+                        request("cancel-wake-handshake", WorkClass::Interactive)
+                            .with_cancellation(waiter_cancellation),
+                    ),
+                )
+                .expect("waiter result");
+        });
+        waiter_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("waiter begins before cancellation");
+
+        let cancel_token = cancellation.clone();
+        let (cancelled_tx, cancelled_rx) = mpsc::channel();
+        let cancel_thread = thread::spawn(move || {
+            cancel_token.cancel();
+            cancelled_tx.send(()).expect("cancellation result");
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !cancellation.is_cancelled() {
+            assert!(Instant::now() < deadline, "cancellation flag was not set");
+            thread::yield_now();
+        }
+        assert!(
+            cancelled_rx
+                .recv_timeout(Duration::from_millis(25))
+                .is_err(),
+            "cancellation notification must take the scheduler condition mutex"
+        );
+
+        drop(scheduler_state);
+        cancelled_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("cancellation notification completes after the scheduler unlocks");
+        assert!(matches!(
+            waiter_result_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("cancelled waiter wakes"),
+            Err(AcquireError::Cancelled)
+        ));
+        cancel_thread.join().expect("cancellation thread");
+        waiter.join().expect("waiter thread");
         assert_eq!(scheduler.snapshot().queued, 0);
     }
 

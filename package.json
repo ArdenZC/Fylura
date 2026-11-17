@@ -8,7 +8,7 @@
   "copyright": "Copyright © 2026 Startlan",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev --features desktop-runtime,global-search-filename-relevance-candidate",
+    "dev": "node scripts/buildWindowsShellMenuHelper.mjs --dev && tauri dev --features desktop-runtime,global-search-filename-relevance-candidate",
     "build": "node scripts/buildWindowsPackage.mjs",
     "build:frontend": "vite build",
     "build:native-preview-handler": "node scripts/buildWindowsPreviewHandler.mjs",

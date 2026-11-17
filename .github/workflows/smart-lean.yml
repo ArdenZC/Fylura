@@ -348,6 +348,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'filename_first_pair') ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first-100k]')) ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first-1m]'))
     runs-on: windows-latest
     timeout-minutes: 180

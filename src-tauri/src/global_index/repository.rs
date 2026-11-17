@@ -26,12 +26,14 @@ fn restart_wal_checkpoint_without_waiting_for_readers(
     conn: &Connection,
 ) -> rusqlite::Result<(i64, i64, i64)> {
     let previous_busy_timeout =
-        conn.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, u64>(0))?;
+        conn.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?;
     conn.busy_timeout(Duration::ZERO)?;
     let checkpoint = conn.query_row("PRAGMA wal_checkpoint(RESTART)", [], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     });
-    let restore_timeout = conn.busy_timeout(Duration::from_millis(previous_busy_timeout));
+    let restore_timeout = conn.busy_timeout(Duration::from_millis(
+        u64::try_from(previous_busy_timeout).unwrap_or_default(),
+    ));
     restore_timeout?;
     checkpoint
 }

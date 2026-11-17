@@ -1163,6 +1163,125 @@ fn pending_new_source_fts_build_recovers_on_database_reopen() {
 }
 
 #[test]
+fn pending_fts_recovery_retries_sqlite_busy_without_reopening_database() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open busy-recovery fixture database");
+    add_volume(&db, "gv_busy_recovery", r"D:\BusyRecovery");
+    {
+        let connection = db.conn().expect("open pending source state connection");
+        connection
+            .execute(
+                "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0
+                 WHERE id='gv_busy_recovery'",
+                [],
+            )
+            .expect("mark source for restartable FTS recovery");
+    }
+    let entry = fixture_entry(
+        "gv_busy_recovery",
+        r"D:\BusyRecovery\retryafterbusyftsmarker.txt",
+        "retryafterbusyftsmarker.txt",
+        "txt",
+        Some(110),
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+        .expect("write row while initial FTS triggers are deferred");
+    db.update_global_volume_state(
+        "gv_busy_recovery",
+        INDEX_STATUS_INDEXING,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("preserve interrupted source state");
+    drop(db);
+
+    let reopened =
+        Database::open_with_delayed_fts_recovery_for_test(&path, Duration::from_millis(700))
+            .expect("open without waiting for pending FTS recovery");
+    reopened
+        .set_test_busy_timeout_for_all_connections(5_000, Duration::from_millis(30))
+        .expect("make a transient writer lock fail quickly in this fixture");
+    let lock_connection = Connection::open(&path).expect("open competing SQLite writer");
+    lock_connection
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold SQLite writer lock across the first recovery attempts");
+    let retry_deadline = Instant::now() + Duration::from_secs(3);
+    while reopened.fts_recovery_attempt_count_for_test() < 2 {
+        assert!(
+            Instant::now() < retry_deadline,
+            "background recovery did not retry after the first SQLITE_BUSY"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    // Attempt two is entered only after attempt one returned its transient
+    // error. Keep the lock briefly so the second bounded attempt also observes
+    // contention before the same session gets a chance to recover.
+    thread::sleep(Duration::from_millis(75));
+    let pending_while_blocked: bool = reopened
+        .conn()
+        .expect("read source while competing writer is held")
+        .query_row(
+            "SELECT fts_bulk_build FROM global_volumes WHERE id='gv_busy_recovery'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read pending FTS state");
+    assert!(pending_while_blocked);
+    lock_connection
+        .execute_batch("COMMIT")
+        .expect("release competing SQLite writer");
+
+    let recovery_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let pending: bool = reopened
+            .conn()
+            .expect("read recovery state in same database session")
+            .query_row(
+                "SELECT fts_bulk_build FROM global_volumes WHERE id='gv_busy_recovery'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read pending FTS recovery state");
+        if !pending {
+            break;
+        }
+        assert!(
+            Instant::now() < recovery_deadline,
+            "FTS recovery did not resume in the same session after SQLITE_BUSY"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let connection = reopened
+        .conn()
+        .expect("verify FTS after same-session recovery");
+    connection
+        .execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .expect("verify recovered FTS consistency");
+    assert!(reopened
+        .search_global_entries("retryafterbusyftsmarker", 10, 0)
+        .expect("search recovered row after temporary SQLITE_BUSY")
+        .iter()
+        .any(|result| result.id == entry.entry_id()));
+    assert_eq!(
+        reopened
+            .get_global_volume("gv_busy_recovery")
+            .expect("read recovered source")
+            .expect("source remains present")
+            .index_status,
+        INDEX_STATUS_INDEXING,
+        "FTS recovery must not claim MFT enumeration completed"
+    );
+}
+
+#[test]
 fn deleting_source_during_partial_fts_build_preserves_fts_integrity() {
     let (db, _path) = open_candidate_database();
     add_volume(&db, "gv_bulk_delete", r"E:\BulkDelete");

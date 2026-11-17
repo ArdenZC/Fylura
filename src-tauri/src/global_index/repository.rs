@@ -1869,7 +1869,10 @@ impl Database {
     /// Finish interrupted per-source FTS work in bounded transactions. Search
     /// excludes sources while `fts_bulk_build` is set, and the durable rowid
     /// cursor makes each batch restartable without rebuilding other sources.
-    pub(crate) fn recover_pending_global_fts_bulk_builds(&self) -> Result<(), DbError> {
+    pub(crate) fn recover_pending_global_fts_bulk_builds_with_cancellation(
+        &self,
+        is_cancelled: impl Fn() -> bool,
+    ) -> Result<(), DbError> {
         let pending_sources = {
             let conn = self.conn()?;
             let mut statement = conn.prepare(
@@ -1881,11 +1884,22 @@ impl Database {
             let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
+        let mut first_error = None;
         for volume_id in pending_sources {
+            if is_cancelled() {
+                return Ok(());
+            }
             let mut conn = self.conn()?;
             let mut timing = GlobalIndexBatchTiming::default();
             let started = Instant::now();
-            match continue_fts_bulk_build(&mut conn, &volume_id, None, &mut timing) {
+            match continue_fts_bulk_build_with_cancellation(
+                &mut conn,
+                &volume_id,
+                None,
+                &mut timing,
+                &is_cancelled,
+            ) {
+                Ok(()) if is_cancelled() => return Ok(()),
                 Ok(()) => {
                     timing.fts_bulk_build = started.elapsed();
                     crate::global_index::qa_trace::record(&format!(
@@ -1912,10 +1926,13 @@ impl Database {
                         timing.commit.as_micros(),
                         error,
                     ));
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
                 }
             }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     /// Performs the authorization and Scope evaluation needed before an MFT
@@ -3343,10 +3360,26 @@ fn continue_fts_bulk_build(
     owner: Option<&SourceOperationOwner>,
     timing: &mut GlobalIndexBatchTiming,
 ) -> Result<(), DbError> {
+    continue_fts_bulk_build_with_cancellation(conn, volume_id, owner, timing, &|| false)
+}
+
+fn continue_fts_bulk_build_with_cancellation(
+    conn: &mut Connection,
+    volume_id: &str,
+    owner: Option<&SourceOperationOwner>,
+    timing: &mut GlobalIndexBatchTiming,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<(), DbError> {
     loop {
+        if is_cancelled() {
+            return Ok(());
+        }
         let transaction_started = Instant::now();
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         timing.transaction_acquisition += transaction_started.elapsed();
+        if is_cancelled() {
+            return Ok(());
+        }
         let writer_lock_started = Instant::now();
         if let Some(owner) = owner {
             ensure_source_operation_owner_tx(&transaction, owner)?;

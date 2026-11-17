@@ -3,22 +3,166 @@ use super::*;
 use crate::global_index::filename_search::FilenameSearchManager;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::Connection;
+use rusqlite::{Connection, ErrorCode};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::SyncSender,
-        Arc, Mutex, OnceLock,
+        Arc, Mutex, OnceLock, Weak,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const LIBRARY_COUNT_CACHE_MAX_ENTRIES: usize = 32;
-static ACTIVE_GLOBAL_FTS_RECOVERIES: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+const GLOBAL_FTS_RECOVERY_RETRY_DELAYS: [Duration; 5] = [
+    Duration::from_millis(250),
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
+const GLOBAL_FTS_RECOVERY_CANCEL_POLL: Duration = Duration::from_millis(50);
+static ACTIVE_GLOBAL_FTS_RECOVERIES: OnceLock<Mutex<HashMap<PathBuf, Arc<GlobalFtsRecoverySlot>>>> =
+    OnceLock::new();
+
+#[derive(Default)]
+struct GlobalFtsRecoverySlot {
+    active_session: Mutex<Weak<()>>,
+    #[cfg(test)]
+    attempts: AtomicUsize,
+}
+
+impl GlobalFtsRecoverySlot {
+    fn bind_to_session(&self, session: &Arc<()>) {
+        *self
+            .active_session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::downgrade(session);
+    }
+
+    fn session_is_active(&self) -> bool {
+        self.active_session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .strong_count()
+            > 0
+    }
+}
+
+enum GlobalFtsRecoveryOutcome {
+    Completed { attempts: usize },
+    Cancelled { attempts: usize },
+    Failed { attempts: usize, error: DbError },
+    RetryLimitReached { attempts: usize, error: DbError },
+}
+
+fn remove_active_global_fts_recovery(path: &Path, slot: &Arc<GlobalFtsRecoverySlot>) {
+    let Some(active_recoveries) = ACTIVE_GLOBAL_FTS_RECOVERIES.get() else {
+        return;
+    };
+    let mut active = active_recoveries
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if active
+        .get(path)
+        .is_some_and(|current| Arc::ptr_eq(current, slot))
+    {
+        active.remove(path);
+    }
+}
+
+fn run_global_fts_recovery_with_retry(
+    initial_delay: Duration,
+    retry_delays: &[Duration],
+    session_is_active: impl Fn() -> bool,
+    recover: &mut impl FnMut() -> Result<(), DbError>,
+) -> GlobalFtsRecoveryOutcome {
+    if !wait_for_global_fts_recovery_session(initial_delay, &session_is_active) {
+        return GlobalFtsRecoveryOutcome::Cancelled { attempts: 0 };
+    }
+
+    let max_attempts = retry_delays.len().saturating_add(1);
+    for attempt in 1..=max_attempts {
+        if !session_is_active() {
+            return GlobalFtsRecoveryOutcome::Cancelled {
+                attempts: attempt.saturating_sub(1),
+            };
+        }
+
+        match recover() {
+            Ok(()) if session_is_active() => {
+                return GlobalFtsRecoveryOutcome::Completed { attempts: attempt };
+            }
+            Ok(()) => return GlobalFtsRecoveryOutcome::Cancelled { attempts: attempt },
+            Err(_error) if !session_is_active() => {
+                return GlobalFtsRecoveryOutcome::Cancelled { attempts: attempt };
+            }
+            Err(error) if !is_retryable_global_fts_recovery_error(&error) => {
+                return GlobalFtsRecoveryOutcome::Failed {
+                    attempts: attempt,
+                    error,
+                };
+            }
+            Err(error) => {
+                let Some(delay) = retry_delays.get(attempt - 1).copied() else {
+                    return GlobalFtsRecoveryOutcome::RetryLimitReached {
+                        attempts: attempt,
+                        error,
+                    };
+                };
+                log::warn!(
+                    target: "global_index::repository",
+                    "temporary error during background global FTS recovery; retrying in {}ms attempt={attempt}/{max_attempts}: {error}",
+                    delay.as_millis(),
+                );
+                if !wait_for_global_fts_recovery_session(delay, &session_is_active) {
+                    return GlobalFtsRecoveryOutcome::Cancelled { attempts: attempt };
+                }
+            }
+        }
+    }
+
+    unreachable!("the bounded FTS recovery loop returns on its last attempt")
+}
+
+fn wait_for_global_fts_recovery_session(
+    delay: Duration,
+    session_is_active: &impl Fn() -> bool,
+) -> bool {
+    let deadline = Instant::now() + delay;
+    while session_is_active() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return true;
+        }
+        thread::sleep(remaining.min(GLOBAL_FTS_RECOVERY_CANCEL_POLL));
+    }
+    false
+}
+
+fn is_retryable_global_fts_recovery_error(error: &DbError) -> bool {
+    match error {
+        DbError::Sqlite(rusqlite::Error::SqliteFailure(code, _)) => matches!(
+            code.code,
+            ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
+        ),
+        // r2d2's pool error represents a timed-out lease acquisition.
+        DbError::Pool(_) => true,
+        DbError::Io(error) => matches!(
+            error.kind(),
+            std::io::ErrorKind::Interrupted
+                | std::io::ErrorKind::WouldBlock
+                | std::io::ErrorKind::TimedOut
+        ),
+        _ => false,
+    }
+}
 
 struct LibraryCountCacheEntry {
     revision: i64,
@@ -74,6 +218,7 @@ impl ManagedAiWakeSlot {
 pub struct Database {
     path: PathBuf,
     pool: Pool<SqliteConnectionManager>,
+    global_fts_recovery_session: Arc<()>,
     pub(crate) filename_search: Arc<FilenameSearchManager>,
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
@@ -160,6 +305,7 @@ impl Database {
         let database = Self {
             path,
             pool,
+            global_fts_recovery_session: Arc::new(()),
             filename_search,
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
@@ -185,10 +331,16 @@ impl Database {
         });
         match pending {
             Ok(false) => return,
+            Err(error) if is_retryable_global_fts_recovery_error(&error) => {
+                log::warn!(
+                    target: "global_index::repository",
+                    "temporary error checking for pending FTS recovery during database open; checking again in the background: {error}"
+                );
+            }
             Err(error) => {
                 log::warn!(
                     target: "global_index::repository",
-                    "could not check for pending FTS recovery during database open: {error}"
+                    "could not check for pending FTS recovery during database open; recovery will not be scheduled for this error: {error}"
                 );
                 return;
             }
@@ -196,41 +348,70 @@ impl Database {
         }
 
         let active_recoveries = ACTIVE_GLOBAL_FTS_RECOVERIES.get_or_init(Default::default);
-        {
+        let recovery_slot = {
             let mut active = active_recoveries
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if !active.insert(self.path.clone()) {
+            if let Some(slot) = active.get(&self.path) {
+                // A second Database handle for the same file joins the existing
+                // recovery session. This also lets a reopened app session take
+                // over while an old bounded recovery attempt is winding down.
+                slot.bind_to_session(&self.global_fts_recovery_session);
                 return;
             }
-        }
+            let slot = Arc::new(GlobalFtsRecoverySlot::default());
+            slot.bind_to_session(&self.global_fts_recovery_session);
+            active.insert(self.path.clone(), Arc::clone(&slot));
+            slot
+        };
 
-        let database = self.clone();
+        // Keep a pool handle for the bounded worker without keeping the app
+        // session token alive. When the last app-owned Database handle drops,
+        // the worker observes cancellation between FTS batches/retries.
+        let mut database = self.clone();
+        database.global_fts_recovery_session = Arc::new(());
         let recovery_path = self.path.clone();
+        let worker_slot = Arc::clone(&recovery_slot);
         let spawn_result = thread::Builder::new()
             .name("global-index-fts-recovery".into())
             .spawn(move || {
-                if !recovery_delay.is_zero() {
-                    thread::sleep(recovery_delay);
-                }
-                if let Err(error) = database.recover_pending_global_fts_bulk_builds() {
-                    log::warn!(
+                let session_is_active = || worker_slot.session_is_active();
+                let mut recover = || {
+                    #[cfg(test)]
+                    worker_slot.attempts.fetch_add(1, Ordering::SeqCst);
+                    let cancelled = || !session_is_active();
+                    database.recover_pending_global_fts_bulk_builds_with_cancellation(cancelled)
+                };
+                let outcome = run_global_fts_recovery_with_retry(
+                    recovery_delay,
+                    &GLOBAL_FTS_RECOVERY_RETRY_DELAYS,
+                    session_is_active,
+                    &mut recover,
+                );
+                match outcome {
+                    GlobalFtsRecoveryOutcome::Completed { attempts } => log::info!(
                         target: "global_index::repository",
-                        "background pending global FTS recovery will retry on next open: {error}"
-                    );
+                        "background pending global FTS recovery completed attempts={attempts}"
+                    ),
+                    GlobalFtsRecoveryOutcome::Cancelled { attempts } => log::debug!(
+                        target: "global_index::repository",
+                        "background pending global FTS recovery cancelled attempts={attempts}"
+                    ),
+                    GlobalFtsRecoveryOutcome::Failed { attempts, error } => log::warn!(
+                        target: "global_index::repository",
+                        "background pending global FTS recovery stopped after non-retryable error attempts={attempts}: {error}"
+                    ),
+                    GlobalFtsRecoveryOutcome::RetryLimitReached { attempts, error } => {
+                        log::error!(
+                            target: "global_index::repository",
+                            "background pending global FTS recovery exhausted same-session retries attempts={attempts}; pending source remains hidden until a later recovery attempt: {error}"
+                        )
+                    }
                 }
-                if let Some(active_recoveries) = ACTIVE_GLOBAL_FTS_RECOVERIES.get() {
-                    active_recoveries
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .remove(&recovery_path);
-                }
+                remove_active_global_fts_recovery(&recovery_path, &worker_slot);
             });
         if let Err(error) = spawn_result {
-            active_recoveries
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&self.path);
+            remove_active_global_fts_recovery(&self.path, &recovery_slot);
             log::warn!(
                 target: "global_index::repository",
                 "could not start background global FTS recovery; it will retry on next open: {error}"
@@ -267,6 +448,20 @@ impl Database {
 
     pub(crate) fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, DbError> {
         self.pool.get().map_err(DbError::from)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fts_recovery_attempt_count_for_test(&self) -> usize {
+        ACTIVE_GLOBAL_FTS_RECOVERIES
+            .get()
+            .and_then(|active| {
+                active
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get(&self.path)
+                    .map(|slot| slot.attempts.load(Ordering::SeqCst))
+            })
+            .unwrap_or_default()
     }
 
     /// Verify the normal timeout, then set the test fixture timeout on every pooled connection.
@@ -554,5 +749,85 @@ mod pool_tests {
             .query_row("SELECT 42", [], |row| row.get::<_, i64>(0))
             .expect("query using returned pool connection");
         assert_eq!(query_result, 42);
+    }
+
+    fn sqlite_busy_error() -> DbError {
+        DbError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            None,
+        ))
+    }
+
+    #[test]
+    fn global_fts_recovery_retries_transient_busy_in_the_same_session() {
+        let attempts = AtomicU64::new(0);
+        let mut recover = || {
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(sqlite_busy_error())
+            } else {
+                Ok(())
+            }
+        };
+        let outcome = run_global_fts_recovery_with_retry(
+            Duration::ZERO,
+            &[Duration::ZERO],
+            || true,
+            &mut recover,
+        );
+
+        assert!(matches!(
+            outcome,
+            GlobalFtsRecoveryOutcome::Completed { attempts: 2 }
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn global_fts_recovery_stops_after_bounded_retries() {
+        let attempts = AtomicU64::new(0);
+        let mut recover = || {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(sqlite_busy_error())
+        };
+        let outcome = run_global_fts_recovery_with_retry(
+            Duration::ZERO,
+            &[Duration::ZERO, Duration::ZERO],
+            || true,
+            &mut recover,
+        );
+
+        assert!(matches!(
+            outcome,
+            GlobalFtsRecoveryOutcome::RetryLimitReached { attempts: 3, .. }
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn global_fts_recovery_backoff_is_cancelled_when_session_ends() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancel_signal = Arc::clone(&cancelled);
+        let cancel_thread = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(20));
+            cancel_signal.store(true, Ordering::Release);
+        });
+        let attempts = AtomicU64::new(0);
+        let mut recover = || {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(sqlite_busy_error())
+        };
+        let outcome = run_global_fts_recovery_with_retry(
+            Duration::ZERO,
+            &[Duration::from_secs(1)],
+            || !cancelled.load(Ordering::Acquire),
+            &mut recover,
+        );
+        cancel_thread.join().expect("cancel recovery test session");
+
+        assert!(matches!(
+            outcome,
+            GlobalFtsRecoveryOutcome::Cancelled { attempts: 1 }
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 }

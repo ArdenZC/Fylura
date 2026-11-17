@@ -391,7 +391,9 @@ fn execute_moves_core_with_identity(
                                         "target_committed" | "source_cleanup_pending" | "completed"
                                     )
                                 {
-                                    refresh_replacement_journal_identities(log).map_err(|_| {
+                                    refresh_replacement_journal_identities(log).map_err(|error| {
+                                        #[cfg(test)]
+                                        eprintln!("replacement journal identity refresh failed: {error}");
                                         crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
                                     })?;
                                 }

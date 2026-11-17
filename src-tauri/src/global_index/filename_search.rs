@@ -234,6 +234,14 @@ struct TransientFilenameCatalog {
     by_path_gram: HashMap<u64, Vec<u32>>,
 }
 
+/// The short database snapshot captures which transient catalogs were
+/// authorized at one SQLite revision. Searching their in-memory postings can
+/// then happen after the read transaction has been released.
+pub(crate) struct ActiveTransientFilenameCatalogs {
+    policy_revision: u64,
+    catalogs: Vec<(String, Arc<RwLock<TransientFilenameCatalog>>)>,
+}
+
 pub(crate) struct TransientFilenameEntry {
     id_digest: [u8; 32],
     platform_file_id: u32,
@@ -848,21 +856,14 @@ impl FilenameSearchManager {
         }
     }
 
-    /// Query the in-memory first-pass filename catalogue. The database
-    /// transaction supplies the current scope revision and active-source
-    /// authorization so a stale catalogue is never widened into search.
-    pub(crate) fn search_transient_catalog(
+    /// Capture active transient catalogs while the caller holds a short
+    /// database read transaction. The returned immutable catalog handles can
+    /// be searched after that transaction closes.
+    pub(crate) fn active_transient_catalogs(
         &self,
         connection: &Connection,
         policy_revision: u64,
-        query: &str,
-        limit: u32,
-        offset: u32,
-    ) -> rusqlite::Result<Option<Vec<GlobalSearchResult>>> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Ok(None);
-        }
+    ) -> rusqlite::Result<Option<ActiveTransientFilenameCatalogs>> {
         let catalogs = self
             .transient_catalogs
             .lock()
@@ -870,33 +871,66 @@ impl FilenameSearchManager {
             .iter()
             .map(|(volume_id, catalog)| (volume_id.clone(), Arc::clone(catalog)))
             .collect::<Vec<_>>();
-        if catalogs.is_empty() {
-            return Ok(None);
+        let mut active_catalogs = Vec::with_capacity(catalogs.len());
+        for (volume_id, catalog) in catalogs {
+            let operation_id = {
+                let catalog = catalog
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if catalog.policy_revision != Some(policy_revision) {
+                    continue;
+                }
+                catalog.operation_id.clone()
+            };
+            let active: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM global_volumes WHERE id=?1 AND enabled=1 AND coverage_pending=0 AND operation_owner_id=?2 AND operation_state='running' AND (platform!='windows' OR scope_authorization_state='authorized'))",
+                rusqlite::params![volume_id, operation_id],
+                |row| row.get(0),
+            )?;
+            if active {
+                active_catalogs.push((volume_id, catalog));
+            }
+        }
+        if active_catalogs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(ActiveTransientFilenameCatalogs {
+                policy_revision,
+                catalogs: active_catalogs,
+            }))
+        }
+    }
+
+    /// Query the in-memory first-pass filename catalog using the authorization
+    /// decision captured by `active_transient_catalogs`. No SQLite read
+    /// transaction is held while candidate postings are ranked and merged.
+    pub(crate) fn search_active_transient_catalogs(
+        &self,
+        active_catalogs: &ActiveTransientFilenameCatalogs,
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Option<Vec<GlobalSearchResult>> {
+        let query = query.trim();
+        if query.is_empty() {
+            return None;
         }
 
         let limit = limit.clamp(1, 4_096) as usize;
         let offset = offset.min(1_000_000) as usize;
         let target = offset.saturating_add(limit).min(4_096);
         if offset >= 4_096 {
-            return Ok(Some(Vec::new()));
+            return Some(Vec::new());
         }
         let normalized_query = query.to_lowercase();
         let mut heap = BinaryHeap::with_capacity(target.min(4_096));
         let mut found_active_catalog = false;
         let mut seen = HashSet::new();
-        for (volume_id, catalog) in &catalogs {
+        for (_, catalog) in &active_catalogs.catalogs {
             let catalog = catalog
                 .read()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let active: bool = connection.query_row(
-                "SELECT EXISTS(SELECT 1 FROM global_volumes WHERE id=?1 AND enabled=1 AND coverage_pending=0 AND operation_owner_id=?2 AND operation_state='running' AND (platform!='windows' OR scope_authorization_state='authorized'))",
-                rusqlite::params![volume_id, catalog.operation_id],
-                |row| row.get(0),
-            )?;
-            if !active {
-                continue;
-            }
-            if catalog.policy_revision != Some(policy_revision) {
+            if catalog.policy_revision != Some(active_catalogs.policy_revision) {
                 continue;
             }
             found_active_catalog = true;
@@ -1026,18 +1060,18 @@ impl FilenameSearchManager {
             }
         }
         if !found_active_catalog {
-            return Ok(None);
+            return None;
         }
         let mut ranked = heap.into_vec();
         ranked.sort_unstable();
-        Ok(Some(
+        Some(
             ranked
                 .into_iter()
                 .skip(offset)
                 .take(limit)
                 .map(|candidate| candidate.result)
                 .collect(),
-        ))
+        )
     }
 
     pub(crate) fn is_enabled(&self) -> bool {

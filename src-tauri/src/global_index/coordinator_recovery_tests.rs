@@ -1317,6 +1317,18 @@ fn filename_first_initial_mft_is_searchable_before_sqlite_and_finishes_with_fts(
     .expect("claim initial source operation");
     sink.mark_volume_entries_stale(&volume.id)
         .expect("begin the initial filename catalog");
+    // This test exercises the first-pass catalogue directly. The production
+    // environment switch is deliberately default-off, so explicitly seed the
+    // same transient state the opt-in branch installs instead of relying on a
+    // process-global environment variable in parallel unit tests.
+    let owner = sink
+        .owners
+        .get(&volume.id)
+        .expect("admitted source owner")
+        .clone();
+    db.filename_search
+        .begin_transient_catalog(&volume.id, &owner.operation_id);
+    sink.deferred_initial_sources.insert(volume.id.clone());
 
     let mut entry = GlobalEntryInput {
         volume_id: volume.id.clone(),
@@ -1355,6 +1367,12 @@ fn filename_first_initial_mft_is_searchable_before_sqlite_and_finishes_with_fts(
         .expect("search the transient filename catalog");
     assert_eq!(early_search.len(), 1);
     assert_eq!(early_search[0].path, fixture_path.to_string_lossy());
+    let early_snapshot = db
+        .search_global_entries_snapshot("persistedmarker", 10, 0)
+        .expect("search a transient catalog snapshot");
+    assert_eq!(early_snapshot.results.len(), 1);
+    assert_eq!(early_snapshot.results[0].path, fixture_path.to_string_lossy());
+    assert!(!early_snapshot.index_status.collection_complete);
     assert!(
         !db.global_index_status()
             .expect("read incomplete indexing status")

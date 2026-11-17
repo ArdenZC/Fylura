@@ -2479,22 +2479,21 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> Result<GlobalSearchSnapshot, DbError> {
-        let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
-            "read",
-            "global_index.search_snapshot",
-        );
         if self.filename_search.has_transient_catalog() {
+            let transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+                "read",
+                "global_index.search_snapshot",
+            );
             let mut conn = self.conn()?;
             let transaction = conn.transaction()?;
-            if let Some(results) =
-                super::search::search_global_entries_with_transient_catalog_on_connection(
-                    &transaction,
-                    &self.filename_search,
-                    query,
-                    limit,
-                    offset,
-                )?
-            {
+            let prepared = super::search::prepare_transient_catalog_search_on_connection(
+                &transaction,
+                &self.filename_search,
+                query,
+                limit,
+                offset,
+            )?;
+            if let Some(prepared) = prepared {
                 let (source_health, source_revision, enabled_rows) =
                     load_snapshot_source_health(&transaction)?;
                 let index_status = with_transient_catalog_progress(
@@ -2503,6 +2502,12 @@ impl Database {
                     &self.filename_search,
                 )?;
                 transaction.commit()?;
+                drop(transaction_trace);
+                let results = super::search::complete_transient_catalog_search(
+                    self,
+                    &self.filename_search,
+                    prepared,
+                )?;
                 return Ok(GlobalSearchSnapshot {
                     results,
                     source_health,
@@ -2510,6 +2515,8 @@ impl Database {
                     index_status,
                 });
             }
+            transaction.commit()?;
+            drop(transaction_trace);
         }
         if self.filename_search.is_enabled()
             && super::search::filename_relevance_query_supported(query.trim())
@@ -2561,6 +2568,10 @@ impl Database {
                 return Ok(snapshot);
             }
         }
+        let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+            "read",
+            "global_index.search_snapshot",
+        );
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
         let results =

@@ -15,7 +15,8 @@ pub(crate) mod rank_frontier;
 mod source_authorization_tests;
 
 use super::filename_search::{
-    ChangeSet, FilenameSearchIndex, FilenameTrigramCandidate, RankedFileCandidate,
+    ActiveTransientFilenameCatalogs, ChangeSet, FilenameSearchIndex, FilenameSearchManager,
+    FilenameTrigramCandidate, RankedFileCandidate,
 };
 use super::models::GlobalSearchResult;
 use crate::db::{Database, DbError};
@@ -28,6 +29,15 @@ const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // A layer may fetch up to target + already-seen ids to compensate for overlap,
 // but never turns a keystroke into an unbounded result materialization.
 const MAX_TIER_CANDIDATES: u32 = 4_096;
+
+pub(crate) struct PreparedTransientCatalogSearch {
+    active_catalogs: ActiveTransientFilenameCatalogs,
+    durable_candidates: Vec<GlobalSearchResult>,
+    query: String,
+    target: u32,
+    limit: u32,
+    offset: u32,
+}
 
 #[cfg(test)]
 std::thread_local! {
@@ -172,22 +182,24 @@ pub fn search_global_entries(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
-    let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
-        "read",
-        "global_index.search_entries",
-    );
     if db.filename_search.has_transient_catalog() {
+        let transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+            "read",
+            "global_index.search_entries",
+        );
         let mut conn = db.conn()?;
         let transaction = conn.transaction()?;
-        if let Some(results) = search_global_entries_with_transient_catalog_on_connection(
+        let prepared = prepare_transient_catalog_search_on_connection(
             &transaction,
             &db.filename_search,
             query,
             limit,
             offset,
-        )? {
-            transaction.commit()?;
-            return Ok(results);
+        )?;
+        transaction.commit()?;
+        drop(transaction_trace);
+        if let Some(prepared) = prepared {
+            return complete_transient_catalog_search(db, &db.filename_search, prepared);
         }
     }
     if db.filename_search.is_enabled() && filename_relevance_query_supported(query.trim()) {
@@ -301,17 +313,15 @@ fn has_searchable_fts_source(conn: &Connection) -> Result<bool, DbError> {
     .map_err(DbError::from)
 }
 
-/// Combines the disposable, in-memory initial filename projection with rows
-/// already durable in SQLite. The caller's transaction pins both the source
-/// authorization facts and the current scope revision used to admit the
-/// transient projection.
-pub(crate) fn search_global_entries_with_transient_catalog_on_connection(
+/// Capture the small SQL facts needed by transient search. The caller should
+/// commit its read transaction before ranking in-memory postings.
+pub(crate) fn prepare_transient_catalog_search_on_connection(
     conn: &Connection,
-    filename_search: &super::filename_search::FilenameSearchManager,
+    filename_search: &FilenameSearchManager,
     query: &str,
     limit: u32,
     offset: u32,
-) -> Result<Option<Vec<GlobalSearchResult>>, DbError> {
+) -> Result<Option<PreparedTransientCatalogSearch>, DbError> {
     if !filename_search.has_transient_catalog() {
         return Ok(None);
     }
@@ -320,26 +330,55 @@ pub(crate) fn search_global_entries_with_transient_catalog_on_connection(
         return Ok(None);
     }
     let offset = offset.min(MAX_SEARCH_OFFSET);
-    if offset >= MAX_TIER_CANDIDATES {
-        return Ok(Some(Vec::new()));
-    }
     let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
     let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
     let policy = super::coverage::load_policy(conn)?;
-    let Some(transient) =
-        filename_search.search_transient_catalog(conn, policy.revision, query, target, 0)?
+    let Some(active_catalogs) = filename_search.active_transient_catalogs(conn, policy.revision)?
     else {
         return Ok(None);
     };
-    let persisted = search_global_entries_candidates_on_connection(conn, query, target)?;
-    let merged = merge_transient_results(query, persisted, transient, target as usize);
+    let durable_candidates = search_global_entries_candidates_on_connection(conn, query, target)?;
+    Ok(Some(PreparedTransientCatalogSearch {
+        active_catalogs,
+        durable_candidates,
+        query: query.to_owned(),
+        target,
+        limit,
+        offset,
+    }))
+}
+
+/// Finish ranking and merge after the read transaction has been released.
+/// Only the bounded candidate page is carried across the transaction boundary.
+pub(crate) fn complete_transient_catalog_search(
+    db: &Database,
+    filename_search: &FilenameSearchManager,
+    prepared: PreparedTransientCatalogSearch,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    let transient = filename_search
+        .search_active_transient_catalogs(
+            &prepared.active_catalogs,
+            &prepared.query,
+            prepared.target,
+            0,
+        )
+        .unwrap_or_default();
+    let merged = merge_transient_results(
+        &prepared.query,
+        prepared.durable_candidates,
+        transient,
+        prepared.target as usize,
+    );
     let mut results = merged
         .into_iter()
-        .skip(offset as usize)
-        .take(limit as usize)
+        .skip(prepared.offset as usize)
+        .take(prepared.limit as usize)
         .collect::<Vec<_>>();
-    hydrate_transient_managed_flags(conn, &mut results)?;
-    Ok(Some(results))
+    if !results.is_empty() {
+        let conn = db.conn()?;
+        hydrate_transient_managed_flags(&conn, &mut results)?;
+    }
+    Ok(results)
 }
 
 fn hydrate_transient_managed_flags(

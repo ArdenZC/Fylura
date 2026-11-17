@@ -610,7 +610,9 @@ try {
             $ipcBatchEvidence.checkpoint_flushed_entries -le 0) {
             throw "task VHD Service->Repository coalescing/checkpoint evidence is incomplete: $($ipcBatchEvidence | ConvertTo-Json -Compress)"
         }
-        $repositoryBatchPattern = "^source_operation_write status=ready completed=true batches=$($ipcBatchEvidence.repository_batches)(\s|$)"
+        # QA trace lines have a timestamp and PID prefix, so anchor the event
+        # token rather than the physical start of the line.
+        $repositoryBatchPattern = "(?:^|\s)source_operation_write status=ready completed=true batches=$($ipcBatchEvidence.repository_batches)(\s|$)"
         if (@($recoveryTrace | Where-Object { $_ -match $repositoryBatchPattern }).Count -eq 0) {
             throw "Service exchange batch count was not confirmed by the completed repository write timing: expected_batches=$($ipcBatchEvidence.repository_batches)"
         }

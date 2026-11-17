@@ -4,6 +4,7 @@ import type { Density, ThemeMode } from "../../../types/ui";
 import type { Translator } from "../../../types/ui";
 import { ShieldCheck } from "lucide-react";
 import { quietText } from "../../shared/ui";
+import { buttonSecondary } from "../../../utils/tw";
 import {
   SettingsControlGroup,
   SettingsInlineMessage,
@@ -109,17 +110,21 @@ export function GeneralSettingsSection({
           checked={launchAtLogin}
           onChange={onLaunchAtLogin}
         />
-        <SettingsSelect
-          id="settings-delete-destination"
+        <SettingsRow
           label={t("settingsDeleteDestination")}
           description={t("settingsDeleteDestinationDesc")}
-          value={deleteDestination}
-          options={[
-            { value: "fylura_trash" as const, label: t("settingsFyluraTrash") },
-            { value: "system_trash" as const, label: t("settingsSystemTrash") }
-          ]}
-          onChange={onDeleteDestination}
-        />
+        >
+          <div className="flex flex-col items-start gap-2">
+            <span>{t(deleteDestination === "system_trash" ? "settingsSystemTrash" : "settingsFyluraTrash")}</span>
+            <button
+              className={buttonSecondary}
+              type="button"
+              onClick={() => onDeleteDestination(deleteDestination === "system_trash" ? "fylura_trash" : "system_trash")}
+            >
+              {t(deleteDestination === "system_trash" ? "settingsUseFyluraTrash" : "settingsUseSystemTrash")}
+            </button>
+          </div>
+        </SettingsRow>
       </SettingsControlGroup>
 
       <SettingsControlGroup className="zc-settings-ai-group" title={t("settingsAIPrivacy")}>

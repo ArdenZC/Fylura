@@ -34,8 +34,10 @@ const folderTicket: TransferTicket = { id: "folder", name: "Folder", path: "C:/S
 function plan(): TransferPreview { return { id: "authority-preview", destinationDirectory: "C:/Target", rows: tickets.map((ticket) => ({ticketId: ticket.id, error: null, skipped: false, preview: { id: `op-${ticket.id}`, fileId: ticket.id, operation_type:"copy",source_path:ticket.path,target_path:`C:/Target/${ticket.name}`,old_name:ticket.name,new_name:ticket.name,status:"pending",risk_level:"Normal",confidence:1,requires_confirmation:true,suggested_action:"Copy",reason:"manual",operationFingerprint:"bound-proof"} })) }; }
 function actionPlan(ticket: TransferTicket, action: string, destination: string, name: string): TransferPreview {
   const createDirectory = action === "create_directory";
-  const trash = action === "trash";
-  const target = createDirectory ? `${destination}/${name}` : trash
+  const systemTrash = action === "system_trash";
+  const trash = action === "trash" || systemTrash;
+  const target = createDirectory ? `${destination}/${name}` : systemTrash
+    ? (mocks.platform === "win32" ? "System Recycle Bin" : "System Trash") : trash
     ? `${ticket.path.slice(0, ticket.path.lastIndexOf("/"))}/.zen-canvas-trash/operations/fixture/${ticket.name}`
     : `${destination}/${name}`;
   return { id: `authority-${action}`, destinationDirectory: destination, rows: [{
@@ -43,7 +45,7 @@ function actionPlan(ticket: TransferTicket, action: string, destination: string,
     error: null,
     skipped: false,
     preview: {
-      id: `op-${action}`, fileId: ticket.id, operation_type: (trash ? "move_to_trash" : action) as OperationPreview["operation_type"],
+      id: `op-${action}`, fileId: ticket.id, operation_type: (systemTrash ? "move_to_system_trash" : trash ? "move_to_trash" : action) as OperationPreview["operation_type"],
       source_path: createDirectory ? destination : ticket.path, target_path: target,
       old_name: createDirectory ? name : ticket.name, new_name: name, status: "pending", risk_level: "Normal",
       confidence: 1, requires_confirmation: true, suggested_action: action === "rename" ? "Rename" : trash ? "Move" : "Copy", reason: "manual",
@@ -714,13 +716,21 @@ describe("File Library manual management workflow", () => {
     expect(document.querySelector("[aria-modal=true]")).toBeNull();
   });
 
-  it("uses the configured system trash destination for Delete", async () => {
+  it("routes Delete through the configured system trash Preview and journal transfer", async () => {
     mocks.defaultDeleteDestination = "system_trash";
+    useFileManagementStore.setState({ surface: () => ({ signature: "one-selected", count: 1, selection: { kind: "explicit", fileIds: ["managed-one"] }, browse: { sessionId: "session", pathRef: { id: "root" } }, routingHint: "C:/Source", refresh, clear }) });
+    vi.mocked(api.captureTransfer).mockResolvedValueOnce([tickets[0]!]);
+    vi.mocked(api.previewTransfer).mockResolvedValueOnce(actionPlan(tickets[0]!, "system_trash", "C:/Source", tickets[0]!.name));
     await render();
     await act(async () => { host.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true })); });
     await settle();
-    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({ action: "system_trash" }));
-    expect(api.executeTransfer).toHaveBeenCalledOnce();
+    expect(api.captureTransfer).toHaveBeenCalledWith({ selection: { kind: "explicit", fileIds: ["managed-one"] } });
+    expect(api.previewTransfer).toHaveBeenCalledWith(expect.objectContaining({
+      ticketIds: ["one"], action: "system_trash", destinationDirectory: "C:/Source", skip: [], keepBoth: []
+    }));
+    expect(api.executeTransfer).toHaveBeenCalledWith({ previewId: "authority-system_trash", confirmed: true });
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(mocks.defaultDeleteDestination).toBe("system_trash");
   });
 
   it("binds cross-pane Copy to the source selection and auto-executes for the captured target", async () => {

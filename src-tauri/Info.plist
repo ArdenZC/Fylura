@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Fylura asks Finder to move selected items to Trash so Finder can restore them with its normal Put Back action.</string>
   <key>NSDesktopFolderUsageDescription</key>
   <string>Fylura needs access to your Desktop folder to scan and organize files you choose to manage.</string>
   <key>NSDocumentsFolderUsageDescription</key>

@@ -14,7 +14,7 @@ const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
 const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 128 * 1024;
 const INITIAL_MFT_LARGE_SOURCE_THRESHOLD: usize = 16_384;
-const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(25);
+const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(150);
 const INITIAL_MFT_WAL_RESTART_BATCH_INTERVAL: usize = 4;
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
@@ -1729,9 +1729,11 @@ impl Database {
                     ));
                 }
                 // `yield_now` can immediately reschedule this indexing thread
-                // on Windows. Leave a scheduling window so ordinary file and
-                // settings transactions can acquire SQLite's single WAL
-                // writer slot before the next bounded indexing batch.
+                // on Windows. Leave a scheduling window long enough for a
+                // normal writer's bounded BEGIN wait to expire and retry into
+                // the gap before the next indexing batch. The 25ms handoff
+                // still let a sustained large-source writer reacquire SQLite's
+                // single WAL writer slot before Files/Settings transactions.
                 std::thread::sleep(INITIAL_MFT_WRITER_HANDOFF);
 
                 if enlarged_writer_cache

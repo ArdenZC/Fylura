@@ -46,6 +46,7 @@ impl InitialIndexWalCheckpointGuard {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.active_sessions.fetch_add(1, Ordering::AcqRel);
+        drop(_policy);
         Self { state }
     }
 }

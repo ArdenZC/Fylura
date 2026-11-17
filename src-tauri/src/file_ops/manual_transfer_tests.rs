@@ -701,7 +701,7 @@ fn fl42_copy_and_duplicate_undo_removes_only_the_new_target() {
 }
 
 #[test]
-fn fl42_directory_copy_undo_reuses_preview_tree_fingerprint() {
+fn fl42_directory_copy_and_duplicate_undo_use_published_target_identity() {
     for action in [TransferAction::Copy, TransferAction::Duplicate] {
         let f = Fixture::new();
         let runtime = runtime(&f);
@@ -734,18 +734,18 @@ fn fl42_directory_copy_undo_reuses_preview_tree_fingerprint() {
                 confirmed: true,
             })
             .unwrap();
-        let expected_tree = transfer_directory_tree_fingerprint(&request.operations[0].id)
-            .and_then(encode_directory_tree_journal_fingerprint)
-            .unwrap();
         let result = execute_moves_with_persistence(&f.db, request).unwrap();
         assert_eq!(result.logs[0].status, "success");
         assert!(result.logs[0].can_undo);
+        let copied_target = PathBuf::from(&result.logs[0].path_after);
+        let expected_tree = directory_tree_snapshot(&copied_target)
+            .and_then(|tree| encode_directory_tree_journal_fingerprint(&tree))
+            .unwrap();
         assert_eq!(
             result.logs[0].target_full_hash.as_deref(),
             Some(expected_tree.as_str())
         );
 
-        let copied_target = PathBuf::from(&result.logs[0].path_after);
         let restored =
             restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: result.logs })
                 .unwrap();
@@ -755,6 +755,66 @@ fn fl42_directory_copy_undo_reuses_preview_tree_fingerprint() {
         assert!(source.join("nested/entry.txt").is_file());
         runtime.dispose();
     }
+}
+
+#[test]
+fn fl42_directory_copy_undo_refuses_modified_descendant() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let source = f.root.join("directory-copy-source");
+    fs::create_dir_all(source.join("nested")).unwrap();
+    fs::write(source.join("nested/entry.txt"), b"original payload").unwrap();
+    let ticket = runtime
+        .capture_transfer(CaptureRequest {
+            refs: vec![],
+            selection: None,
+            release_ids: vec![],
+            external_paths: vec![normalize_path(&source)],
+        })
+        .unwrap()
+        .remove(0);
+    let destination = f.root.join("directory-copy-destination");
+    fs::create_dir(&destination).unwrap();
+    let plan = preview(
+        &runtime,
+        vec![ticket.id],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+    );
+    let result = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result.logs[0].status, "success");
+    assert!(result.logs[0].can_undo);
+    let copied_target = PathBuf::from(&result.logs[0].path_after);
+    fs::write(
+        copied_target.join("nested/entry.txt"),
+        b"user edited payload",
+    )
+    .unwrap();
+
+    let restored =
+        restore_moves_with_persistence(&f.db, RestoreMovesRequest { logs: result.logs }).unwrap();
+    assert_eq!(restored.restored, 0);
+    assert_eq!(restored.logs[0].restore_status, "manual_review");
+    assert_eq!(
+        fs::read(copied_target.join("nested/entry.txt")).unwrap(),
+        b"user edited payload"
+    );
+    assert_eq!(
+        fs::read(source.join("nested/entry.txt")).unwrap(),
+        b"original payload"
+    );
+    runtime.dispose();
 }
 
 #[test]

@@ -186,16 +186,20 @@ pub(crate) fn execute_moves_with_persistence_and_expected_identity(
                     log.source_platform_file_id = identity.platform_file_id;
                     log.source_platform_volume_id = identity.platform_volume_id;
                     if target.is_dir() {
-                        // The preview bound this source tree fingerprint and
-                        // execution verified the copy against it. Reuse that
-                        // proof for Undo; walking the published 100k-entry
-                        // target again would add a full pass to ordinary Copy.
-                        log.target_full_hash = crate::file_ops::manual_transfer::transfer_directory_tree_fingerprint(
-                            &operation.id,
-                        )
-                        .and_then(
-                            crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint,
-                        );
+                        match crate::file_ops::manual_transfer::directory_tree_snapshot(target)
+                            .and_then(|tree| {
+                                crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(&tree)
+                                    .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+                            })
+                        {
+                            Ok(tree) => log.target_full_hash = Some(tree),
+                            Err(error) => {
+                                log.status = "manual_review".into();
+                                log.error_message = Some(format!(
+                                    "target_committed_identity_unreadable: copied directory proof could not be captured: {error}"
+                                ));
+                            }
+                        }
                     }
                     log.can_restore = log.source_platform_file_id.is_some()
                         && log.source_platform_volume_id.is_some()

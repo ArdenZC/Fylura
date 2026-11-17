@@ -92,7 +92,7 @@ beforeEach(() => {
   mocks.defaultDeleteDestination = "fylura_trash";
   refresh.mockClear();clear.mockClear();mocks.close.mockClear();mocks.refreshHistory.mockClear();mocks.cancelOperations.mockClear();
 });
-afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
+afterEach(async () => { vi.useRealTimers(); await act(async () => root.unmount()); vi.restoreAllMocks(); document.body.innerHTML=""; });
 describe("File Library manual management workflow", () => {
   it("copies a large directory selection to a chosen destination in bounded batches", async () => {
     const allTickets: TransferTicket[] = Array.from({ length: 1001 }, (_, index) => ({
@@ -472,6 +472,34 @@ describe("File Library manual management workflow", () => {
     expect(document.querySelector(".fm-task-entry progress")?.getAttribute("max")).toBe("10");
     expect(document.querySelector(".fm-task-entry progress")?.getAttribute("value")).toBe("4");
     await click(t("fmCancelRunning"));
+    await act(async () => { resolve({ batch_id: "batch", logs: result(["failed", "failed"]) }); });
+    await settle();
+  });
+  it("returns transfer ETA to calculating when byte progress stalls", async () => {
+    useFileManagementStore.setState({ clipboard: { action: "copy", tickets } });
+    let resolve!: (value: any) => void;
+    vi.mocked(api.executeTransfer).mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    await render();
+    await click(`${t("fmPaste")} (2)`);
+    vi.useFakeTimers();
+    const publishProgress = async (processedItems: number, processedBytes: number) => {
+      useOperationQueueStore.setState({ operationProgress: {
+        kind: "execute", batchId: "batch", processed: processedItems, total: 2,
+        currentPath: "C:/Source/large.bin", phase: "copying", processedItems, totalItems: 2,
+        processedBytes, totalBytes: 1000
+      } });
+      await act(async () => { root.render(<FileManagementToolbar/>); });
+    };
+    await publishProgress(1, 100);
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskEtaComputing"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    await publishProgress(2, 200);
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskSpeed"));
+    expect(document.querySelector(".fm-task-progress")?.textContent).not.toContain(t("fmTaskEtaComputing"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+    expect(document.querySelector(".fm-task-progress")?.textContent).not.toContain(t("fmTaskSpeed"));
+    expect(document.querySelector(".fm-task-progress")?.textContent).toContain(t("fmTaskEtaComputing"));
+    vi.useRealTimers();
     await act(async () => { resolve({ batch_id: "batch", logs: result(["failed", "failed"]) }); });
     await settle();
   });

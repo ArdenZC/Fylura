@@ -1520,7 +1520,12 @@ export function FileManagementToolbar() {
       rateSample.current = { batchId: progress.batchId, at, bytes: progress.processedBytes, rate: null };
       setTransferRate(null);
     }
-  }, [liveTaskProgress?.batchId, liveTaskProgress?.phase, liveTaskProgress?.processedBytes, liveTaskProgress?.totalBytes]);
+    const stallTimeout = window.setTimeout(() => {
+      rateSample.current = null;
+      setTransferRate(null);
+    }, 1500);
+    return () => window.clearTimeout(stallTimeout);
+  }, [liveTaskProgress?.batchId, liveTaskProgress?.phase, liveTaskProgress?.processedItems, liveTaskProgress?.processedBytes, liveTaskProgress?.totalBytes, liveTaskProgress?.totalItems]);
   const taskOperationStatus = (log: OperationLog, live: boolean) => log.status === "success" ? t("fmTaskCompleted")
     : log.status === "skipped" ? t("fmTaskSkipped")
       : log.status === "manual_review" || log.status === "pending" && !live ? t("fmTaskNeedsReview")

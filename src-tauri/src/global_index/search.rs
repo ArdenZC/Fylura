@@ -172,6 +172,10 @@ pub fn search_global_entries(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+        "read",
+        "global_index.search_entries",
+    );
     if db.filename_search.has_transient_catalog() {
         let mut conn = db.conn()?;
         let transaction = conn.transaction()?;

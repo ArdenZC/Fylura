@@ -13,13 +13,138 @@ pub(crate) fn record(event: &str) {
     let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };
-    let _ = writeln!(file, "{event}");
+    let timestamp_us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros();
+    let _ = writeln!(
+        file,
+        "timestamp_us={timestamp_us} pid={} {event}",
+        std::process::id()
+    );
 }
 
 #[cfg(feature = "native-qa")]
 pub(crate) fn is_enabled() -> bool {
     std::env::var_os("ZC_GLOBAL_INDEX_QA_TRACE").is_some()
 }
+
+#[cfg(feature = "native-qa")]
+static ACTIVE_TRANSACTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// A coarse transaction scope used only by native qualification. It records
+/// transaction lifetimes, never individual statements or indexed rows.
+pub(crate) struct TransactionTrace {
+    #[cfg(feature = "native-qa")]
+    source: &'static str,
+    #[cfg(feature = "native-qa")]
+    kind: &'static str,
+    #[cfg(feature = "native-qa")]
+    started: std::time::Instant,
+    #[cfg(feature = "native-qa")]
+    enabled: bool,
+}
+
+impl TransactionTrace {
+    #[inline]
+    pub(crate) fn start(kind: &'static str, source: &'static str) -> Self {
+        #[cfg(feature = "native-qa")]
+        {
+            let enabled = is_enabled();
+            if enabled {
+                ACTIVE_TRANSACTIONS.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                record(&format!(
+                    "sqlite_transaction phase=begin kind={kind} source={source} active_transactions={}",
+                    ACTIVE_TRANSACTIONS.load(std::sync::atomic::Ordering::Acquire),
+                ));
+            }
+            Self {
+                source,
+                kind,
+                started: std::time::Instant::now(),
+                enabled,
+            }
+        }
+        #[cfg(not(feature = "native-qa"))]
+        {
+            let _ = (kind, source);
+            Self {}
+        }
+    }
+}
+
+impl Drop for TransactionTrace {
+    fn drop(&mut self) {
+        #[cfg(feature = "native-qa")]
+        if self.enabled {
+            let active = ACTIVE_TRANSACTIONS
+                .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
+                .saturating_sub(1);
+            record(&format!(
+                "sqlite_transaction phase=end kind={} source={} elapsed_us={} active_transactions={active}",
+                self.kind,
+                self.source,
+                self.started.elapsed().as_micros(),
+            ));
+        }
+    }
+}
+
+#[cfg(feature = "native-qa")]
+pub(crate) fn active_transaction_count() -> usize {
+    ACTIVE_TRANSACTIONS.load(std::sync::atomic::Ordering::Acquire)
+}
+
+#[cfg(not(feature = "native-qa"))]
+pub(crate) fn active_transaction_count() -> usize {
+    0
+}
+
+#[cfg(feature = "native-qa")]
+pub(crate) fn record_db_error(source: &str, error: &crate::db::DbError) {
+    use rusqlite::ErrorCode;
+
+    let Some((code, message)) = (match error {
+        crate::db::DbError::Sqlite(rusqlite::Error::SqliteFailure(code, message))
+            if matches!(
+                code.code,
+                ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
+            ) =>
+        {
+            Some((code.extended_code, message.as_deref().unwrap_or_default()))
+        }
+        _ => None,
+    }) else {
+        return;
+    };
+    record(&format!(
+        "sqlite_busy source={source} extended_code={code} message={message:?}"
+    ));
+}
+
+#[cfg(not(feature = "native-qa"))]
+pub(crate) fn record_db_error(_source: &str, _error: &crate::db::DbError) {}
+
+#[cfg(feature = "native-qa")]
+pub(crate) fn record_sqlite_error(source: &str, error: &rusqlite::Error) {
+    let rusqlite::Error::SqliteFailure(code, message) = error else {
+        return;
+    };
+    if !matches!(
+        code.code,
+        rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+    ) {
+        return;
+    }
+    record(&format!(
+        "sqlite_busy source={source} extended_code={} message={:?}",
+        code.extended_code,
+        message.as_deref().unwrap_or_default(),
+    ));
+}
+
+#[cfg(not(feature = "native-qa"))]
+pub(crate) fn record_sqlite_error(_source: &str, _error: &rusqlite::Error) {}
 
 /// Returns SQLite pager write and cache-spill counters since the previous
 /// sample. This is used only by the disposable qualification trace so the

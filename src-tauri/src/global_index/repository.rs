@@ -1551,12 +1551,17 @@ impl Database {
                 if qa_trace_active {
                     let _ = crate::global_index::qa_trace::take_page_cache_counters(&conn);
                 }
+                let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+                    "write",
+                    "global_index.initial_mft_batch",
+                );
                 let entry_upsert_before = timing.entry_upsert;
                 let record_decisions_before = timing.record_decisions;
                 let fts_bulk_build_before = timing.fts_bulk_build;
                 let transaction_started = Instant::now();
                 let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 timing.transaction_acquisition += transaction_started.elapsed();
+                let transaction_lock_wait = transaction_started.elapsed();
                 let writer_lock_started = Instant::now();
                 let setup_started = Instant::now();
                 ensure_source_operation_owner_tx(&transaction, owner)?;
@@ -1650,12 +1655,15 @@ impl Database {
                 } else {
                     0
                 };
+                let transaction_execution = writer_lock_started.elapsed();
                 let commit_started = Instant::now();
                 transaction.commit()?;
                 let commit_elapsed = commit_started.elapsed();
+                let transaction_lock_hold = writer_lock_started.elapsed();
                 timing.commit += commit_elapsed;
-                timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
+                timing.writer_lock_max = timing.writer_lock_max.max(transaction_lock_hold);
                 timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
+                drop(_transaction_trace);
                 batches_committed = batches_committed.saturating_add(1);
                 let committed_entries = processed_entries.saturating_add(entries.len());
                 self.filename_search
@@ -1666,22 +1674,31 @@ impl Database {
                 if qa_trace_active {
                     let cache_counters_after =
                         crate::global_index::qa_trace::take_page_cache_counters(&conn);
-                    let wal_state = conn
-                        .query_row("PRAGMA wal_checkpoint(NOOP)", [], |row| {
+                    let wal_state_result =
+                        conn.query_row("PRAGMA wal_checkpoint(NOOP)", [], |row| {
                             Ok((
                                 row.get::<_, i64>(0)?,
                                 row.get::<_, i64>(1)?,
                                 row.get::<_, i64>(2)?,
                             ))
-                        })
-                        .ok();
+                        });
+                    if let Err(error) = &wal_state_result {
+                        crate::global_index::qa_trace::record_sqlite_error(
+                            "global_index.initial_mft_batch.wal_noop_probe",
+                            error,
+                        );
+                    }
+                    let wal_state = wal_state_result.ok();
                     let (spill_pages, cache_write_pages) = cache_counters_after.unwrap_or((-1, -1));
                     let (checkpoint_busy, wal_frames, checkpointed_frames) =
                         wal_state.unwrap_or((-1, -1, -1));
                     crate::global_index::qa_trace::record(&format!(
-                        "global_index_initial_writer_batch batch={} rows={} upsert_us={} record_decisions_us={} fts_us={} wal_before_commit_bytes={} commit_us={} writer_lock_us={} cache_spill_count={} cache_write_pages={} wal_busy={} wal_frames={} checkpointed_frames={} wal_bytes={}",
+                        "global_index_initial_writer_batch batch={} rows={} connection_source=repository source=global_index.initial_mft_batch lock_wait_us={} execution_us={} commit_us={} upsert_us={} record_decisions_us={} fts_us={} wal_before_commit_bytes={} writer_lock_us={} cache_spill_count={} cache_write_pages={} wal_busy={} wal_frames={} checkpointed_frames={} wal_bytes={}",
                         batches_committed,
                         entries.len(),
+                        transaction_lock_wait.as_micros(),
+                        transaction_execution.as_micros(),
+                        commit_elapsed.as_micros(),
                         timing.entry_upsert.saturating_sub(entry_upsert_before).as_micros(),
                         timing
                             .record_decisions
@@ -1692,8 +1709,7 @@ impl Database {
                             .saturating_sub(fts_bulk_build_before)
                             .as_micros(),
                         wal_bytes_before_commit,
-                        commit_elapsed.as_micros(),
-                        writer_lock_started.elapsed().as_micros(),
+                        transaction_lock_hold.as_micros(),
                         spill_pages,
                         cache_write_pages,
                         checkpoint_busy,
@@ -1729,11 +1745,12 @@ impl Database {
                         Ok((busy, log_frames, checkpointed_frames)) => {
                             if qa_trace_active {
                                 crate::global_index::qa_trace::record(&format!(
-                                    "global_index_wal_checkpoint mode=restart batch={} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={}",
+                                    "global_index_wal_checkpoint mode=restart batch={} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={} active_transactions_local={}",
                                     batches_committed,
                                     checkpoint_elapsed.as_micros(),
                                     wal_bytes_before_restart,
                                     wal_bytes_after_restart,
+                                    crate::global_index::qa_trace::active_transaction_count(),
                                 ));
                             }
                             if busy != 0 || log_frames != checkpointed_frames {
@@ -1744,6 +1761,10 @@ impl Database {
                             }
                         }
                         Err(error) => {
+                            crate::global_index::qa_trace::record_sqlite_error(
+                                "global_index.initial_mft_batch.wal_restart_checkpoint",
+                                &error,
+                            );
                             log::warn!(
                                 target: "global_index::repository",
                                 "initial-index WAL restart checkpoint failed: {error}"
@@ -1787,6 +1808,10 @@ impl Database {
                     passive_wal_checkpoint(&conn)
                 }
                 Err(error) => {
+                    crate::global_index::qa_trace::record_sqlite_error(
+                        "global_index.initial_mft.final_wal_restart_checkpoint",
+                        &error,
+                    );
                     log::warn!(
                         target: "global_index::repository",
                         "final initial-index WAL restart checkpoint failed; trying a passive checkpoint: {error}"
@@ -1812,21 +1837,34 @@ impl Database {
             conn.pragma_update(None, "wal_autocheckpoint", previous_wal_autocheckpoint);
         match checkpoint_result {
             Ok((busy, log_frames, checkpointed_frames)) => {
-                crate::global_index::qa_trace::record(&format!(
-                    "global_index_wal_checkpoint mode={checkpoint_mode} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={}",
-                    timing.wal_checkpoint.as_micros(),
-                    wal_bytes_before_checkpoint,
-                    wal_bytes_after_checkpoint
-                ));
+                if qa_trace_active {
+                    crate::global_index::qa_trace::record(&format!(
+                        "global_index_wal_checkpoint mode={checkpoint_mode} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={} active_transactions_local={}",
+                        timing.wal_checkpoint.as_micros(),
+                        wal_bytes_before_checkpoint,
+                        wal_bytes_after_checkpoint,
+                        crate::global_index::qa_trace::active_transaction_count(),
+                    ));
+                }
             }
-            Err(error) => log::warn!(
-                target: "global_index::repository",
-                "passive WAL checkpoint after filename indexing failed: {error}"
-            ),
+            Err(error) => {
+                crate::global_index::qa_trace::record_sqlite_error(
+                    "global_index.initial_mft.final_wal_checkpoint",
+                    &error,
+                );
+                log::warn!(
+                    target: "global_index::repository",
+                    "passive WAL checkpoint after filename indexing failed: {error}"
+                );
+            }
         }
         let (processed_entries, has_eligible_pending_work) = match write_result {
             Ok(result) => result,
             Err(error) => {
+                crate::global_index::qa_trace::record_db_error(
+                    "global_index.initial_mft_bulk",
+                    &error,
+                );
                 if let Err(restore_error) = restore_cache_size {
                     log::warn!(
                         target: "global_index::repository",
@@ -2380,6 +2418,10 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> Result<GlobalSearchSnapshot, DbError> {
+        let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+            "read",
+            "global_index.search_snapshot",
+        );
         if self.filename_search.has_transient_catalog() {
             let mut conn = self.conn()?;
             let transaction = conn.transaction()?;

@@ -6,8 +6,12 @@ on:
     types: [labeled]
     paths:
       - 'src-tauri/src/global_index/index_scope/**'
+      - 'src-tauri/src/db/connection.rs'
+      - 'src-tauri/src/db/queries/files.rs'
       - 'src-tauri/src/db/schema_index_coverage.rs'
       - 'src-tauri/src/global_index/repository.rs'
+      - 'src-tauri/src/global_index/search.rs'
+      - 'src-tauri/src/global_index/filename_search.rs'
       - 'src-tauri/src/global_index/coordinator.rs'
       - 'src-tauri/src/global_index/models.rs'
       - 'src-tauri/src/global_index/windows/mod.rs'
@@ -17,6 +21,7 @@ on:
       - 'src-tauri/src/global_index/windows/usn.rs'
       - 'src-tauri/src/global_index/windows/fallback.rs'
       - 'src-tauri/src/global_index/windows/smart_lean_qa.rs'
+      - 'src-tauri/src/global_index/windows/filename_first_qa.rs'
       - 'src-tauri/src/global_index/macos/spotlight.rs'
       - 'src-tauri/src/global_index/macos/fsevents.rs'
       - 'src-tauri/src/global_index/macos/smart_lean_qa.rs'
@@ -30,17 +35,17 @@ on:
         description: Select one isolated performance workflow
         type: choice
         default: writer_pair
-        options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair]
+        options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair, filename_first_diagnostics]
       entries:
         description: Candidate count for the manual master/candidate synthetic baseline
         type: choice
         default: '100000'
         options: ['1000', '100000', '200000']
       filename_file_count:
-        description: Task-owned NTFS fixture size for the real filename-first pair (1M runs once per path)
+        description: Task-owned NTFS fixture size for the real filename-first pair or WAL diagnosis
         type: choice
         default: '100000'
-        options: ['100000', '1000000']
+        options: ['100000', '250000', '1000000']
       filename_persist_batch_size:
         description: Candidate bounded SQLite transaction override; auto uses the production size by source count
         type: choice
@@ -490,4 +495,85 @@ jobs:
             .performance-artifacts/filename-first/evidence.json
             .performance-artifacts/filename-first/trigger-attribution.json
             .performance-artifacts/filename-first/traces/*.log
+          if-no-files-found: warn
+
+  filename-first-wal-diagnostics:
+    name: WAL diagnosis A-D on one Windows runner (${{ inputs.filename_file_count || '100000' }})
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'filename_first_diagnostics'
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      FILENAME_FIRST_FILE_COUNT: ${{ inputs.filename_file_count || '100000' }}
+      FILENAME_FIRST_PERSIST_BATCH_SIZE: ${{ inputs.filename_persist_batch_size || 'auto' }}
+      FILENAME_FIRST_DIAGNOSTIC_DIR: ${{ github.workspace }}/.performance-artifacts/filename-first-diagnostics
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+      - run: npm ci --no-audit --no-fund
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: fylura-Windows-global-index-wal-diagnostics-v1
+          cache-workspace-crates: true
+          cache-targets: true
+          cache-on-failure: true
+      - name: Build task-owned native Service/IPC QA executable
+        run: |
+          npm run build:frontend
+          cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features native-qa --bin zb05-global-index-qa
+      - name: Run same-HEAD baseline and filename-first pair on task-owned NTFS
+        shell: pwsh
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path $env:FILENAME_FIRST_DIAGNOSTIC_DIR -Force | Out-Null
+          $probe = Join-Path $PWD 'src-tauri/target/release/zb05-global-index-qa.exe'
+          foreach ($scenario in @('A', 'B', 'C', 'D')) {
+            $evidence = Join-Path $env:FILENAME_FIRST_DIAGNOSTIC_DIR "$scenario.json"
+            & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 `
+              -BaselineProbeExe $probe -CandidateProbeExe $probe -ServiceExe $probe `
+              -BaselineRoot $PWD -CandidateRoot $PWD `
+              -ExpectedBaselineSha $env:CANDIDATE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA `
+              -EvidencePath $evidence `
+              -FileCount ([int]$env:FILENAME_FIRST_FILE_COUNT) -Repetitions 1 `
+              -CandidatePersistBatch $env:FILENAME_FIRST_PERSIST_BATCH_SIZE `
+              -DiagnosticScenario $scenario -DiagnosticOnly
+            if ($LASTEXITCODE -ne 0) { throw "WAL diagnostic scenario $scenario failed with exit code $LASTEXITCODE" }
+          }
+      - name: Summarize WAL scenario and surface collection completeness
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($scenario in @('A', 'B', 'C', 'D')) {
+            $evidence = Join-Path $env:FILENAME_FIRST_DIAGNOSTIC_DIR "$scenario.json"
+            if (-not (Test-Path -LiteralPath $evidence)) {
+              "WAL scenario $scenario`: evidence missing" | Add-Content $env:GITHUB_STEP_SUMMARY
+              continue
+            }
+            $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+            $candidate = $report.candidate[0].result
+            @(
+              "WAL scenario: $($report.diagnosticScenario); files: $($report.fileCount); candidate collection_complete: $($candidate.indexComplete)",
+              "first searchable: $($candidate.firstSearchableUs) us ($($candidate.firstSearchObservationMode)); durable FTS ready: $($candidate.durableFilenameIndexUs) us ($($candidate.durableFtsObservationMode)); full operation: $($candidate.fullIndexUs) us",
+              "peak WAL: $($candidate.peakWalBytes); peak DB+WAL: $($candidate.peakDatabaseBytesWithWal); Files P95: $($candidate.concurrentDatabaseWrites.files.p95Us) us; Journal P95: $($candidate.concurrentDatabaseWrites.journal.p95Us) us; SQLite busy: $($candidate.concurrentDatabaseWrites.sqliteBusyErrors)",
+              "search polling: $($candidate.searchPolling.queryCount) calls; latency P95: $($candidate.searchPolling.latency.p95Us) us; SQL activity samples: $(@($candidate.sqliteActivitySamples).Count)",
+              "PASSIVE busy/log/checkpointed/WAL bytes: $($candidate.walCheckpoint.passive.busy)/$($candidate.walCheckpoint.passive.logFrames)/$($candidate.walCheckpoint.passive.checkpointedFrames), $($candidate.walCheckpoint.passive.walBytesBefore) -> $($candidate.walCheckpoint.passive.walBytesAfter)",
+              "RESTART busy/log/checkpointed/WAL bytes: $($candidate.walCheckpoint.restart.busy)/$($candidate.walCheckpoint.restart.logFrames)/$($candidate.walCheckpoint.restart.checkpointedFrames), $($candidate.walCheckpoint.restart.walBytesBefore) -> $($candidate.walCheckpoint.restart.walBytesAfter)"
+            ) | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: global-index-wal-diagnostics-${{ inputs.filename_file_count || '100000' }}-${{ github.run_id }}
+          path: |
+            .performance-artifacts/filename-first-diagnostics/*.json
+            .performance-artifacts/filename-first-diagnostics/traces/*.log
           if-no-files-found: warn

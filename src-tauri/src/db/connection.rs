@@ -110,6 +110,7 @@ fn run_global_fts_recovery_with_retry(
                 };
             }
             Err(error) => {
+                crate::global_index::qa_trace::record_db_error("global_fts_recovery.retry", &error);
                 let Some(delay) = retry_delays.get(attempt - 1).copied() else {
                     return GlobalFtsRecoveryOutcome::RetryLimitReached {
                         attempts: attempt,
@@ -332,12 +333,20 @@ impl Database {
         match pending {
             Ok(false) => return,
             Err(error) if is_retryable_global_fts_recovery_error(&error) => {
+                crate::global_index::qa_trace::record_db_error(
+                    "database_open.pending_fts_probe",
+                    &error,
+                );
                 log::warn!(
                     target: "global_index::repository",
                     "temporary error checking for pending FTS recovery during database open; checking again in the background: {error}"
                 );
             }
             Err(error) => {
+                crate::global_index::qa_trace::record_db_error(
+                    "database_open.pending_fts_probe",
+                    &error,
+                );
                 log::warn!(
                     target: "global_index::repository",
                     "could not check for pending FTS recovery during database open; recovery will not be scheduled for this error: {error}"
@@ -447,7 +456,30 @@ impl Database {
     }
 
     pub(crate) fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, DbError> {
-        self.pool.get().map_err(DbError::from)
+        let connection = self.pool.get().map_err(DbError::from)?;
+        #[cfg(feature = "native-qa")]
+        if crate::global_index::qa_trace::is_enabled() {
+            let state = self.pool.state();
+            let active = state.connections.saturating_sub(state.idle_connections);
+            crate::global_index::qa_trace::record(&format!(
+                "sqlite_connections event=acquire connections={} idle_connections={} active_connections={active}",
+                state.connections,
+                state.idle_connections,
+            ));
+        }
+        Ok(connection)
+    }
+
+    /// Pool state is sampled only by native qualification. `active` counts
+    /// checked-out leases; neither this method nor the trace path executes SQL.
+    #[cfg(target_os = "windows")]
+    pub(crate) fn diagnostic_connection_counts(&self) -> (u32, u32, u32) {
+        let state = self.pool.state();
+        (
+            state.connections,
+            state.idle_connections,
+            state.connections.saturating_sub(state.idle_connections),
+        )
     }
 
     #[cfg(test)]

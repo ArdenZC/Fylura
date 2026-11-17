@@ -240,7 +240,14 @@ impl Database {
 
     fn insert_files_once(&self, files: &[InsertFileRequest]) -> Result<(), DbError> {
         let last_seen_at = current_unix_seconds();
+        #[cfg(feature = "native-qa")]
+        let trace_enabled = crate::global_index::qa_trace::is_enabled();
+        #[cfg(not(feature = "native-qa"))]
+        let trace_enabled = false;
+        let connection_started = trace_enabled.then(std::time::Instant::now);
         let mut conn = self.conn()?;
+        let connection_acquisition_us =
+            connection_started.map_or(0, |started| started.elapsed().as_micros());
         let previous_busy_timeout_ms =
             conn.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?;
         let previous_busy_timeout = std::time::Duration::from_millis(
@@ -255,30 +262,58 @@ impl Database {
         // This path always mutates rows. Acquiring SQLite's writer slot before
         // reading the current identity prevents a concurrent WAL commit from
         // invalidating the read snapshot before the first write.
+        let _transaction_trace =
+            crate::global_index::qa_trace::TransactionTrace::start("write", "files.insert_files");
+        let transaction_started = trace_enabled.then(std::time::Instant::now);
         let (tx, begin_error) =
             match conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) {
                 Ok(tx) => (Some(tx), None),
                 Err(error) => (None, Some(error)),
             };
+        let transaction_lock_wait_us =
+            transaction_started.map_or(0, |started| started.elapsed().as_micros());
         if let Some(error) = begin_error {
+            crate::global_index::qa_trace::record_sqlite_error("files.insert_files.begin", &error);
+            crate::global_index::qa_trace::record(&format!(
+                "sqlite_write_begin source=files.insert_files elapsed_us={transaction_lock_wait_us} error={error:?}"
+            ));
             drop(tx);
             conn.busy_timeout(previous_busy_timeout)?;
             return Err(error.into());
         }
         let tx = tx.expect("successful writer-slot acquisition returns a transaction");
         if let Err(error) = tx.busy_timeout(previous_busy_timeout) {
+            crate::global_index::qa_trace::record_sqlite_error(
+                "files.insert_files.restore_busy_timeout",
+                &error,
+            );
             drop(tx);
             conn.busy_timeout(previous_busy_timeout)?;
             return Err(error.into());
         }
-        Self::insert_files_in_transaction(tx, files, last_seen_at)
+        let operation_result = Self::insert_files_in_transaction(
+            tx,
+            files,
+            last_seen_at,
+            connection_acquisition_us,
+            transaction_lock_wait_us,
+            trace_enabled,
+        );
+        if let Err(error) = &operation_result {
+            crate::global_index::qa_trace::record_db_error("files.insert_files", error);
+        }
+        operation_result
     }
 
     fn insert_files_in_transaction(
         tx: rusqlite::Transaction<'_>,
         files: &[InsertFileRequest],
         last_seen_at: i64,
+        connection_acquisition_us: u128,
+        transaction_lock_wait_us: u128,
+        trace_enabled: bool,
     ) -> Result<(), DbError> {
+        let transaction_work_started = trace_enabled.then(std::time::Instant::now);
         {
             let mut stmt = tx.prepare(
                 r#"
@@ -383,7 +418,18 @@ impl Database {
             }
         }
         super::library::bump_library_query_revision_in_transaction(&tx)?;
+        let transaction_execution_us =
+            transaction_work_started.map_or(0, |started| started.elapsed().as_micros());
+        let commit_started = trace_enabled.then(std::time::Instant::now);
         tx.commit()?;
+        let commit_us = commit_started.map_or(0, |started| started.elapsed().as_micros());
+        #[cfg(feature = "native-qa")]
+        if trace_enabled {
+            crate::global_index::qa_trace::record(&format!(
+                "sqlite_write source=files.insert_files connection_acquisition_us={connection_acquisition_us} lock_wait_us={transaction_lock_wait_us} execution_us={transaction_execution_us} commit_us={commit_us} rows={}",
+                files.len(),
+            ));
+        }
         Ok(())
     }
 

@@ -9,7 +9,9 @@ param(
     [Parameter(Mandatory = $true)][string]$EvidencePath,
     [int]$FileCount = 100000,
     [int]$Repetitions = 3,
-    [ValidateSet('auto', '512', '1024', '2048', '4096', '8192')][string]$CandidatePersistBatch = 'auto'
+    [ValidateSet('auto', '512', '1024', '2048', '4096', '8192')][string]$CandidatePersistBatch = 'auto',
+    [ValidateSet('A', 'B', 'C', 'D')][string]$DiagnosticScenario = 'D',
+    [switch]$DiagnosticOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,6 +63,8 @@ $script:evidence = [ordered]@{
     candidateSha = $ExpectedCandidateSha
     fileCount = $FileCount
     repetitions = $Repetitions
+    diagnosticScenario = $DiagnosticScenario
+    diagnosticOnly = [bool]$DiagnosticOnly
     runner = $null
     fixtureRoot = $null
     sourceId = $null
@@ -106,6 +110,7 @@ function Set-TaskServiceEnvironment([string]$FilenameFirstMode, [string]$TracePa
     $environment = @(
         "ZC_GLOBAL_INDEX_FILENAME_FIRST=$FilenameFirstMode",
         "ZC_GLOBAL_INDEX_QA_TRACE=$TracePath",
+        "ZC_GLOBAL_INDEX_QA_SCENARIO=$DiagnosticScenario",
         'ZC_GLOBAL_INDEX_MFT_EMIT_BATCH=8192'
     )
     New-ItemProperty -LiteralPath $serviceRegistryPath -Name Environment -PropertyType MultiString -Value $environment -Force | Out-Null
@@ -243,6 +248,7 @@ function Invoke-Probe(
     foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
     $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
     $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = $FilenameFirstMode
+    $startInfo.Environment['ZC_GLOBAL_INDEX_QA_SCENARIO'] = $DiagnosticScenario
     if ($script:candidatePersistBatch -eq 'auto') {
         $startInfo.Environment.Remove('ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH') | Out-Null
     } else {
@@ -382,7 +388,7 @@ function Get-TraceEvents([string]$Path, [string]$EventName) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
     $events = [System.Collections.Generic.List[object]]::new()
     foreach ($line in (Get-Content -LiteralPath $Path)) {
-        if ($line.StartsWith("$EventName ", [StringComparison]::Ordinal)) {
+        if ($line -match "(?:^|\s)$([regex]::Escape($EventName))\s") {
             $events.Add((Convert-TraceEventLine $line $EventName))
         }
     }
@@ -426,7 +432,7 @@ function Get-AverageWhenAvailable([object[]]$Rows, [string]$Property) {
 }
 
 try {
-    if ($FileCount -notin @(100000, 1000000)) { throw 'native filename-first benchmark supports 100,000 or 1,000,000 files' }
+    if ($FileCount -notin @(100000, 250000, 1000000)) { throw 'native filename-first qualification supports 100,000, 250,000, or 1,000,000 files' }
     if ($Repetitions -lt 1 -or $Repetitions -gt 5) { throw 'repetitions must be between 1 and 5' }
     if (-not $ExpectedBaselineSha -or -not $ExpectedCandidateSha) { throw 'expected source SHAs are required' }
     foreach ($exe in @($baselineProbeExe, $candidateProbeExe)) {
@@ -495,8 +501,9 @@ try {
     $candidateRows = [Collections.Generic.List[object]]::new()
     $lastProfiles = @{}
     $lastSourceIds = @{}
+    $diagnosticScenarioIndex = [Array]::IndexOf(@('A', 'B', 'C', 'D'), $DiagnosticScenario)
     for ($repetition = 1; $repetition -le $Repetitions; $repetition++) {
-        $order = if ($repetition % 2 -eq 1) { @('baseline', 'candidate') } else { @('candidate', 'baseline') }
+        $order = if (($repetition + $diagnosticScenarioIndex) % 2 -eq 1) { @('baseline', 'candidate') } else { @('candidate', 'baseline') }
         foreach ($side in $order) {
             $profile = Join-Path $taskRoot "$side-profile-$repetition"
             $probe = if ($side -eq 'baseline') { $baselineProbeExe } else { $candidateProbeExe }
@@ -509,7 +516,7 @@ try {
                 throw "baseline/candidate source identity differs: $($script:evidence.sourceId) vs $($prepared.targetSourceId)"
             }
             $script:evidence.sourceId = $prepared.targetSourceId
-            $trace = Join-Path $taskRoot "$side-$repetition-trace.log"
+            $trace = Join-Path $taskRoot "$side-$DiagnosticScenario-$repetition-trace.log"
             Start-TaskIndexService $mode $trace
             try {
                 $run = Invoke-Probe "$side initial run $repetition" $probe @(
@@ -519,7 +526,7 @@ try {
             } finally {
                 Stop-TaskIndexService
             }
-            $serviceRouteEvents = @(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -ceq 'windows_service_route_ok' })
+            $serviceRouteEvents = @(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -match '(?:^|\s)windows_service_route_ok$' })
             if ($serviceRouteEvents.Count -lt 1) {
                 throw "$side initial run $repetition did not complete a Windows Service named-pipe route; Direct fallback is not accepted"
             }
@@ -559,7 +566,7 @@ try {
             if ($undeterminedFixtureEntries.Count -gt 0) {
                 throw "$side initial run $repetition left task-owned fixture entries undetermined: $($undeterminedFixtureEntries | ConvertTo-Json -Compress)"
             }
-            if ($side -eq 'candidate' -and (-not $run.result.firstSearchBeforeComplete -or [long]$run.result.firstSearchProcessedEntries -ge $FileCount)) {
+            if ($side -eq 'candidate' -and $DiagnosticScenario -in @('B', 'D') -and (-not $run.result.firstSearchBeforeComplete -or [long]$run.result.firstSearchProcessedEntries -ge $FileCount)) {
                 throw "candidate initial run $repetition did not expose an early filename while progress was incomplete"
             }
             if ([long]$run.result.databaseActiveEntries -lt $FileCount) {
@@ -597,7 +604,7 @@ try {
             $lastProfiles[$side] = $profile
             $lastSourceIds[$side] = $prepared.targetSourceId
             New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null
-            Copy-Item -LiteralPath $trace -Destination (Join-Path $traceDirectory "$side-$repetition.log") -Force
+            Copy-Item -LiteralPath $trace -Destination (Join-Path $traceDirectory "$side-$DiagnosticScenario-$repetition.log") -Force
         }
     }
 
@@ -610,7 +617,7 @@ try {
     foreach ($side in @('baseline', 'candidate')) {
         $probe = if ($side -eq 'baseline') { $baselineProbeExe } else { $candidateProbeExe }
         $mode = if ($side -eq 'baseline') { '0' } else { '1' }
-        $trace = Join-Path $taskRoot "$side-incremental-trace.log"
+        $trace = Join-Path $taskRoot "$side-$DiagnosticScenario-incremental-trace.log"
         Start-TaskIndexService $mode $trace
         try {
             $run = Invoke-Probe "$side incremental changes" $probe @(
@@ -627,7 +634,7 @@ try {
         } finally {
             Stop-TaskIndexService
         }
-        if (@(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -ceq 'windows_service_route_ok' }).Count -lt 1) {
+        if (@(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -match '(?:^|\s)windows_service_route_ok$' }).Count -lt 1) {
             throw "$side incremental operation did not complete a Windows Service named-pipe route"
         }
         if (-not $run.result.restartCorrect -or -not $run.result.movedVisible -or -not $run.result.oldMoveHidden) { throw "$side incremental add/rename/move/delete failed restart validation" }
@@ -771,16 +778,28 @@ try {
     $allCandidateFirstSearchTargetsMet = @($candidateRows | Where-Object {
         [double]$_.result.firstSearchableUs -gt $searchReadyTargetMicroseconds
     }).Count -eq 0
-    $script:evidence.firstSearchTargetMet = $candidateFirst -le $searchReadyTargetMicroseconds -and $allCandidateFirstSearchTargetsMet
+    if ($DiagnosticScenario -in @('B', 'D')) {
+        $script:evidence.firstSearchTargetMet = $candidateFirst -le $searchReadyTargetMicroseconds -and $allCandidateFirstSearchTargetsMet
+    } else {
+        $script:evidence.firstSearchTargetMet = $null
+    }
     $allCandidateCollectionsComplete = @($candidateRows | Where-Object { -not $_.result.indexComplete }).Count -eq 0
-    $allCandidateCompleteCatalogsReady = @($candidateRows | Where-Object {
-        $null -eq $_.result.transientCatalogReadyUs -or
-        [double]$_.result.transientCatalogReadyUs -gt $searchReadyTargetMicroseconds -or
-        [long]$_.result.transientFixtureFileEntries -ne $FileCount -or
-        -not $_.result.completeTransientSearchVisible -or
-        -not $_.result.completeTransientSearchBeforeDurableFts -or
-        $_.result.collectionCompleteWhenTransientReady
-    }).Count -eq 0
+    if ($DiagnosticScenario -in @('B', 'D')) {
+        $allCandidateCompleteCatalogsReady = @($candidateRows | Where-Object {
+            $null -eq $_.result.transientCatalogReadyUs -or
+            [double]$_.result.transientCatalogReadyUs -gt $searchReadyTargetMicroseconds -or
+            [long]$_.result.transientFixtureFileEntries -ne $FileCount -or
+            -not $_.result.completeTransientSearchVisible -or
+            -not $_.result.completeTransientSearchBeforeDurableFts -or
+            $_.result.collectionCompleteWhenTransientReady
+        }).Count -eq 0
+    } else {
+        $allCandidateCompleteCatalogsReady = @($candidateRows | Where-Object {
+            $null -eq $_.result.transientCatalogReadyUs -or
+            [double]$_.result.transientCatalogReadyUs -gt $searchReadyTargetMicroseconds -or
+            [long]$_.result.transientFixtureFileEntries -ne $FileCount
+        }).Count -eq 0
+    }
     $allCandidateDurableFilenameTargetsMet = @($candidateRows | Where-Object {
         [double]$_.result.durableFilenameIndexUs -gt $durableTargetMicroseconds -or
         [long]$_.result.fixtureFileEntries -ne $FileCount -or
@@ -793,9 +812,15 @@ try {
         candidate = @($candidateRows | ForEach-Object { $_.result.indexComplete })
     }
     $candidateCompleteFilenameSearchable = Get-Average $candidateRows.ToArray() 'result.transientCatalogReadyUs'
-    $script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady
     $script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $durableTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet
-    $script:evidence.fixtureFilenameIndexTargetMet = $script:evidence.completeFilenameSearchTargetMet
+    if ($DiagnosticScenario -in @('B', 'D')) {
+        $script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady
+        $script:evidence.fixtureFilenameIndexTargetMet = $script:evidence.completeFilenameSearchTargetMet
+    } else {
+        $script:evidence.completeFilenameSearchTargetMet = $null
+        $script:evidence.fixtureFilenameIndexTargetMet = $null
+        $script:evidence.diagnosticTransientCatalogTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady
+    }
     $allCandidateFullSourceTargetsMet = @($candidateRows | Where-Object {
         [double]$_.result.fullIndexUs -gt $fullSourceTargetMicroseconds
     }).Count -eq 0
@@ -820,10 +845,10 @@ try {
         candidateDatabaseAndWalMet = $candidateDatabaseAndWal -le $databaseAndWalTargetBytes -and $allCandidateDatabaseSizesMet
     }
     $targetFailures = @()
-    if (-not $script:evidence.firstSearchTargetMet) {
+    if ($DiagnosticScenario -in @('B', 'D') -and -not $script:evidence.firstSearchTargetMet) {
         $targetFailures += "first searchable result exceeded the $searchReadyTargetSeconds-second target"
     }
-    if (-not $script:evidence.completeFilenameSearchTargetMet) {
+    if ($DiagnosticScenario -in @('B', 'D') -and -not $script:evidence.completeFilenameSearchTargetMet) {
         $targetFailures += "complete transient filename catalogue exceeded $searchReadyTargetSeconds seconds or failed fixture-count/search/progress checks"
     }
     if (-not $script:evidence.concurrentWritesTarget.met) {
@@ -831,8 +856,11 @@ try {
     }
     if ($targetFailures.Count -gt 0) {
         $script:evidence.status = 'PERFORMANCE_TARGET_MISSED'
-        $failure = $targetFailures -join '; '
-        $script:evidence.failure = $failure
+        $script:evidence.performanceTargetMisses = $targetFailures
+        if (-not $DiagnosticOnly) {
+            $failure = $targetFailures -join '; '
+            $script:evidence.failure = $failure
+        }
     } elseif (-not $script:evidence.durableFilenameIndexTargetMet) {
         $script:evidence.status = "SEARCH_READY_TARGET_MET_BACKGROUND_FTS_OVER_${durableTargetSeconds}S"
     } elseif (-not $script:evidence.fullIndexTargetMet -or -not $script:evidence.resourceTargets.candidateWorkingSetMet -or -not $script:evidence.resourceTargets.candidateDatabaseAndWalMet) {

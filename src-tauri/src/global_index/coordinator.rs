@@ -628,9 +628,7 @@ impl DatabaseIndexSink {
     }
 
     fn should_defer_initial_mft(&self, volume_id: &str) -> bool {
-        std::env::var("ZC_GLOBAL_INDEX_FILENAME_FIRST")
-            .map(|value| value != "0")
-            .unwrap_or(true)
+        super::filename_first_experimental_enabled()
             && self
                 .operation_context
                 .get(volume_id)

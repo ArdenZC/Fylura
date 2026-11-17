@@ -292,14 +292,21 @@ function Get-TraceLines {
 
 function Get-TraceCounts {
     $lines = Get-TraceLines
-    $lastCoordinatorEvent = $lines | Where-Object {
-        $_ -ceq "coordinator_cycle" -or $_ -ceq "coordinator_wait"
+    $lastCoordinatorLine = $lines | Where-Object {
+        $_ -match '(?:^|\s)coordinator_cycle$' -or $_ -match '(?:^|\s)coordinator_wait$'
     } | Select-Object -Last 1
+    $lastCoordinatorEvent = if ($lastCoordinatorLine -match '(?:^|\s)coordinator_wait$') {
+        'coordinator_wait'
+    } elseif ($lastCoordinatorLine -match '(?:^|\s)coordinator_cycle$') {
+        'coordinator_cycle'
+    } else {
+        $null
+    }
     return [pscustomobject]@{
         Lines = $lines
-        Cycles = @($lines | Where-Object { $_ -ceq "coordinator_cycle" }).Count
-        Waits = @($lines | Where-Object { $_ -ceq "coordinator_wait" }).Count
-        ServiceRoutes = @($lines | Where-Object { $_ -ceq "windows_service_route_ok" }).Count
+        Cycles = @($lines | Where-Object { $_ -match '(?:^|\s)coordinator_cycle$' }).Count
+        Waits = @($lines | Where-Object { $_ -match '(?:^|\s)coordinator_wait$' }).Count
+        ServiceRoutes = @($lines | Where-Object { $_ -match '(?:^|\s)windows_service_route_ok$' }).Count
         LastCoordinatorEvent = $lastCoordinatorEvent
     }
 }
@@ -555,9 +562,11 @@ try {
         # only confirms routing and may be observed before the Service has
         # recorded its completed exchange counters.
         $batchingMetrics = @()
-        foreach ($line in @($recoveryTrace | Where-Object { $_.StartsWith("index_service_batching ") })) {
+        foreach ($line in @($recoveryTrace | Where-Object { $_ -match '(?:^|\s)index_service_batching\s' })) {
             $metrics = [ordered]@{}
-            foreach ($pair in ($line -split '\s+' | Select-Object -Skip 1)) {
+            $parts = $line -split '\s+'
+            $eventIndex = [Array]::IndexOf($parts, 'index_service_batching')
+            foreach ($pair in ($parts | Select-Object -Skip ($eventIndex + 1))) {
                 $parts = $pair -split '=', 2
                 if ($parts.Count -eq 2) { $metrics[$parts[0]] = [long]$parts[1] }
             }
@@ -628,10 +637,10 @@ try {
     do {
         if ($client.HasExited) { throw "background client exited during startup with code $($client.ExitCode)" }
         $trace = Get-TraceLines
-        if ($trace -contains "coordinator_cycle") { break }
+        if (@($trace | Where-Object { $_ -match '(?:^|\s)coordinator_cycle$' }).Count -gt 0) { break }
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $coordinatorDeadline)
-    if ($trace -notcontains "coordinator_cycle") {
+    if (@($trace | Where-Object { $_ -match '(?:^|\s)coordinator_cycle$' }).Count -eq 0) {
         throw "candidate coordinator did not start; no coordinator_cycle trace was recorded"
     }
 

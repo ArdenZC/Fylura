@@ -252,9 +252,7 @@ impl ServiceRuntime {
                     )
                 })?;
             self.set_state("indexing", None);
-            let filename_first_enabled = std::env::var("ZC_GLOBAL_INDEX_FILENAME_FIRST")
-                .map(|value| value != "0")
-                .unwrap_or(true);
+            let filename_first_enabled = crate::global_index::filename_first_experimental_enabled();
             let defer_initial_mft_metadata =
                 should_defer_initial_mft_metadata(&command, filename_first_enabled);
             let mut sink = PipeSink {

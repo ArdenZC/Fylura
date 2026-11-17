@@ -97,8 +97,9 @@ def main():
                 if process.poll() is not None:
                     raise RuntimeError(f'background application exited: code={process.returncode}')
                 lines = trace.read_text().splitlines() if trace.exists() else []
-                events = [line for line in lines if line in ('coordinator_cycle', 'coordinator_wait')]
-                counts = (lines.count('coordinator_cycle'), lines.count('coordinator_wait'))
+                coordinator_events = [line.rsplit(' ', 1)[-1] for line in lines]
+                events = [event for event in coordinator_events if event in ('coordinator_cycle', 'coordinator_wait')]
+                counts = (coordinator_events.count('coordinator_cycle'), coordinator_events.count('coordinator_wait'))
                 if events and events[-1] == 'coordinator_wait' and counts == previous:
                     stable_since = stable_since or time.monotonic()
                     if time.monotonic() - stable_since >= 5:
@@ -139,8 +140,10 @@ def main():
                 if index < 30:
                     time.sleep(1)
             after = trace.read_text().splitlines()
-            evidence['coordinatorCycleDelta'] = after.count('coordinator_cycle') - before.count('coordinator_cycle')
-            evidence['coordinatorWaitDelta'] = after.count('coordinator_wait') - before.count('coordinator_wait')
+            before_events = [line.rsplit(' ', 1)[-1] for line in before]
+            after_events = [line.rsplit(' ', 1)[-1] for line in after]
+            evidence['coordinatorCycleDelta'] = after_events.count('coordinator_cycle') - before_events.count('coordinator_cycle')
+            evidence['coordinatorWaitDelta'] = after_events.count('coordinator_wait') - before_events.count('coordinator_wait')
             evidence['trace'] = after
             if evidence['coordinatorCycleDelta'] or evidence['coordinatorWaitDelta']:
                 raise RuntimeError('coordinator work continued during settled sampling')

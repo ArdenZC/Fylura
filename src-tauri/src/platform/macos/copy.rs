@@ -2154,7 +2154,7 @@ mod tests {
         assert_eq!(completed_copy.processed_bytes, payload.len() as u64);
         assert_eq!(completed_copy.total_bytes, Some(payload.len() as u64));
         assert_eq!(completed_copy.processed_items, 3);
-        assert_eq!(completed_copy.total_items, None);
+        assert_eq!(completed_copy.total_items, Some(3));
         assert_eq!(
             fs::read(target.join("nested/payload.bin")).expect("copied payload"),
             payload

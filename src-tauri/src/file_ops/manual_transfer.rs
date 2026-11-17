@@ -1990,6 +1990,51 @@ fn make_directory_merge_noop(
     })
 }
 
+fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, String> {
+    let entries = std::fs::read_dir(path)
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    if entries.is_empty() {
+        return Ok(true);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if entries.len() != 1
+            || entries[0].file_name() != std::ffi::OsStr::new(".zen-canvas-retirement")
+            || !entries[0]
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+        {
+            return Ok(false);
+        }
+        for session in std::fs::read_dir(entries[0].path()).map_err(|error| error.to_string())? {
+            let session = session.map_err(|error| error.to_string())?;
+            if !session
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+                || session
+                    .file_name()
+                    .to_str()
+                    .is_none_or(|name| uuid::Uuid::parse_str(name).is_err())
+                || std::fs::read_dir(session.path())
+                    .map_err(|error| error.to_string())?
+                    .next()
+                    .is_some()
+            {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    Ok(false)
+}
+
 pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<DirectoryIdentity, String> {
     revalidate_with_tree_fingerprint(operation, None)
 }
@@ -2333,10 +2378,8 @@ pub(crate) fn execute(
         });
     }
     if operation.operation_type == "move_empty_directory_to_trash" {
-        if std::fs::read_dir(&operation.source_path)
-            .map_err(|error| FileMutationError::Validation(error.to_string()))?
-            .next()
-            .is_some()
+        if !source_directory_is_empty_after_move(Path::new(&operation.source_path))
+            .map_err(FileMutationError::Validation)?
         {
             return Err(FileMutationError::Validation(
                 "transfer_directory_not_empty".into(),

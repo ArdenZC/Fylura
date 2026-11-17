@@ -538,6 +538,31 @@ fn fl42_overwrite_rejects_type_mismatch_and_target_identity_changes() {
     runtime.dispose();
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn fl42_move_directory_cleanup_only_allows_empty_retirement_sessions() {
+    let f = Fixture::new();
+    let source = f.root.join("empty-merge-source");
+    fs::create_dir(&source).unwrap();
+    assert!(source_directory_is_empty_after_move(&source).unwrap());
+
+    let session = source
+        .join(".zen-canvas-retirement")
+        .join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir_all(&session).unwrap();
+    assert!(source_directory_is_empty_after_move(&source).unwrap());
+
+    fs::write(
+        session.join(".zen-canvas-claim-retained"),
+        b"preserve claim",
+    )
+    .unwrap();
+    assert!(!source_directory_is_empty_after_move(&source).unwrap());
+    fs::remove_file(session.join(".zen-canvas-claim-retained")).unwrap();
+    fs::write(source.join("user.txt"), b"preserve user data").unwrap();
+    assert!(!source_directory_is_empty_after_move(&source).unwrap());
+}
+
 #[test]
 fn fl42_copy_undo_refuses_to_remove_a_modified_destination() {
     for action in [TransferAction::Copy, TransferAction::Duplicate] {

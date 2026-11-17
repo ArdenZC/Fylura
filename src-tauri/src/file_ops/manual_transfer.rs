@@ -1990,13 +1990,13 @@ fn make_directory_merge_noop(
     })
 }
 
-fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, String> {
+pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, String> {
     let entries = std::fs::read_dir(path)
         .map_err(|error| error.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
     if entries.is_empty() {
-        return Ok(true);
+        Ok(true)
     }
 
     #[cfg(target_os = "macos")]

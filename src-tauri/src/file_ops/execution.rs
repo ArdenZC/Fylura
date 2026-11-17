@@ -139,10 +139,12 @@ pub(crate) fn execute_moves_with_persistence_and_expected_identity(
                 file_operation_fingerprint(&identity_path, &operation.operation_type)
             {
                 apply_target_fingerprint(log, &target_fingerprint);
-                if operation.operation_type == "move_to_trash"
-                    && identity_path
-                        .symlink_metadata()
-                        .is_ok_and(|metadata| metadata.is_dir())
+                if matches!(
+                    operation.operation_type.as_str(),
+                    "move_to_trash" | "move_empty_directory_to_trash"
+                ) && identity_path
+                    .symlink_metadata()
+                    .is_ok_and(|metadata| metadata.is_dir())
                 {
                     // Directory merges change the source namespace before it
                     // is retired. Store the moved directory's current size

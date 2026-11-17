@@ -737,10 +737,6 @@ impl DatabaseIndexSink {
             .entry(volume_id.to_owned())
             .or_default()
             .deferred_metadata += deferred_metadata;
-        self.db
-            .filename_search
-            .mark_transient_persisted(volume_id, operation_id, entry_count)
-            .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
         self.deferred_initial_sources.remove(volume_id);
         log::info!(
             target: "global_index::repository",
@@ -798,6 +794,10 @@ impl DatabaseIndexSink {
                     "transient_catalog_fallback_persist_count_mismatch".into(),
                 ));
             }
+            self.db
+                .filename_search
+                .mark_transient_persisted(volume_id, &owner.operation_id, written)
+                .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
             let volume_timing = self.write_timings.entry(volume_id.to_owned()).or_default();
             volume_timing.record(timing);
             volume_timing.deferred_metadata += metadata_elapsed;

@@ -189,22 +189,46 @@ function Invoke-Probe(
     $result = $jsonLine[0] | ConvertFrom-Json
     $mftTiming = Get-TraceEvent $TracePath 'mft_initial_index'
     $writerTiming = Get-TraceEvent $TracePath 'source_operation_write'
+    $writerConfig = Get-TraceEvent $TracePath 'global_index_initial_writer_config'
+    $writerBatches = @(Get-TraceEvents $TracePath 'global_index_initial_writer_batch')
+    $writerDiagnostics = $null
+    if ($writerBatches.Count -gt 0) {
+        $walBytesBeforeCommit = @($writerBatches | ForEach-Object { [long]$_.wal_before_commit_bytes })
+        $walBytes = @($writerBatches | ForEach-Object { [long]$_.wal_bytes })
+        $walFrames = @($writerBatches | ForEach-Object { [long]$_.wal_frames })
+        $uncheckpointedFrames = @($writerBatches | ForEach-Object {
+            [Math]::Max(0, [long]$_.wal_frames - [long]$_.checkpointed_frames)
+        })
+        $writerDiagnostics = [ordered]@{
+            batchCount = $writerBatches.Count
+            walAutocheckpointPages = if ($writerConfig) { [long]$writerConfig.wal_autocheckpoint } else { $null }
+            cacheSizePages = if ($writerConfig) { [long]$writerConfig.cache_size_pages } else { $null }
+            cacheSpillEnabled = if ($writerConfig) { [long]$writerConfig.cache_spill } else { $null }
+            sumCommitUs = [long](($writerBatches | Measure-Object -Property commit_us -Sum).Sum)
+            maxCommitUs = [long](($writerBatches | Measure-Object -Property commit_us -Maximum).Maximum)
+            maxWriterLockUs = [long](($writerBatches | Measure-Object -Property writer_lock_us -Maximum).Maximum)
+            maxWalBytesBeforeCommit = ($walBytesBeforeCommit | Measure-Object -Maximum).Maximum
+            maxWalBytesAfterCommit = ($walBytes | Measure-Object -Maximum).Maximum
+            maxWalFramesAfterCommit = ($walFrames | Measure-Object -Maximum).Maximum
+            maxUncheckpointedWalFrames = ($uncheckpointedFrames | Measure-Object -Maximum).Maximum
+            busyCheckpointSamples = @($writerBatches | Where-Object { [long]$_.wal_busy -ne 0 }).Count
+            totalCacheSpillCount = [long](($writerBatches | Measure-Object -Property cache_spill_count -Sum).Sum)
+            totalCacheWritePages = [long](($writerBatches | Measure-Object -Property cache_write_pages -Sum).Sum)
+        }
+    }
     return [pscustomobject]@{
         label = $Label
         result = $result
-        stages = [ordered]@{ mft = $mftTiming; writer = $writerTiming }
+        stages = [ordered]@{ mft = $mftTiming; writer = $writerTiming; writerDiagnostics = $writerDiagnostics }
         peakWorkingSetBytes = $peakWorkingSet
         peakPrivateBytes = $peakPrivateBytes
         tracePath = $TracePath
     }
 }
 
-function Get-TraceEvent([string]$Path, [string]$EventName) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
-    $line = Get-Content -LiteralPath $Path | Where-Object { $_.StartsWith("$EventName ", [StringComparison]::Ordinal) } | Select-Object -Last 1
-    if (-not $line) { return $null }
+function Convert-TraceEventLine([string]$Line, [string]$EventName) {
     $event = [ordered]@{ event = $EventName }
-    foreach ($field in ($line -split '\s+')) {
+    foreach ($field in ($Line -split '\s+')) {
         $pair = $field -split '=', 2
         if ($pair.Count -ne 2 -or $pair[0] -eq $EventName) { continue }
         $number = 0L
@@ -212,6 +236,23 @@ function Get-TraceEvent([string]$Path, [string]$EventName) {
         else { $event[$pair[0]] = $pair[1] }
     }
     return [pscustomobject]$event
+}
+
+function Get-TraceEvents([string]$Path, [string]$EventName) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+    $events = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        if ($line.StartsWith("$EventName ", [StringComparison]::Ordinal)) {
+            $events.Add((Convert-TraceEventLine $line $EventName))
+        }
+    }
+    return $events.ToArray()
+}
+
+function Get-TraceEvent([string]$Path, [string]$EventName) {
+    $events = @(Get-TraceEvents $Path $EventName)
+    if ($events.Count -eq 0) { return $null }
+    return $events[-1]
 }
 
 function Prepare-Profile([string]$ProbeExe, [string]$Profile) {

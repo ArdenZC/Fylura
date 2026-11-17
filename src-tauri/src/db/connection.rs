@@ -5,17 +5,20 @@ use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::SyncSender,
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
+    thread,
+    time::Duration,
 };
 
 const LIBRARY_COUNT_CACHE_MAX_ENTRIES: usize = 32;
+static ACTIVE_GLOBAL_FTS_RECOVERIES: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 
 struct LibraryCountCacheEntry {
     revision: i64,
@@ -86,7 +89,7 @@ impl Database {
         path: impl AsRef<Path>,
         cancel: super::upgrade::UpgradeCancellation,
     ) -> Result<Self, DbError> {
-        Self::open_with_connection_hook_policy(path, cancel, None)
+        Self::open_with_connection_hook_policy(path, cancel, None, Duration::ZERO)
     }
 
     #[cfg(test)]
@@ -98,6 +101,20 @@ impl Database {
             path,
             Arc::new(AtomicBool::new(false)),
             Some(install_candidate_hooks),
+            Duration::ZERO,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_with_delayed_fts_recovery_for_test(
+        path: impl AsRef<Path>,
+        recovery_delay: Duration,
+    ) -> Result<Self, DbError> {
+        Self::open_with_connection_hook_policy(
+            path,
+            Arc::new(AtomicBool::new(false)),
+            None,
+            recovery_delay,
         )
     }
 
@@ -105,6 +122,7 @@ impl Database {
         path: impl AsRef<Path>,
         cancel: super::upgrade::UpgradeCancellation,
         _test_hook_policy: Option<bool>,
+        recovery_delay: Duration,
     ) -> Result<Self, DbError> {
         super::upgrade::check_cancelled(&cancel)?;
         let path = path.as_ref().to_path_buf();
@@ -147,8 +165,77 @@ impl Database {
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),
         };
-        database.recover_pending_global_fts_bulk_builds()?;
+        database.schedule_pending_global_fts_recovery(recovery_delay);
         Ok(database)
+    }
+
+    fn schedule_pending_global_fts_recovery(&self, recovery_delay: Duration) {
+        let pending = self.conn().and_then(|connection| {
+            connection
+                .query_row(
+                    "SELECT EXISTS(
+                         SELECT 1 FROM global_volumes
+                         WHERE fts_bulk_build=1 AND enabled=1
+                           AND (platform!='windows' OR scope_authorization_state='authorized')
+                     )",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(DbError::from)
+        });
+        match pending {
+            Ok(false) => return,
+            Err(error) => {
+                log::warn!(
+                    target: "global_index::repository",
+                    "could not check for pending FTS recovery during database open: {error}"
+                );
+                return;
+            }
+            Ok(true) => {}
+        }
+
+        let active_recoveries = ACTIVE_GLOBAL_FTS_RECOVERIES.get_or_init(Default::default);
+        {
+            let mut active = active_recoveries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !active.insert(self.path.clone()) {
+                return;
+            }
+        }
+
+        let database = self.clone();
+        let recovery_path = self.path.clone();
+        let spawn_result = thread::Builder::new()
+            .name("global-index-fts-recovery".into())
+            .spawn(move || {
+                if !recovery_delay.is_zero() {
+                    thread::sleep(recovery_delay);
+                }
+                if let Err(error) = database.recover_pending_global_fts_bulk_builds() {
+                    log::warn!(
+                        target: "global_index::repository",
+                        "background pending global FTS recovery will retry on next open: {error}"
+                    );
+                }
+                if let Some(active_recoveries) = ACTIVE_GLOBAL_FTS_RECOVERIES.get() {
+                    active_recoveries
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(&recovery_path);
+                }
+            });
+        if let Err(error) = spawn_result {
+            active_recoveries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&self.path);
+            log::warn!(
+                target: "global_index::repository",
+                "could not start background global FTS recovery; it will retry on next open: {error}"
+            );
+        }
     }
 
     pub(crate) fn set_managed_ai_waker(&self, sender: SyncSender<()>) {

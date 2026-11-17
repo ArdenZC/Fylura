@@ -3,7 +3,11 @@ use crate::global_index::coverage::Decision;
 use crate::global_index::filename_search::FilenameSearchDiagnostics;
 use crate::global_index::models::{GlobalEntryInput, GlobalSearchResult, GlobalVolume};
 use rusqlite::Connection;
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    thread,
+    time::{Duration, Instant},
+};
 
 fn open_candidate_database() -> (Database, PathBuf) {
     let path = test_db_path();
@@ -34,6 +38,29 @@ fn add_volume(db: &Database, id: &str, mount_path: &str) -> GlobalVolume {
     db.update_global_volume_state(id, INDEX_STATUS_READY, None, None, None, Some(10), None)
         .expect("mark second source ready");
     volume
+}
+
+fn wait_for_fts_recovery(db: &Database, volume_id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let pending: bool = db
+            .conn()
+            .expect("open connection while waiting for FTS recovery")
+            .query_row(
+                "SELECT fts_bulk_build FROM global_volumes WHERE id=?1",
+                [volume_id],
+                |row| row.get(0),
+            )
+            .expect("read FTS recovery state");
+        if !pending {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "background FTS recovery timed out"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn fixture_entry(
@@ -577,6 +604,137 @@ fn new_source_transient_persistence_builds_fts_and_source_facts_in_batches() {
 }
 
 #[test]
+fn transient_and_durable_progress_are_counted_once_between_write_batches() {
+    let (db, _path) = open_candidate_database();
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_INDEXING,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("mark the interrupted initial source as indexing");
+    let owner = claim_transient_test_operation(&db, "count-progress-operation");
+    let inputs = [
+        fixture_entry(
+            "gv_test",
+            r"C:\Global\batch-progress-marker-one.txt",
+            "batch-progress-marker-one.txt",
+            "txt",
+            Some(11),
+            false,
+        ),
+        fixture_entry(
+            "gv_test",
+            r"C:\Global\batch-progress-marker-two.txt",
+            "batch-progress-marker-two.txt",
+            "txt",
+            Some(12),
+            false,
+        ),
+        fixture_entry(
+            "gv_test",
+            r"C:\Global\batch-progress-marker-three.txt",
+            "batch-progress-marker-three.txt",
+            "txt",
+            Some(13),
+            false,
+        ),
+        fixture_entry(
+            "gv_test",
+            r"C:\Global\batch-progress-marker-four.txt",
+            "batch-progress-marker-four.txt",
+            "txt",
+            Some(14),
+            false,
+        ),
+    ];
+    let policy_revision = crate::global_index::coverage::load_policy(&db.conn().unwrap())
+        .expect("read the staged Scope revision")
+        .revision;
+    db.filename_search
+        .begin_transient_catalog("gv_test", &owner.operation_id);
+    db.filename_search
+        .append_transient_catalog(
+            "gv_test",
+            &owner.operation_id,
+            policy_revision,
+            &inputs,
+            &[Decision::Include; 4],
+        )
+        .expect("stage all search-visible filenames");
+    let (entry_count, retained_revision) = db
+        .filename_search
+        .complete_transient_catalog("gv_test", &owner.operation_id)
+        .expect("complete the in-memory catalog");
+
+    let mut checked_mid_batch = false;
+    let mut observe_after_first_commit = |batch: usize, committed: usize| {
+        assert_eq!(batch, 1);
+        assert_eq!(committed, 2);
+        let status = db
+            .global_index_status()
+            .expect("read status between bounded transactions");
+        assert_eq!(
+            status.total_entries, 4,
+            "durable and transient rows overlap"
+        );
+        assert_eq!(status.processed_entries, 4);
+        let results = db
+            .search_global_entries("batch-progress-marker", 10, 0)
+            .expect("search while later catalog rows remain transient");
+        assert_eq!(results.len(), 4);
+        let unique_ids = results
+            .iter()
+            .map(|result| result.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            unique_ids.len(),
+            4,
+            "search returned a durable/transient duplicate"
+        );
+        checked_mid_batch = true;
+        Err(crate::db::DbError::Validation(
+            "test_interrupt_after_one_commit".into(),
+        ))
+    };
+    let error = db
+        .upsert_transient_mft_catalog_bulk_owned_with_commit_observer(
+            "gv_test",
+            &owner.operation_id,
+            entry_count,
+            2,
+            retained_revision.expect("Scope revision remains staged"),
+            &owner,
+            &mut observe_after_first_commit,
+        )
+        .expect_err("stop after checking the first durable batch");
+    assert!(checked_mid_batch);
+    assert!(
+        matches!(error, crate::db::DbError::Validation(message) if message == "test_interrupt_after_one_commit")
+    );
+    assert_eq!(
+        db.conn()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM global_entries WHERE volume_id='gv_test'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2,
+        "the injected interruption leaves exactly the committed prefix durable"
+    );
+    let status_after_interrupt = db
+        .global_index_status()
+        .expect("read status after injected interruption");
+    assert_eq!(status_after_interrupt.total_entries, 4);
+    assert_eq!(status_after_interrupt.processed_entries, 4);
+}
+
+#[test]
 fn transient_persistence_sqlite_full_restores_connection_and_recovers_on_reopen() {
     const ENTRY_COUNT: usize = 16_384;
     let (db, path) = open_candidate_database();
@@ -700,6 +858,7 @@ fn transient_persistence_sqlite_full_restores_connection_and_recovers_on_reopen(
 
     drop(db);
     let reopened = Database::open(&path).expect("reopen and recover after SQLITE_FULL");
+    wait_for_fts_recovery(&reopened, "gv_disk_full");
     let (active_rows, fts_bulk_build, fts_bulk_cursor): (i64, bool, i64) = reopened
         .conn()
         .expect("inspect recovered source")
@@ -772,6 +931,16 @@ fn pending_new_source_fts_build_recovers_on_database_reopen() {
     }
     db.upsert_global_entries_batch(&[pending.clone(), not_yet_indexed.clone()])
         .expect("write pending-source rows while their FTS triggers are deferred");
+    db.update_global_volume_state(
+        "gv_bulk_recovery",
+        INDEX_STATUS_INDEXING,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("retain the in-progress source state until its interrupted operation resumes");
     let mut partial_build_connection = db.conn().expect("open partial FTS writer");
     let partial_build = partial_build_connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -853,7 +1022,59 @@ fn pending_new_source_fts_build_recovers_on_database_reopen() {
         .is_empty());
     drop(db);
 
-    let reopened = Database::open(&path).expect("reopen and resume the bounded FTS build");
+    let recovery_delay = Duration::from_secs(2);
+    let open_started = Instant::now();
+    let reopened = Database::open_with_delayed_fts_recovery_for_test(&path, recovery_delay)
+        .expect("reopen without waiting for the bounded FTS build");
+    assert!(
+        open_started.elapsed() < recovery_delay,
+        "Database::open waited for background FTS recovery"
+    );
+    let connection = reopened.conn().expect("verify recovered source state");
+    let (pending_flag, cursor): (i64, i64) = connection
+        .query_row(
+            "SELECT fts_bulk_build, fts_bulk_cursor FROM global_volumes WHERE id='gv_bulk_recovery'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read recovered source FTS state");
+    assert_eq!(pending_flag, 1);
+    assert!(cursor > 0, "the reopen preserves the partial FTS cursor");
+    let incomplete_search = reopened
+        .search_global_entries_snapshot("recoveredftscursormarker", 10, 0)
+        .expect("search while background recovery is pending");
+    assert!(incomplete_search.results.is_empty());
+    assert!(
+        !incomplete_search.index_status.collection_complete,
+        "a pending source must not be reported as fully indexed"
+    );
+    assert!(reopened
+        .search_global_entries("baselineftspreservedmarker", 10, 0)
+        .expect("search an independent source during recovery")
+        .iter()
+        .any(|entry| entry.id == baseline.entry_id()));
+    assert_eq!(
+        reopened
+            .get_global_volume("gv_bulk_recovery")
+            .expect("read source status during recovery")
+            .expect("source remains present")
+            .index_status,
+        INDEX_STATUS_INDEXING,
+        "FTS repair must not mark an interrupted source operation complete"
+    );
+    drop(connection);
+    let inserted_during_recovery = fixture_entry(
+        "gv_bulk_recovery",
+        r"D:\BulkRecovery\insertedduringrecoverymarker.txt",
+        "insertedduringrecoverymarker.txt",
+        "txt",
+        Some(100),
+        false,
+    );
+    reopened
+        .upsert_global_entries_batch(std::slice::from_ref(&inserted_during_recovery))
+        .expect("maintain source facts while the background FTS build is delayed");
+    wait_for_fts_recovery(&reopened, "gv_bulk_recovery");
     let connection = reopened.conn().expect("verify recovered source state");
     let (pending_flag, cursor): (i64, i64) = connection
         .query_row(
@@ -872,7 +1093,16 @@ fn pending_new_source_fts_build_recovers_on_database_reopen() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("read recovered source statistics");
-    assert_eq!(recovered_stats, (2, 2, 2));
+    assert_eq!(recovered_stats, (3, 3, 3));
+    assert_eq!(
+        reopened
+            .get_global_volume("gv_bulk_recovery")
+            .expect("read source status after FTS recovery")
+            .expect("source remains present")
+            .index_status,
+        INDEX_STATUS_INDEXING,
+        "FTS recovery does not claim the interrupted enumeration completed"
+    );
     connection
         .execute(
             "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
@@ -894,6 +1124,11 @@ fn pending_new_source_fts_build_recovers_on_database_reopen() {
         .expect("incremental insert beyond cursor is included in resumed FTS")
         .iter()
         .any(|entry| entry.id == inserted_during_build.entry_id()));
+    assert!(reopened
+        .search_global_entries("insertedduringrecoverymarker", 10, 0)
+        .expect("search incremental row written during recovery")
+        .iter()
+        .any(|entry| entry.id == inserted_during_recovery.entry_id()));
     assert!(reopened
         .search_global_entries("pendingftscursormarker", 10, 0)
         .expect("renamed row's old FTS terms are removed")

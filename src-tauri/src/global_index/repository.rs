@@ -12,13 +12,21 @@ use std::{
 static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
-const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 32 * 1024;
+const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 128 * 1024;
 const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(5);
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
     conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     })
+}
+
+fn sqlite_wal_file_bytes(database_path: &Path) -> u64 {
+    let mut wal_path = database_path.as_os_str().to_os_string();
+    wal_path.push("-wal");
+    std::fs::metadata(Path::new(&wal_path))
+        .map(|metadata| metadata.len())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -1337,6 +1345,50 @@ impl Database {
         staged_policy_revision: u64,
         owner: &SourceOperationOwner,
     ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        let mut no_op_observer = |_, _| Ok(());
+        self.upsert_transient_mft_catalog_bulk_owned_timed_inner(
+            volume_id,
+            operation_id,
+            entry_count,
+            batch_size,
+            staged_policy_revision,
+            owner,
+            &mut no_op_observer,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn upsert_transient_mft_catalog_bulk_owned_with_commit_observer(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        entry_count: usize,
+        batch_size: usize,
+        staged_policy_revision: u64,
+        owner: &SourceOperationOwner,
+        after_batch_commit: &mut impl FnMut(usize, usize) -> Result<(), DbError>,
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        self.upsert_transient_mft_catalog_bulk_owned_timed_inner(
+            volume_id,
+            operation_id,
+            entry_count,
+            batch_size,
+            staged_policy_revision,
+            owner,
+            after_batch_commit,
+        )
+    }
+
+    fn upsert_transient_mft_catalog_bulk_owned_timed_inner(
+        &self,
+        volume_id: &str,
+        operation_id: &str,
+        entry_count: usize,
+        batch_size: usize,
+        staged_policy_revision: u64,
+        owner: &SourceOperationOwner,
+        after_batch_commit: &mut impl FnMut(usize, usize) -> Result<(), DbError>,
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
         let mut timing = GlobalIndexBatchTiming::default();
         if entry_count == 0 {
             return Ok((0, timing));
@@ -1382,28 +1434,55 @@ impl Database {
             conn.query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))?;
         let previous_cache_size =
             conn.query_row("PRAGMA cache_size", [], |row| row.get::<_, i64>(0))?;
-        // Keep dirty pages for the current bounded batch in SQLite's page
-        // cache. The default 2 MiB cache spills index pages repeatedly while
-        // populating the global_entries secondary indexes. This is a
-        // connection-local limit and is restored before returning the pooled
-        // connection to ordinary database work.
+        let previous_cache_spill =
+            conn.query_row("PRAGMA cache_spill", [], |row| row.get::<_, i64>(0))?;
+        // Keep the bounded entry+FTS batch in SQLite's page cache. The
+        // connection's normal 2 MiB cache spills dirty index pages into WAL
+        // before commit; disabling spill for this bounded writer prevents
+        // multiple WAL frames for the same repeatedly updated pages. Restore
+        // both connection-local settings before returning the lease to the
+        // pool.
         let enlarged_writer_cache = entry_count >= 16_384;
         if enlarged_writer_cache {
             conn.pragma_update(None, "cache_size", -INITIAL_MFT_WRITER_CACHE_KIB)?;
+            if let Err(error) = conn.pragma_update(None, "cache_spill", false) {
+                let _ = conn.pragma_update(None, "cache_size", previous_cache_size);
+                return Err(error.into());
+            }
         }
         if let Err(error) =
             conn.pragma_update(None, "journal_size_limit", INITIAL_MFT_WAL_SIZE_LIMIT_BYTES)
         {
             if enlarged_writer_cache {
+                let _ = conn.pragma_update(None, "cache_spill", previous_cache_spill);
                 let _ = conn.pragma_update(None, "cache_size", previous_cache_size);
             }
             return Err(error.into());
         }
-        // Keep the database's configured automatic WAL checkpoint threshold.
-        // Bounded transactions limit writer-lock duration; suppressing auto
-        // checkpoints here allowed FTS pages to accumulate into a very large
-        // WAL when other readers were active. A final passive checkpoint
-        // below records how much of the completed write stream can be folded.
+        // Keep the shared database's automatic checkpoint policy. The QA
+        // trace samples WAL frames after each commit so a pinned reader can be
+        // distinguished from cache spill or a large but checkpointed WAL.
+        let qa_trace_active = crate::global_index::qa_trace::is_enabled();
+        let wal_autocheckpoint = if qa_trace_active {
+            conn.query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1)
+        } else {
+            0
+        };
+        if qa_trace_active {
+            let cache_size = conn
+                .query_row("PRAGMA cache_size", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1);
+            let cache_spill = conn
+                .query_row("PRAGMA cache_spill", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1);
+            let journal_size_limit = conn
+                .query_row("PRAGMA journal_size_limit", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1);
+            crate::global_index::qa_trace::record(&format!(
+                "global_index_initial_writer_config wal_autocheckpoint={wal_autocheckpoint} cache_size_pages={cache_size} cache_spill={cache_spill} journal_size_limit={journal_size_limit}"
+            ));
+        }
         let canonical_writer = canonical_scope_decision_writes();
         #[cfg(test)]
         let upsert_sql = if canonical_writer {
@@ -1422,6 +1501,7 @@ impl Database {
         let write_result = (|| -> Result<(usize, bool), DbError> {
             let mut offset = 0usize;
             let mut processed_entries = 0usize;
+            let mut batches_committed = 0usize;
             let mut has_eligible_pending_work = false;
             while offset < entry_count {
                 let batch = self
@@ -1449,6 +1529,12 @@ impl Database {
                     ));
                 }
 
+                if qa_trace_active {
+                    let _ = crate::global_index::qa_trace::take_page_cache_counters(&conn);
+                }
+                let entry_upsert_before = timing.entry_upsert;
+                let record_decisions_before = timing.record_decisions;
+                let fts_bulk_build_before = timing.fts_bulk_build;
                 let transaction_started = Instant::now();
                 let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 timing.transaction_acquisition += transaction_started.elapsed();
@@ -1531,22 +1617,74 @@ impl Database {
                 )?;
                 timing.record_decisions += decisions_started.elapsed();
                 if fts_bulk_build_active {
-                    // Keep each durable filename row and its restartable FTS
-                    // postings in the same bounded transaction. The source
-                    // remains hidden from durable search until the final
-                    // cursor publish, while ordinary shared-db durability is
-                    // unchanged.
+                    // Write FTS postings with the same bounded row batch. This
+                    // keeps the rowid cursor crash-safe and leaves no phase in
+                    // which durable rows can be mistaken for searchable rows.
                     let fts_started = Instant::now();
                     let fts_batch_size =
                         batch_size.min(INITIAL_MFT_FTS_BUILD_BATCH_SIZE as usize) as i64;
                     persist_initial_fts_batch_tx(&transaction, volume_id, fts_batch_size)?;
                     timing.fts_bulk_build += fts_started.elapsed();
                 }
+                let wal_bytes_before_commit = if qa_trace_active {
+                    sqlite_wal_file_bytes(self.path())
+                } else {
+                    0
+                };
                 let commit_started = Instant::now();
                 transaction.commit()?;
-                timing.commit += commit_started.elapsed();
+                let commit_elapsed = commit_started.elapsed();
+                timing.commit += commit_elapsed;
                 timing.writer_lock_max = timing.writer_lock_max.max(writer_lock_started.elapsed());
                 timing.sqlite_transactions = timing.sqlite_transactions.saturating_add(1);
+                batches_committed = batches_committed.saturating_add(1);
+                let committed_entries = processed_entries.saturating_add(entries.len());
+                self.filename_search
+                    .mark_transient_persisted(volume_id, operation_id, entries.len())
+                    .map_err(|error| DbError::Validation(error.into()))?;
+                after_batch_commit(batches_committed, committed_entries)?;
+
+                if qa_trace_active {
+                    let cache_counters_after =
+                        crate::global_index::qa_trace::take_page_cache_counters(&conn);
+                    let wal_state = conn
+                        .query_row("PRAGMA wal_checkpoint(NOOP)", [], |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        })
+                        .ok();
+                    let (spill_pages, cache_write_pages) = cache_counters_after
+                        .map(|(spill, writes)| (spill, writes))
+                        .unwrap_or((-1, -1));
+                    let (checkpoint_busy, wal_frames, checkpointed_frames) =
+                        wal_state.unwrap_or((-1, -1, -1));
+                    crate::global_index::qa_trace::record(&format!(
+                        "global_index_initial_writer_batch batch={} rows={} upsert_us={} record_decisions_us={} fts_us={} wal_before_commit_bytes={} commit_us={} writer_lock_us={} cache_spill_count={} cache_write_pages={} wal_busy={} wal_frames={} checkpointed_frames={} wal_bytes={}",
+                        batches_committed,
+                        entries.len(),
+                        timing.entry_upsert.saturating_sub(entry_upsert_before).as_micros(),
+                        timing
+                            .record_decisions
+                            .saturating_sub(record_decisions_before)
+                            .as_micros(),
+                        timing
+                            .fts_bulk_build
+                            .saturating_sub(fts_bulk_build_before)
+                            .as_micros(),
+                        wal_bytes_before_commit,
+                        commit_elapsed.as_micros(),
+                        writer_lock_started.elapsed().as_micros(),
+                        spill_pages,
+                        cache_write_pages,
+                        checkpoint_busy,
+                        wal_frames,
+                        checkpointed_frames,
+                        sqlite_wal_file_bytes(self.path())
+                    ));
+                }
                 // `yield_now` can immediately reschedule this indexing thread
                 // on Windows. Leave a short handoff window so ordinary file
                 // and settings transactions can acquire SQLite's single WAL
@@ -1568,17 +1706,30 @@ impl Database {
             }
             Ok((processed_entries, has_eligible_pending_work))
         })();
+        let wal_bytes_before_checkpoint = if qa_trace_active {
+            sqlite_wal_file_bytes(self.path())
+        } else {
+            0
+        };
         let checkpoint_started = Instant::now();
         let checkpoint_result = passive_wal_checkpoint(&conn);
         timing.wal_checkpoint += checkpoint_started.elapsed();
+        let wal_bytes_after_checkpoint = if qa_trace_active {
+            sqlite_wal_file_bytes(self.path())
+        } else {
+            0
+        };
         let restore_journal_size_limit =
             conn.pragma_update(None, "journal_size_limit", previous_journal_size_limit);
         let restore_cache_size = conn.pragma_update(None, "cache_size", previous_cache_size);
+        let restore_cache_spill = conn.pragma_update(None, "cache_spill", previous_cache_spill);
         match checkpoint_result {
             Ok((busy, log_frames, checkpointed_frames)) => {
                 crate::global_index::qa_trace::record(&format!(
-                    "global_index_wal_checkpoint mode=passive busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={}",
-                    timing.wal_checkpoint.as_micros()
+                    "global_index_wal_checkpoint mode=passive busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={}",
+                    timing.wal_checkpoint.as_micros(),
+                    wal_bytes_before_checkpoint,
+                    wal_bytes_after_checkpoint
                 ));
             }
             Err(error) => log::warn!(
@@ -1601,11 +1752,18 @@ impl Database {
                         "failed to restore SQLite journal size limit after initial index error: {restore_error}"
                     );
                 }
+                if let Err(restore_error) = restore_cache_spill {
+                    log::warn!(
+                        target: "global_index::repository",
+                        "failed to restore SQLite cache spill policy after initial index error: {restore_error}"
+                    );
+                }
                 return Err(error);
             }
         };
         restore_cache_size?;
         restore_journal_size_limit?;
+        restore_cache_spill?;
         debug_assert_eq!(processed_entries, entry_count);
         if has_eligible_pending_work {
             self.notify_managed_ai_work();
@@ -1614,9 +1772,9 @@ impl Database {
         Ok((entry_count, timing))
     }
 
-    /// Finish an interrupted per-source bulk FTS build before the database is
-    /// exposed to search. A durable rowid cursor makes each bounded FTS batch
-    /// restartable without rebuilding FTS data for other sources.
+    /// Finish interrupted per-source FTS work in bounded transactions. Search
+    /// excludes sources while `fts_bulk_build` is set, and the durable rowid
+    /// cursor makes each batch restartable without rebuilding other sources.
     pub(crate) fn recover_pending_global_fts_bulk_builds(&self) -> Result<(), DbError> {
         let pending_sources = {
             let conn = self.conn()?;

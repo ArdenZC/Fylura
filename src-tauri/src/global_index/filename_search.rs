@@ -638,7 +638,7 @@ impl FilenameSearchManager {
         let mut catalog = catalog
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if catalog.operation_id != operation_id || !catalog.complete {
+        if catalog.operation_id != operation_id {
             return Err("transient_catalog_owner_changed");
         }
         let start = catalog.persisted_entries;

@@ -15,7 +15,7 @@ describe("System Trash history", () => {
     const systemTrash = operation("move_to_system_trash", "System Recycle Bin");
 
     expect(isSystemTrashOperation(safeTrash)).toBe(false);
-    expect(operationTypeLabel(safeTrash, identityTranslator)).toBe("operationMoveToTrash");
+    expect(operationTypeLabel(safeTrash, identityTranslator)).toBe("operationMoveToFyluraTrash");
     expect(isSystemTrashOperation(systemTrash)).toBe(true);
     expect(operationTypeLabel(systemTrash, identityTranslator)).toBe("operationMoveToSystemTrash");
   });

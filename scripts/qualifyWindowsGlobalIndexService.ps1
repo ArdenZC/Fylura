@@ -617,7 +617,7 @@ try {
             throw "Service exchange batch count was not confirmed by the completed repository write timing: expected_batches=$($ipcBatchEvidence.repository_batches)"
         }
         $script:evidence.serviceBatchingQualification = $ipcBatchEvidence
-        if ($recoveryTrace -cnotcontains "windows_recovery_rebuild_admitted") { throw "recovery did not pass the existing Background admission gate" }
+        if (@($recoveryTrace | Where-Object { $_ -match '(?:^|\s)windows_recovery_rebuild_admitted(?:\s|$)' }).Count -eq 0) { throw "recovery did not pass the existing Background admission gate" }
         $recoveryTrace | Set-Content -LiteralPath (Join-Path $taskRoot "recovery-trace.log")
         # Keep original background-client route/idle accounting independent.
         Clear-TraceFiles

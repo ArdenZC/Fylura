@@ -797,7 +797,7 @@ jobs:
           }
           $report = Get-Content -LiteralPath (Join-Path $evidenceRoot "zb05-global-index-service-evidence.json") -Raw | ConvertFrom-Json
           if ($report.smartLeanDirect.firstSearchableUs -le 0 -or $report.smartLeanDirect.databaseReopenBackfillUs -le 0) { throw "exact-service evidence lacks direct first-search/reopen timing" }
-          if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log")) -cnotcontains "windows_recovery_rebuild_admitted") { throw "retained recovery trace lacks Background admission evidence" }
+          if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log") | Where-Object { $_ -match '(?:^|\s)windows_recovery_rebuild_admitted(?:\s|$)' }).Count -eq 0) { throw "retained recovery trace lacks Background admission evidence" }
       - name: Upload exact-service qualification evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

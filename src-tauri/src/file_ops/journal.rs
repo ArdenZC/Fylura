@@ -50,7 +50,8 @@ pub(crate) fn refresh_replacement_journal_identities(
         "copy_replace" | "duplicate_replace"
     );
     let published = if copy_replacement {
-        file_namespace_fingerprint(Path::new(&log.path_after))?
+        file_namespace_fingerprint(Path::new(&log.path_after))
+            .map_err(|error| format!("published replacement identity unavailable: {error}"))?
     } else {
         file_operation_fingerprint(Path::new(&log.path_after), "replace")?
     };
@@ -59,7 +60,8 @@ pub(crate) fn refresh_replacement_journal_identities(
         Path::new(&log.path_after),
     );
     let backup = if copy_replacement {
-        file_namespace_fingerprint(&backup_path)?
+        file_namespace_fingerprint(&backup_path)
+            .map_err(|error| format!("replacement backup identity unavailable: {error}"))?
     } else {
         file_operation_fingerprint(&backup_path, "replace")?
     };

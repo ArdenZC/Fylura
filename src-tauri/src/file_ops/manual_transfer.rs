@@ -1990,6 +1990,9 @@ fn make_directory_merge_noop(
     })
 }
 
+// Directory merge may leave undo claims inside the emptied source root. The
+// final Safe Trash step preserves those private claims with the root; reject
+// any user entry or non-claim artifact before moving the root.
 pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, String> {
     let entries = std::fs::read_dir(path)
         .map_err(|error| error.to_string())?
@@ -1998,6 +2001,20 @@ pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, 
     if entries.is_empty() {
         return Ok(true);
     }
+
+    let is_private_claim_name = |name: &std::ffi::OsStr| {
+        let Some(name) = name.to_str() else {
+            return false;
+        };
+        name.strip_prefix(".zen-canvas-claim-")
+            .and_then(|suffix| uuid::Uuid::parse_str(suffix).ok())
+            .is_some()
+            || name
+                .strip_prefix(".zen-canvas-replace-")
+                .is_some_and(|suffix| {
+                    suffix.len() == 24 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+    };
 
     #[cfg(target_os = "macos")]
     {
@@ -2020,19 +2037,38 @@ pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, 
                     .file_name()
                     .to_str()
                     .is_none_or(|name| uuid::Uuid::parse_str(name).is_err())
-                || std::fs::read_dir(session.path())
-                    .map_err(|error| error.to_string())?
-                    .next()
-                    .is_some()
             {
                 return Ok(false);
+            }
+            for claim in std::fs::read_dir(session.path()).map_err(|error| error.to_string())? {
+                let claim = claim.map_err(|error| error.to_string())?;
+                if !claim
+                    .file_type()
+                    .map_err(|error| error.to_string())?
+                    .is_file()
+                    || !is_private_claim_name(&claim.file_name())
+                {
+                    return Ok(false);
+                }
             }
         }
         Ok(true)
     }
 
     #[cfg(not(target_os = "macos"))]
-    Ok(false)
+    {
+        for entry in entries {
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_file()
+                || !is_private_claim_name(&entry.file_name())
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
 }
 
 pub(crate) fn revalidate(operation: &OperationPreviewRequest) -> Result<DirectoryIdentity, String> {

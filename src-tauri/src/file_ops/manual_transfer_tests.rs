@@ -552,13 +552,25 @@ fn fl42_move_directory_cleanup_only_allows_empty_retirement_sessions() {
     fs::create_dir_all(&session).unwrap();
     assert!(source_directory_is_empty_after_move(&source).unwrap());
 
-    fs::write(
-        session.join(".zen-canvas-claim-retained"),
-        b"preserve claim",
-    )
-    .unwrap();
+    let retained_claim = session.join(format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4()));
+    fs::write(&retained_claim, b"preserve claim").unwrap();
+    assert!(source_directory_is_empty_after_move(&source).unwrap());
+    fs::remove_file(retained_claim).unwrap();
+    fs::write(source.join("user.txt"), b"preserve user data").unwrap();
     assert!(!source_directory_is_empty_after_move(&source).unwrap());
-    fs::remove_file(session.join(".zen-canvas-claim-retained")).unwrap();
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn fl42_move_directory_cleanup_preserves_only_private_claims() {
+    let f = Fixture::new();
+    let source = f.root.join("claim-only-merge-source");
+    fs::create_dir(&source).unwrap();
+    let retained_claim = source.join(format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4()));
+    fs::write(&retained_claim, b"preserve claim").unwrap();
+    assert!(source_directory_is_empty_after_move(&source).unwrap());
+
+    fs::remove_file(retained_claim).unwrap();
     fs::write(source.join("user.txt"), b"preserve user data").unwrap();
     assert!(!source_directory_is_empty_after_move(&source).unwrap());
 }

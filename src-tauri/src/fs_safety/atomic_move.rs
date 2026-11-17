@@ -1393,7 +1393,11 @@ fn atomic_replace_uncoordinated(
 pub(crate) fn replacement_backup_path(source: &Path, target: &Path) -> std::path::PathBuf {
     let source = replacement_namespace_path(source);
     let target = replacement_namespace_path(target);
-    let key = format!("{}\0{}", source.display(), target.display());
+    let key = format!(
+        "{}\0{}",
+        crate::path_identity::normalize_for_compare(&source),
+        crate::path_identity::normalize_for_compare(&target)
+    );
     let digest = blake3::hash(key.as_bytes()).to_hex().to_string();
     let parent = target.parent().unwrap_or(&target);
     let backup_name = format!(".zen-canvas-replace-{}", &digest[..24]);
@@ -1733,6 +1737,19 @@ mod tests {
         ));
         fs::create_dir_all(&path).expect("fixture");
         path
+    }
+
+    #[test]
+    fn replacement_backup_name_is_stable_across_windows_path_spellings() {
+        let actual_source = Path::new(r"\\?\C:\Users\Runner\Stage.txt");
+        let journal_source = Path::new(r"c:\users\runner\stage.txt");
+        let actual_target = Path::new(r"\\?\C:\Users\Runner\Target.txt");
+        let journal_target = Path::new(r"C:\users\runner\target.txt");
+
+        assert_eq!(
+            replacement_backup_path(actual_source, actual_target).file_name(),
+            replacement_backup_path(journal_source, journal_target).file_name()
+        );
     }
 
     #[test]

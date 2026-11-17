@@ -375,8 +375,8 @@ jobs:
           cache-on-failure: true
       - name: Build candidate frontend assets
         run: npm run build:frontend
-      - name: Build one Release QA executable for both feature modes
-        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features 'desktop-runtime native-qa' --bin zb05-global-index-qa
+      - name: Build Release Windows Service and QA probe executable
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features native-qa --bin zb05-global-index-qa
       - name: Create performance evidence directory
         shell: pwsh
         run: New-Item -ItemType Directory -Path '.performance-artifacts/filename-first' -Force | Out-Null
@@ -393,7 +393,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $probe = Join-Path $PWD 'src-tauri/target/release/zb05-global-index-qa.exe'
-          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 -BaselineProbeExe $probe -CandidateProbeExe $probe -BaselineRoot $PWD -CandidateRoot $PWD -ExpectedBaselineSha $env:CANDIDATE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA -EvidencePath $env:EVIDENCE_PATH -FileCount ([int]$env:FILENAME_FIRST_FILE_COUNT) -Repetitions ([int]$env:FILENAME_FIRST_REPETITIONS) -CandidatePersistBatch $env:FILENAME_FIRST_PERSIST_BATCH_SIZE
+          & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 -BaselineProbeExe $probe -CandidateProbeExe $probe -ServiceExe $probe -BaselineRoot $PWD -CandidateRoot $PWD -ExpectedBaselineSha $env:CANDIDATE_SHA -ExpectedCandidateSha $env:CANDIDATE_SHA -EvidencePath $env:EVIDENCE_PATH -FileCount ([int]$env:FILENAME_FIRST_FILE_COUNT) -Repetitions ([int]$env:FILENAME_FIRST_REPETITIONS) -CandidatePersistBatch $env:FILENAME_FIRST_PERSIST_BATCH_SIZE
           if ($LASTEXITCODE -ne 0) { throw "real NTFS filename-first pair failed with exit code $LASTEXITCODE" }
       - name: Summarize native result and performance target status
         if: always()
@@ -409,7 +409,7 @@ jobs:
           $summary = @(
             "Real NTFS MFT pair status: $($report.status)",
             "File count: $($report.fileCount); repetitions per path: $($report.repetitions); task VHD maximum: $($report.vhdMaximumMiB) MiB; target: $($report.completeFilenameSearchTargetSeconds) seconds",
-            "Comparison: same Release binary and same task-owned NTFS data; baseline maintains FTS in synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists with $env:FILENAME_FIRST_PERSIST_BATCH_SIZE transaction sizing and fills only its new-source FTS in restartable batches of at most 8192 rows. Production auto sizing uses 4096 rows below 250k entries and 8192 rows at or above 250k. Existing-source and incremental FTS triggers stay enabled; no global rebuild runs.",
+            "Comparison: same Release native-QA executable and same task-owned NTFS data; the executable runs once as the SCM Index Service and separately as the interactive probe, satisfying the service's same-image IPC rule. Both sides use the real Windows Service named pipe into the repository, and the harness rejects Direct fallback. Baseline maintains FTS in synchronous 8192-row repository batches; candidate exposes the completed transient filename catalog then persists with $env:FILENAME_FIRST_PERSIST_BATCH_SIZE transaction sizing and fills only its new-source FTS in restartable batches of at most 8192 rows. Production auto sizing uses 4096 rows below 250k entries and 8192 rows at or above 250k. Existing-source and incremental FTS triggers stay enabled; no global rebuild runs.",
             "Average first-search baseline/candidate: $($report.averages.baselineFirstSearchableUs) / $($report.averages.candidateFirstSearchableUs) us",
             "First-search improvement: $($report.averages.firstSearchImprovementPercent)% ($($report.firstSearchTargetSeconds)s candidate target met: $($report.firstSearchTargetMet))",
             "Average complete filename search baseline/candidate: $($report.averages.baselineCompleteFilenameSearchableUs) / $($report.averages.candidateCompleteFilenameSearchableUs) us",

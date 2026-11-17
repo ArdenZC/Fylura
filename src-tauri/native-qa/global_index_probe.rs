@@ -89,6 +89,15 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
 
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(windows)]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "--index-service")
+    {
+        std::process::exit(
+            fylura_tauri::global_index::windows::service_host::run_index_service_process(),
+        );
+    }
     if arguments
         .first()
         .is_some_and(|argument| argument == "--prepare-profile")

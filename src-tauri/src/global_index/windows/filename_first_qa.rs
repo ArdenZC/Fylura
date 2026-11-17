@@ -2,11 +2,11 @@
 //! The caller supplies an isolated profile and a task-created NTFS fixture.
 
 use super::mft::{open_volume, query_journal};
-use super::DirectWindowsGlobalIndexProvider;
+use super::WindowsGlobalIndexProvider;
 use crate::db::{Database, InsertFileRequest};
 use crate::global_index::coordinator::{GlobalIndexProvider, GlobalIndexSink};
 use crate::global_index::models::{normalize_path, unix_now, INDEX_STATUS_READY};
-use crate::global_index::{GlobalSourceDescriptor, SourceOperationKind, SourceOperationRoute};
+use crate::global_index::GlobalSourceDescriptor;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::error::Error;
@@ -196,15 +196,11 @@ pub fn run_initial(
     let worker = std::thread::spawn(move || -> Result<(), String> {
         let mut sink =
             crate::global_index::coordinator::database_sink_for_qualification(worker_db.clone());
-        let operation_id = uuid::Uuid::new_v4().to_string();
-        sink.admit_source_operation(
-            &worker_source.volume,
-            &operation_id,
-            SourceOperationKind::Rebuild,
-            SourceOperationRoute::Direct,
-        )
-        .map_err(|error| error.to_string())?;
-        DirectWindowsGlobalIndexProvider::new()
+        let provider = WindowsGlobalIndexProvider::with_wake(
+            Arc::new(super::GlobalIndexWakeSlot::default()),
+            worker_db.path().to_path_buf(),
+        );
+        provider
             .start_initial_index(&worker_source, &mut sink, &AtomicBool::new(false))
             .map_err(|error| error.to_string())?;
         let completed_at = unix_now();
@@ -217,6 +213,7 @@ pub fn run_initial(
             true,
         )
         .map_err(|error| error.to_string())?;
+        provider.shutdown().map_err(|error| error.to_string())?;
         Ok(())
     });
 
@@ -663,18 +660,11 @@ pub fn run_incremental(
     let db = verify_task_profile(profile, source_id)?;
     let source = descriptor(&db, source_id)?;
     let mut sink = crate::global_index::coordinator::database_sink_for_qualification(db.clone());
-    let operation_id = uuid::Uuid::new_v4().to_string();
-    sink.admit_source_operation(
-        &source.volume,
-        &operation_id,
-        SourceOperationKind::Incremental,
-        SourceOperationRoute::Direct,
-    )?;
-    DirectWindowsGlobalIndexProvider::new().resume_incremental_sync(
-        &source,
-        &mut sink,
-        &AtomicBool::new(false),
-    )?;
+    let provider = WindowsGlobalIndexProvider::with_wake(
+        Arc::new(super::GlobalIndexWakeSlot::default()),
+        db.path().to_path_buf(),
+    );
+    provider.resume_incremental_sync(&source, &mut sink, &AtomicBool::new(false))?;
     sink.finish_source_operation(
         source_id,
         INDEX_STATUS_READY,
@@ -683,6 +673,7 @@ pub fn run_incremental(
         Some(unix_now()),
         false,
     )?;
+    provider.shutdown()?;
 
     let added_visible = search_path(&db, added_path)?;
     let renamed_visible = search_path(&db, renamed_to)?;

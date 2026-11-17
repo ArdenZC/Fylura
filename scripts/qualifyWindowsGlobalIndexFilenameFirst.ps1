@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$BaselineProbeExe,
     [Parameter(Mandatory = $true)][string]$CandidateProbeExe,
+    [Parameter(Mandatory = $true)][string]$ServiceExe,
     [Parameter(Mandatory = $true)][string]$BaselineRoot,
     [Parameter(Mandatory = $true)][string]$CandidateRoot,
     [Parameter(Mandatory = $true)][string]$ExpectedBaselineSha,
@@ -25,11 +26,24 @@ $vhdCreated = $false
 $vhdAttached = $false
 $failure = $null
 $cleanupFailure = $false
+$script:serviceName = 'FyluraGlobalIndex'
+$script:serviceCreatedByTask = $false
+$script:serviceProcessId = $null
 $baselineProbeExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $BaselineProbeExe).Path)
 $candidateProbeExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CandidateProbeExe).Path)
+$serviceExe = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ServiceExe).Path)
 $BaselineRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $BaselineRoot).Path)
 $CandidateRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $CandidateRoot).Path)
 $EvidencePath = [IO.Path]::GetFullPath($EvidencePath)
+if (-not $serviceExe.Equals($candidateProbeExe, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'the Index Service and IPC probe must use the same executable image'
+}
+$serviceRelativePath = [IO.Path]::GetRelativePath($CandidateRoot, $serviceExe)
+if ([IO.Path]::IsPathRooted($serviceRelativePath) -or
+    $serviceRelativePath -eq '..' -or
+    $serviceRelativePath.StartsWith(('..' + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
+    throw "service executable must be inside the exact candidate source workspace: $serviceExe"
+}
 $script:candidatePersistBatch = $CandidatePersistBatch
 $searchReadyTargetSeconds = if ($FileCount -ge 1000000) { 20 } else { 10 }
 $durableTargetSeconds = if ($FileCount -ge 1000000) { 60 } else { 30 }
@@ -42,7 +56,7 @@ $evidenceDirectory = Split-Path -Parent $EvidencePath
 $traceDirectory = Join-Path $evidenceDirectory 'traces'
 $script:evidence = [ordered]@{
     status = 'RUNNING'
-    comparison = "same_release_binary_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)"
+    comparison = "same_release_service_ipc_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)"
     baselineSha = $ExpectedBaselineSha
     candidateSha = $ExpectedCandidateSha
     fileCount = $FileCount
@@ -66,6 +80,8 @@ $script:evidence = [ordered]@{
     fixtureFilenameIndexTargetMet = $null
     completeCoveragePerPath = $null
     cleanup = [ordered]@{
+        serviceStopped = $false
+        serviceDeleted = $false
         vhdCreatedByTask = $false
         vhdDetached = $false
         fixtureRemoved = $false
@@ -83,6 +99,83 @@ function Invoke-DiskPart([string]$Name, [string[]]$Commands) {
         throw "DiskPart $Name failed (exit=$exitCode): $output"
     }
     return $output
+}
+
+function Set-TaskServiceEnvironment([string]$FilenameFirstMode, [string]$TracePath) {
+    $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$script:serviceName"
+    $environment = @(
+        "ZC_GLOBAL_INDEX_FILENAME_FIRST=$FilenameFirstMode",
+        "ZC_GLOBAL_INDEX_QA_TRACE=$TracePath",
+        'ZC_GLOBAL_INDEX_MFT_EMIT_BATCH=8192'
+    )
+    New-ItemProperty -LiteralPath $serviceRegistryPath -Name Environment -PropertyType MultiString -Value $environment -Force | Out-Null
+}
+
+function Start-TaskIndexService([string]$FilenameFirstMode, [string]$TracePath) {
+    if (-not $script:serviceCreatedByTask) {
+        $existingService = Get-CimInstance Win32_Service -Filter "Name='$script:serviceName'" -ErrorAction SilentlyContinue
+        if ($existingService) {
+            throw "refusing to replace or manage a pre-existing $script:serviceName service: $($existingService.PathName)"
+        }
+        $serviceImagePath = '"' + $serviceExe + '" --index-service'
+        $createOutput = (& sc.exe create $script:serviceName 'binPath=' $serviceImagePath 'start=' 'demand' 'obj=' 'LocalSystem' 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "failed to create task-owned Index Service (exit=$LASTEXITCODE): $createOutput" }
+        $script:serviceCreatedByTask = $true
+    }
+    Set-TaskServiceEnvironment $FilenameFirstMode $TracePath
+    $startOutput = (& sc.exe start $script:serviceName 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "failed to start task-owned Index Service (exit=$LASTEXITCODE): $startOutput" }
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    do {
+        $service = Get-CimInstance Win32_Service -Filter "Name='$script:serviceName'" -ErrorAction SilentlyContinue
+        if ($service -and $service.State -eq 'Running' -and $service.ProcessId -gt 0) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $service -or $service.State -ne 'Running' -or $service.ProcessId -le 0) {
+        $state = if ($service) { "state=$($service.State) win32ExitCode=$($service.ExitCode) serviceSpecificExitCode=$($service.ServiceSpecificExitCode)" } else { 'service record unavailable' }
+        throw "task-owned Index Service did not reach Running within 45 seconds: $state"
+    }
+    $expectedServiceImagePath = ('"' + $serviceExe + '" --index-service')
+    if ($service.PathName.Trim() -ine $expectedServiceImagePath) {
+        throw "task-owned service ImagePath mismatch: expected=$expectedServiceImagePath actual=$($service.PathName)"
+    }
+    $script:serviceProcessId = [int]$service.ProcessId
+    $serviceProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($script:serviceProcessId)" -ErrorAction Stop
+    if (-not $serviceProcess.ExecutablePath -or -not $serviceProcess.ExecutablePath.Equals($serviceExe, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "task-owned service image mismatch: expected=$serviceExe actual=$($serviceProcess.ExecutablePath)"
+    }
+}
+
+function Stop-TaskIndexService {
+    if (-not $script:serviceCreatedByTask) { return }
+    $service = Get-CimInstance Win32_Service -Filter "Name='$script:serviceName'" -ErrorAction SilentlyContinue
+    if ($service -and $service.State -ne 'Stopped') {
+        $stopOutput = (& sc.exe stop $script:serviceName 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1062) { throw "failed to stop task-owned Index Service (exit=$LASTEXITCODE): $stopOutput" }
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            $service = Get-CimInstance Win32_Service -Filter "Name='$script:serviceName'" -ErrorAction SilentlyContinue
+            if (-not $service -or $service.State -eq 'Stopped') { break }
+            Start-Sleep -Milliseconds 200
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if ($service -and $service.State -ne 'Stopped') { throw "task-owned Index Service did not stop: state=$($service.State)" }
+    }
+    $script:serviceProcessId = $null
+}
+
+function Remove-TaskIndexService {
+    if (-not $script:serviceCreatedByTask) { return }
+    Stop-TaskIndexService
+    $deleteOutput = (& sc.exe delete $script:serviceName 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "failed to delete task-owned Index Service (exit=$LASTEXITCODE): $deleteOutput" }
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        $service = Get-CimInstance Win32_Service -Filter "Name='$script:serviceName'" -ErrorAction SilentlyContinue
+        if (-not $service) { break }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($service) { throw "task-owned Index Service remains registered after deletion: state=$($service.State)" }
+    $script:serviceCreatedByTask = $false
 }
 
 function Get-FreeDriveLetter {
@@ -166,11 +259,29 @@ function Invoke-Probe(
     $deadline = [DateTime]::UtcNow.AddMinutes($TimeoutMinutes)
     $peakWorkingSet = 0L
     $peakPrivateBytes = 0L
+    $peakClientWorkingSet = 0L
+    $peakClientPrivateBytes = 0L
+    $peakServiceWorkingSet = 0L
+    $peakServicePrivateBytes = 0L
     while (-not $process.WaitForExit(100)) {
         try {
             $process.Refresh()
-            $peakWorkingSet = [Math]::Max($peakWorkingSet, $process.WorkingSet64)
-            $peakPrivateBytes = [Math]::Max($peakPrivateBytes, $process.PrivateMemorySize64)
+            $clientWorkingSet = $process.WorkingSet64
+            $clientPrivateBytes = $process.PrivateMemorySize64
+            $peakClientWorkingSet = [Math]::Max($peakClientWorkingSet, $clientWorkingSet)
+            $peakClientPrivateBytes = [Math]::Max($peakClientPrivateBytes, $clientPrivateBytes)
+            $serviceWorkingSet = 0L
+            $servicePrivateBytes = 0L
+            if ($script:serviceProcessId) {
+                $serviceProcess = Get-Process -Id $script:serviceProcessId -ErrorAction Stop
+                $serviceProcess.Refresh()
+                $serviceWorkingSet = $serviceProcess.WorkingSet64
+                $servicePrivateBytes = $serviceProcess.PrivateMemorySize64
+            }
+            $peakServiceWorkingSet = [Math]::Max($peakServiceWorkingSet, $serviceWorkingSet)
+            $peakServicePrivateBytes = [Math]::Max($peakServicePrivateBytes, $servicePrivateBytes)
+            $peakWorkingSet = [Math]::Max($peakWorkingSet, $clientWorkingSet + $serviceWorkingSet)
+            $peakPrivateBytes = [Math]::Max($peakPrivateBytes, $clientPrivateBytes + $servicePrivateBytes)
         } catch { }
         if ([DateTime]::UtcNow -ge $deadline) {
             $process.Kill($true)
@@ -179,8 +290,22 @@ function Invoke-Probe(
         }
     }
     $process.Refresh()
-    $peakWorkingSet = [Math]::Max($peakWorkingSet, $process.WorkingSet64)
-    $peakPrivateBytes = [Math]::Max($peakPrivateBytes, $process.PrivateMemorySize64)
+    $peakClientWorkingSet = [Math]::Max($peakClientWorkingSet, $process.WorkingSet64)
+    $peakClientPrivateBytes = [Math]::Max($peakClientPrivateBytes, $process.PrivateMemorySize64)
+    $serviceWorkingSet = 0L
+    $servicePrivateBytes = 0L
+    if ($script:serviceProcessId) {
+        $serviceProcess = Get-Process -Id $script:serviceProcessId -ErrorAction SilentlyContinue
+        if ($serviceProcess) {
+            $serviceProcess.Refresh()
+            $serviceWorkingSet = $serviceProcess.WorkingSet64
+            $servicePrivateBytes = $serviceProcess.PrivateMemorySize64
+        }
+    }
+    $peakServiceWorkingSet = [Math]::Max($peakServiceWorkingSet, $serviceWorkingSet)
+    $peakServicePrivateBytes = [Math]::Max($peakServicePrivateBytes, $servicePrivateBytes)
+    $peakWorkingSet = [Math]::Max($peakWorkingSet, $process.WorkingSet64 + $serviceWorkingSet)
+    $peakPrivateBytes = [Math]::Max($peakPrivateBytes, $process.PrivateMemorySize64 + $servicePrivateBytes)
     $stdout = $stdoutTask.Result.Trim()
     $stderr = $stderrTask.Result.Trim()
     if ($process.ExitCode -ne 0) { throw "$Label failed (exit=$($process.ExitCode)): $stderr $stdout" }
@@ -191,6 +316,8 @@ function Invoke-Probe(
     $writerTiming = Get-TraceEvent $TracePath 'source_operation_write'
     $writerConfig = Get-TraceEvent $TracePath 'global_index_initial_writer_config'
     $writerBatches = @(Get-TraceEvents $TracePath 'global_index_initial_writer_batch')
+    $serviceBatchEvents = @(Get-TraceEvents $TracePath 'index_service_batching')
+    $serviceBatching = if ($serviceBatchEvents.Count -gt 0) { $serviceBatchEvents[-1] } else { $null }
     $writerDiagnostics = $null
     if ($writerBatches.Count -gt 0) {
         $walBytesBeforeCommit = @($writerBatches | ForEach-Object { [long]$_.wal_before_commit_bytes })
@@ -222,6 +349,12 @@ function Invoke-Probe(
         stages = [ordered]@{ mft = $mftTiming; writer = $writerTiming; writerDiagnostics = $writerDiagnostics }
         peakWorkingSetBytes = $peakWorkingSet
         peakPrivateBytes = $peakPrivateBytes
+        peakClientWorkingSetBytes = $peakClientWorkingSet
+        peakClientPrivateBytes = $peakClientPrivateBytes
+        peakServiceWorkingSetBytes = $peakServiceWorkingSet
+        peakServicePrivateBytes = $peakServicePrivateBytes
+        serviceProcessId = $script:serviceProcessId
+        serviceIpcBatching = $serviceBatching
         tracePath = $TracePath
     }
 }
@@ -370,10 +503,27 @@ try {
             }
             $script:evidence.sourceId = $prepared.targetSourceId
             $trace = Join-Path $taskRoot "$side-$repetition-trace.log"
-            $run = Invoke-Probe "$side initial run $repetition" $probe @(
-                '--qualify-filename-first', $profile, $prepared.targetSourceId,
-                'filename-first-item-000000.txt', $firstTargetPath, 'finalmarker', $targetPath, $FileCount.ToString()
-            ) $mode $trace 90
+            Start-TaskIndexService $mode $trace
+            try {
+                $run = Invoke-Probe "$side initial run $repetition" $probe @(
+                    '--qualify-filename-first', $profile, $prepared.targetSourceId,
+                    'filename-first-item-000000.txt', $firstTargetPath, 'finalmarker', $targetPath, $FileCount.ToString()
+                ) $mode $trace 90
+            } finally {
+                Stop-TaskIndexService
+            }
+            $serviceRouteEvents = @(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -ceq 'windows_service_route_ok' })
+            if ($serviceRouteEvents.Count -lt 1) {
+                throw "$side initial run $repetition did not complete a Windows Service named-pipe route; Direct fallback is not accepted"
+            }
+            $serviceBatching = $run.serviceIpcBatching
+            if (-not $serviceBatching -or
+                [long]$serviceBatching.input_entries -lt $FileCount -or
+                [long]$serviceBatching.repository_entries -ne [long]$serviceBatching.input_entries -or
+                [long]$serviceBatching.repository_batches -lt 1 -or
+                [long]$serviceBatching.entry_frames -lt 1) {
+                throw "$side initial run $repetition did not prove that actual IPC entry frames reached the repository: $($serviceBatching | ConvertTo-Json -Compress)"
+            }
             $expectedFilenameFirstMode = $side -eq 'candidate'
             if ([bool]$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode) {
                 throw "$side initial run $repetition used the wrong filename-first mode: expected=$expectedFilenameFirstMode actual=$($run.result.filenameFirstEnabled)"
@@ -425,6 +575,12 @@ try {
                 fullIndexUs = $run.result.fullIndexUs
                 peakWorkingSetBytes = $run.peakWorkingSetBytes
                 peakPrivateBytes = $run.peakPrivateBytes
+                peakClientWorkingSetBytes = $run.peakClientWorkingSetBytes
+                peakClientPrivateBytes = $run.peakClientPrivateBytes
+                peakServiceWorkingSetBytes = $run.peakServiceWorkingSetBytes
+                peakServicePrivateBytes = $run.peakServicePrivateBytes
+                serviceRouteObserved = $serviceRouteEvents.Count -gt 0
+                serviceIpcBatching = $serviceBatching
                 candidatePersistBatch = $script:candidatePersistBatch
                 writerStages = $run.stages.writer
                 mftStages = $run.stages.mft
@@ -448,17 +604,25 @@ try {
         $probe = if ($side -eq 'baseline') { $baselineProbeExe } else { $candidateProbeExe }
         $mode = if ($side -eq 'baseline') { '0' } else { '1' }
         $trace = Join-Path $taskRoot "$side-incremental-trace.log"
-        $run = Invoke-Probe "$side incremental changes" $probe @(
-            '--qualify-filename-first-incremental',
-            $lastProfiles[$side],
-            $lastSourceIds[$side],
-            $addedPath,
-            $targetPath,
-            $renamedPath,
-            $movedFromPath,
-            $movedToPath,
-            $deletePath
-        ) $mode $trace 30
+        Start-TaskIndexService $mode $trace
+        try {
+            $run = Invoke-Probe "$side incremental changes" $probe @(
+                '--qualify-filename-first-incremental',
+                $lastProfiles[$side],
+                $lastSourceIds[$side],
+                $addedPath,
+                $targetPath,
+                $renamedPath,
+                $movedFromPath,
+                $movedToPath,
+                $deletePath
+            ) $mode $trace 30
+        } finally {
+            Stop-TaskIndexService
+        }
+        if (@(Get-Content -LiteralPath $trace | Where-Object { $_.Trim() -ceq 'windows_service_route_ok' }).Count -lt 1) {
+            throw "$side incremental operation did not complete a Windows Service named-pipe route"
+        }
         if (-not $run.result.restartCorrect -or -not $run.result.movedVisible -or -not $run.result.oldMoveHidden) { throw "$side incremental add/rename/move/delete failed restart validation" }
         $incremental[$side] = $run.result
         New-Item -ItemType Directory -Path $traceDirectory -Force | Out-Null
@@ -674,6 +838,14 @@ try {
     $script:evidence.status = 'FAIL'
     $script:evidence.failure = $failure
 } finally {
+    try {
+        Remove-TaskIndexService
+        $script:evidence.cleanup.serviceStopped = $true
+        $script:evidence.cleanup.serviceDeleted = $true
+    } catch {
+        $cleanupFailure = $true
+        $script:evidence.cleanup.details += $_.Exception.ToString()
+    }
     try {
         if (Test-Path -LiteralPath $taskRoot -PathType Container) {
             $traceFiles = @(Get-ChildItem -LiteralPath $taskRoot -Filter '*trace.log' -File -ErrorAction SilentlyContinue)

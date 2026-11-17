@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 // workflow keeps controlled writer pairs and master/candidate baselines apart.
 const workflow = readFileSync(".github/workflows/smart-lean.yml", "utf8");
 const filenameFirstQualification = readFileSync("scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1", "utf8");
+const filenameFirstProbe = readFileSync("src-tauri/native-qa/global_index_probe.rs", "utf8");
+const filenameFirstQa = readFileSync("src-tauri/src/global_index/windows/filename_first_qa.rs", "utf8");
 const mft = readFileSync("src-tauri/src/global_index/windows/mft.rs", "utf8");
 const prBlock = workflow.split("\n  push:")[0];
 const routes = [...prBlock.matchAll(/^      - '([^']+)'$/gmu)].map((match) => match[1]);
@@ -141,11 +143,20 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("inputs.filename_file_count != '1000000'");
   });
 
-  it("compares the filename-first path against SQLite using the same Release binary", () => {
-    expect(workflow).toContain("Build one Release QA executable for both feature modes");
-    expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe");
-    expect(filenameFirstQualification).toContain("same_release_binary_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)");
-    expect(workflow).toContain("same Release binary and same task-owned NTFS data; baseline maintains FTS in synchronous 8192-row repository batches, candidate exposes the completed transient filename catalog then persists with $env:FILENAME_FIRST_PERSIST_BATCH_SIZE transaction sizing");
+  it("compares the filename-first path through the real same-image Windows Service route", () => {
+    expect(workflow).toContain("Build Release Windows Service and QA probe executable");
+    expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe -ServiceExe $probe");
+    expect(filenameFirstQualification).toContain("same_release_service_ipc_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)");
+    expect(workflow).toContain("same Release native-QA executable and same task-owned NTFS data; the executable runs once as the SCM Index Service and separately as the interactive probe");
+    expect(filenameFirstProbe).toContain('argument == "--index-service"');
+    expect(filenameFirstProbe).toContain("service_host::run_index_service_process()");
+    expect(filenameFirstQa).toContain("WindowsGlobalIndexProvider::with_wake(");
+    expect(filenameFirstQualification).toContain("$script:serviceName = 'FyluraGlobalIndex'");
+    expect(filenameFirstQualification).toContain("the Index Service and IPC probe must use the same executable image");
+    expect(filenameFirstQualification).toContain("windows_service_route_ok");
+    expect(filenameFirstQualification).toContain("Direct fallback is not accepted");
+    expect(filenameFirstQualification).toContain("serviceIpcBatching = $serviceBatching");
+    expect(filenameFirstQualification).toContain("repository_entries -ne [long]$serviceBatching.input_entries");
     expect(workflow).toContain('Production auto sizing uses 4096 rows below 250k entries and 8192 rows at or above 250k.');
     expect(workflow).toContain('-CandidatePersistBatch $env:FILENAME_FIRST_PERSIST_BATCH_SIZE');
     expect(workflow).toContain("Existing-source and incremental FTS triggers stay enabled; no global rebuild runs.");

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::CloseHandle;
 
 fn verify_task_profile(profile: &Path, source_id: &str) -> Result<Database, Box<dyn Error>> {
@@ -233,41 +233,48 @@ pub fn run_initial(
     let mut peak_private_bytes = 0u64;
     let mut peak_database_bytes_with_wal =
         file_size(&database_path).saturating_add(file_size(&sidecar(&database_path, "-wal")));
+    let mut next_durable_fts_probe = Instant::now();
+    let mut durable_readiness_probe_count = 0u64;
+    let mut durable_fts_match_probe_count = 0u64;
     loop {
         if let Some((working_set, private_bytes)) = process_memory_sample() {
             peak_working_set_bytes = peak_working_set_bytes.max(working_set);
             peak_private_bytes = peak_private_bytes.max(private_bytes);
         }
-        if durable_filename_index_us.is_none() {
-            // The finalmarker file is created after all fixture files and
-            // FSCTL_ENUM_USN_DATA returns records in MFT order. Once its FTS
-            // posting is present and the source row count reaches the fixture
-            // size, the complete fixture has passed the durable writer. Avoid
-            // rescanning one million global_entries rows on every 10 ms poll.
-            let durable_filename_index_ready = durable_connection.query_row(
-                "SELECT CASE WHEN EXISTS(
-                    SELECT 1
-                    FROM global_entries_fts
-                    JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid
-                    WHERE global_entries_fts MATCH ?1
-                      AND ge.volume_id=?2
-                      AND ge.path_normalized=?3
-                      AND ge.is_stale=0
-                 ) AND EXISTS (
+        if durable_filename_index_us.is_none() && Instant::now() >= next_durable_fts_probe {
+            // Do not issue an FTS MATCH every 10 ms while the FTS bulk writer
+            // is changing the same database. Poll the small source checkpoint
+            // every 250 ms, then validate the final marker through FTS only
+            // after the source has published its completed cursor.
+            next_durable_fts_probe = Instant::now() + Duration::from_millis(250);
+            durable_readiness_probe_count = durable_readiness_probe_count.saturating_add(1);
+            let source_fts_ready = durable_connection.query_row(
+                "SELECT EXISTS(
                     SELECT 1 FROM global_volumes
-                    WHERE id=?2 AND entry_count >= ?4
+                    WHERE id=?1 AND entry_count >= ?2
                       AND fts_bulk_build=0 AND fts_bulk_cursor=0
-                 ) THEN 1 ELSE 0 END",
-                rusqlite::params![
-                    complete_query,
-                    source_id,
-                    complete_expected_path,
-                    expected_fixture_file_count as i64,
-                ],
+                )",
+                rusqlite::params![source_id, expected_fixture_file_count as i64],
                 |row| row.get::<_, bool>(0),
             )?;
-            if durable_filename_index_ready {
-                durable_filename_index_us = Some(started.elapsed().as_micros());
+            if source_fts_ready {
+                durable_fts_match_probe_count = durable_fts_match_probe_count.saturating_add(1);
+                let final_marker_visible = durable_connection.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1
+                        FROM global_entries_fts
+                        JOIN global_entries ge ON ge.rowid=global_entries_fts.rowid
+                        WHERE global_entries_fts MATCH ?1
+                          AND ge.volume_id=?2
+                          AND ge.path_normalized=?3
+                          AND ge.is_stale=0
+                    )",
+                    rusqlite::params![complete_query, source_id, complete_expected_path],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                if final_marker_visible {
+                    durable_filename_index_us = Some(started.elapsed().as_micros());
+                }
             }
         }
         peak_database_bytes_with_wal = peak_database_bytes_with_wal.max(
@@ -535,6 +542,8 @@ pub fn run_initial(
         "firstSearchBeforeComplete": first_search_complete == Some(false),
         "firstSearchProcessedEntries": first_search_processed_entries,
         "firstSearchTotalEntries": first_search_total_entries,
+        "durableReadinessProbeCount": durable_readiness_probe_count,
+        "durableFtsMatchProbeCount": durable_fts_match_probe_count,
         "transientCatalogReadyUs": transient_catalog_ready_us,
         "transientCatalogEntryCount": transient_catalog_entry_count,
         "transientCatalogEstimatedBytes": transient_catalog_estimated_bytes,

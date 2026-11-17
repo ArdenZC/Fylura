@@ -315,6 +315,7 @@ function Invoke-Probe(
     $mftTiming = Get-TraceEvent $TracePath 'mft_initial_index'
     $writerTiming = Get-TraceEvent $TracePath 'source_operation_write'
     $writerConfig = Get-TraceEvent $TracePath 'global_index_initial_writer_config'
+    $walCheckpoint = Get-TraceEvent $TracePath 'global_index_wal_checkpoint'
     $writerBatches = @(Get-TraceEvents $TracePath 'global_index_initial_writer_batch')
     $serviceBatchEvents = @(Get-TraceEvents $TracePath 'index_service_batching')
     $serviceBatching = if ($serviceBatchEvents.Count -gt 0) { $serviceBatchEvents[-1] } else { $null }
@@ -338,7 +339,7 @@ function Invoke-Probe(
             maxWalBytesAfterCommit = ($walBytes | Measure-Object -Maximum).Maximum
             maxWalFramesAfterCommit = ($walFrames | Measure-Object -Maximum).Maximum
             maxUncheckpointedWalFrames = ($uncheckpointedFrames | Measure-Object -Maximum).Maximum
-            busyCheckpointSamples = @($writerBatches | Where-Object { [long]$_.wal_busy -ne 0 }).Count
+            noopBusyFieldNonzeroSamples = @($writerBatches | Where-Object { [long]$_.wal_busy -ne 0 }).Count
             totalCacheSpillCount = [long](($writerBatches | Measure-Object -Property cache_spill_count -Sum).Sum)
             totalCacheWritePages = [long](($writerBatches | Measure-Object -Property cache_write_pages -Sum).Sum)
         }
@@ -346,7 +347,7 @@ function Invoke-Probe(
     return [pscustomobject]@{
         label = $Label
         result = $result
-        stages = [ordered]@{ mft = $mftTiming; writer = $writerTiming; writerDiagnostics = $writerDiagnostics }
+        stages = [ordered]@{ mft = $mftTiming; writer = $writerTiming; writerDiagnostics = $writerDiagnostics; walCheckpoint = $walCheckpoint }
         peakWorkingSetBytes = $peakWorkingSet
         peakPrivateBytes = $peakPrivateBytes
         peakClientWorkingSetBytes = $peakClientWorkingSet

@@ -255,13 +255,21 @@ fn search_global_entries_candidates_on_connection(
             .chars()
             .all(|character| character.is_alphanumeric() || character.is_whitespace())
         {
-            let tier_limit = layer_limit(target, seen.len());
-            append_unique(
-                &mut results,
-                &mut seen,
-                search_fts(conn, query, tier_limit)?,
-                target,
-            );
+            // During a new source's deferred FTS build, its partial postings
+            // are intentionally hidden from search. If every enabled source
+            // is in that state, querying the global FTS virtual table cannot
+            // produce a visible row and can pin WAL checkpoints while the
+            // bulk writer is active. Skip that read entirely; ready sources
+            // remain searchable whenever at least one exists.
+            if has_searchable_fts_source(conn)? {
+                let tier_limit = layer_limit(target, seen.len());
+                append_unique(
+                    &mut results,
+                    &mut seen,
+                    search_fts(conn, query, tier_limit)?,
+                    target,
+                );
+            }
         } else if !query.is_empty() {
             let tier_limit = layer_limit(target, seen.len());
             append_unique(
@@ -274,6 +282,19 @@ fn search_global_entries_candidates_on_connection(
     }
 
     Ok(results)
+}
+
+fn has_searchable_fts_source(conn: &Connection) -> Result<bool, DbError> {
+    conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM global_volumes
+            WHERE enabled=1 AND coverage_pending=0 AND fts_bulk_build=0
+              AND (platform!='windows' OR scope_authorization_state='authorized')
+        )",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(DbError::from)
 }
 
 /// Combines the disposable, in-memory initial filename projection with rows
@@ -616,6 +637,9 @@ fn search_filename_trigram_candidates(
     conn: &Connection,
     query: &str,
 ) -> Result<Vec<FilenameTrigramCandidate>, DbError> {
+    if !has_searchable_fts_source(conn)? {
+        return Ok(Vec::new());
+    }
     // The compact Filename Candidate ranks only names and extensions.
     // Path matches are evaluated separately by `search_path_only_candidates`;
     // including the path column here makes the rowid scan inspect path-only

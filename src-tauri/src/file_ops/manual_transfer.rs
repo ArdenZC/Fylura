@@ -1996,7 +1996,7 @@ pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, 
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
     if entries.is_empty() {
-        Ok(true)
+        return Ok(true);
     }
 
     #[cfg(target_os = "macos")]
@@ -2028,7 +2028,7 @@ pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, 
                 return Ok(false);
             }
         }
-        return Ok(true);
+        Ok(true)
     }
 
     #[cfg(not(target_os = "macos"))]

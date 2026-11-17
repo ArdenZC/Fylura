@@ -2470,20 +2470,26 @@ pub(crate) fn execute(
                 "transfer_directory_not_empty".into(),
             ));
         }
-        let mut identity = context
-            .expected_identity
-            .cloned()
-            .or_else(|| {
-                crate::fs_safety::capture_namespace_identity_only(
-                    Path::new(&operation.source_path),
-                    context.cancel_flag,
-                )
-                .ok()
-            })
-            .ok_or_else(|| FileMutationError::Validation("transfer_identity_unavailable".into()))?;
-        // Earlier child moves intentionally change the directory modification
-        // time. The directory file ID remains the authority; the empty check
-        // was repeated immediately before this operation.
+        let source = Path::new(&operation.source_path);
+        let mut identity =
+            crate::fs_safety::capture_namespace_identity_only(source, context.cancel_flag)
+                .map_err(|error| match error {
+                    crate::fs_safety::IdentityError::Cancelled => {
+                        FileMutationError::Atomic(crate::fs_safety::AtomicMoveError::Cancelled)
+                    }
+                    error => FileMutationError::Validation(error.to_string()),
+                })?;
+        if context.expected_identity.is_some_and(|expected| {
+            expected.platform_file_id != identity.platform_file_id
+                || expected.platform_volume_id != identity.platform_volume_id
+        }) {
+            return Err(FileMutationError::Validation(
+                "transfer_source_changed".into(),
+            ));
+        }
+        // Child moves intentionally change directory metadata. Capture its
+        // current namespace size while retaining the preview-bound file ID.
+        revalidate(operation).map_err(FileMutationError::Validation)?;
         identity.modified_ns = None;
         identity.sample_hash = None;
         identity.full_hash = None;

@@ -9,7 +9,7 @@ function request(): TransferOrchestrationRequest {
     destinationDirectory: "/tmp/files",
     newName: "notes.txt",
     skip: [],
-    keepBoth: []
+    keepBoth: [], overwrite: []
   };
 }
 

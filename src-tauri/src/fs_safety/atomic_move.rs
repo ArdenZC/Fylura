@@ -51,6 +51,8 @@ pub struct AtomicMoveOutcome {
 pub enum AtomicMoveError {
     #[error("target_exists")]
     TargetExists,
+    #[error("transfer_target_changed")]
+    TargetIdentityChanged,
     #[error("source_missing")]
     SourceMissing,
     #[error("source_changed")]
@@ -1157,6 +1159,31 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
     observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
     actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_replace_with_expected_target_identity(
+        source,
+        target,
+        expected_source_identity,
+        None,
+        planned_source_claim_path,
+        cancel,
+        operation_id,
+        observer,
+        actual_path_observer,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn atomic_replace_with_expected_target_identity(
+    source: &Path,
+    target: &Path,
+    expected_source_identity: Option<&identity::ExpectedFileIdentity>,
+    expected_target_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_source_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    operation_id: &str,
+    observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    actual_path_observer: Option<&mut crate::fs_safety::ActualPathObserver<'_>>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
     #[cfg(target_os = "macos")]
     {
         crate::platform::macos::strategy::with_mutation_strategy(
@@ -1169,6 +1196,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
                     coordinated_source,
                     coordinated_target,
                     expected_source_identity,
+                    expected_target_identity,
                     planned_source_claim_path,
                     cancel,
                     operation_id,
@@ -1184,6 +1212,7 @@ pub(crate) fn atomic_replace_with_claim_path_and_observer_with_actual_paths(
             source,
             target,
             expected_source_identity,
+            expected_target_identity,
             planned_source_claim_path,
             cancel,
             operation_id,
@@ -1198,6 +1227,7 @@ fn atomic_replace_uncoordinated(
     source: &Path,
     target: &Path,
     expected_source_identity: Option<&identity::ExpectedFileIdentity>,
+    expected_target_identity: Option<&identity::ExpectedFileIdentity>,
     planned_source_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
     _operation_id: &str,
@@ -1236,6 +1266,11 @@ fn atomic_replace_uncoordinated(
     }
     let target_identity =
         identity::capture_namespace_identity(target, cancel).map_err(map_identity_error)?;
+    if expected_target_identity
+        .is_some_and(|expected| !identity::identity_matches(expected, &target_identity))
+    {
+        return Err(AtomicMoveError::TargetIdentityChanged);
+    }
     // The backup name must be derivable from the durable operation paths after
     // a restart.  The preview operation id is not persisted independently of
     // the batch log, so including it here would make replacement recovery

@@ -112,17 +112,17 @@ describe("history restore truth model", () => {
     expect(resolveHistoryBatchState([log("first"), log("failed", { status: "failed", can_restore: false })])).toBe("partial");
   });
 
-  it("permits shortcut undo only for a complete, wholly restorable operation batch", () => {
+  it("permits shortcut undo only after complete-batch validation and restores the eligible subset", () => {
     const first = log("latest", { batch_id: "latest" });
     const second = log("latest-second", { batch_id: "latest" });
     const complete = { batch_id: "latest", expected_count: 2, actual_count: 2, is_complete: true, logs: [first, second] };
-    expect(operationBatchUndoEligibility(complete)).toEqual({ executable: true, reason: null, blockedCount: 0 });
-    expect(operationBatchUndoEligibility({ ...complete, is_complete: false })).toEqual({ executable: false, reason: "incomplete", blockedCount: 0 });
+    expect(operationBatchUndoEligibility(complete)).toMatchObject({ executable: true, reason: null, blockedCount: 0, failedCount: 0, succeededCount: 2, eligible: [first, second] });
+    expect(operationBatchUndoEligibility({ ...complete, is_complete: false })).toMatchObject({ executable: false, reason: "incomplete", blockedCount: 0, eligible: [] });
 
     const blocked = { ...second, can_restore: false };
-    expect(operationBatchUndoEligibility({ ...complete, logs: [first, blocked] })).toEqual({ executable: false, reason: "unrestorable", blockedCount: 1 });
+    expect(operationBatchUndoEligibility({ ...complete, logs: [first, blocked] })).toMatchObject({ executable: true, reason: null, blockedCount: 1, eligible: [first] });
     const restored: OperationLog = { ...first, can_restore: false, restore_status: "restored" };
-    expect(operationBatchUndoEligibility({ ...complete, logs: [restored, second] })).toEqual({ executable: false, reason: "unrestorable", blockedCount: 1 });
+    expect(operationBatchUndoEligibility({ ...complete, logs: [restored, second] })).toMatchObject({ executable: true, reason: null, blockedCount: 1, eligible: [second] });
   });
 
   it("keeps pending and explicit no-op states distinct from generic skipped work", () => {

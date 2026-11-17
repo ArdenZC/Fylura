@@ -37,6 +37,17 @@ fn preview(
     both: Vec<String>,
     skip: Vec<String>,
 ) -> TransferPreview {
+    preview_with_overwrite(runtime, ids, target, action, both, skip, vec![])
+}
+fn preview_with_overwrite(
+    runtime: &FileWorkspaceRuntime,
+    ids: Vec<String>,
+    target: &Path,
+    action: TransferAction,
+    both: Vec<String>,
+    skip: Vec<String>,
+    overwrite: Vec<String>,
+) -> TransferPreview {
     runtime
         .preview_transfer(TransferPreviewRequest {
             destination_browse: None,
@@ -47,6 +58,7 @@ fn preview(
             new_name: None,
             new_names: Default::default(),
             keep_both: both,
+            overwrite,
             skip,
         })
         .unwrap()
@@ -289,6 +301,322 @@ fn u1_conflict_keep_both_skip_and_cancel_do_not_overwrite() {
     assert!(!target.join("original (2).txt").exists());
     assert!(f.source.exists());
     runtime.dispose();
+}
+
+#[test]
+fn fl42_explicit_overwrite_supports_copy_move_duplicate_and_restore() {
+    for action in [
+        TransferAction::Copy,
+        TransferAction::Move,
+        TransferAction::Duplicate,
+    ] {
+        let f = Fixture::new();
+        let runtime = runtime(&f);
+        let id = capture(&runtime, &f)[0].id.clone();
+        let destination = f.root.join("overwrite-target");
+        fs::create_dir(&destination).unwrap();
+        let target = destination.join(f.source.file_name().unwrap());
+        fs::write(&target, b"old destination bytes").unwrap();
+        let plan = preview_with_overwrite(
+            &runtime,
+            vec![id.clone()],
+            &destination,
+            action,
+            vec![],
+            vec![],
+            vec![id],
+        );
+        assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+        let request = runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap();
+        let result = execute_moves_with_persistence(&f.db, request).unwrap();
+        assert_eq!(result.logs.len(), 1);
+        assert_eq!(result.logs[0].status, "success", "{:?}", result.logs[0]);
+        assert!(result.logs[0].can_restore, "{:?}", result.logs[0]);
+        assert_eq!(fs::read(&target).unwrap(), b"owned fixture");
+        assert_eq!(f.source.exists(), action != TransferAction::Move);
+
+        let app_data = f.root.join("app-data");
+        fs::create_dir(&app_data).unwrap();
+        let mut logs = result.logs;
+        logs.reverse();
+        let restored = restore_moves_with_persistence_with_app_data(
+            &f.db,
+            RestoreMovesRequest { logs },
+            Arc::new(AtomicBool::new(false)),
+            &NoopOperationProgressEmitter,
+            Some(app_data),
+        )
+        .unwrap();
+        assert_eq!(restored.restored, 1, "{:?}", restored.logs);
+        assert_eq!(restored.logs[0].restore_status, "restored");
+        assert_eq!(fs::read(&target).unwrap(), b"old destination bytes");
+        assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
+        runtime.dispose();
+    }
+}
+
+#[test]
+fn fl42_directory_overwrite_merges_and_undo_restores_only_changed_entries() {
+    for action in [TransferAction::Copy, TransferAction::Move] {
+        let f = Fixture::new();
+        let runtime = runtime(&f);
+        let source = f.root.join("merge-source");
+        fs::create_dir_all(source.join("nested")).unwrap();
+        fs::write(source.join("same.txt"), b"incoming root").unwrap();
+        fs::write(source.join("new.txt"), b"new root").unwrap();
+        fs::write(source.join("nested/same.txt"), b"incoming nested").unwrap();
+        let ticket = runtime
+            .capture_transfer(CaptureRequest {
+                refs: vec![],
+                selection: None,
+                release_ids: vec![],
+                external_paths: vec![normalize_path(&source)],
+            })
+            .unwrap()
+            .remove(0);
+        let destination = f.root.join("merge-destination");
+        let target_root = destination.join("merge-source");
+        fs::create_dir_all(target_root.join("nested")).unwrap();
+        fs::write(target_root.join("same.txt"), b"old root").unwrap();
+        fs::write(target_root.join("extra.txt"), b"keep root extra").unwrap();
+        fs::write(target_root.join("nested/same.txt"), b"old nested").unwrap();
+        fs::write(target_root.join("nested/extra.txt"), b"keep nested extra").unwrap();
+
+        let plan = preview_with_overwrite(
+            &runtime,
+            vec![ticket.id.clone()],
+            &destination,
+            action,
+            vec![],
+            vec![],
+            vec![ticket.id],
+        );
+        assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+        let request = runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap();
+        let app_data = f.root.join("app-data");
+        fs::create_dir(&app_data).unwrap();
+        let result = execute_moves_with_persistence_with_progress_and_app_data(
+            &f.db,
+            request,
+            Arc::new(AtomicBool::new(false)),
+            &NoopOperationProgressEmitter,
+            Some(app_data.clone()),
+            None,
+        )
+        .unwrap();
+        assert!(!result.logs.is_empty());
+        assert!(
+            result.logs.iter().all(|log| log.status == "success"),
+            "{:?}",
+            result.logs
+        );
+        assert_eq!(
+            fs::read(target_root.join("same.txt")).unwrap(),
+            b"incoming root"
+        );
+        assert_eq!(fs::read(target_root.join("new.txt")).unwrap(), b"new root");
+        assert_eq!(
+            fs::read(target_root.join("extra.txt")).unwrap(),
+            b"keep root extra"
+        );
+        assert_eq!(
+            fs::read(target_root.join("nested/same.txt")).unwrap(),
+            b"incoming nested"
+        );
+        assert_eq!(
+            fs::read(target_root.join("nested/extra.txt")).unwrap(),
+            b"keep nested extra"
+        );
+        assert_eq!(source.exists(), action == TransferAction::Copy);
+
+        let mut logs = result.logs;
+        logs.reverse();
+        let restored = restore_moves_with_persistence_with_app_data(
+            &f.db,
+            RestoreMovesRequest { logs },
+            Arc::new(AtomicBool::new(false)),
+            &NoopOperationProgressEmitter,
+            Some(app_data),
+        )
+        .unwrap();
+        assert_eq!(
+            restored.restored,
+            restored.logs.len(),
+            "{:?}",
+            restored.logs
+        );
+        assert!(
+            restored
+                .logs
+                .iter()
+                .all(|log| log.restore_status == "restored"),
+            "{:?}",
+            restored.logs
+        );
+        assert_eq!(fs::read(target_root.join("same.txt")).unwrap(), b"old root");
+        assert!(!target_root.join("new.txt").exists());
+        assert_eq!(
+            fs::read(target_root.join("extra.txt")).unwrap(),
+            b"keep root extra"
+        );
+        assert_eq!(
+            fs::read(target_root.join("nested/same.txt")).unwrap(),
+            b"old nested"
+        );
+        assert_eq!(
+            fs::read(target_root.join("nested/extra.txt")).unwrap(),
+            b"keep nested extra"
+        );
+        assert!(source.join("same.txt").exists());
+        assert!(source.join("nested/same.txt").exists());
+        runtime.dispose();
+    }
+}
+
+#[test]
+fn fl42_overwrite_rejects_type_mismatch_and_target_identity_changes() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let id = capture(&runtime, &f)[0].id.clone();
+    let destination = f.root.join("mismatch-destination");
+    fs::create_dir(&destination).unwrap();
+    let target = destination.join(f.source.file_name().unwrap());
+    fs::create_dir(&target).unwrap();
+    let mismatch = preview_with_overwrite(
+        &runtime,
+        vec![id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+        vec![id.clone()],
+    );
+    assert_eq!(
+        mismatch.rows[0].error.as_deref(),
+        Some("transfer_conflict_type_mismatch")
+    );
+    assert!(f.source.exists());
+    fs::remove_dir(&target).unwrap();
+    fs::write(&target, b"original destination").unwrap();
+
+    let stale = preview_with_overwrite(
+        &runtime,
+        vec![id.clone()],
+        &destination,
+        TransferAction::Copy,
+        vec![],
+        vec![],
+        vec![id],
+    );
+    fs::remove_file(&target).unwrap();
+    fs::write(&target, b"replacement after choice").unwrap();
+    assert!(runtime
+        .take_transfer(TransferExecuteRequest {
+            preview_id: stale.id,
+            confirmed: true,
+        })
+        .is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"replacement after choice");
+    assert!(f.source.exists());
+    runtime.dispose();
+}
+
+#[test]
+fn fl42_copy_undo_refuses_to_remove_a_modified_destination() {
+    for action in [TransferAction::Copy, TransferAction::Duplicate] {
+        let f = Fixture::new();
+        let runtime = runtime(&f);
+        let id = capture(&runtime, &f)[0].id.clone();
+        let destination = f.root.join("copy-undo-destination");
+        fs::create_dir(&destination).unwrap();
+        let plan = preview(&runtime, vec![id], &destination, action, vec![], vec![]);
+        let result = execute_moves_with_persistence(
+            &f.db,
+            runtime
+                .take_transfer(TransferExecuteRequest {
+                    preview_id: plan.id,
+                    confirmed: true,
+                })
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.logs[0].status, "success");
+        assert!(result.logs[0].can_restore);
+        let copied_target = PathBuf::from(&result.logs[0].path_after);
+        fs::write(&copied_target, b"modified by the user after copying").unwrap();
+
+        let app_data = f.root.join("app-data");
+        fs::create_dir(&app_data).unwrap();
+        let restored = restore_moves_with_persistence_with_app_data(
+            &f.db,
+            RestoreMovesRequest { logs: result.logs },
+            Arc::new(AtomicBool::new(false)),
+            &NoopOperationProgressEmitter,
+            Some(app_data),
+        )
+        .unwrap();
+        assert_eq!(restored.restored, 0);
+        assert_eq!(restored.logs[0].restore_status, "manual_review");
+        assert_eq!(
+            fs::read(&copied_target).unwrap(),
+            b"modified by the user after copying"
+        );
+        assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
+        runtime.dispose();
+    }
+}
+
+#[test]
+fn fl42_copy_and_duplicate_undo_removes_only_the_new_target() {
+    for action in [TransferAction::Copy, TransferAction::Duplicate] {
+        let f = Fixture::new();
+        let runtime = runtime(&f);
+        let id = capture(&runtime, &f)[0].id.clone();
+        let destination = f.root.join("copy-undo-destination");
+        fs::create_dir(&destination).unwrap();
+        let plan = preview(&runtime, vec![id], &destination, action, vec![], vec![]);
+        let result = execute_moves_with_persistence(
+            &f.db,
+            runtime
+                .take_transfer(TransferExecuteRequest {
+                    preview_id: plan.id,
+                    confirmed: true,
+                })
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.logs[0].status, "success");
+        assert!(result.logs[0].can_restore);
+        let copied_target = PathBuf::from(&result.logs[0].path_after);
+        assert_eq!(fs::read(&copied_target).unwrap(), b"owned fixture");
+        assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
+
+        let app_data = f.root.join("app-data");
+        fs::create_dir(&app_data).unwrap();
+        let restored = restore_moves_with_persistence_with_app_data(
+            &f.db,
+            RestoreMovesRequest { logs: result.logs },
+            Arc::new(AtomicBool::new(false)),
+            &NoopOperationProgressEmitter,
+            Some(app_data),
+        )
+        .unwrap();
+        assert_eq!(restored.restored, 1, "{:?}", restored.logs);
+        assert_eq!(restored.logs[0].restore_status, "restored");
+        assert!(!copied_target.exists());
+        assert_eq!(fs::read(&f.source).unwrap(), b"owned fixture");
+        runtime.dispose();
+    }
 }
 
 #[test]
@@ -2183,6 +2511,7 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
             new_name: None,
             new_names: Default::default(),
             keep_both: vec![],
+            overwrite: vec![],
             skip: vec![],
         })
         .unwrap();
@@ -2209,6 +2538,7 @@ fn fl20_browse_folder_row_is_a_current_backend_resolved_destination() {
         new_name: None,
         new_names: Default::default(),
         keep_both: vec![],
+        overwrite: vec![],
         skip: vec![],
     });
     assert!(stale.is_err());
@@ -2232,6 +2562,7 @@ fn preview_named(
             new_name: new_name.map(str::to_string),
             new_names: Default::default(),
             keep_both: vec![],
+            overwrite: vec![],
             skip: vec![],
         })
         .unwrap()
@@ -2309,6 +2640,7 @@ fn fl24_create_folder_uses_preview_confirm_and_non_restorable_journal() {
         new_name: Some(name.into()),
         new_names: Default::default(),
         keep_both: vec![],
+        overwrite: vec![],
         skip: vec![],
     };
     let plan = runtime.preview_transfer(request("created-folder")).unwrap();
@@ -2377,6 +2709,7 @@ fn fl25_create_empty_file_uses_preview_confirm_and_never_overwrites() {
         new_name: Some(name.into()),
         new_names: Default::default(),
         keep_both: vec![],
+        overwrite: vec![],
         skip: vec![],
     };
 
@@ -2526,6 +2859,7 @@ fn fl24_batch_rename_uses_ticket_identity_and_journal_restore() {
             new_name: None,
             new_names: names,
             keep_both: vec![],
+            overwrite: vec![],
             skip: vec![],
         })
         .unwrap();
@@ -2723,6 +3057,7 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
             new_name: None,
             new_names: Default::default(),
             keep_both: vec![],
+            overwrite: vec![],
             skip: vec![],
         })
         .unwrap();
@@ -2741,6 +3076,7 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
             new_name: Some("child".into()),
             new_names: Default::default(),
             keep_both: vec![],
+            overwrite: vec![],
             skip: vec![],
         })
         .err()
@@ -2826,6 +3162,7 @@ fn transfer_destination_browse_binding_rejects_another_directory_or_rebound_root
         new_name: None,
         new_names: Default::default(),
         keep_both: vec![],
+        overwrite: vec![],
         skip: vec![],
     };
     assert!(runtime.preview_transfer(request(&destination)).is_ok());

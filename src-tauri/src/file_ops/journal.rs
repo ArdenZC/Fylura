@@ -39,16 +39,35 @@ pub(crate) fn apply_target_fingerprint(
 pub(crate) fn refresh_replacement_journal_identities(
     log: &mut OperationLogDto,
 ) -> Result<(), String> {
-    if log.operation_type != "replace" {
+    if !matches!(
+        log.operation_type.as_str(),
+        "replace" | "copy_replace" | "duplicate_replace"
+    ) {
         return Ok(());
     }
-    let published = file_operation_fingerprint(Path::new(&log.path_after), "replace")?;
+    let copy_replacement = matches!(
+        log.operation_type.as_str(),
+        "copy_replace" | "duplicate_replace"
+    );
+    let published = if copy_replacement {
+        file_namespace_fingerprint(Path::new(&log.path_after))?
+    } else {
+        file_operation_fingerprint(Path::new(&log.path_after), "replace")?
+    };
     let backup_path = crate::fs_safety::atomic_move::replacement_backup_path(
         Path::new(&log.path_before),
         Path::new(&log.path_after),
     );
-    let backup = file_operation_fingerprint(&backup_path, "replace")?;
+    let backup = if copy_replacement {
+        file_namespace_fingerprint(&backup_path)?
+    } else {
+        file_operation_fingerprint(&backup_path, "replace")?
+    };
+    let expected_copy_hash = log.source_full_hash.clone();
     apply_source_fingerprint(log, &published);
+    if copy_replacement {
+        log.source_full_hash = expected_copy_hash;
+    }
     apply_target_fingerprint(log, &backup);
     Ok(())
 }
@@ -129,7 +148,13 @@ pub(crate) fn persist_pending_operation_journal(
             })?;
             let needs_source_claim = !matches!(
                 operation.operation_type.as_str(),
-                "copy" | "duplicate" | "create_directory" | "create_file" | "move_to_system_trash"
+                "copy"
+                    | "duplicate"
+                    | "copy_replace"
+                    | "duplicate_replace"
+                    | "create_directory"
+                    | "create_file"
+                    | "move_to_system_trash"
             );
             let claim_path = needs_source_claim
                 .then(|| {
@@ -304,14 +329,18 @@ pub(crate) fn make_operation_log(
     let success = status == "success";
     let system_trash = operation.operation_type == "move_to_system_trash"
         || operation.operation_type == "move_to_trash" && actual_target_path == "Recycle Bin";
-    let source_preserving_copy = matches!(operation.operation_type.as_str(), "copy" | "duplicate");
+    let source_preserving_copy = matches!(
+        operation.operation_type.as_str(),
+        "copy" | "duplicate" | "copy_replace" | "duplicate_replace"
+    );
     let irreversible_operation = operation.operation_type == "permanent_delete";
     let can_restore = success
         && !system_trash
         && !source_preserving_copy
         && !irreversible_operation
         && operation.operation_type != "create_directory"
-        && operation.operation_type != "create_file";
+        && operation.operation_type != "create_file"
+        && operation.operation_type != "no_op";
     let restore_status = if system_trash && success {
         "unavailable"
     } else if system_trash && status == "manual_review" {
@@ -326,10 +355,23 @@ pub(crate) fn make_operation_log(
     } else {
         None
     };
+    let path_before = if matches!(
+        operation.operation_type.as_str(),
+        "copy_replace" | "duplicate_replace"
+    ) {
+        normalize_path(&crate::file_ops::manual_transfer::copy_replace_staging_path(operation))
+    } else {
+        operation.source_path.clone()
+    };
+    let operation_type = if operation.operation_type == "move_empty_directory_to_trash" {
+        "move_to_trash"
+    } else {
+        operation.operation_type.as_str()
+    };
     OperationLogDto {
         id: format!("{batch_id}-{index}-{}", operation.id),
         batch_id: batch_id.to_string(),
-        operation_type: operation.operation_type.clone(),
+        operation_type: operation_type.to_string(),
         source_path: operation.source_path.clone(),
         target_path: actual_target_path.clone(),
         old_name: operation.old_name.clone(),
@@ -338,7 +380,7 @@ pub(crate) fn make_operation_log(
         error_message,
         created_at: created_at.to_string(),
         can_undo: can_restore,
-        path_before: operation.source_path.clone(),
+        path_before,
         path_after: actual_target_path,
         name_before: operation.old_name.clone(),
         name_after: operation.new_name.clone(),

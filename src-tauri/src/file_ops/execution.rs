@@ -15,7 +15,10 @@ fn update_operation_log_with_actual_paths(
     paths: &ActualOperationPaths,
 ) {
     let source = normalize_path(&paths.source);
-    log.source_path = source.clone();
+    let copy_replacement = matches!(operation_type, "copy_replace" | "duplicate_replace");
+    if !copy_replacement {
+        log.source_path = source.clone();
+    }
     log.path_before = source;
     log.name_before = paths
         .source
@@ -50,13 +53,50 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
     app_data_dir: Option<PathBuf>,
     caller_batch_id: Option<String>,
 ) -> Result<ExecuteMovesResult, String> {
+    execute_moves_with_persistence_and_expected_identity(
+        db,
+        request,
+        cancel_flag,
+        emitter,
+        app_data_dir,
+        caller_batch_id,
+        None,
+    )
+}
+
+pub(crate) fn execute_moves_with_persistence_and_expected_identity(
+    db: &Database,
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+    app_data_dir: Option<PathBuf>,
+    caller_batch_id: Option<String>,
+    expected_identity: Option<crate::fs_safety::ExpectedFileIdentity>,
+) -> Result<ExecuteMovesResult, String> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
     let operations = request.operations.clone();
     let batch_id = caller_batch_id.unwrap_or_else(|| new_job_id("operation-batch"));
     let created_at = current_timestamp_ms().to_string();
-    let prepared_operations =
+    let mut prepared_operations =
         persist_pending_operation_journal(db, &request, &batch_id, &created_at)?;
+    if let Some(expected_identity) = expected_identity {
+        if operations.len() != 1 {
+            return Err("operation_identity_override_requires_single_operation".into());
+        }
+        let operation = &operations[0];
+        let prepared = prepared_operations
+            .get_mut(&operation.id)
+            .ok_or("operation_preview_stale")?;
+        prepared.fingerprint = super::FileIdentityFingerprint {
+            size: expected_identity.size,
+            modified_ns: expected_identity.modified_ns,
+            platform_volume_id: expected_identity.platform_volume_id,
+            platform_file_id: expected_identity.platform_file_id,
+            quick_hash: expected_identity.sample_hash,
+            full_hash: expected_identity.full_hash,
+        };
+    }
     let mut result = execute_moves_core_with_identity(
         request,
         cancel_flag,
@@ -89,7 +129,12 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
         } else {
             PathBuf::from(&log.path_after)
         };
-        if !(cfg!(windows) && matches!(operation.operation_type.as_str(), "copy" | "duplicate")) {
+        if !(matches!(
+            operation.operation_type.as_str(),
+            "copy_replace" | "duplicate_replace"
+        ) || cfg!(windows)
+            && matches!(operation.operation_type.as_str(), "copy" | "duplicate"))
+        {
             if let Ok(target_fingerprint) =
                 file_operation_fingerprint(&identity_path, &operation.operation_type)
             {
@@ -120,7 +165,58 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
                 }
             }
         }
-        if cfg!(target_os = "macos") && operation.operation_type == "replace" {
+        if matches!(operation.operation_type.as_str(), "copy" | "duplicate") {
+            let target = Path::new(&log.path_after);
+            match file_namespace_fingerprint(target) {
+                Ok(identity) => {
+                    log.source_size = Some(identity.size);
+                    log.source_modified_ns = identity.modified_ns.map(|value| value.to_string());
+                    log.source_platform_file_id = identity.platform_file_id;
+                    log.source_platform_volume_id = identity.platform_volume_id;
+                    if target.is_dir() {
+                        match crate::file_ops::manual_transfer::directory_tree_snapshot(target)
+                            .and_then(|tree| {
+                                crate::file_ops::manual_transfer::encode_directory_tree_journal_fingerprint(&tree)
+                                    .ok_or_else(|| "directory tree fingerprint encoding failed".into())
+                            })
+                        {
+                            Ok(tree) => log.target_full_hash = Some(tree),
+                            Err(error) => {
+                                log.status = "manual_review".into();
+                                log.error_message = Some(format!(
+                                    "target_committed_identity_unreadable: copied directory proof could not be captured: {error}"
+                                ));
+                            }
+                        }
+                    }
+                    log.can_restore = log.source_platform_file_id.is_some()
+                        && log.source_platform_volume_id.is_some()
+                        && (target.is_file()
+                            || crate::file_ops::manual_transfer::directory_tree_journal_fingerprint(
+                                log.target_full_hash.as_deref(),
+                            )
+                            .is_some());
+                    log.can_undo = log.can_restore;
+                    if !log.can_restore {
+                        log.restore_error = Some("Copied target identity is unavailable.".into());
+                    }
+                }
+                Err(error) => {
+                    log.status = "manual_review".into();
+                    log.can_undo = false;
+                    log.can_restore = false;
+                    log.error_message = Some(format!(
+                        "target_committed_identity_unreadable: copied target identity could not be captured: {error}"
+                    ));
+                }
+            }
+        }
+        if (cfg!(target_os = "macos") && operation.operation_type == "replace")
+            || matches!(
+                operation.operation_type.as_str(),
+                "copy_replace" | "duplicate_replace"
+            )
+        {
             if let Err(error) = refresh_replacement_journal_identities(log) {
                 log.status = "manual_review".to_string();
                 log.can_undo = false;
@@ -129,6 +225,23 @@ pub(crate) fn execute_moves_with_persistence_with_progress_and_app_data(
                 log.error_message = Some(format!(
                     "target_committed_identity_unreadable: replacement identities could not be captured: {error}"
                 ));
+            }
+            if matches!(
+                operation.operation_type.as_str(),
+                "copy_replace" | "duplicate_replace"
+            ) && log.status == "success"
+            {
+                log.can_restore = log.source_size.is_some()
+                    && log.source_platform_file_id.is_some()
+                    && log.source_platform_volume_id.is_some()
+                    && log.target_platform_file_id.is_some()
+                    && log.target_platform_volume_id.is_some();
+                log.can_undo = log.can_restore;
+                if !log.can_restore {
+                    log.restore_error = Some(
+                        "Copied target or replaced destination identity is unavailable.".into(),
+                    );
+                }
             }
         }
         if log.status != "success" {
@@ -261,8 +374,12 @@ fn execute_moves_core_with_identity(
                                     })?;
                                     log.target_full_hash = Some(tree);
                                 }
-                                if cfg!(target_os = "macos")
+                                if (cfg!(target_os = "macos")
                                     && operation.operation_type == "replace"
+                                    || matches!(
+                                        operation.operation_type.as_str(),
+                                        "copy_replace" | "duplicate_replace"
+                                    ))
                                     && matches!(
                                         phase.as_str(),
                                         "target_committed" | "source_cleanup_pending" | "completed"

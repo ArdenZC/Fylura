@@ -801,6 +801,7 @@ pub(crate) fn replace_file_with_identity(
     source_path: String,
     target_path: String,
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    expected_target_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     cancel_flag: Option<&AtomicBool>,
     planned_claim_path: Option<&Path>,
     operation_id: &str,
@@ -820,10 +821,11 @@ pub(crate) fn replace_file_with_identity(
     }
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    crate::fs_safety::atomic_move::atomic_replace_with_claim_path_and_observer_with_actual_paths(
+    crate::fs_safety::atomic_move::atomic_replace_with_expected_target_identity(
         &source,
         &target,
         expected_identity,
+        expected_target_identity,
         planned_claim_path,
         cancel_flag,
         operation_id,

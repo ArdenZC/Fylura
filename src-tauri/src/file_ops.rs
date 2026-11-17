@@ -775,6 +775,7 @@ pub async fn restore_moves<R: Runtime>(
         );
     }
     let request = RestoreMovesRequest { logs };
+    let app_data_dir = app.path().app_data_dir().ok();
     let paths = request
         .logs
         .iter()
@@ -786,7 +787,13 @@ pub async fn restore_moves<R: Runtime>(
         let _guard = guard;
         let emitter = TauriOperationProgressEmitter::new(app.clone());
         reconciliation::with_reconciliation_wake(&app, &db, &paths, || {
-            restore_moves_with_persistence_with_progress(&db, request, cancel_flag, &emitter)
+            restore_moves_with_persistence_with_app_data(
+                &db,
+                request,
+                cancel_flag,
+                &emitter,
+                app_data_dir,
+            )
         })
     })
     .await

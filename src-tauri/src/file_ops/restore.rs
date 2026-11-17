@@ -19,6 +19,16 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
     cancel_flag: Arc<AtomicBool>,
     emitter: &impl OperationProgressEmitter,
 ) -> Result<RestoreMovesResult, String> {
+    restore_moves_with_persistence_with_app_data(db, request, cancel_flag, emitter, None)
+}
+
+pub(crate) fn restore_moves_with_persistence_with_app_data(
+    db: &Database,
+    request: RestoreMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+    app_data_dir: Option<PathBuf>,
+) -> Result<RestoreMovesResult, String> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
     if request.logs.iter().any(restore_requires_reconciliation) {
@@ -152,6 +162,14 @@ pub(crate) fn restore_moves_with_persistence_with_progress(
             };
         let result = if is_operation_cancelled(&cancel_flag) {
             mark_restore_canceled(log)
+        } else if is_copy_operation_log(log) {
+            restore_copy_operation_with_persistence(
+                db,
+                log,
+                app_data_dir.as_deref(),
+                &cancel_flag,
+                Some(&mut phase_observer),
+            )
         } else {
             restore_operation_log_with_observer(
                 log,
@@ -301,6 +319,12 @@ pub(crate) fn restore_operation_log_with_observer(
     if log.status != "success" {
         return mark_restore_unavailable(log, "Only successful operations can be restored.");
     }
+    if is_copy_operation_log(log) {
+        return mark_restore_unavailable(
+            log,
+            "Copy Undo requires the persisted Safe Trash restore path.",
+        );
+    }
     if !log.can_restore || log.restore_status == "restored" {
         return mark_restore_unavailable(log, "This operation is no longer restorable.");
     }
@@ -420,8 +444,198 @@ pub(crate) fn restore_operation_log_with_observer(
     restored
 }
 
+fn restore_copy_operation_with_persistence(
+    db: &Database,
+    log: &OperationLogDto,
+    app_data_dir: Option<&Path>,
+    cancel_flag: &Arc<AtomicBool>,
+    mut phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> OperationLogDto {
+    if log.status != "success" || !log.can_restore || log.restore_status == "restored" {
+        return mark_restore_unavailable(log, "This Copy operation is no longer undoable.");
+    }
+    if restore_requires_reconciliation(log) {
+        return mark_restore_manual_review(
+            log,
+            "restore_pending_reconciliation: Copy Undo has an active Safe Trash transaction; inspect both operation records before retrying.",
+        );
+    }
+    if let Err(error) = verify_directory_restore_tree(log, Path::new(&log.path_after)) {
+        return mark_restore_manual_review(log, error);
+    }
+    if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
+        return mark_restore_manual_review(log, failure.message());
+    }
+    let Some(expected_copy_identity) = expected_restore_identity_from_log(log) else {
+        return mark_restore_manual_review(
+            log,
+            "Copy Undo identity is incomplete; the destination was preserved.",
+        );
+    };
+    if is_operation_cancelled(cancel_flag) {
+        return mark_restore_canceled(log);
+    }
+
+    let source = Path::new(&log.path_after);
+    let parent = match source.parent() {
+        Some(parent) => parent,
+        None => return mark_restore_failed(log, "Copied target has no parent directory."),
+    };
+    let trash_operation = match make_operation(
+        super::RECOVERY_ACTION_FILE_ID,
+        source,
+        parent,
+        source,
+        TransferAction::Trash,
+    ) {
+        Ok(operation) => operation,
+        Err(error) => return mark_restore_failed(log, error),
+    };
+    if let Some(observer) = phase_observer.as_deref_mut() {
+        if observer(crate::fs_safety::FileOperationEvent::Phase(
+            "copying".into(),
+        ))
+        .is_err()
+        {
+            return mark_restore_manual_review(
+                log,
+                "Copy Undo could not persist its active phase.",
+            );
+        }
+    }
+    let trash_result = execute_moves_with_persistence_and_expected_identity(
+        db,
+        ExecuteMovesRequest {
+            operations: vec![trash_operation],
+        },
+        Arc::clone(cancel_flag),
+        &NoopOperationProgressEmitter,
+        app_data_dir.map(Path::to_path_buf),
+        None,
+        Some(expected_copy_identity),
+    );
+    let trash_log = match trash_result {
+        Ok(result) => match result.logs.into_iter().next() {
+            Some(trash_log) if trash_log.status == "success" => trash_log,
+            Some(trash_log) if trash_log.status == "manual_review" => {
+                return mark_restore_manual_review(
+                    log,
+                    trash_log
+                        .error_message
+                        .unwrap_or_else(|| "Safe Trash needs manual review.".into()),
+                )
+            }
+            Some(trash_log)
+                if trash_log.status == "skipped" && is_operation_cancelled(cancel_flag) =>
+            {
+                if operation_restore_identity_matches(log, Path::new(&log.path_after)) == Ok(true) {
+                    let mut canceled = log.clone();
+                    canceled.restore_phase = "prepared".into();
+                    return mark_restore_canceled(&canceled);
+                }
+                return mark_restore_manual_review(
+                    log,
+                    "Copy Undo was canceled, but the copied target identity could not be confirmed in place.",
+                );
+            }
+            Some(trash_log) => {
+                let mut failed = log.clone();
+                if operation_restore_identity_matches(log, Path::new(&log.path_after)) == Ok(true) {
+                    failed.restore_phase = "prepared".into();
+                } else {
+                    return mark_restore_manual_review(
+                        log,
+                        "Copy Undo failed and the copied target identity could not be confirmed in place.",
+                    );
+                }
+                return mark_restore_failed(
+                    &failed,
+                    trash_log.error_message.unwrap_or_else(|| {
+                        "Could not move the copied target to Safe Trash.".into()
+                    }),
+                );
+            }
+            None => {
+                return mark_restore_manual_review(log, "Safe Trash returned no operation record.")
+            }
+        },
+        Err(error) => {
+            return mark_restore_manual_review(
+                log,
+                format!("Copy Undo Safe Trash outcome is uncertain: {error}"),
+            )
+        }
+    };
+    let _safe_trash_target = trash_log.path_after.clone();
+    if let Some(observer) = phase_observer.as_deref_mut() {
+        if observer(crate::fs_safety::FileOperationEvent::Phase(
+            "target_committed".into(),
+        ))
+        .is_err()
+        {
+            return mark_restore_manual_review(
+                log,
+                "Copied target reached Safe Trash but the Copy Undo journal could not be updated.",
+            );
+        }
+    }
+
+    if is_copy_replacement_log(log) {
+        let backup = replacement_backup_path_for_log(log);
+        if let Err(failure) = replacement_backup_identity_result(log, &backup) {
+            return mark_restore_manual_review(log, failure.message());
+        }
+        if std::fs::symlink_metadata(&log.path_after).is_ok() {
+            return mark_restore_manual_review(
+                log,
+                "The old destination cannot be restored because a new item now occupies its path.",
+            );
+        }
+        let backup_identity =
+            match crate::fs_safety::capture_namespace_identity(&backup, cancel_flag) {
+                Ok(identity) => identity,
+                Err(error) => {
+                    return mark_restore_manual_review(
+                        log,
+                        format!("Replacement backup could not be verified: {error}"),
+                    )
+                }
+            };
+        let backup_claim = match plan_restore_claim_path(&backup, &format!("{}-backup", log.id)) {
+            Ok(path) => path,
+            Err(error) => return mark_restore_manual_review(log, error),
+        };
+        if let Err(error) = validate_restore_claim_path(&backup, &backup_claim) {
+            return mark_restore_manual_review(log, format!("claim_identity_mismatch: {error}"));
+        }
+        if let Err(error) = move_file_no_overwrite_with_identity_for_operation(
+            &backup,
+            Path::new(&log.path_after),
+            Some(&backup_identity),
+            Some(&backup_claim),
+            Some(cancel_flag.as_ref()),
+            phase_observer,
+            crate::fs_safety::atomic_move::AtomicMoveOperation::Restore,
+        ) {
+            return mark_restore_manual_review(
+                log,
+                format!("The copied item is in Safe Trash; restoring the replaced destination needs review: {error}"),
+            );
+        }
+    }
+
+    let mut restored = log.clone();
+    restored.can_undo = false;
+    restored.can_restore = false;
+    restored.restored_at = Some(current_timestamp_ms().to_string());
+    restored.restore_status = "restored".to_string();
+    restored.restore_error = None;
+    restored.restore_phase = "completed".to_string();
+    restored
+}
+
 fn verify_directory_restore_tree(log: &OperationLogDto, path: &Path) -> Result<(), String> {
-    if !super::is_directory_move_log(log)
+    if !(super::is_directory_move_log(log) || super::is_directory_copy_log(log))
         || !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
     {
         return Ok(());
@@ -429,7 +643,14 @@ fn verify_directory_restore_tree(log: &OperationLogDto, path: &Path) -> Result<(
     // The target-side journal proof is authoritative for both same-volume
     // renames and cross-volume copy/verify moves. Legacy same-volume transfer
     // rows may fall back to the source snapshot embedded in their ID.
-    let Some(expected) = super::directory_move_tree_fingerprint(log) else {
+    let expected = if super::is_directory_move_log(log) {
+        super::directory_move_tree_fingerprint(log)
+    } else {
+        crate::file_ops::manual_transfer::directory_tree_journal_fingerprint(
+            log.target_full_hash.as_deref(),
+        )
+    };
+    let Some(expected) = expected else {
         return Err("restore_directory_tree_proof_missing: the journal has no target tree proof; review it before restoring".into());
     };
     let actual = crate::file_ops::manual_transfer::directory_tree_snapshot(path)?;

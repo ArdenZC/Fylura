@@ -26,6 +26,7 @@ describe("shared transfer orchestration", () => {
     const backend = ports(plan([{ ticketId: "a", preview: operation, error: null, skipped: false }]));
     const outcome = await orchestrateTransfer({
       tickets, action: "copy", destinationDirectory: "D:/target", skip: [], keepBoth: [],
+      overwrite: [],
     }, backend);
 
     expect(outcome).toEqual({ kind: "executed", preview: expect.objectContaining({ id: "plan-current" }), result: { previewId: "plan-current" } });
@@ -39,6 +40,7 @@ describe("shared transfer orchestration", () => {
     const first = ports(conflict);
     const paused = await orchestrateTransfer({
       tickets, action: "copy", destinationDirectory: "D:/target", skip: [], keepBoth: [],
+      overwrite: [],
     }, first);
     expect(paused).toEqual({ kind: "conflicts", preview: conflict, ticketIds: ["a"] });
     expect(first.execute).not.toHaveBeenCalled();
@@ -47,16 +49,39 @@ describe("shared transfer orchestration", () => {
     const second = ports(skipped);
     const resolved = await orchestrateTransfer({
       tickets, action: "copy", destinationDirectory: "D:/target", skip: ["a"], keepBoth: [],
+      overwrite: [],
     }, second);
     expect(resolved.kind).toBe("all-skipped");
     expect(second.preview).toHaveBeenCalledOnce();
     expect(second.execute).not.toHaveBeenCalled();
   });
 
+  it("passes an explicit Overwrite decision through the fresh preview before executing", async () => {
+    const backend = ports(plan([{ ticketId: "a", preview: operation, error: null, skipped: false }]));
+    const outcome = await orchestrateTransfer({
+      tickets, action: "copy", destinationDirectory: "D:/target", skip: [], keepBoth: [], overwrite: ["a"],
+    }, backend);
+
+    expect(outcome.kind).toBe("executed");
+    expect(backend.preview).toHaveBeenCalledWith(expect.objectContaining({ overwrite: ["a"] }));
+    expect(backend.execute).toHaveBeenCalledOnce();
+  });
+
+  it("does not ask for a second conflict choice when Overwrite remains blocked", async () => {
+    const backend = ports(plan([{ ticketId: "a", preview: null, error: "transfer_target_exists", skipped: false }]));
+    const outcome = await orchestrateTransfer({
+      tickets, action: "copy", destinationDirectory: "D:/target", skip: [], keepBoth: [], overwrite: ["a"],
+    }, backend);
+
+    expect(outcome).toMatchObject({ kind: "failed", errors: ["transfer_overwrite_conflict_persisted"] });
+    expect(backend.execute).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the backend does not honor a requested Skip", async () => {
     const backend = ports(plan([{ ticketId: "a", preview: operation, error: null, skipped: false }]));
     const outcome = await orchestrateTransfer({
       tickets, action: "copy", destinationDirectory: "D:/target", skip: ["a"], keepBoth: [],
+      overwrite: [],
     }, backend);
 
     expect(outcome).toMatchObject({ kind: "failed", errors: ["transfer_skip_not_applied"] });
@@ -67,12 +92,14 @@ describe("shared transfer orchestration", () => {
     const failed = ports(plan([{ ticketId: "a", preview: null, error: "transfer_source_changed", skipped: false }]));
     expect((await orchestrateTransfer({
       tickets, action: "copy", destinationDirectory: "D:/target", skip: [], keepBoth: [],
+      overwrite: [],
     }, failed)).kind).toBe("failed");
     expect(failed.execute).not.toHaveBeenCalled();
 
     const stale = ports(plan([{ ticketId: "a", preview: operation, error: null, skipped: false }]), false);
     expect((await orchestrateTransfer({
       tickets, action: "copy", destinationDirectory: "D:/target", skip: [], keepBoth: [],
+      overwrite: [],
     }, stale)).kind).toBe("stale");
     expect(stale.execute).not.toHaveBeenCalled();
   });
@@ -83,6 +110,7 @@ describe("shared transfer orchestration", () => {
     backend.isCurrent.mockImplementation(() => ++currentChecks < 4);
     const outcome = await orchestrateTransfer({
       tickets, action: "copy", destinationDirectory: "D:/target", skip: [], keepBoth: [],
+      overwrite: [],
     }, backend);
     expect(outcome.kind).toBe("stale");
     expect(backend.beforeExecute).toHaveBeenCalledOnce();

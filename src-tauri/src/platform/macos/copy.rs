@@ -673,6 +673,15 @@ pub(crate) fn copy_commit_source_stable(
                 let destination = open_file_at(target_parent.raw_fd(), &staging_name)?;
                 copy_metadata_with_native_api(handle, &destination)?;
                 verify_clone_metadata(handle, &destination)?;
+                directory_progress.reset(
+                    "cloning",
+                    Some(1),
+                    Some(source_identity.size),
+                    &mut observer,
+                )?;
+                directory_progress.record_item(source, &mut observer)?;
+                directory_progress.record_bytes(source, source_identity.size, &mut observer)?;
+                directory_progress.finish(&mut observer)?;
                 let staging_physical =
                     capture_staging_physical(target_parent.raw_fd(), &staging_name)?;
                 Ok(CopyProof::NativeClone { staging_physical })
@@ -681,7 +690,7 @@ pub(crate) fn copy_commit_source_stable(
                 let destination = create_staging_file(target_parent.raw_fd(), &staging_name)?;
                 directory_progress.reset(
                     "copying",
-                    None,
+                    Some(1),
                     Some(source_identity.size),
                     &mut observer,
                 )?;
@@ -767,6 +776,7 @@ pub(crate) fn copy_commit_source_stable(
                 directory_progress.finish(&mut observer)?;
                 let total_items = directory_progress.processed_items();
                 directory_progress.set_total_items(Some(total_items));
+                directory_progress.finish(&mut observer)?;
                 directory_total_items = Some(total_items);
                 let metadata = handle.metadata().map_err(AtomicMoveError::Io)?;
                 copy_fd_metadata(&metadata, &destination)?;
@@ -1064,13 +1074,29 @@ fn copy_object(
                 let destination = open_file_at(target_parent_fd, staging_name)?;
                 copy_metadata_with_native_api(&source, &destination)?;
                 verify_clone_metadata(&source, &destination)?;
+                if let Some(progress) = copy_progress.progress.as_deref_mut() {
+                    let source_size = source.metadata().map_err(AtomicMoveError::Io)?.len();
+                    progress.reset(
+                        "cloning",
+                        Some(1),
+                        Some(source_size),
+                        copy_progress.observer,
+                    )?;
+                    progress.record_item(copy_progress.root_path, copy_progress.observer)?;
+                    progress.record_bytes(
+                        copy_progress.root_path,
+                        source_size,
+                        copy_progress.observer,
+                    )?;
+                    progress.finish(copy_progress.observer)?;
+                }
                 let staging_physical = capture_staging_physical(target_parent_fd, staging_name)?;
                 return Ok(CopyProof::NativeClone { staging_physical });
             }
             cleanup_staging_at(target_parent_fd, staging_name, None);
             let destination = create_staging_file(target_parent_fd, staging_name)?;
             if let Some(progress) = copy_progress.progress.as_deref_mut() {
-                progress.reset("copying", None, None, copy_progress.observer)?;
+                progress.reset("copying", Some(1), None, copy_progress.observer)?;
             }
             let actual = if let Some(progress) = copy_progress.progress.as_deref_mut() {
                 copy_file_contents_and_hash_with_progress(
@@ -1719,6 +1745,7 @@ fn copy_tree_from_fd(
                     if let Some(first_path) = state.hardlinks.get(&key) {
                         linkat(state.destination_root_fd, first_path, destination_fd, &name)?;
                         if let Some(progress) = copy_progress.progress.as_deref_mut() {
+                            progress.set_stage("cloning");
                             progress.record_bytes(
                                 &progress_path,
                                 source_identity.size,
@@ -1791,6 +1818,7 @@ fn copy_tree_regular_file(
                 verify_clone_metadata(source, &destination)?;
                 destination.sync_all().map_err(AtomicMoveError::Io)?;
                 if let Some(progress) = copy_progress.progress.as_deref_mut() {
+                    progress.set_stage("cloning");
                     progress.record_bytes(progress_path, source_size, copy_progress.observer)?;
                 }
                 return Ok(());
@@ -1805,6 +1833,9 @@ fn copy_tree_regular_file(
     }
 
     let destination = create_staging_file(destination_parent_fd, destination_name)?;
+    if let Some(progress) = copy_progress.progress.as_deref_mut() {
+        progress.set_stage("copying");
+    }
     copy_tree_file_contents_and_metadata(
         source,
         &destination,

@@ -49,7 +49,7 @@ export const fileManagementApi = {
   captureTransferSelectionPage(request: { sessionId: string; snapshotId: string; offset: number; excludedEntryIds?: string[]; advanceSnapshot?: boolean }): Promise<TransferTicket[]> {
     return invokeCommand("file_workspace_transfer_capture_selection_page", { request });
   },
-  previewTransfer(request: { ticketIds: string[]; action: TransferAction; destinationDirectory: string; destinationEntry?: BrowseEntryRef; destinationBrowse?: TransferBrowseDestination; newName?: string; newNames?: Record<string, string>; keepBoth?: string[]; skip?: string[] }): Promise<TransferPreview> {
+  previewTransfer(request: { ticketIds: string[]; action: TransferAction; destinationDirectory: string; destinationEntry?: BrowseEntryRef; destinationBrowse?: TransferBrowseDestination; newName?: string; newNames?: Record<string, string>; keepBoth?: string[]; overwrite?: string[]; skip?: string[] }): Promise<TransferPreview> {
     return invokeCommand("file_workspace_transfer_preview", { request });
   },
   executeTransfer(request: { previewId: string; confirmed: boolean }): Promise<ExecuteOperationResult> {

@@ -229,24 +229,46 @@ pub fn open_content_read(path: &Path) -> Result<std::fs::File, &'static str> {
 }
 
 pub fn inspect(path: &Path) -> MacFileSemantics {
+    let Some(metadata) = std::fs::symlink_metadata(path).ok() else {
+        return MacFileSemantics::unsupported();
+    };
+    inspect_with_metadata(path, &metadata)
+}
+
+/// Inspects provider and cloud semantics while reusing metadata already read
+/// by a caller that needs the same identity and file-type facts.
+pub fn inspect_with_metadata(path: &Path, metadata: &std::fs::Metadata) -> MacFileSemantics {
+    inspect_with_metadata_and_volume(path, metadata, None)
+}
+
+/// Uses a proven same-volume metadata snapshot to avoid repeating volume
+/// resource queries while converting a batch of Spotlight results.
+pub fn inspect_with_metadata_and_volume(
+    path: &Path,
+    metadata: &std::fs::Metadata,
+    cached_volume: Option<&super::MacVolumeSemantics>,
+) -> MacFileSemantics {
     #[cfg(target_os = "macos")]
     {
         // Preview classification runs on a long-lived worker. Keep every
         // Foundation object created by the complete read-only probe inside a
         // bounded autorelease pool; the returned semantics contain only Rust
         // values and do not retain native objects between epochs.
-        objc2::rc::autoreleasepool(|_| inspect_unpooled(path))
+        objc2::rc::autoreleasepool(|_| inspect_unpooled(path, metadata, cached_volume))
     }
 
     #[cfg(not(target_os = "macos"))]
-    inspect_unpooled(path)
+    inspect_unpooled(path, metadata, cached_volume)
 }
 
-fn inspect_unpooled(path: &Path) -> MacFileSemantics {
-    let Some(metadata) = std::fs::symlink_metadata(path).ok() else {
-        return MacFileSemantics::unsupported();
-    };
-    let volume = volume::inspect(path);
+fn inspect_unpooled(
+    path: &Path,
+    metadata: &std::fs::Metadata,
+    cached_volume: Option<&super::MacVolumeSemantics>,
+) -> MacFileSemantics {
+    let volume = cached_volume
+        .cloned()
+        .unwrap_or_else(|| volume::inspect(path));
     let is_symlink = metadata.file_type().is_symlink();
     if is_symlink {
         return MacFileSemantics {
@@ -298,7 +320,7 @@ fn inspect_unpooled(path: &Path) -> MacFileSemantics {
     let is_package = is_directory && package::is_package(path);
     let logical_size = is_regular_file.then_some(metadata.len());
     let allocated_size = (content_availability == MacContentAvailability::Local)
-        .then(|| allocated_size(path, Some(&metadata)))
+        .then(|| allocated_size(path, Some(metadata)))
         .flatten();
     MacFileSemantics {
         is_symlink: false,
@@ -340,7 +362,9 @@ fn allocated_size(_path: &Path, _metadata: Option<&std::fs::Metadata>) -> Option
 
 #[cfg(test)]
 mod tests {
-    use super::{content_read_eligibility, inspect, MacContentReadEligibility};
+    use super::{
+        content_read_eligibility, inspect, inspect_with_metadata, MacContentReadEligibility,
+    };
     use std::path::Path;
 
     #[test]
@@ -361,6 +385,32 @@ mod tests {
             "content_eligible"
         );
         assert!(MacContentReadEligibility::Eligible.is_eligible());
+    }
+
+    #[test]
+    fn caller_supplied_metadata_preserves_file_semantics() {
+        let root = std::env::temp_dir().join(format!(
+            "fylura-file-semantics-metadata-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create metadata reuse fixture");
+        let path = root.join("ordinary.txt");
+        std::fs::write(&path, b"metadata").expect("write metadata reuse fixture");
+        let metadata = std::fs::symlink_metadata(&path).expect("read fixture metadata once");
+        let reused = inspect_with_metadata(&path, &metadata);
+        let volume = super::volume::inspect(&root);
+        let reused_with_volume =
+            super::inspect_with_metadata_and_volume(&path, &metadata, Some(&volume));
+        let direct = inspect(&path);
+        assert_eq!(reused.is_symlink, direct.is_symlink);
+        assert_eq!(reused.is_regular_file, direct.is_regular_file);
+        assert_eq!(reused.is_package, direct.is_package);
+        assert_eq!(reused.logical_size, direct.logical_size);
+        assert_eq!(reused_with_volume.is_symlink, direct.is_symlink);
+        assert_eq!(reused_with_volume.is_regular_file, direct.is_regular_file);
+        assert_eq!(reused_with_volume.is_package, direct.is_package);
+        assert_eq!(reused_with_volume.logical_size, direct.logical_size);
+        std::fs::remove_dir_all(root).expect("remove metadata reuse fixture");
     }
 
     #[cfg(target_os = "macos")]

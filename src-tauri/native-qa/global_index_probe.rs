@@ -89,6 +89,15 @@ fn prepare_profile(profile_root: PathBuf, target_mount_path: &str) -> Result<(),
 
 fn main() -> Result<(), Box<dyn Error>> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(windows)]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "--index-service")
+    {
+        std::process::exit(
+            fylura_tauri::global_index::windows::service_host::run_index_service_process(),
+        );
+    }
     if arguments
         .first()
         .is_some_and(|argument| argument == "--prepare-profile")
@@ -126,6 +135,61 @@ fn main() -> Result<(), Box<dyn Error>> {
         #[cfg(not(windows))]
         {
             return Err("Direct qualification requires Windows".into());
+        }
+    }
+    if arguments
+        .first()
+        .is_some_and(|a| a == "--qualify-filename-first")
+    {
+        if arguments.len() != 8 {
+            return Err(
+                "usage: --qualify-filename-first <profile> <source-id> <first-query> <first-file> <complete-query> <complete-file> <fixture-file-count>".into(),
+            );
+        }
+        #[cfg(windows)]
+        {
+            let result = fylura_tauri::global_index::windows::filename_first_qa::run_initial(
+                std::path::Path::new(&arguments[1]),
+                &arguments[2],
+                &arguments[3],
+                std::path::Path::new(&arguments[4]),
+                &arguments[5],
+                std::path::Path::new(&arguments[6]),
+                arguments[7].parse::<usize>()?,
+            )?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        #[cfg(not(windows))]
+        {
+            return Err("Native filename-first qualification requires Windows".into());
+        }
+    }
+    if arguments
+        .first()
+        .is_some_and(|a| a == "--qualify-filename-first-incremental")
+    {
+        if arguments.len() != 9 {
+            return Err("usage: --qualify-filename-first-incremental <profile> <source-id> <added-file> <renamed-from> <renamed-to> <moved-from> <moved-to> <deleted-file>".into());
+        }
+        #[cfg(windows)]
+        {
+            let result = fylura_tauri::global_index::windows::filename_first_qa::run_incremental(
+                std::path::Path::new(&arguments[1]),
+                &arguments[2],
+                std::path::Path::new(&arguments[3]),
+                std::path::Path::new(&arguments[4]),
+                std::path::Path::new(&arguments[5]),
+                std::path::Path::new(&arguments[6]),
+                std::path::Path::new(&arguments[7]),
+                std::path::Path::new(&arguments[8]),
+            )?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        #[cfg(not(windows))]
+        {
+            return Err("Native filename-first qualification requires Windows".into());
         }
     }
     if !arguments.is_empty() {

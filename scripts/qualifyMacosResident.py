@@ -14,6 +14,19 @@ import time
 
 STARTUP_CHECKPOINT_PATTERN = re.compile(r'^native_qa startup_checkpoint=([a-z_]+)$', re.MULTILINE)
 RUNTIME_PACKAGES = ('tauri', 'tao', 'wry', 'objc2', 'objc2-exception-helper')
+TRACE_TIMESTAMP_PATTERN = re.compile(r'^timestamp_us=(\d+)')
+
+
+def read_trace_lines(trace_path):
+    files = ([trace_path] if trace_path.is_file() else [])
+    files.extend(sorted(trace_path.parent.glob(f'{trace_path.name}.pid-*.log')))
+    events = []
+    for trace_file in files:
+        for line in trace_file.read_text().splitlines():
+            match = TRACE_TIMESTAMP_PATTERN.match(line)
+            events.append((int(match.group(1)) if match else 0, line))
+    events.sort(key=lambda event: event[0])
+    return [line for _, line in events]
 
 
 def command(*args):
@@ -96,9 +109,10 @@ def main():
             while time.monotonic() < deadline:
                 if process.poll() is not None:
                     raise RuntimeError(f'background application exited: code={process.returncode}')
-                lines = trace.read_text().splitlines() if trace.exists() else []
-                events = [line for line in lines if line in ('coordinator_cycle', 'coordinator_wait')]
-                counts = (lines.count('coordinator_cycle'), lines.count('coordinator_wait'))
+                lines = read_trace_lines(trace)
+                coordinator_events = [line.rsplit(' ', 1)[-1] for line in lines]
+                events = [event for event in coordinator_events if event in ('coordinator_cycle', 'coordinator_wait')]
+                counts = (coordinator_events.count('coordinator_cycle'), coordinator_events.count('coordinator_wait'))
                 if events and events[-1] == 'coordinator_wait' and counts == previous:
                     stable_since = stable_since or time.monotonic()
                     if time.monotonic() - stable_since >= 5:
@@ -117,7 +131,7 @@ def main():
             evidence['startupAttribution'] = attribution
             if 'ui_runtime startup_mode=background webview_count=0 labels=' not in log:
                 raise RuntimeError('missing background / zero Main Search WebView diagnostic')
-            before = trace.read_text().splitlines()
+            before = read_trace_lines(trace)
             for index in range(31):
                 if process.poll() is not None:
                     raise RuntimeError(f'resident exited: code={process.returncode}')
@@ -138,9 +152,11 @@ def main():
                     lifetime=lifetime, elapsedSeconds=time.monotonic() - started, webviewChildren=webviews))
                 if index < 30:
                     time.sleep(1)
-            after = trace.read_text().splitlines()
-            evidence['coordinatorCycleDelta'] = after.count('coordinator_cycle') - before.count('coordinator_cycle')
-            evidence['coordinatorWaitDelta'] = after.count('coordinator_wait') - before.count('coordinator_wait')
+            after = read_trace_lines(trace)
+            before_events = [line.rsplit(' ', 1)[-1] for line in before]
+            after_events = [line.rsplit(' ', 1)[-1] for line in after]
+            evidence['coordinatorCycleDelta'] = after_events.count('coordinator_cycle') - before_events.count('coordinator_cycle')
+            evidence['coordinatorWaitDelta'] = after_events.count('coordinator_wait') - before_events.count('coordinator_wait')
             evidence['trace'] = after
             if evidence['coordinatorCycleDelta'] or evidence['coordinatorWaitDelta']:
                 raise RuntimeError('coordinator work continued during settled sampling')

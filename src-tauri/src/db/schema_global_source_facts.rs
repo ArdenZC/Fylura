@@ -32,6 +32,14 @@ pub(crate) fn install(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Refreshes the source-stat trigger definition without rescanning or
+/// rewriting any existing source statistics.
+pub(crate) fn refresh_filename_first_triggers(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch("DROP TRIGGER IF EXISTS global_entry_source_facts_ai;")?;
+    conn.execute_batch(DDL)?;
+    validate(conn)
+}
+
 #[cfg(test)]
 type BackfillHook = fn(&Connection, &str) -> Result<(), DbError>;
 #[cfg(test)]

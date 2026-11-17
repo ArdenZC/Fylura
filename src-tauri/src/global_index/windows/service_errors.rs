@@ -1,4 +1,4 @@
-//! Stable semantic mapping using the existing v4 error_code field only.
+//! Stable semantic mapping using the existing versioned error_code field only.
 use super::service::IndexServiceResponse;
 use crate::global_index::coordinator::GlobalIndexError;
 use crate::global_index::models::{
@@ -55,6 +55,7 @@ pub(super) fn known_code(code: &str) -> bool {
             | "index_database_busy"
             | "index_permission_required"
             | "index_provider_error"
+            | "index_filename_first_config_mismatch"
             | "index_failed"
     ) || windows_code(code).is_some()
 }
@@ -76,7 +77,9 @@ pub(super) fn decode(response: &IndexServiceResponse) -> GlobalIndexError {
         Some("index_service_busy") => GlobalIndexError::ServiceBusy(message),
         Some("index_database_busy") => GlobalIndexError::DatabaseBusy(message),
         Some("index_permission_required") => GlobalIndexError::PermissionRequired(message),
-        Some("index_provider_error") => GlobalIndexError::Provider(message),
+        Some("index_provider_error" | "index_filename_first_config_mismatch") => {
+            GlobalIndexError::Provider(message)
+        }
         Some("index_failed") => GlobalIndexError::Database(crate::db::DbError::Validation(message)),
         Some(code) if windows_code(code).is_some() => {
             GlobalIndexError::WindowsIo(windows_code(code).unwrap())
@@ -94,7 +97,7 @@ mod tests {
     use super::*;
     use crate::global_index::windows::service::IPC_PROTOCOL_VERSION;
     #[test]
-    fn ipc_v4_roundtrip_preserves_typed_recovery_and_ignores_message_text() {
+    fn ipc_v5_roundtrip_preserves_typed_recovery_and_ignores_message_text() {
         for error in [
             GlobalIndexError::Paused,
             GlobalIndexError::RebuildRequired("arbitrary diagnostic".into()),
@@ -217,5 +220,24 @@ mod tests {
         println!(
             "issue328_service_busy request_id=request-contender service_status=indexing request_result=rejected error_category=service_busy"
         );
+    }
+
+    #[test]
+    fn experiment_mode_mismatch_is_a_known_service_error() {
+        let response = IndexServiceResponse {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            request_id: "mode-mismatch".into(),
+            ok: false,
+            error_code: Some("index_filename_first_config_mismatch".into()),
+            message: Some("desktop and service settings differ".into()),
+            status: Some(INDEX_STATUS_ERROR.into()),
+        };
+        assert!(known_code(
+            response
+                .error_code
+                .as_deref()
+                .expect("mode mismatch error code")
+        ));
+        assert!(matches!(decode(&response), GlobalIndexError::Provider(_)));
     }
 }

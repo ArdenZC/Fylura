@@ -15,12 +15,13 @@ pub(crate) mod rank_frontier;
 mod source_authorization_tests;
 
 use super::filename_search::{
-    ChangeSet, FilenameSearchIndex, FilenameTrigramCandidate, RankedFileCandidate,
+    ActiveTransientFilenameCatalogs, ChangeSet, FilenameSearchIndex, FilenameSearchManager,
+    FilenameTrigramCandidate, RankedFileCandidate,
 };
 use super::models::GlobalSearchResult;
 use crate::db::{Database, DbError};
-use rusqlite::{params, Connection, OptionalExtension, Params};
-use std::collections::HashSet;
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
+use std::collections::{HashMap, HashSet};
 
 const MAX_SEARCH_LIMIT: u32 = 200;
 const MAX_SEARCH_OFFSET: u32 = 1_000_000;
@@ -28,6 +29,15 @@ const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 // A layer may fetch up to target + already-seen ids to compensate for overlap,
 // but never turns a keystroke into an unbounded result materialization.
 const MAX_TIER_CANDIDATES: u32 = 4_096;
+
+pub(crate) struct PreparedTransientCatalogSearch {
+    active_catalogs: ActiveTransientFilenameCatalogs,
+    durable_candidates: Vec<GlobalSearchResult>,
+    query: String,
+    target: u32,
+    limit: u32,
+    offset: u32,
+}
 
 #[cfg(test)]
 std::thread_local! {
@@ -172,6 +182,26 @@ pub fn search_global_entries(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
+    if db.filename_search.has_transient_catalog() {
+        let transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+            "read",
+            "global_index.search_entries",
+        );
+        let mut conn = db.conn()?;
+        let transaction = conn.transaction()?;
+        let prepared = prepare_transient_catalog_search_on_connection(
+            &transaction,
+            &db.filename_search,
+            query,
+            limit,
+            offset,
+        )?;
+        transaction.commit()?;
+        drop(transaction_trace);
+        if let Some(prepared) = prepared {
+            return complete_transient_catalog_search(db, &db.filename_search, prepared);
+        }
+    }
     if db.filename_search.is_enabled() && filename_relevance_query_supported(query.trim()) {
         if let Ok(Some(results)) =
             db.filename_search
@@ -217,6 +247,23 @@ pub(crate) fn search_global_entries_on_connection(
     }
 
     let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let results = search_global_entries_candidates_on_connection(conn, query, target)?;
+    Ok(results
+        .into_iter()
+        .skip(offset as usize)
+        .take(limit as usize)
+        .collect())
+}
+
+fn search_global_entries_candidates_on_connection(
+    conn: &Connection,
+    query: &str,
+    target: u32,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    if target == 0 || query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let target = target.min(MAX_TIER_CANDIDATES);
     let (mut results, mut seen) = search_fast_tiers(conn, query, target)?;
 
     if results.len() < target as usize && query.chars().count() >= 3 {
@@ -224,13 +271,21 @@ pub(crate) fn search_global_entries_on_connection(
             .chars()
             .all(|character| character.is_alphanumeric() || character.is_whitespace())
         {
-            let tier_limit = layer_limit(target, seen.len());
-            append_unique(
-                &mut results,
-                &mut seen,
-                search_fts(conn, query, tier_limit)?,
-                target,
-            );
+            // During a new source's deferred FTS build, its partial postings
+            // are intentionally hidden from search. If every enabled source
+            // is in that state, querying the global FTS virtual table cannot
+            // produce a visible row and can pin WAL checkpoints while the
+            // bulk writer is active. Skip that read entirely; ready sources
+            // remain searchable whenever at least one exists.
+            if has_searchable_fts_source(conn)? {
+                let tier_limit = layer_limit(target, seen.len());
+                append_unique(
+                    &mut results,
+                    &mut seen,
+                    search_fts(conn, query, tier_limit)?,
+                    target,
+                );
+            }
         } else if !query.is_empty() {
             let tier_limit = layer_limit(target, seen.len());
             append_unique(
@@ -242,11 +297,184 @@ pub(crate) fn search_global_entries_on_connection(
         }
     }
 
-    Ok(results
+    Ok(results)
+}
+
+fn has_searchable_fts_source(conn: &Connection) -> Result<bool, DbError> {
+    conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM global_volumes
+            WHERE enabled=1 AND coverage_pending=0 AND fts_bulk_build=0
+              AND (platform!='windows' OR scope_authorization_state='authorized')
+        )",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(DbError::from)
+}
+
+/// Capture the small SQL facts needed by transient search. The caller should
+/// commit its read transaction before ranking in-memory postings.
+pub(crate) fn prepare_transient_catalog_search_on_connection(
+    conn: &Connection,
+    filename_search: &FilenameSearchManager,
+    query: &str,
+    limit: u32,
+    offset: u32,
+) -> Result<Option<PreparedTransientCatalogSearch>, DbError> {
+    if !filename_search.has_transient_catalog() {
+        return Ok(None);
+    }
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(None);
+    }
+    let offset = offset.min(MAX_SEARCH_OFFSET);
+    let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
+    let target = offset.saturating_add(limit).min(MAX_TIER_CANDIDATES);
+    let policy = super::coverage::load_policy(conn)?;
+    let Some(active_catalogs) = filename_search.active_transient_catalogs(conn, policy.revision)?
+    else {
+        return Ok(None);
+    };
+    let durable_candidates = search_global_entries_candidates_on_connection(conn, query, target)?;
+    Ok(Some(PreparedTransientCatalogSearch {
+        active_catalogs,
+        durable_candidates,
+        query: query.to_owned(),
+        target,
+        limit,
+        offset,
+    }))
+}
+
+/// Finish ranking and merge after the read transaction has been released.
+/// Only the bounded candidate page is carried across the transaction boundary.
+pub(crate) fn complete_transient_catalog_search(
+    db: &Database,
+    filename_search: &FilenameSearchManager,
+    prepared: PreparedTransientCatalogSearch,
+) -> Result<Vec<GlobalSearchResult>, DbError> {
+    let transient = filename_search
+        .search_active_transient_catalogs(
+            &prepared.active_catalogs,
+            &prepared.query,
+            prepared.target,
+            0,
+        )
+        .unwrap_or_default();
+    let merged = merge_transient_results(
+        &prepared.query,
+        prepared.durable_candidates,
+        transient,
+        prepared.target as usize,
+    );
+    let mut results = merged
         .into_iter()
-        .skip(offset as usize)
-        .take(limit as usize)
-        .collect())
+        .skip(prepared.offset as usize)
+        .take(prepared.limit as usize)
+        .collect::<Vec<_>>();
+    if !results.is_empty() {
+        let conn = db.conn()?;
+        hydrate_transient_managed_flags(&conn, &mut results)?;
+    }
+    Ok(results)
+}
+
+fn hydrate_transient_managed_flags(
+    conn: &Connection,
+    results: &mut [GlobalSearchResult],
+) -> Result<(), DbError> {
+    let ids = results
+        .iter()
+        .filter(|result| !result.managed)
+        .map(|result| result.id.clone())
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT me.global_entry_id FROM managed_entries me JOIN managed_scopes ms ON ms.id=me.managed_scope_id WHERE me.enabled=1 AND ms.enabled=1 AND me.global_entry_id IN ({placeholders})"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let managed_ids = statement
+        .query_map(params_from_iter(ids.iter()), |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    for result in results {
+        result.managed |= managed_ids.contains(&result.id);
+    }
+    Ok(())
+}
+
+fn merge_transient_results(
+    query: &str,
+    persisted: Vec<GlobalSearchResult>,
+    transient: Vec<GlobalSearchResult>,
+    target: usize,
+) -> Vec<GlobalSearchResult> {
+    let mut by_id = HashMap::<String, GlobalSearchResult>::with_capacity(
+        persisted.len().saturating_add(transient.len()),
+    );
+    for result in persisted.into_iter().chain(transient) {
+        // The durable row carries any established managed/AI association and
+        // wins when the same identity is present in both projections.
+        by_id.entry(result.id.clone()).or_insert(result);
+    }
+    let query = query.to_lowercase();
+    let mut ranked = by_id
+        .into_values()
+        .map(|result| {
+            let name = result.name.to_lowercase();
+            let extension = result.extension.to_lowercase();
+            let path = result.path.to_lowercase();
+            let tier = if name == query {
+                0
+            } else if name.starts_with(&query) {
+                1
+            } else if extension == query {
+                2
+            } else if extension.starts_with(&query) {
+                3
+            } else if name.contains(&query) || extension.contains(&query) {
+                4 + filename_match_class(&name, &query)
+            } else if path.contains(&query) {
+                6
+            } else {
+                7
+            };
+            (tier, result)
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_unstable_by(|(left_tier, left), (right_tier, right)| {
+        left_tier
+            .cmp(right_tier)
+            .then_with(|| {
+                if *left_tier == 4 || *left_tier == 5 {
+                    left.rank.total_cmp(&right.rank)
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .then_with(|| right.modified_at_fs.cmp(&left.modified_at_fs))
+            .then_with(|| left.id.as_bytes().cmp(right.id.as_bytes()))
+    });
+    ranked
+        .into_iter()
+        .take(target)
+        .map(|(_, result)| result)
+        .collect()
+}
+
+fn filename_match_class(name: &str, query: &str) -> u8 {
+    name.match_indices(query).any(|(start, matched)| {
+        let before = name[..start].chars().next_back();
+        let after = name[start + matched.len()..].chars().next();
+        !before.is_some_and(|value| value.is_ascii_alphanumeric() || value == '_')
+            && !after.is_some_and(|value| value.is_ascii_alphanumeric() || value == '_')
+    }) as u8
 }
 
 fn search_fast_tiers(
@@ -443,7 +671,7 @@ const LEGACY_FILENAME_TRIGRAM_JOIN_SQL: &str = r#"
     WHERE global_entries_fts MATCH ?1
       AND ge.rowid = global_entries_fts.rowid
       AND gv.id = ge.volume_id
-      AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0
+      AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND ge.is_stale = 0
       AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
       AND (instr(ge.name_normalized, ?2) > 0 OR instr(lower(ge.extension), ?2) > 0)
 "#;
@@ -452,6 +680,9 @@ fn search_filename_trigram_candidates(
     conn: &Connection,
     query: &str,
 ) -> Result<Vec<FilenameTrigramCandidate>, DbError> {
+    if !has_searchable_fts_source(conn)? {
+        return Ok(Vec::new());
+    }
     // The compact Filename Candidate ranks only names and extensions.
     // Path matches are evaluated separately by `search_path_only_candidates`;
     // including the path column here makes the rowid scan inspect path-only
@@ -551,7 +782,7 @@ fn search_path_only_candidates(
         WHERE global_entries_fts MATCH ?1
           AND ge.rowid = global_entries_fts.rowid
           AND gv.id = ge.volume_id
-          AND gv.enabled = 1 AND gv.coverage_pending = 0 AND ge.is_stale = 0
+          AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND ge.is_stale = 0
           AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
           AND instr(ge.name_normalized, ?2) = 0
           AND instr(lower(ge.extension), ?2) = 0
@@ -614,7 +845,7 @@ fn hydrate_ranked_filename_page(
         FROM candidate_keys
         JOIN global_entries ge ON ge.rowid=candidate_keys.entry_rowid
         JOIN global_volumes gv ON gv.id=ge.volume_id
-        WHERE gv.enabled=1 AND gv.coverage_pending=0
+        WHERE gv.enabled=1 AND gv.coverage_pending=0 AND gv.fts_bulk_build=0
           AND (gv.platform != 'windows' OR gv.scope_authorization_state='authorized')
           AND ge.is_stale=0
         ORDER BY candidate_keys.ordinal ASC
@@ -730,7 +961,7 @@ fn key_only_candidate_sql(
 fn key_only_name_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -742,7 +973,7 @@ fn key_only_name_prefix_sql() -> String {
 fn key_only_punctuation_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -754,7 +985,7 @@ fn key_only_punctuation_prefix_sql() -> String {
 fn key_only_extension_prefix_sql() -> String {
     key_only_candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -765,7 +996,7 @@ fn key_only_extension_prefix_sql() -> String {
 fn key_only_fts_sql() -> String {
     key_only_candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0",
         "candidate_rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "candidates.candidate_rank ASC, candidates.modified_at_fs DESC, candidates.entry_id ASC",
@@ -789,7 +1020,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
     match tier {
         "exact_name" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -797,7 +1028,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
         "name_prefix" => key_only_name_prefix_sql(),
         "exact_extension" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = lower(?1)",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = lower(?1)",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -808,7 +1039,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
         "fts" => diagnostic_search_fts_sql(),
         "punctuation_prefix" => candidate_sql(
             "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-            "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+            "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
             "ge.modified_at_fs DESC, ge.id ASC",
             "0.0",
             "?2",
@@ -821,7 +1052,7 @@ pub(crate) fn diagnostic_search_tier_sql(tier: &str) -> String {
 pub(crate) fn diagnostic_legacy_name_prefix_sql() -> String {
     candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?2 AND ge.name_normalized <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?3",
@@ -843,7 +1074,7 @@ fn search_exact_name(
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",
@@ -882,7 +1113,7 @@ fn search_exact_extension(
 ) -> Result<Vec<GlobalSearchResult>, DbError> {
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",
@@ -898,7 +1129,7 @@ const EXTENSION_PREFIX_FIRST_KEY_SQL: &str = "
     SELECT ge.extension
     FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
     CROSS JOIN global_volumes gv
-    WHERE gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0
+    WHERE gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0
       AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
       AND ge.is_stale = 0
       AND ge.extension GLOB ?2
@@ -911,7 +1142,7 @@ const EXTENSION_PREFIX_NEXT_KEY_SQL: &str = "
     SELECT ge.extension
     FROM global_entries ge INDEXED BY idx_global_entries_active_extension_order
     CROSS JOIN global_volumes gv
-    WHERE gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0
+    WHERE gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0
       AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized')
       AND ge.is_stale = 0
       AND ge.extension > ?2 COLLATE BINARY
@@ -924,7 +1155,7 @@ const EXTENSION_PREFIX_NEXT_KEY_SQL: &str = "
 fn extension_prefix_legacy_sql() -> String {
     candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "?3",
@@ -934,7 +1165,7 @@ fn extension_prefix_legacy_sql() -> String {
 fn extension_prefix_single_key_sql() -> String {
     candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension_order CROSS JOIN global_volumes gv",
-        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = ?4 COLLATE BINARY AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
+        "gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.extension = ?4 COLLATE BINARY AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
         "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "?3",
@@ -1090,7 +1321,7 @@ pub(crate) fn diagnostic_search_fts_sql() -> String {
 pub(crate) fn diagnostic_legacy_fts_sql() -> String {
     candidate_sql(
         "global_entries_fts CROSS JOIN global_entries ge CROSS JOIN global_volumes gv",
-        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0",
+        "global_entries_fts MATCH ?1 AND ge.rowid = global_entries_fts.rowid AND gv.id = ge.volume_id AND gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0",
         "rank ASC, ge.modified_at_fs DESC, ge.id ASC",
         "bm25(global_entries_fts, 8.0, 2.0, 1.0)",
         "?2",
@@ -1134,7 +1365,7 @@ fn search_punctuation_prefix(
 
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_name_order JOIN global_volumes gv ON gv.id = ge.volume_id",
-        "gv.enabled = 1 AND gv.coverage_pending = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
+        "gv.enabled = 1 AND gv.coverage_pending = 0 AND gv.fts_bulk_build = 0 AND (gv.platform != 'windows' OR gv.scope_authorization_state = 'authorized') AND ge.is_stale = 0 AND ge.name_normalized GLOB ?1",
         "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",

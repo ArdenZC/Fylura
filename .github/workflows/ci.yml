@@ -797,7 +797,24 @@ jobs:
           }
           $report = Get-Content -LiteralPath (Join-Path $evidenceRoot "zb05-global-index-service-evidence.json") -Raw | ConvertFrom-Json
           if ($report.smartLeanDirect.firstSearchableUs -le 0 -or $report.smartLeanDirect.databaseReopenBackfillUs -le 0) { throw "exact-service evidence lacks direct first-search/reopen timing" }
-          if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log")) -cnotcontains "windows_recovery_rebuild_admitted") { throw "retained recovery trace lacks Background admission evidence" }
+          if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log") | Where-Object { $_ -match '(?:^|\s)windows_recovery_rebuild_admitted(?:\s|$)' }).Count -eq 0) { throw "retained recovery trace lacks Background admission evidence" }
+          $modeCases = @($report.filenameFirstServiceModeMatrix)
+          $expectedModes = @('both_unset', 'both_enabled', 'desktop_enabled_service_unset', 'desktop_unset_service_enabled')
+          if ($modeCases.Count -ne $expectedModes.Count) { throw "installed Service mode matrix evidence is incomplete: $($modeCases | ConvertTo-Json -Compress)" }
+          foreach ($name in $expectedModes) {
+            if (@($modeCases | Where-Object { $_.name -eq $name }).Count -ne 1) { throw "installed Service mode matrix is missing unique case $name" }
+          }
+          foreach ($name in @('desktop_enabled_service_unset', 'desktop_unset_service_enabled')) {
+            $case = @($modeCases | Where-Object { $_.name -eq $name })[0]
+            if (-not $case.responseOk -or -not $case.pauseResponseOk -or $case.pauseStatus -ne 'paused') { throw "mismatched Service mode must allow Status and Pause: $($case | ConvertTo-Json -Compress)" }
+            $indexResults = @($case.indexCommandRejections)
+            $expectedCommands = @('start_initial_index', 'rebuild', 'resume_incremental_sync')
+            if ($indexResults.Count -ne $expectedCommands.Count) { throw "mismatched Service mode lacks index rejection evidence: $($case | ConvertTo-Json -Compress)" }
+            foreach ($command in $expectedCommands) {
+              $result = @($indexResults | Where-Object { $_.command -eq $command })
+              if ($result.Count -ne 1 -or $result[0].responseOk -or $result[0].errorCode -ne 'index_filename_first_config_mismatch' -or -not $result[0].sideEffectFree -or $result[0].serviceStatusBefore -ne 'paused' -or $result[0].serviceStatusAfter -ne 'paused') { throw "mismatched Service mode did not reject $command without side effects: $($result | ConvertTo-Json -Compress)" }
+            }
+          }
       - name: Upload exact-service qualification evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

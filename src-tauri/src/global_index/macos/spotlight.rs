@@ -18,6 +18,7 @@ use objc2_foundation::{
     NSMetadataQueryUpdateRemovedItemsKey, NSNotification, NSNotificationCenter, NSNumber,
     NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,
 };
+use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -50,6 +51,49 @@ pub struct SpotlightCollectionSummary {
     pub skipped: usize,
     pub full_disk_access_required: bool,
     pub external_volume_not_indexed: bool,
+}
+
+struct SpotlightMetadataContext {
+    physical_root_device: Option<u64>,
+    physical_root_volume: crate::platform::macos::MacVolumeSemantics,
+    parent_identities: HashMap<PathBuf, String>,
+}
+
+impl SpotlightMetadataContext {
+    fn new(source_root: &Path) -> Self {
+        let physical_root = if source_root == Path::new("/") {
+            Path::new("/System/Volumes/Data")
+        } else {
+            source_root
+        };
+        Self {
+            physical_root_device: fs::symlink_metadata(physical_root)
+                .ok()
+                .map(|metadata| metadata.dev()),
+            physical_root_volume: crate::platform::macos::volume::inspect(physical_root),
+            parent_identities: HashMap::new(),
+        }
+    }
+
+    fn parent_identity(&mut self, parent: &Path) -> String {
+        if let Some(identity) = self.parent_identities.get(parent) {
+            return identity.clone();
+        }
+        // Keep this cache bounded for large Spotlight result sets while still
+        // sharing parent metadata across each 512-item conversion batch.
+        if self.parent_identities.len() >= 512 {
+            self.parent_identities.clear();
+        }
+        let metadata = fs::symlink_metadata(parent).ok();
+        let identity = mac_file_identity(parent, metadata.as_ref());
+        self.parent_identities
+            .insert(parent.to_path_buf(), identity.clone());
+        identity
+    }
+
+    fn clear_parent_batch(&mut self) {
+        self.parent_identities.clear();
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +198,7 @@ where
             let result_iteration_started = Instant::now();
             #[cfg(feature = "native-qa")]
             let mut sink_write_us = 0u128;
+            let mut metadata_context = SpotlightMetadataContext::new(source_root);
             for index in 0..query.resultCount() {
                 if cancel.load(Ordering::Acquire) {
                     query.stopQuery();
@@ -167,8 +212,13 @@ where
                 if !path_in_source(source_root, Path::new(&path)) {
                     continue;
                 }
-                let Some(entry) = metadata_item_to_entry(volume_id, source_root, &object, &path)
-                else {
+                let Some(entry) = metadata_item_to_entry(
+                    volume_id,
+                    source_root,
+                    &object,
+                    &path,
+                    &mut metadata_context,
+                ) else {
                     summary.skipped += 1;
                     continue;
                 };
@@ -190,6 +240,7 @@ where
                         return Err(format!("callback:{error}"));
                     }
                     entries.clear();
+                    metadata_context.clear_parent_batch();
                 }
             }
             if !entries.is_empty() {
@@ -204,6 +255,10 @@ where
                     query.stopQuery();
                     return Err(format!("callback:{error}"));
                 }
+            }
+            if !super::volumes::source_id_matches(volume_id, source_root) {
+                query.stopQuery();
+                return Err("macos_volume_identity_changed".to_string());
             }
             #[cfg(feature = "native-qa")]
             let result_iteration_us = result_iteration_started.elapsed().as_micros();
@@ -310,12 +365,14 @@ fn run_update_watcher(
         let mut entries = Vec::new();
         let mut stale_entry_ids = Vec::new();
         let mut full_reconcile = false;
+        let mut metadata_context = SpotlightMetadataContext::new(&source_root_for_block);
         collect_update_items(
             typed_info,
             unsafe { NSMetadataQueryUpdateAddedItemsKey },
             &volume_id_for_block,
             &source_root_for_block,
             &known_entries_for_block,
+            &mut metadata_context,
             &mut entries,
             &mut stale_entry_ids,
             &mut full_reconcile,
@@ -327,6 +384,7 @@ fn run_update_watcher(
             &volume_id_for_block,
             &source_root_for_block,
             &known_entries_for_block,
+            &mut metadata_context,
             &mut entries,
             &mut stale_entry_ids,
             &mut full_reconcile,
@@ -338,6 +396,7 @@ fn run_update_watcher(
             &volume_id_for_block,
             &source_root_for_block,
             &known_entries_for_block,
+            &mut metadata_context,
             &mut entries,
             &mut stale_entry_ids,
             &mut full_reconcile,
@@ -453,6 +512,7 @@ fn collect_update_items(
     volume_id: &str,
     source_root: &Path,
     known_entries: &Arc<Mutex<KnownEntries>>,
+    metadata_context: &mut SpotlightMetadataContext,
     entries: &mut Vec<GlobalEntryInput>,
     stale_entry_ids: &mut Vec<String>,
     full_reconcile: &mut bool,
@@ -490,7 +550,13 @@ fn collect_update_items(
                 *full_reconcile = true;
                 continue;
             };
-            match metadata_item_to_entry(volume_id, source_root, entry.as_ref(), path) {
+            match metadata_item_to_entry(
+                volume_id,
+                source_root,
+                entry.as_ref(),
+                path,
+                metadata_context,
+            ) {
                 Some(input) => {
                     match classify_spotlight_update(removed, has_path_identity(&input)) {
                         SpotlightUpdateAction::Upsert => entries.push(input),
@@ -513,6 +579,7 @@ fn metadata_item_to_entry(
     source_root: &Path,
     object: &AnyObject,
     path: &str,
+    metadata_context: &mut SpotlightMetadataContext,
 ) -> Option<GlobalEntryInput> {
     let item = object.downcast_ref::<NSMetadataItem>()?;
     if path.trim().is_empty() {
@@ -526,18 +593,24 @@ fn metadata_item_to_entry(
     let metadata = std::fs::symlink_metadata(&path_buf).ok();
     // A path scope may contain a nested mount. Admit metadata only from the
     // explicitly enabled physical volume; missing identity remains partial.
-    let physical_root = if source_root == Path::new("/") {
-        Path::new("/System/Volumes/Data")
-    } else {
-        source_root
-    };
-    if let (Some(candidate), Ok(root)) = (&metadata, fs::symlink_metadata(physical_root)) {
-        if candidate.dev() != root.dev() {
+    if let (Some(candidate), Some(root_device)) = (&metadata, metadata_context.physical_root_device)
+    {
+        if candidate.dev() != root_device {
             return None;
         }
     }
     let is_directory = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
-    let semantics = crate::platform::macos::file_semantics::inspect(&path_buf);
+    let semantics = if let Some(metadata) = &metadata {
+        let cached_volume = (metadata_context.physical_root_volume.is_local == Some(true))
+            .then_some(&metadata_context.physical_root_volume);
+        crate::platform::macos::file_semantics::inspect_with_metadata_and_volume(
+            &path_buf,
+            metadata,
+            cached_volume,
+        )
+    } else {
+        crate::platform::macos::file_semantics::inspect(&path_buf)
+    };
     let mut file_attributes = 0;
     if semantics.is_package {
         file_attributes |= MACOS_FILE_ATTRIBUTE_PACKAGE;
@@ -591,7 +664,7 @@ fn metadata_item_to_entry(
     let platform_file_id = mac_file_identity(&path_buf, metadata.as_ref());
     let parent_platform_file_id = path_buf
         .parent()
-        .map(|parent| mac_file_identity(parent, std::fs::symlink_metadata(parent).ok().as_ref()))
+        .map(|parent| metadata_context.parent_identity(parent))
         .unwrap_or_default();
     Some(GlobalEntryInput {
         volume_id: volume_id.to_string(),

@@ -4,8 +4,8 @@ fn fixture() -> Connection {
     let c = Connection::open_in_memory().unwrap();
     // Small relational fixture includes nullable legacy ID / MAX. Full product
     // integration uses Database::open and the real producer in Global tests.
-    c.execute_batch("CREATE TABLE global_volumes(id TEXT PRIMARY KEY);
-        INSERT INTO global_volumes VALUES('v'),('null'),('empty');
+    c.execute_batch("CREATE TABLE global_volumes(id TEXT PRIMARY KEY, fts_bulk_build INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO global_volumes(id) VALUES('v'),('null'),('empty');
         CREATE TABLE global_entries(id TEXT PRIMARY KEY,volume_id TEXT NOT NULL,
         is_stale INTEGER NOT NULL,last_seen_at INTEGER);
         CREATE INDEX idx_global_entries_active_source_facts ON global_entries(volume_id,last_seen_at,id) WHERE is_stale=0;

@@ -303,3 +303,69 @@ fn sqlite_search_tiers_and_filename_candidate_paths_enforce_windows_authorizatio
     drop(db);
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn bulk_build_sources_do_not_suppress_other_ready_fts_sources() {
+    let path = test_path();
+    let db = Database::open(&path).expect("open isolated FTS source state database");
+    let ready = source("gv_ready_fts", r"C:\ReadyFts", true, "authorized");
+    let pending = source("gv_pending_fts", r"D:\PendingFts", true, "authorized");
+    for volume in [&ready, &pending] {
+        db.upsert_global_volume(volume)
+            .expect("insert authorized FTS source");
+        db.update_global_volume_state(
+            &volume.id,
+            INDEX_STATUS_READY,
+            None,
+            None,
+            None,
+            Some(1),
+            None,
+        )
+        .expect("mark fixture source ready");
+    }
+    let ready_entry = entry(
+        &ready.id,
+        &ready.mount_path,
+        "before_readyftsmarker_after.txt",
+        "txt",
+        "before_readyftsmarker_after.txt",
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&ready_entry))
+        .expect("insert a searchable FTS row in the ready source");
+
+    let connection = db.conn().expect("open FTS source state connection");
+    connection
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0 WHERE id=?1",
+            [&pending.id],
+        )
+        .expect("mark one source as building its initial FTS");
+    assert!(
+        has_searchable_fts_source(&connection).expect("check ready FTS source"),
+        "a pending new source must not hide a different completed source"
+    );
+    let ready_results = db
+        .search_global_entries("readyftsmarker", 10, 0)
+        .expect("search the completed FTS source during another source's build");
+    assert_eq!(ids(&ready_results), vec![ready_entry.entry_id()]);
+
+    connection
+        .execute(
+            "UPDATE global_volumes SET fts_bulk_build=1, fts_bulk_cursor=0 WHERE id=?1",
+            [&ready.id],
+        )
+        .expect("mark the remaining source as building its initial FTS");
+    assert!(
+        !has_searchable_fts_source(&connection).expect("check for any searchable FTS source"),
+        "when every authorized source is bulk-building, FTS reads are unnecessary"
+    );
+    assert!(db
+        .search_global_entries("readyftsmarker", 10, 0)
+        .expect("search while every source is bulk-building")
+        .is_empty());
+
+    drop(connection);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}

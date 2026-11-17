@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 // Performance comparisons are opt-in. Rust CI owns routine correctness; this
 // workflow keeps controlled writer pairs and master/candidate baselines apart.
 const workflow = readFileSync(".github/workflows/smart-lean.yml", "utf8");
+const filenameFirstQualification = readFileSync("scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1", "utf8");
+const filenameFirstProbe = readFileSync("src-tauri/native-qa/global_index_probe.rs", "utf8");
+const filenameFirstQa = readFileSync("src-tauri/src/global_index/windows/filename_first_qa.rs", "utf8");
+const mft = readFileSync("src-tauri/src/global_index/windows/mft.rs", "utf8");
 const prBlock = workflow.split("\n  push:")[0];
 const routes = [...prBlock.matchAll(/^      - '([^']+)'$/gmu)].map((match) => match[1]);
 const writerJob = workflow.split("\n  master-candidate-baseline:")[0];
@@ -20,8 +24,12 @@ describe("Global Index performance workflow routing", () => {
     expect(prBlock).toContain("types: [labeled]");
     expect(routes).toEqual([
       "src-tauri/src/global_index/index_scope/**",
+      "src-tauri/src/db/connection.rs",
+      "src-tauri/src/db/queries/files.rs",
       "src-tauri/src/db/schema_index_coverage.rs",
       "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/filename_search.rs",
       "src-tauri/src/global_index/coordinator.rs",
       "src-tauri/src/global_index/models.rs",
       "src-tauri/src/global_index/windows/mod.rs",
@@ -31,6 +39,7 @@ describe("Global Index performance workflow routing", () => {
       "src-tauri/src/global_index/windows/usn.rs",
       "src-tauri/src/global_index/windows/fallback.rs",
       "src-tauri/src/global_index/windows/smart_lean_qa.rs",
+      "src-tauri/src/global_index/windows/filename_first_qa.rs",
       "src-tauri/src/global_index/macos/spotlight.rs",
       "src-tauri/src/global_index/macos/fsevents.rs",
       "src-tauri/src/global_index/macos/smart_lean_qa.rs",
@@ -41,11 +50,16 @@ describe("Global Index performance workflow routing", () => {
       "src-tauri/src/global_index/index_scope/native.rs",
       "src-tauri/src/global_index/index_scope/repository.rs",
       "src-tauri/src/global_index/index_scope/tests.rs",
+      "src-tauri/src/db/connection.rs",
+      "src-tauri/src/db/queries/files.rs",
       "src-tauri/src/db/schema_index_coverage.rs",
       "src-tauri/src/global_index/repository.rs",
+      "src-tauri/src/global_index/search.rs",
+      "src-tauri/src/global_index/filename_search.rs",
       "src-tauri/src/global_index/coordinator.rs",
       "src-tauri/src/global_index/models.rs",
       "src-tauri/src/global_index/windows/mft.rs",
+      "src-tauri/src/global_index/windows/filename_first_qa.rs",
       "src-tauri/src/global_index/macos/spotlight.rs",
       "scripts/qualifySmartLeanMacos.sh",
     ]) {
@@ -53,10 +67,8 @@ describe("Global Index performance workflow routing", () => {
     }
   });
 
-  it("keeps pure search, UI and activation edits out of the expensive workflow", () => {
+  it("keeps UI and activation edits out of the expensive workflow", () => {
     for (const file of [
-      "src-tauri/src/global_index/search.rs",
-      "src-tauri/src/global_index/filename_search.rs",
       "src-tauri/src/global_index/commands.rs",
       "src-tauri/src/global_index/windows/volumes.rs",
       "src-tauri/src/global_index/tests/search_source_authorization.rs",
@@ -90,7 +102,7 @@ describe("Global Index performance workflow routing", () => {
 
   it("keeps master/candidate release comparisons manual and preserves bounded sizes", () => {
     expect(workflow).toContain("  workflow_dispatch:");
-    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight]");
+    expect(workflow).toContain("options: [writer_pair, master_candidate, macos_spotlight, filename_first_pair, filename_first_diagnostics]");
     expect(workflow).toContain("default: '100000'");
     expect(workflow).toContain("options: ['1000', '100000', '200000']");
     expect(baselineJob).toContain("if: github.event_name == 'workflow_dispatch' && inputs.mode == 'master_candidate'");
@@ -109,5 +121,88 @@ describe("Global Index performance workflow routing", () => {
     expect(spotlightJob).toContain("inputs.mode == 'macos_spotlight'");
     expect(spotlightJob).toContain("UNVERIFIED");
     expect(spotlightJob).toContain("Synthetic writer results are reported in the separate writer-pair job");
+  });
+
+  it("mounts the owned NTFS volume before resolving its fixture path as a PowerShell drive", () => {
+    const mount = filenameFirstQualification.indexOf('"assign letter=$driveLetter"');
+    const volumeVisible = filenameFirstQualification.indexOf("Get-CimInstance Win32_LogicalDisk");
+    const fixturePath = filenameFirstQualification.indexOf("$script:fixtureRoot = Join-Path $driveRoot");
+    const fixtureCreate = filenameFirstQualification.indexOf("New-Item -ItemType Directory -Path $script:fixtureRoot");
+    expect(mount).toBeGreaterThanOrEqual(0);
+    expect(volumeVisible).toBeGreaterThan(mount);
+    expect(fixturePath).toBeGreaterThan(volumeVisible);
+    expect(fixtureCreate).toBeGreaterThan(fixturePath);
+  });
+
+  it("requires MFT and writer timings only for initial-index measurements", () => {
+    expect(filenameFirstQualification).toContain("if (-not $run.stages.mft -or -not $run.stages.writer)");
+    expect(filenameFirstQualification).toContain("initial run $repetition omitted MFT or repository stage timings");
+    expect(filenameFirstQualification).not.toContain("$Label omitted MFT or repository stage timings");
+  });
+
+  it("lets a repeated native pair reuse prior trigger attribution", () => {
+    expect(workflow).toContain("run_trigger_matrix:");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch' && inputs.run_trigger_matrix");
+    expect(workflow).toContain("github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')");
+    expect(workflow).toContain("[run-global-index-filename-first-100k]");
+    expect(workflow).toContain("[run-global-index-filename-first-1m]");
+    expect(workflow).toContain("FILENAME_FIRST_FILE_COUNT:");
+    expect(workflow).toContain("FILENAME_FIRST_REPETITIONS:");
+    expect(workflow).toContain("filename_file_count:");
+    expect(workflow).toContain("filename_persist_batch_size:");
+    expect(workflow).toContain("options: ['auto', '512', '1024', '2048', '4096', '8192']");
+    expect(workflow).toContain('default: \'auto\'');
+    expect(workflow).toContain("inputs.filename_file_count != '1000000'");
+  });
+
+  it("compares the filename-first path through the real same-image Windows Service route", () => {
+    expect(workflow).toContain("Build Release Windows Service and QA probe executable");
+    expect(workflow).toContain("-BaselineProbeExe $probe -CandidateProbeExe $probe -ServiceExe $probe");
+    expect(filenameFirstQualification).toContain("same_release_service_ipc_sqlite_8192_vs_filename_first_catalog_$($script:candidatePersistBatch)");
+    expect(workflow).toContain("same Release native-QA executable and same task-owned NTFS data; the executable runs once as the SCM Index Service and separately as the interactive probe");
+    expect(filenameFirstProbe).toContain('argument == "--index-service"');
+    expect(filenameFirstProbe).toContain("service_host::run_index_service_process()");
+    expect(filenameFirstQa).toContain("WindowsGlobalIndexProvider::with_wake(");
+    expect(filenameFirstQualification).toContain("$script:serviceName = 'FyluraGlobalIndex'");
+    expect(filenameFirstQualification).toContain("the Index Service and IPC probe must use the same executable image");
+    expect(filenameFirstQualification).toContain("windows_service_route_ok");
+    expect(filenameFirstQualification).toContain("Direct fallback is not accepted");
+    expect(filenameFirstQualification).toContain("serviceIpcBatching = $serviceBatching");
+    expect(filenameFirstQualification).toContain("repository_entries -ne [long]$serviceBatching.input_entries");
+    expect(workflow).toContain('Production auto sizing uses 4096 rows below 250k entries and 8192 rows at or above 250k.');
+    expect(workflow).toContain('-CandidatePersistBatch $env:FILENAME_FIRST_PERSIST_BATCH_SIZE');
+    expect(workflow).toContain("Existing-source and incremental FTS triggers stay enabled; no global rebuild runs.");
+    expect(workflow).toContain("fills only its new-source FTS in restartable batches of at most 8192 rows");
+    expect(filenameFirstQualification).toContain("$mode = if ($side -eq 'baseline') { '0' } else { '1' }");
+    expect(filenameFirstQualification).toContain("$run.result.filenameFirstEnabled -ne $expectedFilenameFirstMode");
+    expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_EMIT_BATCH'] = '8192'");
+    expect(filenameFirstQualification).toContain("$script:candidatePersistBatch -eq 'auto'");
+    expect(filenameFirstQualification).toContain("ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH'] = $script:candidatePersistBatch");
+    expect(filenameFirstQualification).toContain("$searchReadyTargetSeconds = if ($FileCount -ge 1000000) { 20 } else { 10 }");
+    expect(filenameFirstQualification).toContain("$script:evidence.durableFilenameIndexTargetMet = $candidateDurableFilenameIndex -le $durableTargetMicroseconds -and $allCandidateDurableFilenameTargetsMet");
+    expect(filenameFirstQualification).toContain("$script:evidence.completeFilenameSearchTargetMet = $candidateCompleteFilenameSearchable -le $searchReadyTargetMicroseconds -and $allCandidateCompleteCatalogsReady");
+    expect(filenameFirstQualification).toContain("$normalWriteP95LimitUs = 1000000");
+    expect(filenameFirstQualification).toContain("$script:evidence.concurrentWritesTarget = [ordered]@");
+    expect(filenameFirstQualification).toContain("completeTransientSearchBeforeDurableFts");
+    expect(filenameFirstQualification).toContain("collectionCompleteWhenTransientReady");
+    expect(filenameFirstQualification).toContain("fullSourceCompletionTargetMet = $script:evidence.fullIndexTargetMet");
+    expect(filenameFirstQualification).toContain("'result.durableFilenameIndexUs'");
+    expect(filenameFirstQualification).toContain("sourceIndexStatus -ne 'ready' -or $run.result.coveragePending");
+    expect(mft).toContain("let batch_size = mft_emit_batch_size();");
+    expect(mft).toContain("fn mft_emit_batch_size_from(value: Option<&str>) -> usize");
+  });
+
+  it("reads native pair timing fields from the QA result and prints durable evidence", () => {
+    expect(filenameFirstQualification).toContain("$baselineFirst = Get-Average $baselineRows.ToArray() 'result.firstSearchableUs'");
+    expect(filenameFirstQualification).toContain("$candidateFull = Get-Average $candidateRows.ToArray() 'result.fullIndexUs'");
+    expect(filenameFirstQualification).toContain("stages.writer.fts_bulk_build_us");
+    expect(filenameFirstQualification).toContain("ftsIntegrityVerified");
+    expect(workflow).toContain("per-source restartable FTS bulk build baseline/candidate:");
+    expect(workflow).toContain("Average peak working set baseline/candidate:");
+    expect(filenameFirstQualification).toContain("stages.writer.transient_staging_us");
+    expect(workflow).toContain("Transient catalog staging baseline/candidate:");
+    expect(workflow).toContain("Average complete filename search baseline/candidate:");
+    expect(workflow).toContain("Peak DB+WAL during indexing baseline/candidate:");
+    expect(workflow).toContain("Write-Output $summary");
   });
 });

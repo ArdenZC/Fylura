@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 50;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 51;
 
 const CREATE_FILE_WORKSPACE_BASKET: &str = r#"
 CREATE TABLE IF NOT EXISTS file_workspace_basket (
@@ -1158,6 +1158,12 @@ pub(crate) fn migrate_with_cancellation(
                 [],
             )?;
             set_schema_version(conn, 50)?;
+        }
+        if version < 51 {
+            guard.check_cancelled()?;
+            ensure_global_index_hardening(conn)?;
+            super::schema_global_source_facts::refresh_filename_first_triggers(conn)?;
+            set_schema_version(conn, 51)?;
         }
         guard.check_cancelled()?;
         Ok(())
@@ -2329,6 +2335,8 @@ fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
             last_full_index_at INTEGER,
             last_incremental_sync_at INTEGER,
             entry_count INTEGER NOT NULL DEFAULT 0,
+            fts_bulk_build INTEGER NOT NULL DEFAULT 0 CHECK (fts_bulk_build IN (0, 1)),
+            fts_bulk_cursor INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -2336,6 +2344,13 @@ fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
             ON global_volumes(enabled, index_status);
         CREATE INDEX IF NOT EXISTS idx_global_volumes_mount_path
             ON global_volumes(mount_path);
+
+        -- Keep the FTS cursor visible while cascading deletes remove a source
+        -- whose initial FTS build was interrupted.
+        CREATE TABLE IF NOT EXISTS global_fts_bulk_delete_guard (
+            volume_id TEXT PRIMARY KEY NOT NULL,
+            cursor INTEGER NOT NULL
+        ) WITHOUT ROWID;
 
         CREATE TABLE IF NOT EXISTS global_entries (
             id TEXT PRIMARY KEY,
@@ -2378,20 +2393,47 @@ fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
             tokenize='trigram'
         );
 
-        CREATE TRIGGER IF NOT EXISTS global_entries_ai AFTER INSERT ON global_entries BEGIN
+        CREATE TRIGGER IF NOT EXISTS global_entries_ai AFTER INSERT ON global_entries
+        WHEN NOT EXISTS (
+            SELECT 1 FROM global_volumes gv
+            WHERE gv.id = new.volume_id AND gv.fts_bulk_build = 1
+              AND new.rowid > gv.fts_bulk_cursor
+        ) BEGIN
             INSERT INTO global_entries_fts(rowid, name, path, extension)
             VALUES (new.rowid, new.name, new.path, new.extension);
         END;
-        CREATE TRIGGER IF NOT EXISTS global_entries_ad AFTER DELETE ON global_entries BEGIN
+        CREATE TRIGGER IF NOT EXISTS global_entries_ad AFTER DELETE ON global_entries
+        WHEN NOT EXISTS (
+            SELECT 1 FROM global_volumes gv
+            WHERE gv.id = old.volume_id AND gv.fts_bulk_build = 1
+              AND old.rowid > gv.fts_bulk_cursor
+        ) AND NOT EXISTS (
+            SELECT 1 FROM global_fts_bulk_delete_guard guard
+            WHERE guard.volume_id = old.volume_id AND old.rowid > guard.cursor
+        ) BEGIN
             INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
             VALUES ('delete', old.rowid, old.name, old.path, old.extension);
         END;
-        CREATE TRIGGER IF NOT EXISTS global_entries_au AFTER UPDATE OF name, path, extension ON global_entries
-        WHEN old.name IS NOT new.name OR old.path IS NOT new.path OR old.extension IS NOT new.extension BEGIN
+        CREATE TRIGGER IF NOT EXISTS global_entries_au AFTER UPDATE OF volume_id, name, path, extension ON global_entries
+        WHEN old.volume_id IS NOT new.volume_id OR old.name IS NOT new.name
+          OR old.path IS NOT new.path OR old.extension IS NOT new.extension BEGIN
             INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
-            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            SELECT 'delete', old.rowid, old.name, old.path, old.extension
+            WHERE NOT EXISTS (
+                SELECT 1 FROM global_volumes gv
+                WHERE gv.id = old.volume_id AND gv.fts_bulk_build = 1
+                  AND old.rowid > gv.fts_bulk_cursor
+            ) AND NOT EXISTS (
+                SELECT 1 FROM global_fts_bulk_delete_guard guard
+                WHERE guard.volume_id = old.volume_id AND old.rowid > guard.cursor
+            );
             INSERT INTO global_entries_fts(rowid, name, path, extension)
-            VALUES (new.rowid, new.name, new.path, new.extension);
+            SELECT new.rowid, new.name, new.path, new.extension
+            WHERE NOT EXISTS (
+                SELECT 1 FROM global_volumes gv
+                WHERE gv.id = new.volume_id AND gv.fts_bulk_build = 1
+                  AND new.rowid > gv.fts_bulk_cursor
+            );
         END;
 
         CREATE TABLE IF NOT EXISTS managed_scopes (
@@ -2508,19 +2550,79 @@ fn migrate_global_index_scope_authorization(conn: &Connection) -> Result<(), DbE
 }
 
 fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
+    let has_column = |name: &str| -> Result<bool, DbError> {
+        Ok(conn
+            .prepare("PRAGMA table_info('global_volumes')")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .any(|column| column == name))
+    };
+    if !has_column("fts_bulk_build")? {
+        conn.execute_batch(
+            "ALTER TABLE global_volumes ADD COLUMN fts_bulk_build INTEGER NOT NULL DEFAULT 0 CHECK (fts_bulk_build IN (0, 1))",
+        )?;
+    }
+    if !has_column("fts_bulk_cursor")? {
+        conn.execute_batch(
+            "ALTER TABLE global_volumes ADD COLUMN fts_bulk_cursor INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
     conn.execute_batch(
         r#"
-        DROP TRIGGER IF EXISTS global_entries_au;
-        CREATE TRIGGER global_entries_au
-        AFTER UPDATE OF name, path, extension ON global_entries
-        WHEN old.name IS NOT new.name
-          OR old.path IS NOT new.path
-          OR old.extension IS NOT new.extension
-        BEGIN
-            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
-            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+        CREATE TABLE IF NOT EXISTS global_fts_bulk_delete_guard (
+            volume_id TEXT PRIMARY KEY NOT NULL,
+            cursor INTEGER NOT NULL
+        ) WITHOUT ROWID;
+
+        DROP TRIGGER IF EXISTS global_entries_ai;
+        CREATE TRIGGER global_entries_ai AFTER INSERT ON global_entries
+        WHEN NOT EXISTS (
+            SELECT 1 FROM global_volumes gv
+            WHERE gv.id = new.volume_id AND gv.fts_bulk_build = 1
+              AND new.rowid > gv.fts_bulk_cursor
+        ) BEGIN
             INSERT INTO global_entries_fts(rowid, name, path, extension)
             VALUES (new.rowid, new.name, new.path, new.extension);
+        END;
+
+        DROP TRIGGER IF EXISTS global_entries_ad;
+        CREATE TRIGGER global_entries_ad AFTER DELETE ON global_entries
+        WHEN NOT EXISTS (
+            SELECT 1 FROM global_volumes gv
+            WHERE gv.id = old.volume_id AND gv.fts_bulk_build = 1
+              AND old.rowid > gv.fts_bulk_cursor
+        ) AND NOT EXISTS (
+            SELECT 1 FROM global_fts_bulk_delete_guard guard
+            WHERE guard.volume_id = old.volume_id AND old.rowid > guard.cursor
+        ) BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+        END;
+
+        DROP TRIGGER IF EXISTS global_entries_au;
+        CREATE TRIGGER global_entries_au
+        AFTER UPDATE OF volume_id, name, path, extension ON global_entries
+        WHEN old.volume_id IS NOT new.volume_id OR old.name IS NOT new.name
+          OR old.path IS NOT new.path OR old.extension IS NOT new.extension
+        BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            SELECT 'delete', old.rowid, old.name, old.path, old.extension
+            WHERE NOT EXISTS (
+                SELECT 1 FROM global_volumes gv
+                WHERE gv.id = old.volume_id AND gv.fts_bulk_build = 1
+                  AND old.rowid > gv.fts_bulk_cursor
+            ) AND NOT EXISTS (
+                SELECT 1 FROM global_fts_bulk_delete_guard guard
+                WHERE guard.volume_id = old.volume_id AND old.rowid > guard.cursor
+            );
+            INSERT INTO global_entries_fts(rowid, name, path, extension)
+            SELECT new.rowid, new.name, new.path, new.extension
+            WHERE NOT EXISTS (
+                SELECT 1 FROM global_volumes gv
+                WHERE gv.id = new.volume_id AND gv.fts_bulk_build = 1
+                  AND new.rowid > gv.fts_bulk_cursor
+            );
         END;
 
         DROP TRIGGER IF EXISTS global_entries_count_ai;
@@ -2554,6 +2656,19 @@ fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
             SET entry_count = entry_count + CASE WHEN new.is_stale = 0 THEN 1 ELSE 0 END,
                 updated_at = unixepoch()
             WHERE id = new.volume_id;
+        END;
+
+        DROP TRIGGER IF EXISTS global_volumes_fts_bulk_delete_guard_bd;
+        CREATE TRIGGER global_volumes_fts_bulk_delete_guard_bd
+        BEFORE DELETE ON global_volumes WHEN old.fts_bulk_build = 1 BEGIN
+            INSERT INTO global_fts_bulk_delete_guard(volume_id,cursor)
+            VALUES(old.id,old.fts_bulk_cursor)
+            ON CONFLICT(volume_id) DO UPDATE SET cursor=excluded.cursor;
+        END;
+        DROP TRIGGER IF EXISTS global_volumes_fts_bulk_delete_guard_ad;
+        CREATE TRIGGER global_volumes_fts_bulk_delete_guard_ad
+        AFTER DELETE ON global_volumes BEGIN
+            DELETE FROM global_fts_bulk_delete_guard WHERE volume_id=old.id;
         END;
 
         DROP TRIGGER IF EXISTS ai_jobs_canceled_terminal;
@@ -3621,6 +3736,99 @@ mod issue381_b4_p0_tests {
     }
 
     #[test]
+    fn schema51_adds_restartable_bulk_fts_state_without_facts_backfill() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO global_volumes(
+                 id,platform,stable_volume_id,display_name,mount_path,
+                 filesystem_type,drive_kind,scope_authorization_state,provider,
+                 enabled,created_at,updated_at
+             ) VALUES(
+                 'gv_schema51','windows','schema51-volume','Schema 51','S:\\',
+                 'NTFS','fixed','authorized','native',1,10,10
+             )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO global_entries(
+                 id,volume_id,platform_file_id,parent_platform_file_id,
+                 name,name_normalized,path,path_normalized,extension,
+                 source_provider,last_seen_at
+             ) VALUES(
+                 'entry-schema51','gv_schema51','file-1','parent-1',
+                 'schema51marker.txt','schema51marker.txt','S:\\schema51marker.txt',
+                 's:/schema51marker.txt','txt','native',11
+             )",
+            [],
+        )
+        .unwrap();
+        let source_facts_before: (i64, i64, Option<i64>) = conn
+            .query_row(
+                "SELECT active_rows,active_ids,max_last_seen_at
+                 FROM global_entry_source_facts WHERE volume_id='gv_schema51'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(source_facts_before, (1, 1, Some(11)));
+        conn.execute_batch(
+            "DROP TRIGGER global_entries_ai;
+             DROP TRIGGER global_entries_ad;
+             DROP TRIGGER global_entries_au;
+             DROP TRIGGER global_entries_count_ai;
+             DROP TRIGGER global_entry_source_facts_ai;
+             DROP TRIGGER global_volumes_fts_bulk_delete_guard_bd;
+             DROP TRIGGER global_volumes_fts_bulk_delete_guard_ad;
+             DROP TABLE global_fts_bulk_delete_guard;
+             ALTER TABLE global_volumes DROP COLUMN fts_bulk_cursor;
+             ALTER TABLE global_volumes DROP COLUMN fts_bulk_build;
+             PRAGMA user_version=50;",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+        let columns = conn
+            .prepare("PRAGMA table_info('global_volumes')")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.iter().any(|column| column == "fts_bulk_build"));
+        assert!(columns.iter().any(|column| column == "fts_bulk_cursor"));
+        super::super::schema_global_source_facts::validate(&conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+        let source_facts_after: (i64, i64, Option<i64>) = conn
+            .query_row(
+                "SELECT active_rows,active_ids,max_last_seen_at
+                 FROM global_entry_source_facts WHERE volume_id='gv_schema51'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            source_facts_after, source_facts_before,
+            "additive FTS migration preserves existing source facts without a backfill"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT entry_count FROM global_volumes WHERE id='gv_schema51'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+        conn.execute(
+            "INSERT INTO global_entries_fts(global_entries_fts,rank) VALUES('integrity-check',1)",
+            [],
+        )
+        .unwrap();
+    }
+
+    #[test]
     fn schema44_scope_authorization_migration_preserves_all_existing_index_and_ai_data() {
         type LegacyVolumeSnapshot = (
             String,
@@ -3698,7 +3906,9 @@ mod issue381_b4_p0_tests {
                 Some("900".into()),
                 Some(100),
                 Some(101),
-                2,
+                // The migration repairs this derived count from the active
+                // entry rows instead of preserving a stale pre-migration value.
+                1,
                 "legacy_confirmation_required".into()
             )
         );

@@ -81,6 +81,8 @@ $script:evidence = [ordered]@{
     baselineFixtureSearchFound = $false
     ipcBatchFixtureFileCount = 0
     serviceBatchingQualification = $null
+    filenameFirstServiceModeMatrix = @()
+    serviceModeAfterMatrix = $null
     independentManifest = $null
     crossDirectoryMove = $null
     createLatencyMs = $null
@@ -114,6 +116,201 @@ $script:qualificationVhdAttached = $false
 $script:failureMessage = $null
 $script:cleanupFailure = $false
 $script:baselineStartedAt = $null
+$script:serviceModeProbeSequence = 0
+
+function Set-TaskServiceFilenameFirstMode([string]$Mode) {
+    $registryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName"
+    if ($Mode -eq 'unset') {
+        Remove-ItemProperty -LiteralPath $registryPath -Name Environment -ErrorAction SilentlyContinue
+        return
+    }
+    if ($Mode -ne 'enabled') { throw "unsupported task service mode: $Mode" }
+    New-ItemProperty -LiteralPath $registryPath -Name Environment -PropertyType MultiString -Value @(
+        'ZC_GLOBAL_INDEX_FILENAME_FIRST=1'
+    ) -Force | Out-Null
+}
+
+function Start-TaskService {
+    $start = Invoke-ServiceControl @('start', $serviceName)
+    if ($start.ExitCode -ne 0) {
+        throw "StartService failed; exact SCM output (exit=$($start.ExitCode)): $($start.Output)"
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    $service = $null
+    do {
+        $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+        if ($service -and $service.State -eq 'Running' -and $service.ProcessId -gt 0) { break }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $service -or $service.State -ne 'Running' -or $service.ProcessId -le 0) {
+        $state = if ($service) { "state=$($service.State) win32ExitCode=$($service.ExitCode) serviceSpecificExitCode=$($service.ServiceSpecificExitCode)" } else { 'service record unavailable' }
+        throw "task-owned service did not reach Running within 45 seconds; $state"
+    }
+    $expectedImagePath = ('"' + $CandidateExe + '" --index-service')
+    if ($service.PathName.Trim() -ine $expectedImagePath) {
+        throw "task-owned service ImagePath mismatch: expected=$expectedImagePath actual=$($service.PathName)"
+    }
+    $serviceImage = Get-ProcessImage ([int]$service.ProcessId)
+    if (-not $serviceImage.Equals($CandidateExe, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "task-owned service current_exe mismatch: expected=$CandidateExe actual=$serviceImage"
+    }
+    $script:serviceProcessId = [int]$service.ProcessId
+    return $service
+}
+
+function Stop-TaskService {
+    $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    if (-not $service -or $service.State -eq 'Stopped') { return }
+    $stop = Invoke-ServiceControl @('stop', $serviceName)
+    $deadline = [DateTime]::UtcNow.AddSeconds(25)
+    do {
+        Start-Sleep -Milliseconds 250
+        $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    } while ($service -and $service.State -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline)
+    if ($service -and $service.State -ne 'Stopped') {
+        throw "task-owned service did not stop for mode change: scExit=$($stop.ExitCode) output=$($stop.Output)"
+    }
+}
+
+function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label, [string]$Command = 'status') {
+    $script:serviceModeProbeSequence++
+    $reportName = 'filename-first-service-mode-{0:D2}-{1}-{2}.json' -f $script:serviceModeProbeSequence, $Label, $Command
+    $reportPath = Join-Path $taskRoot $reportName
+    if ($DesktopMode -notin @('enabled', 'unset')) { throw "unsupported desktop service mode: $DesktopMode" }
+    $lastFailure = $null
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $CandidateExe
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.ArgumentList.Add('--global-index-filename-first-service-mode-qa')
+        $startInfo.ArgumentList.Add($reportPath)
+        $startInfo.ArgumentList.Add($profileRoot)
+        $startInfo.ArgumentList.Add($Command)
+        $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
+        if ($DesktopMode -eq 'enabled') {
+            $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = '1'
+        } else {
+            $startInfo.Environment.Remove('ZC_GLOBAL_INDEX_FILENAME_FIRST') | Out-Null
+        }
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) { throw "failed to start installed-service mode probe: $Label" }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(30000)) {
+            $process.Kill($true)
+            throw "installed-service mode probe timed out: $Label"
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+            $report | Add-Member -NotePropertyName desktopProcessId -NotePropertyValue ([long]$process.Id)
+            return $report
+        }
+        $lastFailure = "installed-service mode probe failed: label=$Label attempt=$attempt exit=$($process.ExitCode) stdout=$stdout stderr=$stderr"
+        Start-Sleep -Milliseconds 250
+    }
+    throw $lastFailure
+}
+
+function Test-InstalledServiceFilenameFirstModeMatrix {
+    $machineSetting = [Environment]::GetEnvironmentVariable('ZC_GLOBAL_INDEX_FILENAME_FIRST', 'Machine')
+    if (-not [string]::IsNullOrEmpty($machineSetting)) {
+        throw "host machine environment sets ZC_GLOBAL_INDEX_FILENAME_FIRST; cannot prove an unset SCM service: $machineSetting"
+    }
+    $cases = @(
+        [pscustomobject]@{ name = 'both_unset'; service = 'unset'; desktop = 'unset'; expectedOk = $true; expectedMode = $false },
+        [pscustomobject]@{ name = 'both_enabled'; service = 'enabled'; desktop = 'enabled'; expectedOk = $true; expectedMode = $true },
+        [pscustomobject]@{ name = 'desktop_enabled_service_unset'; service = 'unset'; desktop = 'enabled'; expectedOk = $true; expectedMode = $true },
+        [pscustomobject]@{ name = 'desktop_unset_service_enabled'; service = 'enabled'; desktop = 'unset'; expectedOk = $true; expectedMode = $false }
+    )
+    $results = [Collections.Generic.List[object]]::new()
+    Stop-TaskService
+    foreach ($case in $cases) {
+        Set-TaskServiceFilenameFirstMode $case.service
+        $caseService = Start-TaskService
+        $probe = Invoke-ServiceModeProbe $case.desktop $case.name
+        if ([bool]$probe.desktopFilenameFirstEnabled -ne [bool]$case.expectedMode) {
+            throw "desktop experiment mode was not captured as expected for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        if ([bool]$probe.responseOk -ne [bool]$case.expectedOk) {
+            throw "installed service mode response mismatch for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        if ($case.expectedOk -and $probe.errorCode) {
+            throw "matching installed service mode returned an error for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        if (-not $case.expectedOk -and $probe.errorCode -ne 'index_filename_first_config_mismatch') {
+            throw "mismatched installed service mode was not rejected explicitly for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        }
+        $results.Add([ordered]@{
+            name = $case.name
+            serviceMode = $case.service
+            desktopMode = $case.desktop
+            responseOk = [bool]$probe.responseOk
+            errorCode = $probe.errorCode
+            serviceStatus = $probe.serviceStatus
+            desktopFilenameFirstEnabled = [bool]$probe.desktopFilenameFirstEnabled
+            desktopProcessId = [long]$probe.desktopProcessId
+            serviceProcessId = [long]$script:serviceProcessId
+            serviceImagePath = $caseService.PathName
+            pauseResponseOk = $null
+            pauseStatus = $null
+            indexCommandRejections = @()
+        })
+        $caseEvidence = $results[$results.Count - 1]
+        if ($case.service -ne $case.desktop) {
+            $pauseProbe = Invoke-ServiceModeProbe $case.desktop $case.name 'pause'
+            if (-not $pauseProbe.responseOk -or $pauseProbe.errorCode -or $pauseProbe.serviceStatus -ne 'paused') {
+                throw "Pause failed despite the experiment mismatch for $($case.name): $($pauseProbe | ConvertTo-Json -Compress)"
+            }
+            $caseEvidence.pauseResponseOk = [bool]$pauseProbe.responseOk
+            $caseEvidence.pauseStatus = $pauseProbe.serviceStatus
+
+            $indexResults = [Collections.Generic.List[object]]::new()
+            foreach ($command in @('start_initial_index', 'rebuild', 'resume_incremental_sync')) {
+                $beforeStatus = Invoke-ServiceModeProbe $case.desktop $case.name 'status'
+                if (-not $beforeStatus.responseOk -or $beforeStatus.serviceStatus -ne 'paused') {
+                    throw "mismatched Status query failed or service state changed before $command ($($case.name)): $($beforeStatus | ConvertTo-Json -Compress)"
+                }
+
+                $indexProbe = Invoke-ServiceModeProbe $case.desktop $case.name $command
+                if ($indexProbe.responseOk -or $indexProbe.errorCode -ne 'index_filename_first_config_mismatch') {
+                    throw "index command was not rejected for the experiment mismatch ($($case.name), $command): $($indexProbe | ConvertTo-Json -Compress)"
+                }
+                if (-not $indexProbe.sideEffectFree) {
+                    throw "rejected index command changed task-owned source/index data ($($case.name), $command): $($indexProbe | ConvertTo-Json -Compress)"
+                }
+
+                $afterStatus = Invoke-ServiceModeProbe $case.desktop $case.name 'status'
+                if (-not $afterStatus.responseOk -or $afterStatus.serviceStatus -ne 'paused') {
+                    throw "rejected index command changed service state ($($case.name), $command): $($afterStatus | ConvertTo-Json -Compress)"
+                }
+                $indexResults.Add([ordered]@{
+                    command = $command
+                    responseOk = [bool]$indexProbe.responseOk
+                    errorCode = $indexProbe.errorCode
+                    sideEffectFree = [bool]$indexProbe.sideEffectFree
+                    entryCountBefore = [long]$indexProbe.entryCountBefore
+                    entryCountAfter = [long]$indexProbe.entryCountAfter
+                    activeEntryCountBefore = [long]$indexProbe.activeEntryCountBefore
+                    activeEntryCountAfter = [long]$indexProbe.activeEntryCountAfter
+                    sourceSnapshotUnchanged = [bool]$indexProbe.sourceSnapshotUnchanged
+                    serviceStatusBefore = $beforeStatus.serviceStatus
+                    serviceStatusAfter = $afterStatus.serviceStatus
+                })
+            }
+            $caseEvidence.indexCommandRejections = @($indexResults.ToArray())
+        }
+        Stop-TaskService
+    }
+    Set-TaskServiceFilenameFirstMode 'unset'
+    $service = Start-TaskService
+    return [pscustomobject]@{ results = @($results.ToArray()); service = $service }
+}
 
 function Invoke-ServiceControl([string[]]$Arguments) {
     $output = (& sc.exe @Arguments 2>&1 | Out-String).Trim()
@@ -283,23 +480,52 @@ function Initialize-QualificationProfile {
     $script:evidence.expectedQualificationSourceId = [string]$prepared.targetSourceId
 }
 
-function Get-TraceLines {
-    if (Test-Path -LiteralPath $tracePath) {
-        return @(Get-Content -LiteralPath $tracePath -ErrorAction SilentlyContinue)
+function Get-TraceFiles {
+    $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    if (Test-Path -LiteralPath $tracePath -PathType Leaf) {
+        $files.Add((Get-Item -LiteralPath $tracePath))
     }
-    return @()
+    foreach ($file in (Get-ChildItem -Path "${tracePath}.pid-*.log" -File -ErrorAction SilentlyContinue)) {
+        $files.Add($file)
+    }
+    return $files.ToArray()
+}
+
+function Get-TraceLines {
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($file in (Get-TraceFiles)) {
+        foreach ($line in (Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue)) {
+            $lines.Add($line)
+        }
+    }
+    return @($lines.ToArray() | Sort-Object {
+        if ($_ -match '^timestamp_us=(\d+)') { [long]$Matches[1] } else { 0L }
+    })
+}
+
+function Clear-TraceFiles {
+    foreach ($file in (Get-TraceFiles)) {
+        Clear-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-TraceCounts {
     $lines = Get-TraceLines
-    $lastCoordinatorEvent = $lines | Where-Object {
-        $_ -ceq "coordinator_cycle" -or $_ -ceq "coordinator_wait"
+    $lastCoordinatorLine = $lines | Where-Object {
+        $_ -match '(?:^|\s)coordinator_cycle$' -or $_ -match '(?:^|\s)coordinator_wait$'
     } | Select-Object -Last 1
+    $lastCoordinatorEvent = if ($lastCoordinatorLine -match '(?:^|\s)coordinator_wait$') {
+        'coordinator_wait'
+    } elseif ($lastCoordinatorLine -match '(?:^|\s)coordinator_cycle$') {
+        'coordinator_cycle'
+    } else {
+        $null
+    }
     return [pscustomobject]@{
         Lines = $lines
-        Cycles = @($lines | Where-Object { $_ -ceq "coordinator_cycle" }).Count
-        Waits = @($lines | Where-Object { $_ -ceq "coordinator_wait" }).Count
-        ServiceRoutes = @($lines | Where-Object { $_ -ceq "windows_service_route_ok" }).Count
+        Cycles = @($lines | Where-Object { $_ -match '(?:^|\s)coordinator_cycle$' }).Count
+        Waits = @($lines | Where-Object { $_ -match '(?:^|\s)coordinator_wait$' }).Count
+        ServiceRoutes = @($lines | Where-Object { $_ -match '(?:^|\s)windows_service_route_ok$' }).Count
         LastCoordinatorEvent = $lastCoordinatorEvent
     }
 }
@@ -497,11 +723,12 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct native qualification failed" }
     $script:evidence.smartLeanDirect = $directJson | ConvertFrom-Json
-    if (Test-Path -LiteralPath $tracePath -PathType Leaf) {
-        $script:evidence.nativeMftTrace = @(Get-Content -LiteralPath $tracePath)
+    $nativeMftTrace = @(Get-TraceLines)
+    if ($nativeMftTrace.Count -gt 0) {
+        $script:evidence.nativeMftTrace = $nativeMftTrace
         $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
         New-Item -ItemType Directory -Path $retainedEvidenceDirectory -Force | Out-Null
-        Copy-Item -LiteralPath $tracePath -Destination (Join-Path $retainedEvidenceDirectory "mft-initial-index-timing.log") -Force
+        $nativeMftTrace | Set-Content -LiteralPath (Join-Path $retainedEvidenceDirectory "mft-initial-index-timing.log")
     }
     if (-not $DirectOnly) {
     $serviceImagePath = '"' + $CandidateExe + '" --index-service'
@@ -542,22 +769,37 @@ try {
         throw "service current_exe mismatch: candidate=$CandidateExe service=$serviceCurrentExe"
     }
 
-    # Same installed executable / actual v4 service pipe; no force-direct test.
+    $modeMatrix = Test-InstalledServiceFilenameFirstModeMatrix
+    $service = $modeMatrix.service
+    $script:evidence.filenameFirstServiceModeMatrix = $modeMatrix.results
+    $script:serviceProcessId = [int]$service.ProcessId
+    $script:evidence.serviceModeAfterMatrix = 'unset'
+
+    # Same installed executable / actual v5 service pipe; no force-direct test.
     $recoveryReport = Join-Path $taskRoot "service-recovery.json"
-    $recoveryProcess = Start-Process -FilePath $CandidateExe -ArgumentList @("--global-index-recovery-qa", $profileRoot, $script:evidence.expectedQualificationSourceId, $recoveryReport) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $taskRoot "recovery-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "recovery-stdout.log")
+    $recoveryClientMode = [Environment]::GetEnvironmentVariable('ZC_GLOBAL_INDEX_FILENAME_FIRST', 'Process')
+    Remove-Item Env:ZC_GLOBAL_INDEX_FILENAME_FIRST -ErrorAction SilentlyContinue
+    try {
+        $recoveryProcess = Start-Process -FilePath $CandidateExe -ArgumentList @("--global-index-recovery-qa", $profileRoot, $script:evidence.expectedQualificationSourceId, $recoveryReport) -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $taskRoot "recovery-stderr.log") -RedirectStandardOutput (Join-Path $taskRoot "recovery-stdout.log")
+    } finally {
+        if ($null -eq $recoveryClientMode) { Remove-Item Env:ZC_GLOBAL_INDEX_FILENAME_FIRST -ErrorAction SilentlyContinue }
+        else { $env:ZC_GLOBAL_INDEX_FILENAME_FIRST = $recoveryClientMode }
+    }
     try {
         if (-not $recoveryProcess.WaitForExit(180000)) { throw "installed service recovery regression timed out" }
         if ($recoveryProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $recoveryReport)) { throw "installed service recovery regression failed: $(Get-Content -LiteralPath (Join-Path $taskRoot 'recovery-stderr.log') -Raw)" }
         $script:evidence.recovery = Get-Content -LiteralPath $recoveryReport -Raw | ConvertFrom-Json
-        $recoveryTrace = @(Get-Content -LiteralPath $tracePath)
+        $recoveryTrace = @(Get-TraceLines)
         # The instrumented Service exchange writes batching counters into the
         # recovery process trace. The background client's route trace above
         # only confirms routing and may be observed before the Service has
         # recorded its completed exchange counters.
         $batchingMetrics = @()
-        foreach ($line in @($recoveryTrace | Where-Object { $_.StartsWith("index_service_batching ") })) {
+        foreach ($line in @($recoveryTrace | Where-Object { $_ -match '(?:^|\s)index_service_batching\s' })) {
             $metrics = [ordered]@{}
-            foreach ($pair in ($line -split '\s+' | Select-Object -Skip 1)) {
+            $parts = $line -split '\s+'
+            $eventIndex = [Array]::IndexOf($parts, 'index_service_batching')
+            foreach ($pair in ($parts | Select-Object -Skip ($eventIndex + 1))) {
                 $parts = $pair -split '=', 2
                 if ($parts.Count -eq 2) { $metrics[$parts[0]] = [long]$parts[1] }
             }
@@ -578,15 +820,17 @@ try {
             $ipcBatchEvidence.checkpoint_flushed_entries -le 0) {
             throw "task VHD Service->Repository coalescing/checkpoint evidence is incomplete: $($ipcBatchEvidence | ConvertTo-Json -Compress)"
         }
-        $repositoryBatchPattern = "^source_operation_write status=ready completed=true batches=$($ipcBatchEvidence.repository_batches)(\s|$)"
+        # QA trace lines have a timestamp and PID prefix, so anchor the event
+        # token rather than the physical start of the line.
+        $repositoryBatchPattern = "(?:^|\s)source_operation_write status=ready completed=true batches=$($ipcBatchEvidence.repository_batches)(\s|$)"
         if (@($recoveryTrace | Where-Object { $_ -match $repositoryBatchPattern }).Count -eq 0) {
             throw "Service exchange batch count was not confirmed by the completed repository write timing: expected_batches=$($ipcBatchEvidence.repository_batches)"
         }
         $script:evidence.serviceBatchingQualification = $ipcBatchEvidence
-        if ($recoveryTrace -cnotcontains "windows_recovery_rebuild_admitted") { throw "recovery did not pass the existing Background admission gate" }
-        Copy-Item -LiteralPath $tracePath -Destination (Join-Path $taskRoot "recovery-trace.log")
+        if (@($recoveryTrace | Where-Object { $_ -match '(?:^|\s)windows_recovery_rebuild_admitted(?:\s|$)' }).Count -eq 0) { throw "recovery did not pass the existing Background admission gate" }
+        $recoveryTrace | Set-Content -LiteralPath (Join-Path $taskRoot "recovery-trace.log")
         # Keep original background-client route/idle accounting independent.
-        Clear-Content -LiteralPath $tracePath
+        Clear-TraceFiles
         if (-not $script:evidence.recovery.pausedViaPipe -or -not $script:evidence.recovery.rebuildRequiredViaPipe -or $script:evidence.recovery.nextAdmittedRebuildCount -ne 1 -or $script:evidence.recovery.finalStatus -ne "ready") { throw "installed service recovery proof incomplete" }
         # Retain only the bounded recovery evidence outside the disposable task root.
         $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
@@ -603,8 +847,9 @@ try {
             Copy-Item -LiteralPath $recoveryReport -Destination (Join-Path $retainedEvidenceDirectory "service-recovery.json") -Force
         }
         $recoveryTracePath = Join-Path $taskRoot "recovery-trace.log"
-        if (-not (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) -and (Test-Path -LiteralPath $tracePath -PathType Leaf)) {
-            Copy-Item -LiteralPath $tracePath -Destination $recoveryTracePath
+        $partialRecoveryTrace = @(Get-TraceLines)
+        if (-not (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) -and $partialRecoveryTrace.Count -gt 0) {
+            $partialRecoveryTrace | Set-Content -LiteralPath $recoveryTracePath
         }
         if (Test-Path -LiteralPath $recoveryTracePath -PathType Leaf) {
             Copy-Item -LiteralPath $recoveryTracePath -Destination (Join-Path $retainedEvidenceDirectory "recovery-trace.log") -Force
@@ -628,10 +873,10 @@ try {
     do {
         if ($client.HasExited) { throw "background client exited during startup with code $($client.ExitCode)" }
         $trace = Get-TraceLines
-        if ($trace -contains "coordinator_cycle") { break }
+        if (@($trace | Where-Object { $_ -match '(?:^|\s)coordinator_cycle$' }).Count -gt 0) { break }
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $coordinatorDeadline)
-    if ($trace -notcontains "coordinator_cycle") {
+    if (@($trace | Where-Object { $_ -match '(?:^|\s)coordinator_cycle$' }).Count -eq 0) {
         throw "candidate coordinator did not start; no coordinator_cycle trace was recorded"
     }
 

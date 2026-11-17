@@ -54,7 +54,7 @@ pub fn set_windows_directory_full_file_identity_for_qa(enabled: bool) {
 fn windows_directory_full_file_identity_for_qa() -> bool {
     #[cfg(feature = "native-qa")]
     {
-        return WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA.load(Ordering::Relaxed);
+        WINDOWS_DIRECTORY_FULL_FILE_IDENTITY_FOR_QA.load(Ordering::Relaxed)
     }
     #[cfg(not(feature = "native-qa"))]
     {

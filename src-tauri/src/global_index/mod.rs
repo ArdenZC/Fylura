@@ -29,8 +29,39 @@ pub use models::*;
 pub(crate) use repository::enqueue_managed_ai_for_library_files;
 pub use search::search_global_entries;
 
+/// Filename-first remains an explicit opt-in experiment until persistence
+/// latency and writer contention meet the production targets.
+pub(crate) fn filename_first_experimental_enabled() -> bool {
+    filename_first_experimental_enabled_for_value(
+        std::env::var("ZC_GLOBAL_INDEX_FILENAME_FIRST")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn filename_first_experimental_enabled_for_value(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod filename_first_flag_tests {
+    #[test]
+    fn filename_first_is_explicit_opt_in() {
+        assert!(!super::filename_first_experimental_enabled_for_value(None));
+        assert!(!super::filename_first_experimental_enabled_for_value(Some(
+            "0"
+        )));
+        assert!(!super::filename_first_experimental_enabled_for_value(Some(
+            "true"
+        )));
+        assert!(super::filename_first_experimental_enabled_for_value(Some(
+            "1"
+        )));
+    }
+}
 
 #[cfg(test)]
 mod lock_contention_tests;

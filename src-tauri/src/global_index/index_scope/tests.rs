@@ -156,6 +156,46 @@ fn native_false_exclusion_oracle_preserves_user_files() {
 }
 
 #[test]
+fn mft_scope_directory_proofs_are_reused_only_for_the_same_source_policy() {
+    let mut f = Fixture::new();
+    f.source.mount_path = f.root.to_string_lossy().into_owned();
+    f.source.provider = crate::global_index::PROVIDER_WINDOWS_MFT_USN.into();
+    let first = f.file("docs/first.txt");
+    let second = f.file("docs/second.txt");
+    let policy = CoveragePolicy::default();
+    let mut cache = ObservationCache::default();
+
+    assert_eq!(
+        observe_batch_cached(&policy, &f.source, std::slice::from_ref(&first), &mut cache),
+        observe_batch(&policy, &f.source, std::slice::from_ref(&first))
+    );
+    assert_eq!(cache.cached_directory_count(), 1);
+    assert_eq!(
+        observe_batch_cached(
+            &policy,
+            &f.source,
+            std::slice::from_ref(&second),
+            &mut cache
+        ),
+        observe_batch(&policy, &f.source, std::slice::from_ref(&second))
+    );
+    assert_eq!(cache.cached_directory_count(), 1);
+
+    let mut changed_policy = policy;
+    changed_policy.revision += 1;
+    assert_eq!(
+        observe_batch_cached(
+            &changed_policy,
+            &f.source,
+            std::slice::from_ref(&second),
+            &mut cache,
+        ),
+        observe_batch(&changed_policy, &f.source, std::slice::from_ref(&second))
+    );
+    assert_eq!(cache.cached_directory_count(), 1);
+}
+
+#[test]
 fn native_system_temporary_root_is_excluded_without_excluding_tmp_named_folders() {
     let source_root = std::env::temp_dir();
     let fixture_root = source_root.join(format!("zen-smart-lean-temp-{}", uuid::Uuid::new_v4()));
@@ -1000,21 +1040,33 @@ fn global_index_writer_trigger_contribution_25k() {
         .map(|index| f.file(&format!("trigger-sample/entry{index}.txt")))
         .collect::<Vec<_>>();
     let mut records = Vec::new();
+    let mut runs = vec![
+        (512, "full_triggers"),
+        (512, "without_fts"),
+        (512, "without_source_stats"),
+        (512, "bulk_fts"),
+        (4096, "full_triggers"),
+        (8192, "full_triggers"),
+        (8192, "without_fts"),
+        (8192, "without_source_stats"),
+        (8192, "bulk_fts"),
+    ];
     for repetition in 0..3 {
-        let mut modes = ["full_triggers", "without_fts", "without_source_stats"];
-        modes.rotate_left(repetition);
-        for mode in modes {
-            let db_path = f.root.join(format!("trigger-{repetition}-{mode}.sqlite"));
+        runs.rotate_left(repetition);
+        for (batch_size, mode) in &runs {
+            let db_path = f
+                .root
+                .join(format!("trigger-{repetition}-{batch_size}-{mode}.sqlite"));
             let db = Database::open(&db_path).unwrap();
             db.upsert_global_volume(&f.source).unwrap();
-            if mode == "without_fts" {
+            if *mode == "without_fts" || *mode == "bulk_fts" {
                 db.conn()
                     .unwrap()
                     .execute_batch(
                         "DROP TRIGGER global_entries_ai; DROP TRIGGER global_entries_ad; DROP TRIGGER global_entries_au;",
                     )
                     .unwrap();
-            } else if mode == "without_source_stats" {
+            } else if *mode == "without_source_stats" {
                 db.conn()
                     .unwrap()
                     .execute_batch(
@@ -1025,12 +1077,23 @@ fn global_index_writer_trigger_contribution_25k() {
 
             let begin = Instant::now();
             let mut timing = crate::global_index::repository::GlobalIndexBatchTiming::default();
-            for batch in entries.chunks(512) {
+            for batch in entries.chunks(*batch_size) {
                 let (_, batch_timing) = db.upsert_global_entries_batch_timed(batch).unwrap();
                 timing.add(batch_timing);
             }
-            let seconds = begin.elapsed().as_secs_f64();
             let conn = db.conn().unwrap();
+            let bulk_fts_build_seconds = if *mode == "bulk_fts" {
+                let fts_started = Instant::now();
+                conn.execute(
+                    "INSERT INTO global_entries_fts(rowid,name,path,extension) SELECT rowid,name,path,extension FROM global_entries",
+                    [],
+                )
+                .unwrap();
+                fts_started.elapsed().as_secs_f64()
+            } else {
+                0.0
+            };
+            let seconds = begin.elapsed().as_secs_f64();
             let fts_bytes: i64 = conn
                 .query_row(
                     "SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name GLOB 'global_entries_fts*'",
@@ -1061,7 +1124,7 @@ fn global_index_writer_trigger_contribution_25k() {
             let database_file_bytes = fs::metadata(&db_path).map_or(0, |metadata| metadata.len());
             let wal_path = std::path::PathBuf::from(format!("{}-wal", db_path.display()));
             let wal_bytes = fs::metadata(&wal_path).map_or(0, |metadata| metadata.len());
-            if mode == "full_triggers" {
+            if *mode == "full_triggers" || *mode == "bulk_fts" {
                 assert_eq!(source_fact_rows, N as i64);
                 assert_eq!(volume_entry_count, N as i64);
                 conn.execute(
@@ -1069,7 +1132,7 @@ fn global_index_writer_trigger_contribution_25k() {
                     [],
                 )
                 .unwrap();
-            } else if mode == "without_source_stats" {
+            } else if *mode == "without_source_stats" {
                 assert_eq!(source_fact_rows, 0);
                 assert_eq!(volume_entry_count, 0);
             }
@@ -1078,9 +1141,12 @@ fn global_index_writer_trigger_contribution_25k() {
                 "arch": std::env::consts::ARCH,
                 "profile": if cfg!(debug_assertions) { "debug" } else { "release" },
                 "group": mode,
+                "batchSize": batch_size,
                 "repetition": repetition,
                 "candidates": N,
                 "seconds": seconds,
+                "sqliteTransactions": entries.len().div_ceil(*batch_size),
+                "bulkFtsBuildSeconds": bulk_fts_build_seconds,
                 "candidatesPerSecond": N as f64 / seconds,
                 "sqliteTransactionSeconds": timing.sqlite_transaction.as_secs_f64(),
                 "coveragePolicyLoadSeconds": timing.coverage_policy_load.as_secs_f64(),
@@ -1409,14 +1475,13 @@ fn hardlink_search_admission_uses_native_index_policy() {
         &CoveragePolicy::default(),
         &f.source,
         std::slice::from_ref(&e),
-    )[0]
-    .clone();
+    )[0];
     let mut alias = e;
     alias.path = alias_path.to_string_lossy().into_owned();
     alias.name = "user-copy.js".into();
     alias.extension = "js".into();
     super::native::enrich_fixture_identity(&mut alias);
-    let alias_decision = observe_batch(&CoveragePolicy::default(), &f.source, &[alias])[0].clone();
+    let alias_decision = observe_batch(&CoveragePolicy::default(), &f.source, &[alias])[0];
     // Read-only filename indexing need not open a handle just to reject
     // hardlinks. Each visible name still follows its own Index Scope path.
     #[cfg(windows)]
@@ -1433,7 +1498,7 @@ fn hardlink_search_admission_uses_native_index_policy() {
 
 #[cfg(windows)]
 #[test]
-fn mft_fast_path_uses_native_attributes_without_extra_handle_checks() {
+fn mft_fast_path_uses_native_attributes_without_per_file_metadata_checks() {
     let f = Fixture::new();
     let mut file = f.file("docs/ordinary.txt");
     let policy = CoveragePolicy::default();
@@ -1448,7 +1513,7 @@ fn mft_fast_path_uses_native_attributes_without_extra_handle_checks() {
     let fallback_metadata = super::native::take_metadata_attempts();
     assert!(
         fast_metadata < fallback_metadata,
-        "MFT filename admission should avoid the extra per-file handle check"
+        "MFT filename admission should avoid a redundant per-file metadata lookup"
     );
 
     file.source_provider = crate::global_index::PROVIDER_WINDOWS_MFT_USN.to_string();
@@ -1465,7 +1530,13 @@ fn mft_fast_path_uses_native_attributes_without_extra_handle_checks() {
 
 #[test]
 fn resolved_uncertainty_does_not_make_cumulative_observations_a_permanent_blocker() {
-    let f = Fixture::new();
+    // This assertion covers a provider that must stat each candidate to
+    // establish that the path still exists. The Windows MFT path deliberately
+    // trusts the captured record attributes and validates transient results
+    // against live identity at query time.
+    let mut f = Fixture::new();
+    f.source.provider = crate::global_index::PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+    f.db.upsert_global_volume(&f.source).unwrap();
     let entry = f.file("resolved.txt");
     fs::remove_file(&entry.path).unwrap();
     let owner = f.owner();

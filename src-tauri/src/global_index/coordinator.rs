@@ -1,12 +1,12 @@
 use super::models::*;
-use super::repository::SourceOperationOwner;
 pub use super::repository::{SourceOperationKind, SourceOperationRoute};
+use super::repository::{SourceOperationOwner, TransientMftCatalogWriteRequest};
 use super::wake::{GlobalIndexWaitResult, GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use crate::db::{Database, DbError};
 use crate::file_workspace::WorkClass;
 use crate::resource_governor::scope_thread_qos;
 use crate::scheduler::{CancellationToken, ResourceHints, WorkRequest, WorkScheduler};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -44,6 +44,10 @@ pub enum GlobalIndexError {
 }
 
 pub trait GlobalIndexSink: Send {
+    fn defer_initial_mft_metadata(&self, _volume_id: &str) -> bool {
+        false
+    }
+
     fn admit_source_operation(
         &mut self,
         _source: &GlobalVolume,
@@ -476,37 +480,89 @@ impl GlobalIndexCoordinator {
 struct DatabaseIndexSink {
     db: Database,
     owners: HashMap<String, SourceOperationOwner>,
+    operation_context: HashMap<String, SourceOperationContext>,
+    deferred_initial_sources: HashSet<String>,
+    initial_fts_bulk_sources: HashSet<String>,
+    fallback_initial_sources: HashSet<String>,
     write_timings: HashMap<String, SourceWriteTimings>,
+}
+
+struct SourceOperationContext {
+    kind: SourceOperationKind,
+    provider: String,
+    scope_observation: super::coverage::ObservationCache,
 }
 
 #[derive(Debug, Default)]
 struct SourceWriteTimings {
     batches: u64,
+    sqlite_transactions: u64,
     coverage_evaluation: Duration,
     coverage_policy_load: Duration,
     sqlite_transaction: Duration,
     connection_acquisition: Duration,
     transaction_acquisition: Duration,
     transaction_setup: Duration,
+    max_writer_lock: Duration,
     entry_upsert: Duration,
     ai_task_qualification: Duration,
     record_decisions: Duration,
+    fts_bulk_build: Duration,
+    metadata_update: Duration,
+    metadata_commit: Duration,
     commit: Duration,
+    transient_staging: Duration,
+    deferred_metadata: Duration,
+    wal_checkpoint: Duration,
 }
 
 impl SourceWriteTimings {
     fn record(&mut self, timing: crate::global_index::repository::GlobalIndexBatchTiming) {
         self.batches = self.batches.saturating_add(1);
+        self.record_sqlite_timing(timing);
+    }
+
+    fn record_deferred(
+        &mut self,
+        timing: crate::global_index::repository::GlobalIndexBatchTiming,
+        staging: Duration,
+    ) {
+        self.batches = self.batches.saturating_add(1);
+        self.coverage_evaluation += timing.coverage_evaluation;
+        self.coverage_policy_load += timing.coverage_policy_load;
+        self.connection_acquisition += timing.connection_acquisition;
+        self.transient_staging += staging;
+    }
+
+    fn record_persisted(
+        &mut self,
+        timing: crate::global_index::repository::GlobalIndexBatchTiming,
+    ) {
+        self.record_sqlite_timing(timing);
+    }
+
+    fn record_sqlite_timing(
+        &mut self,
+        timing: crate::global_index::repository::GlobalIndexBatchTiming,
+    ) {
+        self.sqlite_transactions = self
+            .sqlite_transactions
+            .saturating_add(timing.sqlite_transactions);
         self.coverage_evaluation += timing.coverage_evaluation;
         self.coverage_policy_load += timing.coverage_policy_load;
         self.sqlite_transaction += timing.sqlite_transaction;
         self.connection_acquisition += timing.connection_acquisition;
         self.transaction_acquisition += timing.transaction_acquisition;
         self.transaction_setup += timing.transaction_setup;
+        self.max_writer_lock = self.max_writer_lock.max(timing.writer_lock_max);
         self.entry_upsert += timing.entry_upsert;
         self.ai_task_qualification += timing.ai_task_qualification;
         self.record_decisions += timing.record_decisions;
+        self.fts_bulk_build += timing.fts_bulk_build;
+        self.metadata_update += timing.metadata_update;
+        self.metadata_commit += timing.metadata_commit;
         self.commit += timing.commit;
+        self.wal_checkpoint += timing.wal_checkpoint;
     }
 }
 
@@ -523,6 +579,10 @@ pub(crate) fn database_sink_for_qualification(db: Database) -> impl GlobalIndexS
     DatabaseIndexSink {
         db,
         owners: HashMap::new(),
+        operation_context: HashMap::new(),
+        deferred_initial_sources: HashSet::new(),
+        initial_fts_bulk_sources: HashSet::new(),
+        fallback_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     }
 }
@@ -566,17 +626,250 @@ impl DatabaseIndexSink {
             GlobalIndexError::ServiceProtocol("source write before operation admission".into())
         })
     }
+
+    fn should_defer_initial_mft(&self, volume_id: &str) -> bool {
+        super::filename_first_experimental_enabled()
+            && self
+                .operation_context
+                .get(volume_id)
+                .is_some_and(|context| {
+                    matches!(
+                        context.kind,
+                        SourceOperationKind::Initial | SourceOperationKind::Rebuild
+                    ) && context.provider == PROVIDER_WINDOWS_MFT_USN
+                })
+    }
+
+    fn should_defer_initial_spotlight_fts(&self, volume_id: &str) -> bool {
+        self.operation_context
+            .get(volume_id)
+            .is_some_and(|context| {
+                matches!(
+                    context.kind,
+                    SourceOperationKind::Initial | SourceOperationKind::Rebuild
+                ) && context
+                    .provider
+                    .split('+')
+                    .any(|provider| provider == PROVIDER_MACOS_SPOTLIGHT)
+            })
+    }
+
+    fn flush_deferred_initial_mft(
+        &mut self,
+        volume_id: &str,
+        owner: &SourceOperationOwner,
+    ) -> Result<(), GlobalIndexError> {
+        if !self.deferred_initial_sources.contains(volume_id) {
+            return Ok(());
+        }
+        let operation_id = owner.operation_id.as_str();
+        let (entry_count, staged_policy_revision) = self
+            .db
+            .filename_search
+            .complete_transient_catalog(volume_id, operation_id)
+            .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
+        let staged_policy_revision = if entry_count == 0 {
+            staged_policy_revision.unwrap_or_default()
+        } else {
+            staged_policy_revision.ok_or_else(|| {
+                GlobalIndexError::ServiceOutcomeUnknown(
+                    "transient_initial_catalog_scope_revision_missing".into(),
+                )
+            })?
+        };
+        let batch_size = initial_mft_persist_batch_size(entry_count);
+
+        // Finish non-search metadata before taking shared-database writer
+        // locks. The bounded UPSERT then persists each row only once.
+        let mut offset = 0;
+        let mut deferred_metadata = Duration::default();
+        while offset < entry_count {
+            let mut batch = self
+                .db
+                .filename_search
+                .transient_catalog_batch(volume_id, operation_id, offset, batch_size)
+                .ok_or_else(|| {
+                    GlobalIndexError::ServiceOutcomeUnknown(
+                        "transient_initial_catalog_lost_before_metadata".into(),
+                    )
+                })?;
+            if batch.entries.is_empty() || offset.saturating_add(batch.entries.len()) > entry_count
+            {
+                return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                    "transient_initial_catalog_metadata_batch_invalid".into(),
+                ));
+            }
+            let metadata_started = Instant::now();
+            enrich_initial_mft_metadata(&mut batch.entries);
+            deferred_metadata += metadata_started.elapsed();
+            self.db
+                .filename_search
+                .update_transient_metadata(volume_id, operation_id, &batch.entries)
+                .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
+            offset += batch.entries.len();
+        }
+
+        let (written, timing) = self
+            .db
+            .upsert_transient_mft_catalog_bulk_owned_timed(TransientMftCatalogWriteRequest {
+                volume_id,
+                operation_id,
+                entry_count,
+                batch_size,
+                staged_policy_revision,
+                owner,
+            })
+            .map_err(Self::map_owned_write_error)?;
+        if written != entry_count {
+            return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                "transient_initial_catalog_persist_count_mismatch".into(),
+            ));
+        }
+        if entry_count > 0 {
+            self.write_timings
+                .entry(volume_id.to_owned())
+                .or_default()
+                .record_persisted(timing);
+        }
+        self.write_timings
+            .entry(volume_id.to_owned())
+            .or_default()
+            .deferred_metadata += deferred_metadata;
+        self.deferred_initial_sources.remove(volume_id);
+        log::info!(
+            target: "global_index::repository",
+            "filename_first_catalog_complete volume_id={} entries={} persist_batch_size={}",
+            volume_id,
+            entry_count,
+            batch_size
+        );
+        crate::global_index::qa_trace::record(&format!(
+            "filename_first_catalog_complete entries={entry_count} persist_batch_size={batch_size}"
+        ));
+        Ok(())
+    }
+
+    fn persist_transient_catalog_fallback(
+        &mut self,
+        volume_id: &str,
+        owner: &SourceOperationOwner,
+    ) -> Result<(), GlobalIndexError> {
+        let entry_count = self
+            .db
+            .filename_search
+            .transient_catalog_entry_count(volume_id, &owner.operation_id)
+            .ok_or_else(|| {
+                GlobalIndexError::ServiceOutcomeUnknown(
+                    "transient_catalog_lost_during_memory_fallback".into(),
+                )
+            })?;
+        let batch_size = initial_mft_persist_batch_size(entry_count);
+        let mut offset = 0usize;
+        while offset < entry_count {
+            let mut batch = self
+                .db
+                .filename_search
+                .transient_catalog_batch(volume_id, &owner.operation_id, offset, batch_size)
+                .ok_or_else(|| {
+                    GlobalIndexError::ServiceOutcomeUnknown(
+                        "transient_catalog_lost_during_memory_fallback".into(),
+                    )
+                })?;
+            if batch.entries.is_empty() || batch.entries.len() > batch_size {
+                return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                    "transient_catalog_fallback_batch_invalid".into(),
+                ));
+            }
+            let metadata_started = Instant::now();
+            enrich_initial_mft_metadata(&mut batch.entries);
+            let metadata_elapsed = metadata_started.elapsed();
+            let (written, timing) = self
+                .db
+                .upsert_global_entries_batch_owned_timed(&batch.entries, owner)
+                .map_err(Self::map_owned_write_error)?;
+            if written != batch.entries.len() {
+                return Err(GlobalIndexError::ServiceOutcomeUnknown(
+                    "transient_catalog_fallback_persist_count_mismatch".into(),
+                ));
+            }
+            self.db
+                .filename_search
+                .mark_transient_persisted(volume_id, &owner.operation_id, written)
+                .map_err(|error| GlobalIndexError::ServiceOutcomeUnknown(error.into()))?;
+            let volume_timing = self.write_timings.entry(volume_id.to_owned()).or_default();
+            volume_timing.record(timing);
+            volume_timing.deferred_metadata += metadata_elapsed;
+            offset += written;
+        }
+        self.db
+            .filename_search
+            .clear_transient_catalog(volume_id, &owner.operation_id);
+        self.deferred_initial_sources.remove(volume_id);
+        log::warn!(
+            target: "global_index::repository",
+            "filename_first_catalog_memory_fallback volume_id={} entries={} catalog_budget_bytes={}",
+            volume_id,
+            entry_count,
+            crate::global_index::filename_search::MAX_TRANSIENT_CATALOG_BYTES,
+        );
+        Ok(())
+    }
+}
+
+fn initial_mft_persist_batch_size(entry_count: usize) -> usize {
+    let override_size = std::env::var("ZC_GLOBAL_INDEX_MFT_PERSIST_BATCH")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
+    initial_mft_persist_batch_size_for_count(entry_count, override_size)
+}
+
+fn initial_mft_persist_batch_size_for_count(
+    entry_count: usize,
+    override_size: Option<usize>,
+) -> usize {
+    override_size
+        .filter(|value| matches!(value, 512 | 1024 | 2048 | 4096 | 8192))
+        // Paired Windows NTFS runs showed a 4k batch reduced normal Files
+        // operation latency and SQLITE_BUSY errors for 100k sources, while
+        // 8k materially improved 1M persistence throughput (commit time
+        // 69s versus 150s at 4k). Use the smaller batch for typical sources
+        // and retain the higher-throughput batch for large baselines.
+        .unwrap_or(if entry_count < 250_000 { 4_096 } else { 8_192 })
+}
+
+fn enrich_initial_mft_metadata(entries: &mut [GlobalEntryInput]) {
+    for entry in entries {
+        if entry.is_directory {
+            continue;
+        }
+        if let Ok(metadata) = fs::symlink_metadata(&entry.path) {
+            entry.size = metadata.len().min(i64::MAX as u64) as i64;
+            entry.modified_at_fs = metadata
+                .modified()
+                .ok()
+                .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|value| value.as_secs().min(i64::MAX as u64) as i64)
+                .or(entry.modified_at_fs);
+        }
+    }
 }
 
 impl Drop for DatabaseIndexSink {
     fn drop(&mut self) {
-        for owner in self.owners.values() {
+        for (volume_id, owner) in &self.owners {
+            self.db
+                .filename_search
+                .clear_transient_catalog(volume_id, &owner.operation_id);
             self.db.forget_local_global_index_operation(owner);
         }
     }
 }
 
 impl GlobalIndexSink for DatabaseIndexSink {
+    fn defer_initial_mft_metadata(&self, volume_id: &str) -> bool {
+        self.deferred_initial_sources.contains(volume_id)
+    }
+
     fn native_watcher_admitted(&self, source: &GlobalVolume) -> Result<bool, GlobalIndexError> {
         let Some(owner) = self.owners.get(&source.id) else {
             return Ok(false);
@@ -600,6 +893,14 @@ impl GlobalIndexSink for DatabaseIndexSink {
             )));
         };
         self.owners.insert(source.id.clone(), owner);
+        self.operation_context.insert(
+            source.id.clone(),
+            SourceOperationContext {
+                kind,
+                provider: source.provider.clone(),
+                scope_observation: super::coverage::ObservationCache::default(),
+            },
+        );
         self.write_timings
             .insert(source.id.clone(), SourceWriteTimings::default());
         Ok(())
@@ -612,7 +913,14 @@ impl GlobalIndexSink for DatabaseIndexSink {
     fn mark_source_operation_unknown(&mut self, volume_id: &str) -> Result<(), GlobalIndexError> {
         if let Some(owner) = self.owners.get(volume_id).cloned() {
             let _ = self.db.mark_global_index_operation_unknown(&owner)?;
+            self.db
+                .filename_search
+                .clear_transient_catalog(volume_id, &owner.operation_id);
             self.owners.remove(volume_id);
+            self.operation_context.remove(volume_id);
+            self.deferred_initial_sources.remove(volume_id);
+            self.initial_fts_bulk_sources.remove(volume_id);
+            self.fallback_initial_sources.remove(volume_id);
             self.write_timings.remove(volume_id);
             self.db.forget_local_global_index_operation(&owner);
         }
@@ -634,6 +942,19 @@ impl GlobalIndexSink for DatabaseIndexSink {
             )));
         };
         let finalize_started = Instant::now();
+        // This method is the terminal boundary after a provider stream has
+        // stopped, including a successfully collected but partial Spotlight
+        // result set (whose source status still tells the UI it is incomplete).
+        if self.initial_fts_bulk_sources.contains(volume_id) {
+            let timing = self
+                .db
+                .finish_initial_global_source_fts_bulk_build_owned_timed(&owner)
+                .map_err(Self::map_owned_write_error)?;
+            self.write_timings
+                .entry(volume_id.to_owned())
+                .or_default()
+                .record_persisted(timing);
+        }
         let completed = self.db.finish_global_index_operation(
             &owner,
             status,
@@ -644,39 +965,62 @@ impl GlobalIndexSink for DatabaseIndexSink {
         )?;
         let finalize_us = finalize_started.elapsed().as_micros();
         self.owners.remove(volume_id);
+        self.operation_context.remove(volume_id);
+        self.deferred_initial_sources.remove(volume_id);
+        self.initial_fts_bulk_sources.remove(volume_id);
+        self.fallback_initial_sources.remove(volume_id);
+        self.db
+            .filename_search
+            .clear_transient_catalog(volume_id, &owner.operation_id);
         self.db.forget_local_global_index_operation(&owner);
         if let Some(timings) = self.write_timings.remove(volume_id) {
             if timings.batches > 0 {
                 log::info!(
                     target: "global_index::repository",
-                    "source_operation_write status={} completed={} batches={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={}",
+                    "source_operation_write status={} completed={} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} max_writer_lock_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_bulk_build_us={} wal_checkpoint_us={} metadata_update_us={} metadata_commit_us={} commit_us={} finalize_us={}",
                     status,
                     completed,
                     timings.batches,
+                    timings.sqlite_transactions,
+                    timings.transient_staging.as_micros(),
+                    timings.deferred_metadata.as_micros(),
                     timings.coverage_policy_load.as_micros(),
                     timings.coverage_evaluation.as_micros(),
                     timings.sqlite_transaction.as_micros(),
                     timings.connection_acquisition.as_micros(),
                     timings.transaction_acquisition.as_micros(),
                     timings.transaction_setup.as_micros(),
+                    timings.max_writer_lock.as_micros(),
                     timings.entry_upsert.as_micros(),
                     timings.ai_task_qualification.as_micros(),
                     timings.record_decisions.as_micros(),
+                    timings.fts_bulk_build.as_micros(),
+                    timings.wal_checkpoint.as_micros(),
+                    timings.metadata_update.as_micros(),
+                    timings.metadata_commit.as_micros(),
                     timings.commit.as_micros(),
                     finalize_us
                 );
                 crate::global_index::qa_trace::record(&format!(
-                    "source_operation_write status={status} completed={completed} batches={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} commit_us={} finalize_us={finalize_us}",
+                    "source_operation_write status={status} completed={completed} batches={} sqlite_transactions={} transient_staging_us={} deferred_metadata_us={} coverage_policy_load_us={} coverage_evaluation_us={} sqlite_transaction_us={} connection_acquisition_us={} transaction_acquisition_us={} transaction_setup_us={} max_writer_lock_us={} entry_upsert_us={} ai_task_qualification_us={} record_decisions_us={} fts_bulk_build_us={} wal_checkpoint_us={} metadata_update_us={} metadata_commit_us={} commit_us={} finalize_us={finalize_us}",
                     timings.batches,
+                    timings.sqlite_transactions,
+                    timings.transient_staging.as_micros(),
+                    timings.deferred_metadata.as_micros(),
                     timings.coverage_policy_load.as_micros(),
                     timings.coverage_evaluation.as_micros(),
                     timings.sqlite_transaction.as_micros(),
                     timings.connection_acquisition.as_micros(),
                     timings.transaction_acquisition.as_micros(),
                     timings.transaction_setup.as_micros(),
+                    timings.max_writer_lock.as_micros(),
                     timings.entry_upsert.as_micros(),
                     timings.ai_task_qualification.as_micros(),
                     timings.record_decisions.as_micros(),
+                    timings.fts_bulk_build.as_micros(),
+                    timings.wal_checkpoint.as_micros(),
+                    timings.metadata_update.as_micros(),
+                    timings.metadata_commit.as_micros(),
                     timings.commit.as_micros()
                 ));
             }
@@ -695,10 +1039,85 @@ impl GlobalIndexSink for DatabaseIndexSink {
             return Ok(0);
         }
         let volume_id = entries[0].volume_id.clone();
-        let owner = self.owner(&volume_id)?;
+        let owner = self.owner(&volume_id)?.clone();
+        if self.deferred_initial_sources.contains(&volume_id) {
+            let (visible, policy_revision, timing) = self
+                .db
+                .preflight_global_entries_batch_owned(
+                    entries,
+                    &owner,
+                    &mut self
+                        .operation_context
+                        .get_mut(&volume_id)
+                        .ok_or_else(|| {
+                            GlobalIndexError::ServiceProtocol(
+                                "source context missing during filename preflight".into(),
+                            )
+                        })?
+                        .scope_observation,
+                )
+                .map_err(Self::map_owned_write_error)?;
+            let staging_started = Instant::now();
+            let append_result = self.db.filename_search.append_transient_catalog(
+                &volume_id,
+                &owner.operation_id,
+                policy_revision,
+                entries,
+                &visible,
+            );
+            let staging_elapsed = staging_started.elapsed();
+            self.write_timings
+                .entry(volume_id.clone())
+                .or_default()
+                .record_deferred(timing, staging_elapsed);
+            match append_result {
+                Ok(()) => {}
+                Err("transient_catalog_memory_budget_exceeded") => {
+                    self.fallback_initial_sources.insert(volume_id.clone());
+                    self.persist_transient_catalog_fallback(&volume_id, &owner)?;
+                }
+                Err(error) => {
+                    return Err(GlobalIndexError::ServiceOutcomeUnknown(error.into()));
+                }
+            }
+            return Ok(entries.len());
+        }
+        if self.fallback_initial_sources.contains(&volume_id) {
+            let mut enriched = entries.to_vec();
+            let metadata_started = Instant::now();
+            enrich_initial_mft_metadata(&mut enriched);
+            self.write_timings
+                .entry(volume_id.clone())
+                .or_default()
+                .deferred_metadata += metadata_started.elapsed();
+            let (written, timing) = self
+                .db
+                .upsert_global_entries_batch_owned_timed(&enriched, &owner)
+                .map_err(Self::map_owned_write_error)?;
+            self.write_timings
+                .entry(volume_id)
+                .or_default()
+                .record(timing);
+            return Ok(written);
+        }
+        if self.should_defer_initial_spotlight_fts(&volume_id)
+            && !self.initial_fts_bulk_sources.contains(&volume_id)
+        {
+            let (started, timing) = self
+                .db
+                .begin_initial_global_source_fts_bulk_build_owned_timed(&owner)
+                .map_err(Self::map_owned_write_error)?;
+            self.write_timings
+                .entry(volume_id.clone())
+                .or_default()
+                .record_persisted(timing);
+            if started {
+                self.initial_fts_bulk_sources.insert(volume_id.clone());
+            }
+        }
         let (written, timing) = self
             .db
-            .upsert_global_entries_batch_owned_timed(entries, owner)
+            .upsert_global_entries_batch_owned_timed(entries, &owner)
             .map_err(Self::map_owned_write_error)?;
         self.write_timings
             .entry(volume_id)
@@ -721,10 +1140,11 @@ impl GlobalIndexSink for DatabaseIndexSink {
         journal_id: Option<&str>,
         journal_cursor: Option<&str>,
     ) -> Result<(), GlobalIndexError> {
-        let owner = self.owner(volume_id)?;
+        let owner = self.owner(volume_id)?.clone();
+        self.flush_deferred_initial_mft(volume_id, &owner)?;
         if !self
             .db
-            .update_global_volume_checkpoint_owned(owner, journal_id, journal_cursor)?
+            .update_global_volume_checkpoint_owned(&owner, journal_id, journal_cursor)?
         {
             return Err(GlobalIndexError::ServiceOutcomeUnknown(
                 "source checkpoint rejected by owner revision".into(),
@@ -765,6 +1185,9 @@ impl GlobalIndexSink for DatabaseIndexSink {
                 "source provider rejected by owner revision".into(),
             ));
         }
+        if let Some(context) = self.operation_context.get_mut(volume_id) {
+            context.provider = provider.to_owned();
+        }
         Ok(())
     }
 
@@ -798,6 +1221,12 @@ impl GlobalIndexSink for DatabaseIndexSink {
         self.db
             .mark_global_entries_stale_for_volume_owned(owner)
             .map_err(Self::map_owned_write_error)?;
+        if self.should_defer_initial_mft(volume_id) {
+            self.db
+                .filename_search
+                .begin_transient_catalog(volume_id, &owner.operation_id);
+            self.deferred_initial_sources.insert(volume_id.to_owned());
+        }
         Ok(())
     }
 }
@@ -1014,6 +1443,10 @@ fn run_index_cycle_with_topology(
     let mut sink = DatabaseIndexSink {
         db: db.clone(),
         owners: HashMap::new(),
+        operation_context: HashMap::new(),
+        deferred_initial_sources: HashSet::new(),
+        initial_fts_bulk_sources: HashSet::new(),
+        fallback_initial_sources: HashSet::new(),
         write_timings: HashMap::new(),
     };
     for volume in volumes {
@@ -1617,6 +2050,27 @@ mod tests {
     static TEST_DATABASE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
+    fn initial_mft_persist_batch_scales_with_source_size_and_honors_override() {
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(100_000, None),
+            4_096
+        );
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(1_000_000, None),
+            8_192
+        );
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(1_000_000, Some(4_096)),
+            4_096
+        );
+        assert_eq!(
+            initial_mft_persist_batch_size_for_count(100_000, Some(128)),
+            4_096,
+            "unsupported overrides use the source-size default"
+        );
+    }
+
+    #[test]
     fn database_and_service_busy_keep_distinct_index_statuses() {
         let database_busy =
             GlobalIndexError::Database(DbError::Sqlite(rusqlite::Error::SqliteFailure(
@@ -1771,6 +2225,21 @@ mod tests {
 
     struct TestDatabasePath(PathBuf);
 
+    struct TestDirectoryPath(PathBuf);
+
+    impl TestDirectoryPath {
+        fn new(path: PathBuf) -> Self {
+            fs::create_dir_all(&path).expect("create task-owned test directory");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectoryPath {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     impl TestDatabasePath {
         fn new() -> Self {
             let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1858,7 +2327,9 @@ mod tests {
         legacy.journal_cursor = Some("9001".into());
         legacy.last_full_index_at = Some(111);
         legacy.last_incremental_sync_at = Some(222);
-        legacy.entry_count = 1;
+        // The source-stat triggers derive this field from persisted entries.
+        // Start the fixture empty before inserting its one historical row.
+        legacy.entry_count = 0;
         db.upsert_global_volume(&legacy)
             .expect("seed legacy fallback source");
         db.upsert_global_entries_batch(&[GlobalEntryInput {
@@ -2082,6 +2553,167 @@ mod tests {
     }
 
     #[test]
+    fn spotlight_initial_batches_bulk_build_fts_and_keep_incremental_search_exact() {
+        let path = TestDatabasePath::new();
+        let db = Database::open(&path.0).expect("open isolated Spotlight writer database");
+        let root = TestDirectoryPath::new(path.0.with_extension("spotlight-fixture"));
+        let root = root.0.as_path();
+        fs::write(root.join("spotlight-bulk-original-unique.txt"), b"original")
+            .expect("create the original Spotlight source file");
+        fs::write(root.join("spotlight-bulk-second-unique.txt"), b"second")
+            .expect("create the second Spotlight source file");
+        let mut volume = crate::global_index::tests::test_volume();
+        volume.id = format!("gv_spotlight_{}", std::process::id());
+        volume.platform = "macos".into();
+        volume.stable_volume_id = "macos:test-computer".into();
+        volume.mount_path = root.to_string_lossy().into_owned();
+        volume.filesystem_type = "apfs".into();
+        volume.scope_authorization_state = SCOPE_AUTHORIZATION_NOT_REQUIRED.into();
+        volume.provider = format!("{PROVIDER_MACOS_SPOTLIGHT}+{PROVIDER_MACOS_FSEVENTS_RECONCILE}");
+        volume.index_status = INDEX_STATUS_DISCOVERED.into();
+        db.upsert_global_volume(&volume)
+            .expect("seed local-computer Spotlight source");
+
+        let make_entry = |inode: u64, name: &str| GlobalEntryInput {
+            volume_id: volume.id.clone(),
+            platform_file_id: format!("mac:1:{inode}"),
+            parent_platform_file_id: "mac:1:root".into(),
+            name: name.into(),
+            path: root.join(name).to_string_lossy().into_owned(),
+            extension: "txt".into(),
+            is_directory: false,
+            size: 16,
+            created_at_fs: Some(1),
+            modified_at_fs: Some(2),
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_MACOS_SPOTLIGHT.into(),
+            last_seen_at: 3,
+        };
+        let original = make_entry(1001, "spotlight-bulk-original-unique.txt");
+        let second = make_entry(1002, "spotlight-bulk-second-unique.txt");
+        let mut sink = DatabaseIndexSink {
+            db: db.clone(),
+            owners: HashMap::new(),
+            operation_context: HashMap::new(),
+            deferred_initial_sources: HashSet::new(),
+            initial_fts_bulk_sources: HashSet::new(),
+            fallback_initial_sources: HashSet::new(),
+            write_timings: HashMap::new(),
+        };
+        sink.admit_source_operation(
+            &volume,
+            "spotlight-bulk-initial",
+            SourceOperationKind::Initial,
+            SourceOperationRoute::Coordinator,
+        )
+        .expect("claim the new Spotlight source");
+        assert_eq!(
+            sink.write_batch(std::slice::from_ref(&original)).unwrap(),
+            1
+        );
+        assert_eq!(sink.write_batch(std::slice::from_ref(&second)).unwrap(), 1);
+
+        let during_build = db
+            .search_global_entries_snapshot("spotlight-bulk", 20, 0)
+            .expect("read while the FTS build is pending");
+        assert!(during_build.results.is_empty());
+        assert!(!during_build.index_status.collection_complete);
+        let conn = db.conn().expect("inspect pending source FTS state");
+        let (bulk_build, indexed_rows): (bool, i64) = conn
+            .query_row(
+                "SELECT fts_bulk_build,
+                        (SELECT count(*) FROM global_entries_fts
+                         WHERE global_entries_fts MATCH 'spotlight')
+                 FROM global_volumes WHERE id=?1",
+                [&volume.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read pending FTS facts");
+        assert!(bulk_build);
+        assert_eq!(indexed_rows, 0, "initial FTS must be deferred as a batch");
+        drop(conn);
+
+        sink.finish_source_operation(
+            &volume.id,
+            INDEX_STATUS_READY,
+            None,
+            Some(unix_now()),
+            None,
+            false,
+        )
+        .expect("complete the source only after FTS is ready");
+        let first_search = db
+            .search_global_entries_snapshot("spotlight-bulk", 20, 0)
+            .expect("search after the initial Spotlight write");
+        assert!(first_search.index_status.collection_complete);
+        assert_eq!(first_search.results.len(), 2);
+
+        let updated = make_entry(1001, "spotlight-bulk-renamed-unique.txt");
+        fs::rename(
+            root.join("spotlight-bulk-original-unique.txt"),
+            root.join("spotlight-bulk-renamed-unique.txt"),
+        )
+        .expect("rename the source file before the incremental Spotlight update");
+        sink.admit_source_operation(
+            &db.get_global_volume(&volume.id).unwrap().unwrap(),
+            "spotlight-bulk-incremental",
+            SourceOperationKind::Incremental,
+            SourceOperationRoute::Coordinator,
+        )
+        .expect("claim an incremental Spotlight update");
+        assert_eq!(sink.write_batch(std::slice::from_ref(&updated)).unwrap(), 1);
+        sink.finish_source_operation(
+            &volume.id,
+            INDEX_STATUS_READY,
+            None,
+            None,
+            Some(unix_now()),
+            false,
+        )
+        .expect("finish incremental Spotlight update");
+        let conn = db
+            .conn()
+            .expect("inspect incremental Spotlight FTS postings");
+        let (old_postings, new_postings): (i64, i64) = conn
+            .query_row(
+                "SELECT
+                    (SELECT count(*) FROM global_entries_fts
+                     WHERE global_entries_fts MATCH 'original'),
+                    (SELECT count(*) FROM global_entries_fts
+                     WHERE global_entries_fts MATCH 'renamed')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read FTS postings after the rename");
+        assert_eq!(old_postings, 0, "old filename postings must be removed");
+        assert_eq!(new_postings, 1, "new filename postings must be inserted");
+        drop(conn);
+        assert!(db
+            .search_global_entries_snapshot("original", 20, 0)
+            .unwrap()
+            .results
+            .is_empty());
+        assert_eq!(
+            db.search_global_entries_snapshot("renamed", 20, 0)
+                .unwrap()
+                .results
+                .len(),
+            1
+        );
+        drop(sink);
+        drop(db);
+
+        let restored = Database::open(&path.0).expect("reopen Spotlight writer database");
+        let restored_search = restored
+            .search_global_entries_snapshot("renamed", 20, 0)
+            .expect("search after reopening the completed source");
+        assert!(restored_search.index_status.collection_complete);
+        assert_eq!(restored_search.results.len(), 1);
+    }
+
+    #[test]
     fn m1_r3_bounded_provider_search_preserves_coverage_and_persistence() {
         // Exercise the existing provider protocol only within owned files. Never
         // discover host volumes: Windows production discovery is volume-wide.
@@ -2111,6 +2743,10 @@ mod tests {
         let mut sink = DatabaseIndexSink {
             db: db.clone(),
             owners: HashMap::new(),
+            operation_context: HashMap::new(),
+            deferred_initial_sources: HashSet::new(),
+            initial_fts_bulk_sources: HashSet::new(),
+            fallback_initial_sources: HashSet::new(),
             write_timings: HashMap::new(),
         };
         sink.admit_source_operation(
@@ -3035,7 +3671,7 @@ mod tests {
             sink: &mut dyn GlobalIndexSink,
             _cancel: &AtomicBool,
         ) -> Result<(), GlobalIndexError> {
-            const ERROR: &str = "windows_mft_baseline_empty: staged_records=0 resolved_entries=0 emitted_entries=0 checkpoint_usn=123";
+            const ERROR: &str = "windows_mft_baseline_empty: enumerated_records=0 resolved_entries=0 emitted_entries=0 checkpoint_usn=123";
             sink.set_source_state(
                 &source.volume.id,
                 INDEX_STATUS_REBUILD_REQUIRED,

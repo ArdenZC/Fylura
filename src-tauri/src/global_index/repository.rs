@@ -13,7 +13,7 @@ static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLoc
 const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
 const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 128 * 1024;
-const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(5);
+const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(25);
 
 fn passive_wal_checkpoint(conn: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
     conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
@@ -1671,8 +1671,8 @@ impl Database {
                     ));
                 }
                 // `yield_now` can immediately reschedule this indexing thread
-                // on Windows. Leave a short handoff window so ordinary file
-                // and settings transactions can acquire SQLite's single WAL
+                // on Windows. Leave a scheduling window so ordinary file and
+                // settings transactions can acquire SQLite's single WAL
                 // writer slot before the next bounded indexing batch.
                 std::thread::sleep(INITIAL_MFT_WRITER_HANDOFF);
 
@@ -3325,9 +3325,8 @@ fn continue_fts_bulk_build(
         if inserted == 0 {
             break;
         }
-        // As above, a brief handoff avoids monopolizing the single WAL writer
-        // across successive FTS batches while keeping the overall build cost
-        // negligible compared with the batch work.
+        // As above, hand the single WAL writer to ordinary work between FTS
+        // batches; this cost is small compared with each batch's write work.
         std::thread::sleep(INITIAL_MFT_WRITER_HANDOFF);
     }
     Ok(())

@@ -430,6 +430,13 @@ impl Database {
                 files.len(),
             ));
         }
+        #[cfg(not(feature = "native-qa"))]
+        let _ = (
+            connection_acquisition_us,
+            transaction_lock_wait_us,
+            transaction_execution_us,
+            commit_us,
+        );
         Ok(())
     }
 

@@ -31,6 +31,19 @@ const GLOBAL_FTS_RECOVERY_CANCEL_POLL: Duration = Duration::from_millis(50);
 static ACTIVE_GLOBAL_FTS_RECOVERIES: OnceLock<Mutex<HashMap<PathBuf, Arc<GlobalFtsRecoverySlot>>>> =
     OnceLock::new();
 
+#[cfg(feature = "native-qa")]
+#[derive(Default)]
+struct DiagnosticPoolSampler {
+    stop: Arc<AtomicBool>,
+}
+
+#[cfg(feature = "native-qa")]
+impl Drop for DiagnosticPoolSampler {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
 #[derive(Default)]
 struct GlobalFtsRecoverySlot {
     active_session: Mutex<Weak<()>>,
@@ -224,6 +237,8 @@ pub struct Database {
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
+    #[cfg(feature = "native-qa")]
+    diagnostic_pool_sampler: Arc<DiagnosticPoolSampler>,
 }
 
 impl Database {
@@ -311,9 +326,45 @@ impl Database {
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "native-qa")]
+            diagnostic_pool_sampler: Arc::new(DiagnosticPoolSampler::default()),
         };
+        #[cfg(feature = "native-qa")]
+        database.start_diagnostic_pool_sampler();
         database.schedule_pending_global_fts_recovery(recovery_delay);
         Ok(database)
+    }
+
+    #[cfg(feature = "native-qa")]
+    fn start_diagnostic_pool_sampler(&self) {
+        if !crate::global_index::qa_trace::is_enabled() {
+            return;
+        }
+        static NEXT_POOL_ID: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(1);
+        let pool_id = NEXT_POOL_ID.fetch_add(1, Ordering::Relaxed);
+        let pool = self.pool.clone();
+        let stop = Arc::clone(&self.diagnostic_pool_sampler.stop);
+        let spawn_result = thread::Builder::new()
+            .name("global-index-qa-db-pool-sampler".into())
+            .spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    let state = pool.state();
+                    crate::global_index::qa_trace::record(&format!(
+                        "sqlite_connection_sample pool_id={pool_id} connections={} idle_connections={} active_connections={} active_transactions={}",
+                        state.connections,
+                        state.idle_connections,
+                        state.connections.saturating_sub(state.idle_connections),
+                        crate::global_index::qa_trace::active_transaction_count(),
+                    ));
+                    thread::sleep(Duration::from_millis(100));
+                }
+            });
+        if let Err(error) = spawn_result {
+            crate::global_index::qa_trace::record(&format!(
+                "sqlite_connection_sample pool_id={pool_id} spawn_error={error:?}"
+            ));
+        }
     }
 
     fn schedule_pending_global_fts_recovery(&self, recovery_delay: Duration) {
@@ -472,7 +523,7 @@ impl Database {
 
     /// Pool state is sampled only by native qualification. `active` counts
     /// checked-out leases; neither this method nor the trace path executes SQL.
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", feature = "native-qa"))]
     pub(crate) fn diagnostic_connection_counts(&self) -> (u32, u32, u32) {
         let state = self.pool.state();
         (

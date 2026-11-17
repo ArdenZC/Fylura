@@ -18,7 +18,7 @@ pub(crate) fn record(event: &str) {
     // serialize threads within a process so each diagnostic event remains one
     // parseable line. Both behaviors exist only in native-qa builds.
     let pid = std::process::id();
-    let mut process_path = std::ffi::OsString::from(path);
+    let mut process_path = path;
     process_path.push(format!(".pid-{pid}.log"));
     let _guard = TRACE_FILE_LOCK
         .get_or_init(|| std::sync::Mutex::new(()))

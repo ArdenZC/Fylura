@@ -173,39 +173,43 @@ function Stop-TaskService {
 
 function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label) {
     $reportPath = Join-Path $taskRoot "filename-first-service-mode-$Label.json"
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $CandidateExe
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.ArgumentList.Add('--global-index-filename-first-service-mode-qa')
-    $startInfo.ArgumentList.Add($reportPath)
-    $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
-    if ($DesktopMode -eq 'enabled') {
-        $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = '1'
-    } elseif ($DesktopMode -eq 'unset') {
-        $startInfo.Environment.Remove('ZC_GLOBAL_INDEX_FILENAME_FIRST') | Out-Null
-    } else {
-        throw "unsupported desktop service mode: $DesktopMode"
+    if ($DesktopMode -notin @('enabled', 'unset')) { throw "unsupported desktop service mode: $DesktopMode" }
+    $lastFailure = $null
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $CandidateExe
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.ArgumentList.Add('--global-index-filename-first-service-mode-qa')
+        $startInfo.ArgumentList.Add($reportPath)
+        $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
+        if ($DesktopMode -eq 'enabled') {
+            $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = '1'
+        } else {
+            $startInfo.Environment.Remove('ZC_GLOBAL_INDEX_FILENAME_FIRST') | Out-Null
+        }
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) { throw "failed to start installed-service mode probe: $Label" }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(30000)) {
+            $process.Kill($true)
+            throw "installed-service mode probe timed out: $Label"
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+            $report | Add-Member -NotePropertyName desktopProcessId -NotePropertyValue ([long]$process.Id)
+            return $report
+        }
+        $lastFailure = "installed-service mode probe failed: label=$Label attempt=$attempt exit=$($process.ExitCode) stdout=$stdout stderr=$stderr"
+        Start-Sleep -Milliseconds 250
     }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    if (-not $process.Start()) { throw "failed to start installed-service mode probe: $Label" }
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(30000)) {
-        $process.Kill($true)
-        throw "installed-service mode probe timed out: $Label"
-    }
-    $stdout = $stdoutTask.GetAwaiter().GetResult()
-    $stderr = $stderrTask.GetAwaiter().GetResult()
-    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
-        throw "installed-service mode probe failed: label=$Label exit=$($process.ExitCode) stdout=$stdout stderr=$stderr"
-    }
-    $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-    $report | Add-Member -NotePropertyName desktopProcessId -NotePropertyValue ([long]$process.Id)
-    return $report
+    throw $lastFailure
 }
 
 function Test-InstalledServiceFilenameFirstModeMatrix {

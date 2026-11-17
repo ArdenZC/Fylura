@@ -863,7 +863,21 @@ pub(crate) fn plan_restore_claim_path(
         .parent()
         .filter(|path| path.is_absolute())
         .ok_or_else(|| "restore source has no absolute parent".to_string())?;
-    Ok(parent.join(format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4())))
+    #[cfg(target_os = "macos")]
+    let fallback = {
+        // A batch can restore an outer directory before an item whose Safe
+        // Trash parent is inside that directory. Plan the inner claim now,
+        // while its parent is still absent, in the same private namespace
+        // that SourceClaim will create when that item is restored.
+        let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
+        parent
+            .join(".zen-canvas-retirement")
+            .join(uuid::Uuid::new_v4().to_string())
+            .join(claim_name)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let fallback = parent.join(format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4()));
+    Ok(fallback)
 }
 
 pub(crate) fn mark_restore_failed(

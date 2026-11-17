@@ -420,12 +420,15 @@ fn transient_filename_catalog_keeps_existing_managed_link_during_rebuild() {
     assert_eq!(catalog_count, 2);
     let (persisted, timing) = db
         .upsert_transient_mft_catalog_bulk_owned_timed(
-            "gv_test",
-            "managed-rebuild",
-            catalog_count,
-            1,
-            catalog_revision.expect("catalog retained its scope revision"),
-            &owner,
+            crate::global_index::repository::TransientMftCatalogWriteRequest {
+                volume_id: "gv_test",
+                operation_id: "managed-rebuild",
+                entry_count: catalog_count,
+                batch_size: 1,
+                staged_policy_revision: catalog_revision
+                    .expect("catalog retained its scope revision"),
+                owner: &owner,
+            },
         )
         .expect("persist in two bounded transactions");
     assert_eq!(persisted, 2);
@@ -539,12 +542,14 @@ fn new_source_transient_persistence_builds_fts_and_source_facts_in_batches() {
         .expect("complete transient candidate");
     let (persisted, timing) = db
         .upsert_transient_mft_catalog_bulk_owned_timed(
-            "gv_new_bulk",
-            &owner.operation_id,
-            entry_count,
-            1,
-            retained_revision.expect("Scope revision remains stable"),
-            &owner,
+            crate::global_index::repository::TransientMftCatalogWriteRequest {
+                volume_id: "gv_new_bulk",
+                operation_id: &owner.operation_id,
+                entry_count,
+                batch_size: 1,
+                staged_policy_revision: retained_revision.expect("Scope revision remains stable"),
+                owner: &owner,
+            },
         )
         .expect("persist rows and build their FTS postings");
     assert_eq!(persisted, 2);
@@ -702,12 +707,14 @@ fn transient_and_durable_progress_are_counted_once_between_write_batches() {
     };
     let error = db
         .upsert_transient_mft_catalog_bulk_owned_with_commit_observer(
-            "gv_test",
-            &owner.operation_id,
-            entry_count,
-            2,
-            retained_revision.expect("Scope revision remains staged"),
-            &owner,
+            crate::global_index::repository::TransientMftCatalogWriteRequest {
+                volume_id: "gv_test",
+                operation_id: &owner.operation_id,
+                entry_count,
+                batch_size: 2,
+                staged_policy_revision: retained_revision.expect("Scope revision remains staged"),
+                owner: &owner,
+            },
             &mut observe_after_first_commit,
         )
         .expect_err("stop after checking the first durable batch");
@@ -813,12 +820,14 @@ fn transient_persistence_sqlite_full_restores_connection_and_recovers_on_reopen(
 
     let error = db
         .upsert_transient_mft_catalog_bulk_owned_timed(
-            "gv_disk_full",
-            &owner.operation_id,
-            entry_count,
-            8_192,
-            retained_revision.expect("Scope revision remains stable"),
-            &owner,
+            crate::global_index::repository::TransientMftCatalogWriteRequest {
+                volume_id: "gv_disk_full",
+                operation_id: &owner.operation_id,
+                entry_count,
+                batch_size: 8_192,
+                staged_policy_revision: retained_revision.expect("Scope revision remains stable"),
+                owner: &owner,
+            },
         )
         .expect_err("bounded insert must hit SQLITE_FULL");
     assert!(matches!(

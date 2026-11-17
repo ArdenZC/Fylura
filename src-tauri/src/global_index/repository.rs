@@ -121,6 +121,16 @@ pub(crate) struct SourceOperationOwner {
     pub operation_id: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TransientMftCatalogWriteRequest<'a> {
+    pub volume_id: &'a str,
+    pub operation_id: &'a str,
+    pub entry_count: usize,
+    pub batch_size: usize,
+    pub staged_policy_revision: u64,
+    pub owner: &'a SourceOperationOwner,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SourceOperationState {
     pub revision: i64,
@@ -1338,57 +1348,34 @@ impl Database {
     /// source uses its durable rowid cursor to populate FTS in bounded chunks.
     pub(crate) fn upsert_transient_mft_catalog_bulk_owned_timed(
         &self,
-        volume_id: &str,
-        operation_id: &str,
-        entry_count: usize,
-        batch_size: usize,
-        staged_policy_revision: u64,
-        owner: &SourceOperationOwner,
+        request: TransientMftCatalogWriteRequest<'_>,
     ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
         let mut no_op_observer = |_, _| Ok(());
-        self.upsert_transient_mft_catalog_bulk_owned_timed_inner(
-            volume_id,
-            operation_id,
-            entry_count,
-            batch_size,
-            staged_policy_revision,
-            owner,
-            &mut no_op_observer,
-        )
+        self.upsert_transient_mft_catalog_bulk_owned_timed_inner(request, &mut no_op_observer)
     }
 
     #[cfg(test)]
     pub(crate) fn upsert_transient_mft_catalog_bulk_owned_with_commit_observer(
         &self,
-        volume_id: &str,
-        operation_id: &str,
-        entry_count: usize,
-        batch_size: usize,
-        staged_policy_revision: u64,
-        owner: &SourceOperationOwner,
+        request: TransientMftCatalogWriteRequest<'_>,
         after_batch_commit: &mut impl FnMut(usize, usize) -> Result<(), DbError>,
     ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
-        self.upsert_transient_mft_catalog_bulk_owned_timed_inner(
+        self.upsert_transient_mft_catalog_bulk_owned_timed_inner(request, after_batch_commit)
+    }
+
+    fn upsert_transient_mft_catalog_bulk_owned_timed_inner(
+        &self,
+        request: TransientMftCatalogWriteRequest<'_>,
+        after_batch_commit: &mut impl FnMut(usize, usize) -> Result<(), DbError>,
+    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        let TransientMftCatalogWriteRequest {
             volume_id,
             operation_id,
             entry_count,
             batch_size,
             staged_policy_revision,
             owner,
-            after_batch_commit,
-        )
-    }
-
-    fn upsert_transient_mft_catalog_bulk_owned_timed_inner(
-        &self,
-        volume_id: &str,
-        operation_id: &str,
-        entry_count: usize,
-        batch_size: usize,
-        staged_policy_revision: u64,
-        owner: &SourceOperationOwner,
-        after_batch_commit: &mut impl FnMut(usize, usize) -> Result<(), DbError>,
-    ) -> Result<(usize, GlobalIndexBatchTiming), DbError> {
+        } = request;
         let mut timing = GlobalIndexBatchTiming::default();
         if entry_count == 0 {
             return Ok((0, timing));
@@ -1656,9 +1643,7 @@ impl Database {
                             ))
                         })
                         .ok();
-                    let (spill_pages, cache_write_pages) = cache_counters_after
-                        .map(|(spill, writes)| (spill, writes))
-                        .unwrap_or((-1, -1));
+                    let (spill_pages, cache_write_pages) = cache_counters_after.unwrap_or((-1, -1));
                     let (checkpoint_busy, wal_frames, checkpointed_frames) =
                         wal_state.unwrap_or((-1, -1, -1));
                     crate::global_index::qa_trace::record(&format!(

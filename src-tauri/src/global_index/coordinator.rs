@@ -1,6 +1,6 @@
 use super::models::*;
-use super::repository::SourceOperationOwner;
 pub use super::repository::{SourceOperationKind, SourceOperationRoute};
+use super::repository::{SourceOperationOwner, TransientMftCatalogWriteRequest};
 use super::wake::{GlobalIndexWaitResult, GlobalIndexWakeReason, GlobalIndexWakeSlot};
 use crate::db::{Database, DbError};
 use crate::file_workspace::WorkClass;
@@ -713,14 +713,14 @@ impl DatabaseIndexSink {
 
         let (written, timing) = self
             .db
-            .upsert_transient_mft_catalog_bulk_owned_timed(
+            .upsert_transient_mft_catalog_bulk_owned_timed(TransientMftCatalogWriteRequest {
                 volume_id,
                 operation_id,
                 entry_count,
                 batch_size,
                 staged_policy_revision,
                 owner,
-            )
+            })
             .map_err(Self::map_owned_write_error)?;
         if written != entry_count {
             return Err(GlobalIndexError::ServiceOutcomeUnknown(

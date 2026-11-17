@@ -1346,6 +1346,8 @@ fn moving_unindexed_row_out_of_bulk_source_keeps_fts_exact() {
     drop(db);
 
     let reopened = Database::open(&path).expect("recover the source cursors");
+    wait_for_fts_recovery(&reopened, "gv_move_from_bulk");
+    wait_for_fts_recovery(&reopened, "gv_move_to_bulk");
     let flags: (i64, i64) = reopened
         .conn()
         .expect("read recovered source flags")
@@ -1438,6 +1440,7 @@ fn revoked_source_stays_hidden_until_authorized_fts_recovery() {
         .expect("simulate a later explicit re-authorization");
     drop(authorized_connection);
     let recovered = Database::open(&path).expect("authorized source resumes FTS recovery");
+    wait_for_fts_recovery(&recovered, "gv_revoked_bulk");
     let state: (i64, i64) = recovered
         .conn()
         .expect("read recovered source state")

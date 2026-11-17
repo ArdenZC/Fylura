@@ -24,8 +24,11 @@ use std::{
 use sysinfo::Disks;
 
 const RESTORE_FINALIZATION_MAX_ATTEMPTS: usize = 3;
-const FILE_UPSERT_CONTENTION_RETRIES: usize = 10;
-const FILE_UPSERT_CONTENTION_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+const FILE_UPSERT_CONTENTION_RETRIES: usize = 24;
+const FILE_UPSERT_CONTENTION_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+const FILE_UPSERT_CONTENTION_ATTEMPT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(100);
+const FILE_UPSERT_CONTENTION_MAX_BACKOFF_MS: u64 = 32;
 
 fn is_file_upsert_contention(error: &DbError) -> bool {
     matches!(
@@ -220,9 +223,11 @@ impl Database {
                     // error, retrying the whole transaction from a fresh
                     // snapshot remains safe because its effects are
                     // database-local and transactional. Backoff and retries
-                    // stop after a one-second window; the original error is
+                    // stop after a two-second window; the original error is
                     // returned if contention persists.
-                    let backoff = std::time::Duration::from_millis(1u64 << attempt);
+                    let backoff = std::time::Duration::from_millis(
+                        (1_u64 << attempt.min(5)).min(FILE_UPSERT_CONTENTION_MAX_BACKOFF_MS),
+                    );
                     let remaining =
                         retry_deadline.saturating_duration_since(std::time::Instant::now());
                     std::thread::sleep(backoff.min(remaining));
@@ -236,10 +241,44 @@ impl Database {
     fn insert_files_once(&self, files: &[InsertFileRequest]) -> Result<(), DbError> {
         let last_seen_at = current_unix_seconds();
         let mut conn = self.conn()?;
+        let previous_busy_timeout_ms =
+            conn.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?;
+        let previous_busy_timeout = std::time::Duration::from_millis(
+            u64::try_from(previous_busy_timeout_ms)
+                .map_err(|_| DbError::Validation("sqlite_busy_timeout_invalid".into()))?,
+        );
+        // The normal 5-second timeout is longer than the whole retry window.
+        // Bound only BEGIN IMMEDIATE so a transient writer conflict returns
+        // control to the retry loop; restore the pooled connection's policy
+        // as soon as this transaction owns the writer slot.
+        conn.busy_timeout(FILE_UPSERT_CONTENTION_ATTEMPT_TIMEOUT)?;
         // This path always mutates rows. Acquiring SQLite's writer slot before
         // reading the current identity prevents a concurrent WAL commit from
         // invalidating the read snapshot before the first write.
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let (tx, begin_error) =
+            match conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) {
+                Ok(tx) => (Some(tx), None),
+                Err(error) => (None, Some(error)),
+            };
+        if let Some(error) = begin_error {
+            drop(tx);
+            conn.busy_timeout(previous_busy_timeout)?;
+            return Err(error.into());
+        }
+        let tx = tx.expect("successful writer-slot acquisition returns a transaction");
+        if let Err(error) = tx.busy_timeout(previous_busy_timeout) {
+            drop(tx);
+            conn.busy_timeout(previous_busy_timeout)?;
+            return Err(error.into());
+        }
+        Self::insert_files_in_transaction(tx, files, last_seen_at)
+    }
+
+    fn insert_files_in_transaction(
+        tx: rusqlite::Transaction<'_>,
+        files: &[InsertFileRequest],
+        last_seen_at: i64,
+    ) -> Result<(), DbError> {
         {
             let mut stmt = tx.prepare(
                 r#"
@@ -2301,7 +2340,13 @@ impl Database {
 #[cfg(test)]
 mod file_upsert_contention_tests {
     use super::{is_file_upsert_contention, DbError};
+    use crate::db::{Database, InsertFileRequest};
     use rusqlite::{ffi, Error, ErrorCode};
+    use std::{
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn retries_only_sqlite_busy_or_locked_errors() {
@@ -2322,6 +2367,87 @@ mod file_upsert_contention_tests {
             ErrorCode::ConstraintViolation
         );
         assert!(!is_file_upsert_contention(&constraint));
+    }
+
+    #[test]
+    fn file_upsert_retries_short_writer_waits_and_restores_connection_timeout() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "fylura-file-upsert-contention-{}-{nonce}.sqlite3",
+            std::process::id()
+        ));
+        let db = Database::open(&path).expect("open isolated file-upsert database");
+        db.set_test_busy_timeout_for_all_connections(5_000, Duration::from_millis(100))
+            .expect("set a short fixture timeout to exercise retry window");
+
+        let (lock_acquired_tx, lock_acquired_rx) = mpsc::channel();
+        let holder_db = db.clone();
+        let holder = thread::spawn(move || {
+            let mut connection = holder_db.conn().expect("lease writer holder connection");
+            let transaction = connection
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .expect("hold SQLite writer slot");
+            lock_acquired_tx
+                .send(())
+                .expect("tell test that writer slot is held");
+            thread::sleep(Duration::from_millis(1_250));
+            transaction.commit().expect("release writer slot");
+        });
+        lock_acquired_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("writer slot is held before the file upsert starts");
+
+        let started = Instant::now();
+        db.insert_file(InsertFileRequest {
+            id: "contention-retry-file".into(),
+            path: "C:\\fylura-contention-retry\\probe.txt".into(),
+            name: "probe.txt".into(),
+            extension: "txt".into(),
+            size: 0,
+            mtime: 1_900_000_000,
+            ctime: 1_900_000_000,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("file write retries within the two-second contention window");
+        let elapsed = started.elapsed();
+        holder.join().expect("writer-holder thread completes");
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "bounded retries completed in {elapsed:?}"
+        );
+
+        db.for_each_test_connection(|connection| {
+            let busy_timeout_ms =
+                connection.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?;
+            assert_eq!(
+                busy_timeout_ms, 100,
+                "restore each connection's prior timeout"
+            );
+            Ok(())
+        })
+        .expect("inspect pooled connection timeouts after contention");
+        assert_eq!(
+            db.conn()
+                .expect("lease connection to verify file persistence")
+                .query_row(
+                    "SELECT COUNT(*) FROM files WHERE id='contention-retry-file'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("query persisted file"),
+            1
+        );
+
+        drop(db);
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.as_os_str().to_os_string();
+            file.push(suffix);
+            let _ = std::fs::remove_file(std::path::PathBuf::from(file));
+        }
     }
 }
 

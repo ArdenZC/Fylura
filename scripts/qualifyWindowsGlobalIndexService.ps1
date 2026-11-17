@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$CandidateExe,
     [Parameter(Mandatory = $true)][string]$ProbeExe,
     [Parameter(Mandatory = $true)][string]$EvidencePath,
-    [switch]$ResidentQualification
+    [switch]$ResidentQualification,
+    [switch]$DirectOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,6 +42,8 @@ $script:evidence = [ordered]@{
     rawTrace = @()
     residentSamples = @()
     serviceSamples = @()
+    nativeMftTrace = @()
+    qaHarnessOverlay = [Environment]::GetEnvironmentVariable("ZC_GLOBAL_INDEX_QA_HARNESS_OVERLAY")
     residentStartup = $null
     residentClassification = "UNVERIFIED"
     expectedSourceHead = $env:EXPECTED_SOURCE_SHA
@@ -67,12 +70,17 @@ $script:evidence = [ordered]@{
     sourceStatus = $null
     sourceLastError = $null
     baselineEntryCount = $null
+    databaseTotalEntryCount = $null
+    databaseActiveEntryCount = $null
     baselineWaitMs = $null
+    directMftQualificationElapsedMs = $null
     fixtureRoot = $null
     fixtureVolume = $null
     usnJournalProbes = @()
     baselineFixturePath = $null
     baselineFixtureSearchFound = $false
+    ipcBatchFixtureFileCount = 0
+    serviceBatchingQualification = $null
     independentManifest = $null
     crossDirectoryMove = $null
     createLatencyMs = $null
@@ -314,12 +322,12 @@ function Start-QualificationProbe {
     $script:probeProcess = $process
 }
 
-function Get-ProbeSnapshot([string]$Query = "") {
+function Get-ProbeSnapshot([string]$Query = "", [int]$Limit = 25, [int]$Offset = 0, [bool]$IncludeIndexFacts = $false) {
     if ($null -eq $script:probeProcess -or $script:probeProcess.HasExited) {
         $exitCode = if ($null -eq $script:probeProcess) { "not-started" } else { $script:probeProcess.ExitCode }
         throw "read-only Global Index QA probe is not running (exit=$exitCode)"
     }
-    $request = @{ query = $Query } | ConvertTo-Json -Compress
+    $request = @{ query = $Query; limit = $Limit; offset = $Offset; includeIndexFacts = $IncludeIndexFacts } | ConvertTo-Json -Compress
     $script:probeProcess.StandardInput.WriteLine($request)
     $script:probeProcess.StandardInput.Flush()
     $responseTask = $script:probeProcess.StandardOutput.ReadLineAsync()
@@ -432,10 +440,12 @@ try {
 
     $manifestDirectory = Join-Path $fixtureRoot "manifest"
     $manifestFiles = @()
-    for ($manifestIndex = 0; $manifestIndex -lt 12; $manifestIndex++) {
-        $bucket = Join-Path $manifestDirectory ("bucket-{0}" -f ($manifestIndex % 3))
+    $ipcBatchFixtureFileCount = 800
+    $script:evidence.ipcBatchFixtureFileCount = $ipcBatchFixtureFileCount
+    for ($manifestIndex = 0; $manifestIndex -lt $ipcBatchFixtureFileCount; $manifestIndex++) {
+        $bucket = Join-Path $manifestDirectory ("bucket-{0:D2}" -f ($manifestIndex % 16))
         New-Item -ItemType Directory -Path $bucket -Force | Out-Null
-        $manifestPath = Join-Path $bucket ("$preexistingToken-manifest-{0:D2}.txt" -f $manifestIndex)
+        $manifestPath = Join-Path $bucket ("$preexistingToken-manifest-{0:D4}.txt" -f $manifestIndex)
         Set-Content -LiteralPath $manifestPath -Value "independent manifest fixture $manifestIndex" -NoNewline
         $manifestFiles += $manifestPath
     }
@@ -449,12 +459,6 @@ try {
         expectedRelativePaths = @($manifestFiles | ForEach-Object {
             [IO.Path]::GetRelativePath($fixtureRoot, $_).Replace('/', '\')
         } | Sort-Object)
-        expectedSha256 = @($manifestFiles | ForEach-Object {
-            [ordered]@{
-                relativePath = [IO.Path]::GetRelativePath($fixtureRoot, $_).Replace('/', '\')
-                sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash
-            }
-        })
         indexedRelativePaths = @()
         missingRelativePaths = @()
         unexpectedRelativePaths = @()
@@ -480,17 +484,26 @@ try {
     New-Item -ItemType Directory -Path $nativeTempRoot -Force | Out-Null
     $previousTemp = $env:TEMP
     $previousTmp = $env:TMP
+    $directTimer = [Diagnostics.Stopwatch]::StartNew()
     try {
         $env:TEMP = $nativeTempRoot
         $env:TMP = $nativeTempRoot
         $directJson = & $ProbeExe --qualify-smart-lean-direct $directProfile $script:evidence.expectedQualificationSourceId $smartIncluded $smartExcluded
     } finally {
+        $directTimer.Stop()
+        $script:evidence.directMftQualificationElapsedMs = [long]$directTimer.Elapsed.TotalMilliseconds
         $env:TEMP = $previousTemp
         $env:TMP = $previousTmp
     }
     if ($LASTEXITCODE -ne 0) { throw "Smart Lean Direct native qualification failed" }
     $script:evidence.smartLeanDirect = $directJson | ConvertFrom-Json
-
+    if (Test-Path -LiteralPath $tracePath -PathType Leaf) {
+        $script:evidence.nativeMftTrace = @(Get-Content -LiteralPath $tracePath)
+        $retainedEvidenceDirectory = Split-Path -Parent $EvidencePath
+        New-Item -ItemType Directory -Path $retainedEvidenceDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $tracePath -Destination (Join-Path $retainedEvidenceDirectory "mft-initial-index-timing.log") -Force
+    }
+    if (-not $DirectOnly) {
     $serviceImagePath = '"' + $CandidateExe + '" --index-service'
     $create = Invoke-ServiceControl @("create", $serviceName, "binPath=", $serviceImagePath, "start=", "demand", "obj=", "LocalSystem")
     if ($create.ExitCode -ne 0) {
@@ -537,6 +550,39 @@ try {
         if ($recoveryProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $recoveryReport)) { throw "installed service recovery regression failed: $(Get-Content -LiteralPath (Join-Path $taskRoot 'recovery-stderr.log') -Raw)" }
         $script:evidence.recovery = Get-Content -LiteralPath $recoveryReport -Raw | ConvertFrom-Json
         $recoveryTrace = @(Get-Content -LiteralPath $tracePath)
+        # The instrumented Service exchange writes batching counters into the
+        # recovery process trace. The background client's route trace above
+        # only confirms routing and may be observed before the Service has
+        # recorded its completed exchange counters.
+        $batchingMetrics = @()
+        foreach ($line in @($recoveryTrace | Where-Object { $_.StartsWith("index_service_batching ") })) {
+            $metrics = [ordered]@{}
+            foreach ($pair in ($line -split '\s+' | Select-Object -Skip 1)) {
+                $parts = $pair -split '=', 2
+                if ($parts.Count -eq 2) { $metrics[$parts[0]] = [long]$parts[1] }
+            }
+            $batchingMetrics += [pscustomobject]$metrics
+        }
+        $ipcBatchEvidence = @($batchingMetrics | Where-Object {
+            $_.input_entries -ge 600 -and $_.input_entries -le 1000
+        } | Select-Object -Last 1)
+        if ($ipcBatchEvidence.Count -ne 1) {
+            throw "actual Service exchange did not report the 600-1000 entry task VHD baseline: metrics=$($batchingMetrics | ConvertTo-Json -Compress)"
+        }
+        $ipcBatchEvidence = $ipcBatchEvidence[0]
+        if ($ipcBatchEvidence.entry_frames -le $ipcBatchEvidence.repository_batches -or
+            $ipcBatchEvidence.repository_entries -ne $ipcBatchEvidence.input_entries -or
+            $ipcBatchEvidence.max_repository_batch_entries -lt 512 -or
+            $ipcBatchEvidence.checkpoints -lt 1 -or
+            $ipcBatchEvidence.checkpoint_flushes -lt 1 -or
+            $ipcBatchEvidence.checkpoint_flushed_entries -le 0) {
+            throw "task VHD Service->Repository coalescing/checkpoint evidence is incomplete: $($ipcBatchEvidence | ConvertTo-Json -Compress)"
+        }
+        $repositoryBatchPattern = "^source_operation_write status=ready completed=true batches=$($ipcBatchEvidence.repository_batches)(\s|$)"
+        if (@($recoveryTrace | Where-Object { $_ -match $repositoryBatchPattern }).Count -eq 0) {
+            throw "Service exchange batch count was not confirmed by the completed repository write timing: expected_batches=$($ipcBatchEvidence.repository_batches)"
+        }
+        $script:evidence.serviceBatchingQualification = $ipcBatchEvidence
         if ($recoveryTrace -cnotcontains "windows_recovery_rebuild_admitted") { throw "recovery did not pass the existing Background admission gate" }
         Copy-Item -LiteralPath $tracePath -Destination (Join-Path $taskRoot "recovery-trace.log")
         # Keep original background-client route/idle accounting independent.
@@ -648,7 +694,16 @@ try {
     }
     # Keep the pre-existing fixture search off the hot baseline polling path.
     # Search the fixture once after the non-empty baseline is complete.
-    $baselineSnapshot = Get-ProbeSnapshot $preexistingName
+    $baselineSnapshot = Get-ProbeSnapshot $preexistingName 25 0 $true
+    $baselineVolumeFacts = @($baselineSnapshot.volumes | Where-Object { $_.id -ceq $script:evidence.expectedQualificationSourceId })
+    if ($baselineVolumeFacts.Count -ne 1 -or
+        $baselineVolumeFacts[0].databaseActiveEntries -ne $baselineVolumeFacts[0].entryCount -or
+        $baselineVolumeFacts[0].databaseTotalEntries -lt $baselineVolumeFacts[0].databaseActiveEntries -or
+        $baselineVolumeFacts[0].databaseActiveEntries -lt $script:evidence.independentManifest.expectedFileCount) {
+        throw "task-owned NTFS persisted row facts do not match the ready source count: $($baselineVolumeFacts | ConvertTo-Json -Compress)"
+    }
+    $script:evidence.databaseTotalEntryCount = [long]$baselineVolumeFacts[0].databaseTotalEntries
+    $script:evidence.databaseActiveEntryCount = [long]$baselineVolumeFacts[0].databaseActiveEntries
     $baselineTrace = Get-TraceCounts
     $script:evidence.serviceRouteObserved = $baselineTrace.ServiceRoutes -gt 0
     if (-not $script:evidence.serviceRouteObserved) {
@@ -661,11 +716,20 @@ try {
         throw "pre-existing baseline fixture was not searchable after a non-empty ready baseline: $preexistingPath"
     }
 
-    $manifestSnapshot = Get-ProbeSnapshot $preexistingToken
-    $indexedManifestResults = @($manifestSnapshot.results | Where-Object {
-        $_.name.StartsWith($preexistingToken, [StringComparison]::OrdinalIgnoreCase) -and
-        $_.path.StartsWith($fixtureRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
-    })
+    $indexedManifestResults = @()
+    $manifestPageSize = 100
+    for ($offset = 0; $offset -lt 2048; $offset += $manifestPageSize) {
+        $manifestPage = Get-ProbeSnapshot $preexistingToken $manifestPageSize $offset
+        $pageResults = @($manifestPage.results | Where-Object {
+            $_.name.StartsWith($preexistingToken, [StringComparison]::OrdinalIgnoreCase) -and
+            $_.path.StartsWith($fixtureRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
+        })
+        $indexedManifestResults += $pageResults
+        if (@($manifestPage.results).Count -lt $manifestPageSize) { break }
+    }
+    if ($script:evidence.baselineEntryCount -lt $script:evidence.independentManifest.expectedFileCount) {
+        throw "task-owned NTFS database entry total is below the expected manifest file count: database=$($script:evidence.baselineEntryCount) manifest=$($script:evidence.independentManifest.expectedFileCount)"
+    }
     $indexedManifestRelativePaths = @($indexedManifestResults | ForEach-Object {
         [IO.Path]::GetRelativePath($fixtureRoot, $_.path).Replace('/', '\')
     } | Sort-Object)
@@ -826,6 +890,7 @@ try {
     $script:evidence.settledCoordinatorWaitDelta = $idleAfter.Waits - $idleBefore.Waits
     if ($script:evidence.settledCoordinatorCycleDelta -ne 0 -or $script:evidence.settledCoordinatorWaitDelta -ne 0) {
         throw "settled idle was not quiet: cycleDelta=$($script:evidence.settledCoordinatorCycleDelta) waitDelta=$($script:evidence.settledCoordinatorWaitDelta)"
+    }
     }
 } catch {
     $script:failureMessage = $_.Exception.ToString()
@@ -1001,4 +1066,8 @@ if ($script:cleanupFailure) {
     Write-Error "disposable Windows qualification cleanup did not fully complete"
     exit 1
 }
-Write-Output "Windows Global Index service qualification passed; evidence: $EvidencePath"
+if ($DirectOnly) {
+    Write-Output "Windows Direct MFT qualification passed; evidence: $EvidencePath"
+} else {
+    Write-Output "Windows Global Index service qualification passed; evidence: $EvidencePath"
+}

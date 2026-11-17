@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use serde_json::{json, Value};
-use std::{error::Error, fs};
+use std::{error::Error, fs, time::Instant};
 
 pub fn run(
     profile: &Path,
@@ -138,6 +138,7 @@ pub fn run(
         fs::write(path, b"valuable lookalike")?;
     }
     let mut phases = Vec::new();
+    let mut first_searchable_us = None;
     for mode in [
         CoverageMode::SmartLean,
         CoverageMode::BroadCoverage,
@@ -153,8 +154,16 @@ pub fn run(
             vec![]
         };
         db.save_global_index_coverage(db.global_index_coverage()?.policy.revision, mode, rules)?;
+        let first_search_started = (mode == CoverageMode::SmartLean).then(Instant::now);
         baseline(&db, source_id)?;
         let included_visible = visible(&db, included)?;
+        if let Some(started) = first_search_started {
+            let elapsed_us = started.elapsed().as_micros();
+            first_searchable_us = Some(elapsed_us);
+            crate::global_index::qa_trace::record(&format!(
+                "mft_first_searchable elapsed_us={elapsed_us} visible={included_visible}"
+            ));
+        }
         let excluded_visible = visible(&db, excluded)?;
         if !included_visible || excluded_visible != (mode == CoverageMode::BroadCoverage) {
             return Err(format!("direct native coverage mismatch: mode={mode:?} included={included_visible} low_value={excluded_visible}").into());
@@ -209,6 +218,7 @@ pub fn run(
     }
     drop(sink);
     drop(db);
+    let reopen_backfill_started = Instant::now();
     let reopened = Database::open(profile.join("fylura.sqlite3"))?;
     reopened.save_global_index_coverage(
         reopened.global_index_coverage()?.policy.revision,
@@ -216,7 +226,12 @@ pub fn run(
         vec![],
     )?;
     baseline(&reopened, source_id)?;
-    if !visible(&reopened, included)? || visible(&reopened, excluded)? {
+    let reopened_included_visible = visible(&reopened, included)?;
+    let reopen_backfill_us = reopen_backfill_started.elapsed().as_micros();
+    crate::global_index::qa_trace::record(&format!(
+        "mft_database_reopen_backfill elapsed_us={reopen_backfill_us} visible={reopened_included_visible}"
+    ));
+    if !reopened_included_visible || visible(&reopened, excluded)? {
         return Err("Direct restart/backfill mismatch".into());
     }
     // Verify QA did not mutate either candidate; these are task-owned files.
@@ -225,7 +240,7 @@ pub fn run(
     }
     let bytes = (fs::metadata(included)?.len(), fs::metadata(excluded)?.len());
     Ok(
-        json!({"route":"Direct MFT","phases":phases,"revokeOldWriterRejected":true,"reEnableOldWriterRejected":true,"restartBackfill":true,"fixtureLengths":bytes,"coverage":reopened.global_index_coverage()?}),
+        json!({"route":"Direct MFT","phases":phases,"revokeOldWriterRejected":true,"reEnableOldWriterRejected":true,"restartBackfill":true,"firstSearchableUs":first_searchable_us,"databaseReopenBackfillUs":reopen_backfill_us,"fixtureLengths":bytes,"coverage":reopened.global_index_coverage()?}),
     )
 }
 fn baseline(db: &Database, id: &str) -> Result<(), Box<dyn Error>> {

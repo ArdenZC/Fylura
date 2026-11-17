@@ -330,6 +330,32 @@ fn parent_identity_matches(expected: &str, actual: Option<&str>) -> bool {
     }
     true // Native path-fallback providers still require the no-alias directory proof.
 }
+// Filename-only Global Index admission, not file-operation authorization.
+// MFT/USN supplies the native attributes; retain a fresh path check for
+// existence/reparse changes, but skip the per-file handle open used only to
+// reject hardlinks in the broader file-operation safety path.
+fn candidate_search_admission_ok(
+    entry: &GlobalEntryInput,
+    source: &GlobalVolume,
+    path: &Path,
+) -> bool {
+    if entry.is_directory {
+        return true;
+    }
+    #[cfg(windows)]
+    if source.platform == "windows"
+        && source.provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
+        && entry.source_provider == crate::global_index::PROVIDER_WINDOWS_MFT_USN
+    {
+        // Keep reparse, offline and recall-on-access entries conservative.
+        const UNSUPPORTED_ATTRIBUTES: i64 = 0x400 | 0x1000 | 0x40000 | 0x400000;
+        return entry.file_attributes & UNSUPPORTED_ATTRIBUTES == 0
+            && metadata(path).is_ok_and(|m| !fenced(&m));
+    }
+    let _ = source;
+    metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m))
+}
+
 pub(crate) fn observe_batch(
     policy: &CoveragePolicy,
     source: &GlobalVolume,
@@ -337,7 +363,7 @@ pub(crate) fn observe_batch(
 ) -> Vec<Decision> {
     // Identity-proven directory context lives only in this immutable source /
     // policy batch. Native parent IDs bind the key; source/policy/mount changes
-    // cannot reuse previous batches. File link/alias checks remain per candidate.
+    // cannot reuse previous batches. Path admission remains per candidate.
     let mut contexts = HashMap::<(PathBuf, String), DirectoryFacts>::new();
     let root = Path::new(&source.mount_path);
     let boundaries = protected_roots(root);
@@ -447,8 +473,7 @@ pub(crate) fn observe_batch(
                         rule_uncertain: best.is_some_and(|(_, _, uncertain)| uncertain),
                     }
                 });
-            let candidate_safe = entry.is_directory
-                || metadata(path).is_ok_and(|m| !fenced(&m) && single_link(path, &m));
+            let candidate_safe = candidate_search_admission_ok(entry, source, path);
             let mut evidence = Evidence {
                 directory: entry.is_directory,
                 performance_reason: facts.performance_reason,

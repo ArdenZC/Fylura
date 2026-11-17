@@ -108,13 +108,17 @@ pub(crate) fn record_decisions(
     conn: &Connection,
     entries: &[GlobalEntryInput],
     decisions: &[Decision],
+    update_entry_rows: bool,
 ) -> Result<(), DbError> {
     let mut counts = std::collections::HashMap::<&str, [i64; 3]>::new();
-    let mut retire =
-        conn.prepare("UPDATE global_entries SET is_stale=1,scope_decision=?2 WHERE id=?1")?;
-    let mut explain = conn.prepare(
-        "UPDATE global_entries SET scope_decision=?2 WHERE id=?1 AND scope_decision!=?2",
-    )?;
+    let mut retire = None;
+    let mut explain = if update_entry_rows {
+        Some(conn.prepare(
+            "UPDATE global_entries SET scope_decision=?2 WHERE id=?1 AND scope_decision!=?2",
+        )?)
+    } else {
+        None
+    };
     for (entry, d) in entries.iter().zip(decisions) {
         let totals = counts.entry(&entry.volume_id).or_default();
         totals[if matches!(d, Decision::Undetermined(_)) {
@@ -124,24 +128,33 @@ pub(crate) fn record_decisions(
         } else {
             1
         }] += 1;
-        if !d.visible() {
-            retire.execute(params![
-                entry.entry_id(),
-                if entry.is_directory {
-                    "minimal_ancestor"
-                } else {
-                    d.reason()
-                }
-            ])?;
-        } else {
-            explain.execute(params![
-                entry.entry_id(),
-                if matches!(d, Decision::Undetermined(_)) {
-                    "undetermined"
-                } else {
-                    "include"
-                }
-            ])?;
+        if !d.visible() && (update_entry_rows || !entry.is_directory) {
+            if retire.is_none() {
+                retire = Some(conn.prepare(
+                    "UPDATE global_entries SET is_stale=1,scope_decision=?2 WHERE id=?1",
+                )?);
+            }
+            if let Some(retire) = retire.as_mut() {
+                retire.execute(params![
+                    entry.entry_id(),
+                    if entry.is_directory {
+                        "minimal_ancestor"
+                    } else {
+                        d.reason()
+                    }
+                ])?;
+            }
+        } else if d.visible() {
+            if let Some(explain) = explain.as_mut() {
+                explain.execute(params![
+                    entry.entry_id(),
+                    if matches!(d, Decision::Undetermined(_)) {
+                        "undetermined"
+                    } else {
+                        "include"
+                    }
+                ])?;
+            }
         }
     }
     for (source, totals) in counts {

@@ -738,9 +738,8 @@ fn fl42_directory_copy_and_duplicate_undo_use_published_target_identity() {
         assert_eq!(result.logs[0].status, "success");
         assert!(result.logs[0].can_undo);
         let copied_target = PathBuf::from(&result.logs[0].path_after);
-        let expected_tree = directory_tree_snapshot(&copied_target)
-            .and_then(|tree| encode_directory_tree_journal_fingerprint(&tree))
-            .unwrap();
+        let target_tree = directory_tree_snapshot(&copied_target).unwrap();
+        let expected_tree = encode_directory_tree_journal_fingerprint(&target_tree).unwrap();
         assert_eq!(
             result.logs[0].target_full_hash.as_deref(),
             Some(expected_tree.as_str())

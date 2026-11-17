@@ -1709,7 +1709,7 @@ impl Database {
                 std::thread::sleep(INITIAL_MFT_WRITER_HANDOFF);
 
                 if enlarged_writer_cache
-                    && batches_committed % INITIAL_MFT_WAL_RESTART_BATCH_INTERVAL == 0
+                    && batches_committed.is_multiple_of(INITIAL_MFT_WAL_RESTART_BATCH_INTERVAL)
                 {
                     let wal_bytes_before_restart = if qa_trace_active {
                         sqlite_wal_file_bytes(self.path())

@@ -1452,6 +1452,7 @@ mod tests {
                 source_id: unapproved.id.clone(),
             },
             source: Some(unapproved.clone()),
+            filename_first_enabled: false,
         };
         assert_eq!(
             validate_request(&legacy_request),

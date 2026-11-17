@@ -214,10 +214,11 @@ impl Database {
                         && is_file_upsert_contention(&error) =>
                 {
                     // This transaction reads existing row identity before it
-                    // writes. In WAL mode, a concurrent index writer can
-                    // hold the single writer slot while these reads are in
-                    // progress. Dropping the whole transaction and retrying
-                    // from a fresh snapshot is safe because all effects are
+                    // writes. It now acquires the writer slot before those
+                    // reads, avoiding a stale WAL snapshot upgrade. If an
+                    // external writer still returns a transient busy/locked
+                    // error, retrying the whole transaction from a fresh
+                    // snapshot remains safe because its effects are
                     // database-local and transactional. Backoff and retries
                     // stop after a one-second window; the original error is
                     // returned if contention persists.
@@ -235,7 +236,10 @@ impl Database {
     fn insert_files_once(&self, files: &[InsertFileRequest]) -> Result<(), DbError> {
         let last_seen_at = current_unix_seconds();
         let mut conn = self.conn()?;
-        let tx = conn.transaction()?;
+        // This path always mutates rows. Acquiring SQLite's writer slot before
+        // reading the current identity prevents a concurrent WAL commit from
+        // invalidating the read snapshot before the first write.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         {
             let mut stmt = tx.prepare(
                 r#"

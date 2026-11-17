@@ -51,6 +51,11 @@ on:
         type: choice
         default: 'auto'
         options: ['auto', '512', '1024', '2048', '4096', '8192']
+      filename_diagnostic_scenario:
+        description: WAL diagnostic load profile; use D for a single million-file concurrent-load pair
+        type: choice
+        default: all
+        options: [all, A, B, C, D]
       run_trigger_matrix:
         description: Re-run the synthetic 25k FTS/source-stat attribution matrix
         type: boolean
@@ -506,6 +511,7 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       FILENAME_FIRST_FILE_COUNT: ${{ inputs.filename_file_count || '100000' }}
       FILENAME_FIRST_PERSIST_BATCH_SIZE: ${{ inputs.filename_persist_batch_size || 'auto' }}
+      FILENAME_FIRST_DIAGNOSTIC_SCENARIO: ${{ inputs.filename_diagnostic_scenario || 'all' }}
       FILENAME_FIRST_DIAGNOSTIC_DIR: ${{ github.workspace }}/.performance-artifacts/filename-first-diagnostics
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -536,7 +542,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path $env:FILENAME_FIRST_DIAGNOSTIC_DIR -Force | Out-Null
           $probe = Join-Path $PWD 'src-tauri/target/release/zb05-global-index-qa.exe'
-          foreach ($scenario in @('A', 'B', 'C', 'D')) {
+          $scenarios = if ($env:FILENAME_FIRST_DIAGNOSTIC_SCENARIO -eq 'all') { @('A', 'B', 'C', 'D') } else { @($env:FILENAME_FIRST_DIAGNOSTIC_SCENARIO) }
+          foreach ($scenario in $scenarios) {
             $evidence = Join-Path $env:FILENAME_FIRST_DIAGNOSTIC_DIR "$scenario.json"
             & pwsh -NoProfile -File scripts/qualifyWindowsGlobalIndexFilenameFirst.ps1 `
               -BaselineProbeExe $probe -CandidateProbeExe $probe -ServiceExe $probe `
@@ -552,7 +559,8 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          foreach ($scenario in @('A', 'B', 'C', 'D')) {
+          $scenarios = if ($env:FILENAME_FIRST_DIAGNOSTIC_SCENARIO -eq 'all') { @('A', 'B', 'C', 'D') } else { @($env:FILENAME_FIRST_DIAGNOSTIC_SCENARIO) }
+          foreach ($scenario in $scenarios) {
             $evidence = Join-Path $env:FILENAME_FIRST_DIAGNOSTIC_DIR "$scenario.json"
             if (-not (Test-Path -LiteralPath $evidence)) {
               "WAL scenario $scenario`: evidence missing" | Add-Content $env:GITHUB_STEP_SUMMARY

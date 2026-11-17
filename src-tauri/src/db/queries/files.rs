@@ -262,8 +262,6 @@ impl Database {
         // This path always mutates rows. Acquiring SQLite's writer slot before
         // reading the current identity prevents a concurrent WAL commit from
         // invalidating the read snapshot before the first write.
-        let _transaction_trace =
-            crate::global_index::qa_trace::TransactionTrace::start("write", "files.insert_files");
         let transaction_started = trace_enabled.then(std::time::Instant::now);
         let (tx, begin_error) =
             match conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) {
@@ -282,6 +280,8 @@ impl Database {
             return Err(error.into());
         }
         let tx = tx.expect("successful writer-slot acquisition returns a transaction");
+        let _transaction_trace =
+            crate::global_index::qa_trace::TransactionTrace::start("write", "files.insert_files");
         if let Err(error) = tx.busy_timeout(previous_busy_timeout) {
             crate::global_index::qa_trace::record_sqlite_error(
                 "files.insert_files.restore_busy_timeout",

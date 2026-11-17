@@ -4,14 +4,12 @@ use crate::global_index::filename_search::FilenameSearchManager;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{Connection, ErrorCode};
-#[cfg(test)]
-use std::sync::atomic::AtomicUsize;
 use std::{
     collections::{HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::SyncSender,
         Arc, Mutex, OnceLock, Weak,
     },
@@ -30,6 +28,76 @@ const GLOBAL_FTS_RECOVERY_RETRY_DELAYS: [Duration; 5] = [
 const GLOBAL_FTS_RECOVERY_CANCEL_POLL: Duration = Duration::from_millis(50);
 static ACTIVE_GLOBAL_FTS_RECOVERIES: OnceLock<Mutex<HashMap<PathBuf, Arc<GlobalFtsRecoverySlot>>>> =
     OnceLock::new();
+
+#[derive(Default)]
+struct InitialIndexWalCheckpointState {
+    active_sessions: AtomicUsize,
+    policy_lock: Mutex<()>,
+}
+
+pub(crate) struct InitialIndexWalCheckpointGuard {
+    state: Arc<InitialIndexWalCheckpointState>,
+}
+
+impl InitialIndexWalCheckpointGuard {
+    fn new(state: Arc<InitialIndexWalCheckpointState>) -> Self {
+        let _policy = state
+            .policy_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.active_sessions.fetch_add(1, Ordering::AcqRel);
+        Self { state }
+    }
+}
+
+impl Drop for InitialIndexWalCheckpointGuard {
+    fn drop(&mut self) {
+        let _policy = self
+            .state
+            .policy_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.state.active_sessions.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Pooled lease which temporarily disables connection-local auto-checkpointing
+/// during a large initial index. The original threshold is restored before the
+/// connection returns to r2d2, so pooled handles cannot retain stale policy.
+pub(crate) struct PooledSqliteConnection {
+    connection: PooledConnection<SqliteConnectionManager>,
+    restore_wal_autocheckpoint_pages: Option<i64>,
+}
+
+impl std::ops::Deref for PooledSqliteConnection {
+    type Target = Connection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+impl std::ops::DerefMut for PooledSqliteConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.connection
+    }
+}
+
+impl Drop for PooledSqliteConnection {
+    fn drop(&mut self) {
+        if let Some(previous_pages) = self.restore_wal_autocheckpoint_pages.take() {
+            if let Err(error) =
+                self.connection
+                    .pragma_update(None, "wal_autocheckpoint", previous_pages)
+            {
+                log::warn!(
+                    target: "db::connection",
+                    "failed to restore pooled SQLite WAL auto-checkpoint policy: {error}"
+                );
+            }
+        }
+    }
+}
 
 #[cfg(feature = "native-qa")]
 #[derive(Default)]
@@ -237,6 +305,7 @@ pub struct Database {
     library_count_cache: Arc<Mutex<VecDeque<LibraryCountCacheEntry>>>,
     managed_ai_waker: ManagedAiWakeSlot,
     pub(crate) automation_wake: Arc<Mutex<Option<std::sync::Weak<AutomationWake>>>>,
+    initial_index_wal_checkpoint_state: Arc<InitialIndexWalCheckpointState>,
     #[cfg(feature = "native-qa")]
     diagnostic_pool_sampler: Arc<DiagnosticPoolSampler>,
 }
@@ -326,6 +395,7 @@ impl Database {
             library_count_cache: Arc::new(Mutex::new(VecDeque::new())),
             managed_ai_waker: ManagedAiWakeSlot::default(),
             automation_wake: Arc::new(Mutex::new(None)),
+            initial_index_wal_checkpoint_state: Arc::new(InitialIndexWalCheckpointState::default()),
             #[cfg(feature = "native-qa")]
             diagnostic_pool_sampler: Arc::new(DiagnosticPoolSampler::default()),
         };
@@ -506,19 +576,54 @@ impl Database {
         migrate(&conn)
     }
 
-    pub(crate) fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, DbError> {
+    pub(crate) fn conn(&self) -> Result<PooledSqliteConnection, DbError> {
         let connection = self.pool.get().map_err(DbError::from)?;
+        let _policy = self
+            .initial_index_wal_checkpoint_state
+            .policy_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let restore_wal_autocheckpoint_pages = if self
+            .initial_index_wal_checkpoint_state
+            .active_sessions
+            .load(Ordering::Acquire)
+            > 0
+        {
+            let previous_pages = connection
+                .query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))?;
+            if previous_pages == 0 {
+                None
+            } else {
+                connection.pragma_update(None, "wal_autocheckpoint", 0)?;
+                Some(previous_pages)
+            }
+        } else {
+            None
+        };
+        drop(_policy);
         #[cfg(feature = "native-qa")]
         if crate::global_index::qa_trace::is_enabled() {
             let state = self.pool.state();
             let active = state.connections.saturating_sub(state.idle_connections);
+            let wal_autocheckpoint_pages = connection
+                .query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))
+                .unwrap_or(-1);
             crate::global_index::qa_trace::record(&format!(
-                "sqlite_connections event=acquire connections={} idle_connections={} active_connections={active}",
+                "sqlite_connections event=acquire connections={} idle_connections={} active_connections={active} wal_autocheckpoint_pages={wal_autocheckpoint_pages}",
                 state.connections,
                 state.idle_connections,
             ));
         }
-        Ok(connection)
+        Ok(PooledSqliteConnection {
+            connection,
+            restore_wal_autocheckpoint_pages,
+        })
+    }
+
+    pub(crate) fn begin_initial_index_wal_checkpoint_session(
+        &self,
+    ) -> InitialIndexWalCheckpointGuard {
+        InitialIndexWalCheckpointGuard::new(Arc::clone(&self.initial_index_wal_checkpoint_state))
     }
 
     /// Pool state is sampled only by native qualification. `active` counts
@@ -832,6 +937,39 @@ mod pool_tests {
             .query_row("SELECT 42", [], |row| row.get::<_, i64>(0))
             .expect("query using returned pool connection");
         assert_eq!(query_result, 42);
+    }
+
+    #[test]
+    fn initial_index_autocheckpoint_suppression_is_scoped_and_restored_per_lease() {
+        let test_dir = TestDatabaseDirectory::new();
+        let db = Database::open(test_dir.database_path()).expect("open and migrate database");
+        let wal_autocheckpoint = |connection: &Connection| {
+            connection
+                .query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, i64>(0))
+                .expect("read the connection-local autocheckpoint threshold")
+        };
+
+        {
+            let _session = db.begin_initial_index_wal_checkpoint_session();
+            let first = db.conn().expect("lease first suppressed connection");
+            let second = db.conn().expect("lease second suppressed connection");
+            assert_eq!(wal_autocheckpoint(&first), 0);
+            assert_eq!(wal_autocheckpoint(&second), 0);
+        }
+
+        let first = db.conn().expect("lease first restored connection");
+        let second = db.conn().expect("lease second restored connection");
+        assert_eq!(wal_autocheckpoint(&first), 1_000);
+        assert_eq!(wal_autocheckpoint(&second), 1_000);
+
+        let session = db.begin_initial_index_wal_checkpoint_session();
+        let held_across_session = db.conn().expect("lease during initial index");
+        assert_eq!(wal_autocheckpoint(&held_across_session), 0);
+        drop(session);
+        assert_eq!(wal_autocheckpoint(&held_across_session), 0);
+        drop(held_across_session);
+        let restored_after_session = db.conn().expect("lease after active transaction ends");
+        assert_eq!(wal_autocheckpoint(&restored_after_session), 1_000);
     }
 
     fn sqlite_busy_error() -> DbError {

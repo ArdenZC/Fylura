@@ -13,6 +13,7 @@ static LOCAL_GLOBAL_INDEX_OPERATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLoc
 const INITIAL_MFT_WAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const INITIAL_MFT_FTS_BUILD_BATCH_SIZE: i64 = 8_192;
 const INITIAL_MFT_WRITER_CACHE_KIB: i64 = 128 * 1024;
+const INITIAL_MFT_LARGE_SOURCE_THRESHOLD: usize = 16_384;
 const INITIAL_MFT_WRITER_HANDOFF: Duration = Duration::from_millis(25);
 const INITIAL_MFT_WAL_RESTART_BATCH_INTERVAL: usize = 4;
 
@@ -1406,6 +1407,15 @@ impl Database {
             ));
         }
 
+        // SQLite's WAL autocheckpoint is connection-local. A large initial
+        // MFT load suppresses it on the repository writer below, so suppress
+        // it on other pooled leases too; otherwise an ordinary Files,
+        // Journal, or Settings commit can inherit the index's entire
+        // checkpoint and hold the shared writer slot for hundreds of ms.
+        // Each pooled lease restores its prior threshold before returning.
+        let _wal_checkpoint_session = (entry_count >= INITIAL_MFT_LARGE_SOURCE_THRESHOLD)
+            .then(|| self.begin_initial_index_wal_checkpoint_session());
+
         let source = self
             .get_global_volume(volume_id)?
             .ok_or_else(|| DbError::Validation("global_index_operation_owner_lost".into()))?;
@@ -1448,7 +1458,7 @@ impl Database {
         // multiple WAL frames for the same repeatedly updated pages. Restore
         // both connection-local settings before returning the lease to the
         // pool.
-        let enlarged_writer_cache = entry_count >= 16_384;
+        let enlarged_writer_cache = entry_count >= INITIAL_MFT_LARGE_SOURCE_THRESHOLD;
         if enlarged_writer_cache {
             conn.pragma_update(None, "cache_size", -INITIAL_MFT_WRITER_CACHE_KIB)?;
             if let Err(error) = conn.pragma_update(None, "cache_spill", false) {
@@ -1551,10 +1561,6 @@ impl Database {
                 if qa_trace_active {
                     let _ = crate::global_index::qa_trace::take_page_cache_counters(&conn);
                 }
-                let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
-                    "write",
-                    "global_index.initial_mft_batch",
-                );
                 let entry_upsert_before = timing.entry_upsert;
                 let record_decisions_before = timing.record_decisions;
                 let fts_bulk_build_before = timing.fts_bulk_build;
@@ -1562,6 +1568,10 @@ impl Database {
                 let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 timing.transaction_acquisition += transaction_started.elapsed();
                 let transaction_lock_wait = transaction_started.elapsed();
+                let _transaction_trace = crate::global_index::qa_trace::TransactionTrace::start(
+                    "write",
+                    "global_index.initial_mft_batch",
+                );
                 let writer_lock_started = Instant::now();
                 let setup_started = Instant::now();
                 ensure_source_operation_owner_tx(&transaction, owner)?;
@@ -1741,6 +1751,12 @@ impl Database {
                     } else {
                         0
                     };
+                    let passive_checkpoint_needed = match &checkpoint {
+                        Ok((busy, log_frames, checkpointed_frames)) => {
+                            *busy != 0 || *log_frames != *checkpointed_frames
+                        }
+                        Err(_) => true,
+                    };
                     match checkpoint {
                         Ok((busy, log_frames, checkpointed_frames)) => {
                             if qa_trace_active {
@@ -1769,6 +1785,50 @@ impl Database {
                                 target: "global_index::repository",
                                 "initial-index WAL restart checkpoint failed: {error}"
                             );
+                        }
+                    }
+                    if passive_checkpoint_needed {
+                        // RESTART cannot recycle the WAL while even a short
+                        // ordinary transaction or reader is active. PASSIVE
+                        // does not wait for either; it checkpoints every
+                        // frame that is currently safe, then the next bounded
+                        // batch retries the WAL reset.
+                        let passive_wal_bytes_before = if qa_trace_active {
+                            sqlite_wal_file_bytes(self.path())
+                        } else {
+                            0
+                        };
+                        let passive_started = Instant::now();
+                        let passive = passive_wal_checkpoint(&conn);
+                        let passive_elapsed = passive_started.elapsed();
+                        timing.wal_checkpoint += passive_elapsed;
+                        let passive_wal_bytes_after = if qa_trace_active {
+                            sqlite_wal_file_bytes(self.path())
+                        } else {
+                            0
+                        };
+                        match passive {
+                            Ok((busy, log_frames, checkpointed_frames)) => {
+                                if qa_trace_active {
+                                    crate::global_index::qa_trace::record(&format!(
+                                        "global_index_wal_checkpoint mode=passive_after_restart busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={} active_transactions_local={}",
+                                        passive_elapsed.as_micros(),
+                                        passive_wal_bytes_before,
+                                        passive_wal_bytes_after,
+                                        crate::global_index::qa_trace::active_transaction_count(),
+                                    ));
+                                }
+                            }
+                            Err(error) => {
+                                crate::global_index::qa_trace::record_sqlite_error(
+                                    "global_index.initial_mft_batch.wal_passive_checkpoint",
+                                    &error,
+                                );
+                                log::warn!(
+                                    target: "global_index::repository",
+                                    "initial-index passive WAL checkpoint failed: {error}"
+                                );
+                            }
                         }
                     }
                 }
@@ -1823,7 +1883,8 @@ impl Database {
         } else {
             passive_wal_checkpoint(&conn)
         };
-        timing.wal_checkpoint += checkpoint_started.elapsed();
+        let final_checkpoint_elapsed = checkpoint_started.elapsed();
+        timing.wal_checkpoint += final_checkpoint_elapsed;
         let wal_bytes_after_checkpoint = if qa_trace_active {
             sqlite_wal_file_bytes(self.path())
         } else {
@@ -1840,7 +1901,7 @@ impl Database {
                 if qa_trace_active {
                     crate::global_index::qa_trace::record(&format!(
                         "global_index_wal_checkpoint mode={checkpoint_mode} busy={busy} log_frames={log_frames} checkpointed_frames={checkpointed_frames} elapsed_us={} wal_before_bytes={} wal_after_bytes={} active_transactions_local={}",
-                        timing.wal_checkpoint.as_micros(),
+                        final_checkpoint_elapsed.as_micros(),
                         wal_bytes_before_checkpoint,
                         wal_bytes_after_checkpoint,
                         crate::global_index::qa_trace::active_transaction_count(),

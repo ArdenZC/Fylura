@@ -1287,6 +1287,7 @@ fn sqlite_busy_while_finishing_releases_the_local_owner_for_service_recovery() {
 fn filename_first_initial_mft_is_searchable_before_sqlite_and_finishes_with_fts() {
     let path = TestDatabasePath::new();
     let db = Database::open(&path.0).expect("open filename-first qualification database");
+    db.filename_search.set_enabled_for_test(true);
     let source_root = path.0.with_extension("source");
     std::fs::create_dir_all(&source_root).expect("create task-owned source directory");
     let fixture_path = source_root.join("filename-first-persistedmarker.txt");

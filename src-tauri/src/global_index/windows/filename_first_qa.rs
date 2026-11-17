@@ -3,7 +3,7 @@
 
 use super::mft::{open_volume, query_journal};
 use super::WindowsGlobalIndexProvider;
-use crate::db::{Database, InsertFileRequest};
+use crate::db::{Database, DbError, InsertFileRequest};
 use crate::global_index::coordinator::{GlobalIndexProvider, GlobalIndexSink};
 use crate::global_index::models::{normalize_path, unix_now, INDEX_STATUS_READY};
 use crate::global_index::GlobalSourceDescriptor;
@@ -160,6 +160,55 @@ fn durable_fts_marker_visible(
     result
 }
 
+/// Measures the lock wait, statement execution, and commit separately for
+/// ordinary QA writes. Explicit IMMEDIATE transactions preserve the same
+/// SQLite writer-slot semantics as autocommit DML while exposing those phases.
+fn run_diagnostic_write(
+    db: &Database,
+    source: &'static str,
+    operation: impl FnOnce(&rusqlite::Transaction<'_>) -> rusqlite::Result<usize>,
+) -> Result<(), DbError> {
+    let connection_started = Instant::now();
+    let mut connection = db.conn()?;
+    let connection_acquisition_us = connection_started.elapsed().as_micros();
+    let lock_started = Instant::now();
+    let transaction = match connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+    {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            crate::global_index::qa_trace::record_sqlite_error(&format!("{source}.begin"), &error);
+            return Err(error.into());
+        }
+    };
+    let lock_wait_us = lock_started.elapsed().as_micros();
+    let _transaction_trace =
+        crate::global_index::qa_trace::TransactionTrace::start("write", source);
+    let execution_started = Instant::now();
+    let changed_rows = match operation(&transaction) {
+        Ok(changed_rows) => changed_rows,
+        Err(error) => {
+            crate::global_index::qa_trace::record_sqlite_error(
+                &format!("{source}.execute"),
+                &error,
+            );
+            drop(transaction);
+            return Err(error.into());
+        }
+    };
+    let execution_us = execution_started.elapsed().as_micros();
+    let commit_started = Instant::now();
+    if let Err(error) = transaction.commit() {
+        crate::global_index::qa_trace::record_sqlite_error(&format!("{source}.commit"), &error);
+        return Err(error.into());
+    }
+    let commit_us = commit_started.elapsed().as_micros();
+    crate::global_index::qa_trace::record(&format!(
+        "sqlite_write source={source} connection_acquisition_us={connection_acquisition_us} lock_wait_us={lock_wait_us} execution_us={execution_us} commit_us={commit_us} rows={changed_rows}"
+    ));
+    Ok(())
+}
+
 pub fn run_initial(
     profile: &Path,
     source_id: &str,
@@ -228,23 +277,18 @@ pub fn run_initial(
             }
 
             let journal_started = Instant::now();
-            let journal_result = {
-                let _journal_trace = crate::global_index::qa_trace::TransactionTrace::start(
-                    "write",
-                    "qa.journal_update",
-                );
-                concurrent_writer_db.conn().and_then(|connection| {
-                    connection
-                        .execute(
-                            "UPDATE global_volumes
-                             SET journal_id=journal_id, journal_cursor=journal_cursor, updated_at=updated_at
-                             WHERE id=?1",
-                            [&concurrent_writer_source],
-                        )
-                        .map(|_| ())
-                        .map_err(Into::into)
-                })
-            };
+            let journal_result = run_diagnostic_write(
+                &concurrent_writer_db,
+                "qa.journal_update",
+                |transaction| {
+                    transaction.execute(
+                        "UPDATE global_volumes
+                         SET journal_id=journal_id, journal_cursor=journal_cursor, updated_at=updated_at
+                         WHERE id=?1",
+                        [&concurrent_writer_source],
+                    )
+                },
+            );
             journal_latencies_us.push(journal_started.elapsed().as_micros() as u64);
             if let Err(error) = journal_result {
                 crate::global_index::qa_trace::record_db_error("qa.journal_update", &error);
@@ -252,22 +296,18 @@ pub fn run_initial(
             }
 
             let settings_started = Instant::now();
-            let settings_result = {
-                let _settings_trace = crate::global_index::qa_trace::TransactionTrace::start(
-                    "write",
-                    "qa.settings_upsert",
-                );
-                concurrent_writer_db.conn().and_then(|connection| {
-                    connection
-                        .execute(
-                            "INSERT INTO app_settings(key,value) VALUES('filename_first_concurrent_qa',?1)
-                             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                            [index.to_string()],
-                        )
-                        .map(|_| ())
-                        .map_err(Into::into)
-                })
-            };
+            let setting_value = index.to_string();
+            let settings_result = run_diagnostic_write(
+                &concurrent_writer_db,
+                "qa.settings_upsert",
+                |transaction| {
+                    transaction.execute(
+                        "INSERT INTO app_settings(key,value) VALUES('filename_first_concurrent_qa',?1)
+                         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        [&setting_value],
+                    )
+                },
+            );
             settings_latencies_us.push(settings_started.elapsed().as_micros() as u64);
             if let Err(error) = settings_result {
                 crate::global_index::qa_trace::record_db_error("qa.settings_upsert", &error);

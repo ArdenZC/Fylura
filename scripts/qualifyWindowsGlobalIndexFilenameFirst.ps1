@@ -315,7 +315,9 @@ function Invoke-Probe(
     $mftTiming = Get-TraceEvent $TracePath 'mft_initial_index'
     $writerTiming = Get-TraceEvent $TracePath 'source_operation_write'
     $writerConfig = Get-TraceEvent $TracePath 'global_index_initial_writer_config'
-    $walCheckpoint = Get-TraceEvent $TracePath 'global_index_wal_checkpoint'
+    $walCheckpointEvents = @(Get-TraceEvents $TracePath 'global_index_wal_checkpoint')
+    $walCheckpoint = if ($walCheckpointEvents.Count -gt 0) { $walCheckpointEvents[-1] } else { $null }
+    $walRestartEvents = @($walCheckpointEvents | Where-Object { $_.mode -eq 'restart' })
     $writerBatches = @(Get-TraceEvents $TracePath 'global_index_initial_writer_batch')
     $serviceBatchEvents = @(Get-TraceEvents $TracePath 'index_service_batching')
     $serviceBatching = if ($serviceBatchEvents.Count -gt 0) { $serviceBatchEvents[-1] } else { $null }
@@ -329,7 +331,11 @@ function Invoke-Probe(
         })
         $writerDiagnostics = [ordered]@{
             batchCount = $writerBatches.Count
-            walAutocheckpointPages = if ($writerConfig) { [long]$writerConfig.wal_autocheckpoint } else { $null }
+            walAutocheckpointPagesBefore = if ($writerConfig) { [long]$writerConfig.wal_autocheckpoint_before } else { $null }
+            walAutocheckpointPages = if ($writerConfig) { [long]$writerConfig.wal_autocheckpoint_during } else { $null }
+            walRestartCount = $walRestartEvents.Count
+            walRestartBusyCount = @($walRestartEvents | Where-Object { [long]$_.busy -ne 0 -or [long]$_.log_frames -ne [long]$_.checkpointed_frames }).Count
+            walRestartTotalUs = [long](($walRestartEvents | Measure-Object -Property elapsed_us -Sum).Sum)
             cacheSizePages = if ($writerConfig) { [long]$writerConfig.cache_size_pages } else { $null }
             cacheSpillEnabled = if ($writerConfig) { [long]$writerConfig.cache_spill } else { $null }
             sumCommitUs = [long](($writerBatches | Measure-Object -Property commit_us -Sum).Sum)

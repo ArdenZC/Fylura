@@ -136,6 +136,9 @@ describe("Global Index performance workflow routing", () => {
     expect(workflow).toContain("run_trigger_matrix:");
     expect(workflow).toContain("github.event_name == 'workflow_dispatch' && inputs.run_trigger_matrix");
     expect(workflow).toContain("github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')");
+    expect(workflow).toContain("[run-global-index-filename-first-1m]");
+    expect(workflow).toContain("FILENAME_FIRST_FILE_COUNT:");
+    expect(workflow).toContain("FILENAME_FIRST_REPETITIONS:");
     expect(workflow).toContain("filename_file_count:");
     expect(workflow).toContain("filename_persist_batch_size:");
     expect(workflow).toContain("options: ['auto', '512', '1024', '2048', '4096', '8192']");

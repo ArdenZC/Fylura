@@ -344,16 +344,17 @@ jobs:
           if-no-files-found: warn
 
   filename-first-native-pair:
-    name: Real NTFS MFT first-search pair (${{ inputs.filename_file_count || '100000' }})
+    name: Real NTFS MFT first-search pair (${{ inputs.filename_file_count || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first-1m]') && '1000000') || '100000' }})
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'filename_first_pair') ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]'))
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first]')) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first-1m]'))
     runs-on: windows-latest
     timeout-minutes: 180
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
-      FILENAME_FIRST_FILE_COUNT: ${{ inputs.filename_file_count || '100000' }}
-      FILENAME_FIRST_REPETITIONS: ${{ inputs.filename_file_count == '1000000' && '1' || '3' }}
+      FILENAME_FIRST_FILE_COUNT: ${{ inputs.filename_file_count || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first-1m]') && '1000000') || '100000' }}
+      FILENAME_FIRST_REPETITIONS: ${{ (inputs.filename_file_count == '1000000' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-global-index-filename-first-1m]'))) && '1' || '3' }}
       FILENAME_FIRST_PERSIST_BATCH_SIZE: ${{ inputs.filename_persist_batch_size || 'auto' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -439,7 +440,7 @@ jobs:
             "Metadata transaction update baseline/candidate: $($report.phaseAverages.baselineMetadataUpdateUs) / $($report.phaseAverages.candidateMetadataUpdateUs) us",
             "Metadata transaction commit baseline/candidate: $($report.phaseAverages.baselineMetadataCommitUs) / $($report.phaseAverages.candidateMetadataCommitUs) us",
             "SQLite transactions baseline/candidate: $($report.phaseAverages.baselineSqliteTransactionCount) / $($report.phaseAverages.candidateSqliteTransactionCount)",
-            "WAL passive checkpoint baseline/candidate: $($report.phaseAverages.baselineWalCheckpointUs) / $($report.phaseAverages.candidateWalCheckpointUs) us",
+            "WAL checkpoint baseline/candidate: $($report.phaseAverages.baselineWalCheckpointUs) / $($report.phaseAverages.candidateWalCheckpointUs) us",
             "Durable readiness status polls / FTS MATCH probes by candidate run: $(@($report.candidate | ForEach-Object { $_.result.durableReadinessProbeCount }) -join ',') / $(@($report.candidate | ForEach-Object { $_.result.durableFtsMatchProbeCount }) -join ',')",
             "Transient catalog estimated footprint baseline/candidate: $($report.averages.baselineTransientCatalogEstimatedBytes) / $($report.averages.candidateTransientCatalogEstimatedBytes) bytes",
             "Average peak working set baseline/candidate: $($report.averages.baselinePeakWorkingSetBytes) / $($report.averages.candidatePeakWorkingSetBytes) bytes",
@@ -458,11 +459,11 @@ jobs:
           ) -join [Environment]::NewLine
           $writerDiagnostics = @($report.candidate | ForEach-Object { $_.stages.writerDiagnostics } | Where-Object { $_ })
           if ($writerDiagnostics.Count -gt 0) {
-            $summary += [Environment]::NewLine + "Candidate pager trace: batches $((($writerDiagnostics | Measure-Object -Property batchCount -Sum).Sum)); WAL autocheckpoint $(@($writerDiagnostics | Select-Object -ExpandProperty walAutocheckpointPages -Unique) -join ',') pages; cache size $(@($writerDiagnostics | Select-Object -ExpandProperty cacheSizePages -Unique) -join ',') pages (spill=$(@($writerDiagnostics | Select-Object -ExpandProperty cacheSpillEnabled -Unique) -join ',')); max WAL before/after commit $((($writerDiagnostics | Measure-Object -Property maxWalBytesBeforeCommit -Maximum).Maximum))/$((($writerDiagnostics | Measure-Object -Property maxWalBytesAfterCommit -Maximum).Maximum)) bytes; max uncheckpointed frames from NOOP samples $((($writerDiagnostics | Measure-Object -Property maxUncheckpointedWalFrames -Maximum).Maximum)); NOOP busy-field nonzero samples (not a checkpoint attempt) $((($writerDiagnostics | Measure-Object -Property noopBusyFieldNonzeroSamples -Sum).Sum)); max writer lock $((($writerDiagnostics | Measure-Object -Property maxWriterLockUs -Maximum).Maximum)) us; summed batch commit time across reps $((($writerDiagnostics | Measure-Object -Property sumCommitUs -Sum).Sum)) us; cache spill count across samples $((($writerDiagnostics | Measure-Object -Property totalCacheSpillCount -Sum).Sum)); cache pages written across samples $((($writerDiagnostics | Measure-Object -Property totalCacheWritePages -Sum).Sum))"
+            $summary += [Environment]::NewLine + "Candidate pager trace: batches $((($writerDiagnostics | Measure-Object -Property batchCount -Sum).Sum)); WAL autocheckpoint before/during $(@($writerDiagnostics | Select-Object -ExpandProperty walAutocheckpointPagesBefore -Unique) -join ',')/$(@($writerDiagnostics | Select-Object -ExpandProperty walAutocheckpointPages -Unique) -join ',') pages; restarts successful/total $((($writerDiagnostics | Measure-Object -Property walRestartCount -Sum).Sum) - (($writerDiagnostics | Measure-Object -Property walRestartBusyCount -Sum).Sum))/$((($writerDiagnostics | Measure-Object -Property walRestartCount -Sum).Sum)) (elapsed $((($writerDiagnostics | Measure-Object -Property walRestartTotalUs -Sum).Sum)) us); cache size $(@($writerDiagnostics | Select-Object -ExpandProperty cacheSizePages -Unique) -join ',') pages (spill=$(@($writerDiagnostics | Select-Object -ExpandProperty cacheSpillEnabled -Unique) -join ',')); max WAL before/after commit $((($writerDiagnostics | Measure-Object -Property maxWalBytesBeforeCommit -Maximum).Maximum))/$((($writerDiagnostics | Measure-Object -Property maxWalBytesAfterCommit -Maximum).Maximum)) bytes; max uncheckpointed frames from NOOP samples $((($writerDiagnostics | Measure-Object -Property maxUncheckpointedWalFrames -Maximum).Maximum)); NOOP busy-field nonzero samples (not a checkpoint attempt) $((($writerDiagnostics | Measure-Object -Property noopBusyFieldNonzeroSamples -Sum).Sum)); max writer lock $((($writerDiagnostics | Measure-Object -Property maxWriterLockUs -Maximum).Maximum)) us; summed batch commit time across reps $((($writerDiagnostics | Measure-Object -Property sumCommitUs -Sum).Sum)) us; cache spill count across samples $((($writerDiagnostics | Measure-Object -Property totalCacheSpillCount -Sum).Sum)); cache pages written across samples $((($writerDiagnostics | Measure-Object -Property totalCacheWritePages -Sum).Sum))"
           }
           $walCheckpoints = @($report.candidate | ForEach-Object { $_.stages.walCheckpoint } | Where-Object { $_ })
           if ($walCheckpoints.Count -gt 0) {
-            $summary += [Environment]::NewLine + "Candidate final PASSIVE checkpoint tuples (busy/log_frames/checkpointed_frames/wal_before/wal_after): $(@($walCheckpoints | ForEach-Object { "$($_.busy)/$($_.log_frames)/$($_.checkpointed_frames)/$($_.wal_before_bytes)/$($_.wal_after_bytes)" }) -join ',')"
+            $summary += [Environment]::NewLine + "Candidate final checkpoint tuples (mode/busy/log_frames/checkpointed_frames/wal_before/wal_after): $(@($walCheckpoints | ForEach-Object { "$($_.mode)/$($_.busy)/$($_.log_frames)/$($_.checkpointed_frames)/$($_.wal_before_bytes)/$($_.wal_after_bytes)" }) -join ',')"
           }
           $summary | Add-Content $env:GITHUB_STEP_SUMMARY
           Write-Output $summary

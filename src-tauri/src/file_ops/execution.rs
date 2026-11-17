@@ -2,6 +2,12 @@ use super::*;
 
 use std::cell::RefCell;
 
+#[cfg(test)]
+#[allow(clippy::print_stderr)]
+fn trace_replacement_refresh_failure(error: &str) {
+    eprintln!("replacement journal identity refresh failed: {error}");
+}
+
 #[derive(Debug, Clone)]
 struct ActualOperationPaths {
     source: PathBuf,
@@ -393,7 +399,7 @@ fn execute_moves_core_with_identity(
                                 {
                                     refresh_replacement_journal_identities(log).map_err(|error| {
                                         #[cfg(test)]
-                                        eprintln!("replacement journal identity refresh failed: {error}");
+                                        trace_replacement_refresh_failure(&error);
                                         crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
                                     })?;
                                 }

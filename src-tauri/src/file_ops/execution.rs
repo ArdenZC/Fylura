@@ -400,6 +400,8 @@ fn execute_moves_core_with_identity(
                                     refresh_replacement_journal_identities(log).map_err(|error| {
                                         #[cfg(test)]
                                         trace_replacement_refresh_failure(&error);
+                                        #[cfg(not(test))]
+                                        let _ = error;
                                         crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
                                     })?;
                                 }

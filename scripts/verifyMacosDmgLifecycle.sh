@@ -172,12 +172,12 @@ prepare_task_keychain() {
 }
 
 add_task_credential() {
-  local service="$1" account="$2" secret
+  local service="$1" account="$2" app_path="$3" secret
   secret="$(/usr/bin/uuidgen)"
   TASK_CREDENTIALS[$TASK_CREDENTIAL_COUNT]="$service|$account"
   TASK_CREDENTIAL_COUNT=$((TASK_CREDENTIAL_COUNT + 1))
   HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security add-generic-password -U -A -s "$service" -a "$account" -w "$secret" "$TEST_KEYCHAIN" >/dev/null
+    /usr/bin/security add-generic-password -U -A -T "$app_path" -s "$service" -a "$account" -w "$secret" "$TEST_KEYCHAIN" >/dev/null
   credential_exists "$service" "$account"
 }
 
@@ -236,16 +236,50 @@ with open(sys.argv[1], "wb") as agent:
 PY
 
   prepare_task_keychain
-  add_task_credential 'com.startlan.fylura' 'ai-api-key'
-  add_task_credential 'com.startlan.fylura.ai-profile' 'ai-api-key-qa_alpha'
-  add_task_credential 'com.startlan.fylura.ai-profile' 'ai-api-key-qa_beta'
+  add_task_credential 'com.startlan.fylura' 'ai-api-key' "$cleanup_binary"
+  add_task_credential 'com.startlan.fylura.ai-profile' 'ai-api-key-qa_alpha' "$cleanup_binary"
+  add_task_credential 'com.startlan.fylura.ai-profile' 'ai-api-key-qa_beta' "$cleanup_binary"
 }
 
 run_explicit_data_cleanup() {
   local output status cleanup_binary="$INSTALLED_APP/Contents/MacOS/$executable_name"
-  if output="$(HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" TMPDIR="$TEMP_ROOT" \
-    "$cleanup_binary" --fylura-uninstall-clean-user-data 2>&1)"; then
+  echo "Starting explicit Fylura user-data cleanup."
+  if output="$(python3 - "$cleanup_binary" "$PROFILE_ROOT" "$TEMP_ROOT" <<'PY'
+import os
+import subprocess
+import sys
+
+environment = os.environ.copy()
+environment.update(
+    HOME=sys.argv[2],
+    CFFIXED_USER_HOME=sys.argv[2],
+    TMPDIR=sys.argv[3],
+    FYLURA_CLEANUP_DIAGNOSTICS="1",
+)
+try:
+    result = subprocess.run(
+        [sys.argv[1], "--fylura-uninstall-clean-user-data"],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+except subprocess.TimeoutExpired as error:
+    output = error.stdout or ""
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    print(output, end="")
+    print("Fylura explicit user-data cleanup timed out after 180 seconds.", file=sys.stderr)
+    raise SystemExit(124)
+
+print(result.stdout, end="")
+raise SystemExit(result.returncode)
+PY
+  )"; then
     DATA_CLEANUP="PASS"
+    echo "Explicit Fylura user-data cleanup completed."
   else
     status=$?
     printf '%s\n' "$output" >&2

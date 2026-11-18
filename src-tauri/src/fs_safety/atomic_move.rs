@@ -1761,7 +1761,7 @@ mod tests {
 
     fn fixture(name: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "zen-canvas-atomic-{name}-{}-{}",
+            "fylura-atomic-{name}-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -1880,7 +1880,7 @@ mod mac_tests {
         ) {
             return;
         }
-        let saved = claim.with_file_name(".zen-canvas-attacker-move-save");
+        let saved = claim.with_file_name(".fylura-attacker-move-save");
         fs::rename(claim, &saved).expect("save coordinated claim");
         fs::write(claim, b"attacker coordinated replacement")
             .expect("write coordinated replacement");
@@ -1894,7 +1894,7 @@ mod mac_tests {
         if point != source_claim::ClaimTestPoint::AfterReplacementBackupClaimed {
             return;
         }
-        let saved = claim.with_file_name(".zen-canvas-attacker-replacement-save");
+        let saved = claim.with_file_name(".fylura-attacker-replacement-save");
         fs::rename(claim, &saved).expect("save original replacement backup");
         fs::write(claim, b"attacker replacement backup").expect("write replacement backup");
     }
@@ -1902,7 +1902,7 @@ mod mac_tests {
     #[test]
     fn macos_atomic_move_claims_and_publishes_target() {
         let root = std::env::temp_dir().join(format!(
-            "zen-canvas-atomic-macos-parity-{}-{}",
+            "fylura-atomic-macos-parity-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -1935,7 +1935,7 @@ mod mac_tests {
             ("restore", AtomicMoveOperation::Restore),
         ] {
             let root = std::env::temp_dir().join(format!(
-                "zen-canvas-atomic-macos-{label}-rebind-{}-{}",
+                "fylura-atomic-macos-{label}-rebind-{}-{}",
                 std::process::id(),
                 uuid::Uuid::new_v4()
             ));
@@ -1956,7 +1956,7 @@ mod mac_tests {
             assert!(!target.exists(), "{label} committed a rebound claim");
             assert_eq!(
                 fs::read(
-                    find_private_entry(&root, ".zen-canvas-attacker-move-save")
+                    find_private_entry(&root, ".fylura-attacker-move-save")
                         .expect("saved original claim")
                 )
                 .expect("saved original claim"),
@@ -1975,7 +1975,7 @@ mod mac_tests {
     fn macos_replacement_backup_rebinding_is_manual_and_keeps_all_objects() {
         let _serial = source_claim::lock_claim_test_hooks();
         let root = std::env::temp_dir().join(format!(
-            "zen-canvas-atomic-macos-replace-rebind-{}-{}",
+            "fylura-atomic-macos-replace-rebind-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -2005,7 +2005,7 @@ mod mac_tests {
         assert!(!target.exists());
         assert_eq!(
             fs::read(
-                find_private_entry(&root, ".zen-canvas-attacker-replacement-save")
+                find_private_entry(&root, ".fylura-attacker-replacement-save")
                     .expect("saved old target"),
             )
             .expect("saved old target"),

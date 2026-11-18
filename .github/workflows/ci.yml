@@ -987,8 +987,8 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --lib platform::macos::lifecycle::native_tests -- --nocapture --test-threads=1
       - name: macOS race validation (serial, once)
         env:
-          ZEN_CANVAS_MACOS_RACE_ITERATIONS: "10000"
-          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: "10000"
+          FYLURA_MACOS_RACE_ITERATIONS: "10000"
+          FYLURA_MACOS_EXPANDED_RACE_ITERATIONS: "10000"
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test macos_mutation_fail_closed -- --nocapture --test-threads=1
       - name: Apple Silicon native Quick Look lifecycle
         run: cargo run --manifest-path src-tauri/Cargo.toml --bin macos-native-preview-lifecycle --features native-qa

@@ -21,7 +21,7 @@ use fylura_tauri::{
 
 fn fixture(name: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "zen-canvas-macos-native-{name}-{}",
+        "fylura-macos-native-{name}-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&root).expect("fixture");
@@ -55,7 +55,7 @@ fn non_temp_fixture(name: &str) -> std::path::PathBuf {
     let root = std::env::current_dir()
         .expect("current directory")
         .join(format!(
-            ".zen-canvas-macos-native-{name}-{}",
+            ".fylura-macos-native-{name}-{}",
             uuid::Uuid::new_v4()
         ));
     fs::create_dir_all(&root).expect("non-temp fixture");
@@ -170,7 +170,7 @@ fn rebind_delete_claim(
     {
         return;
     }
-    let saved = claim.with_file_name(".zen-canvas-attacker-delete-save");
+    let saved = claim.with_file_name(".fylura-attacker-delete-save");
     fs::rename(claim, &saved).expect("save delete claim");
     fs::write(claim, b"attacker delete replacement").expect("replace delete claim");
 }
@@ -184,7 +184,7 @@ fn rebind_replacement_backup(
     {
         return;
     }
-    let saved = claim.with_file_name(".zen-canvas-attacker-replacement-save");
+    let saved = claim.with_file_name(".fylura-attacker-replacement-save");
     fs::rename(claim, &saved).expect("save replacement backup");
     fs::write(claim, b"attacker replacement backup").expect("replace replacement backup");
 }
@@ -264,12 +264,52 @@ fn record_expanded_result(
 }
 
 fn expanded_recovery_entry_exists(case_root: &std::path::Path) -> bool {
-    fs::read_dir(case_root)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .any(|entry| entry.file_name().to_string_lossy().contains("zen-canvas"))
+    let mut directories = vec![case_root.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if [
+                ".fylura-claim-",
+                ".fylura-replace-",
+                ".fylura-stage-",
+                ".fylura-attacker-",
+                ".zen-canvas-claim-",
+                ".zen-canvas-replace-",
+                ".zen-canvas-stage-",
+                ".zen-canvas-attacker-",
+            ]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+            {
+                return true;
+            }
+            if fs::symlink_metadata(&path)
+                .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+            {
+                directories.push(path);
+            }
+        }
+    }
+    false
+}
+
+fn assert_no_claim_or_stage_artifacts(root: &std::path::Path) {
+    for prefix in [
+        ".fylura-claim-",
+        ".fylura-stage-",
+        ".zen-canvas-claim-",
+        ".zen-canvas-stage-",
+    ] {
+        assert!(
+            find_namespace_entry(root, prefix).is_none(),
+            "unexpected claim or stage artifact with prefix {prefix}"
+        );
+    }
 }
 
 fn namespace_entry_exists(path: &std::path::Path) -> bool {
@@ -384,7 +424,7 @@ fn macos_mutation_parity_supports_move_copy_replace_restore_and_delete() {
         b"new replacement payload with a different size"
     );
     let replacement_backup =
-        find_namespace_entry(&root, ".zen-canvas-replace-").expect("replacement backup path");
+        find_namespace_entry(&root, ".fylura-replace-").expect("replacement backup path");
     assert_eq!(
         fs::read(&replacement_backup).expect("replacement backup"),
         b"old target bytes"
@@ -483,8 +523,7 @@ fn macos_target_conflict_preserves_both_objects_without_claim_artifacts() {
     ));
     assert_eq!(fs::read(&source).expect("source remains"), b"source");
     assert_eq!(fs::read(&target).expect("target remains"), b"competitor");
-    assert!(find_namespace_entry(&root, ".zen-canvas-claim-").is_none());
-    assert!(find_namespace_entry(&root, ".zen-canvas-stage-").is_none());
+    assert_no_claim_or_stage_artifacts(&root);
 
     fs::remove_dir_all(root).expect("remove fixture");
 }
@@ -494,7 +533,7 @@ fn macos_target_creation_race_never_loses_source_payload() {
     let root = fixture("race");
     let source_payload = b"race source payload";
     let competitor_payload = b"race competitor payload";
-    let iterations = std::env::var("ZEN_CANVAS_MACOS_RACE_ITERATIONS")
+    let iterations = std::env::var("FYLURA_MACOS_RACE_ITERATIONS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(10_000);
@@ -588,8 +627,7 @@ fn macos_target_creation_race_never_loses_source_payload() {
                 wrong_delete += 1;
             }
         }
-        assert!(find_namespace_entry(&case_root, ".zen-canvas-claim-").is_none());
-        assert!(find_namespace_entry(&case_root, ".zen-canvas-stage-").is_none());
+        assert_no_claim_or_stage_artifacts(&case_root);
         fs::remove_dir_all(&case_root).expect("remove race case");
     }
 
@@ -612,7 +650,7 @@ fn macos_expanded_adversarial_attack_matrix_reports_zero_wrong_commit_or_loss() 
     };
 
     let root = fixture("expanded-race");
-    let configured = std::env::var("ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS")
+    let configured = std::env::var("FYLURA_MACOS_EXPANDED_RACE_ITERATIONS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(10_000);
@@ -890,10 +928,10 @@ fn macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided(
     use std::os::unix::fs::MetadataExt;
 
     let Some(fixture_root) =
-        std::env::var_os("ZEN_CANVAS_EXTERNAL_APFS_FIXTURE").map(std::path::PathBuf::from)
+        std::env::var_os("FYLURA_EXTERNAL_APFS_FIXTURE").map(std::path::PathBuf::from)
     else {
         println!(
-            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable env=ZEN_CANVAS_EXTERNAL_APFS_FIXTURE"
+            "macOS cross-volume source mutation: SKIPPED — REAL FIXTURE NOT PROVIDED; NOT VERIFIED — fixture unavailable env=FYLURA_EXTERNAL_APFS_FIXTURE"
         );
         return;
     };
@@ -914,12 +952,12 @@ fn macos_cross_volume_source_mutation_is_rejected_when_real_fixture_is_provided(
             .to_path_buf()
     };
     let fixture = external_root.join(format!(
-        ".zen-canvas-cross-volume-race-{}",
+        ".fylura-cross-volume-race-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&fixture).expect("external race fixture");
     let target_root = std::env::temp_dir().join(format!(
-        "zen-canvas-cross-volume-race-target-{}",
+        "fylura-cross-volume-race-target-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&target_root).expect("target race fixture");

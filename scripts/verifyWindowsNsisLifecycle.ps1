@@ -179,6 +179,7 @@ if (-not $IsolatedUserChild) {
     $childScript = Join-Path $qaRoot 'verifyWindowsNsisLifecycle.ps1'
     $qaUserCreated = $false
     $qaUserSid = $null
+    $qaUserSidValue = $null
 
     try {
         Assert-Condition (-not (Test-Path -LiteralPath $qaRoot)) "Refusing pre-existing isolated lifecycle root: $qaRoot"
@@ -190,7 +191,8 @@ if (-not $IsolatedUserChild) {
             -Description 'Isolated Fylura NSIS lifecycle QA' | Out-Null
         $qaUserCreated = $true
         Add-LocalGroupMember -Group 'Administrators' -Member $qaName
-        $qaUserSid = (Get-LocalUser -Name $qaName).SID.Value
+        $qaUserSid = (Get-LocalUser -Name $qaName).SID
+        $qaUserSidValue = $qaUserSid.Value
         $qaRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
             $qaUserSid,
             'FullControl',
@@ -237,7 +239,7 @@ if (-not $IsolatedUserChild) {
     finally {
         if ($qaUserSid) {
             $qaProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
-                Where-Object { $_.SID -eq $qaUserSid }
+                Where-Object { $_.SID -eq $qaUserSidValue }
             if ($qaProfile -and -not $qaProfile.Loaded) {
                 $qaProfile | Remove-CimInstance -ErrorAction SilentlyContinue
             }

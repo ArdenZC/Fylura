@@ -139,19 +139,26 @@ pub fn clean_current_user_data() -> Result<String, String> {
         SystemCredentialStore,
     };
 
+    cleanup_checkpoint("locate-app-data");
     let (data_root, cache_root) = application_data_roots()?;
     let database_path = data_root.join(DATABASE_NAME);
+    cleanup_checkpoint("inspect-database");
     if let Ok(metadata) = fs::symlink_metadata(&database_path) {
         if !metadata.is_file() || metadata.file_type().is_symlink() {
             return Err("Fylura database is not a regular file; cleanup was stopped".to_string());
         }
     }
+    cleanup_checkpoint("read-profile-metadata");
     let profile_ids = current_custom_profile_ids(&database_path)?;
 
     #[cfg(target_os = "macos")]
+    cleanup_checkpoint("remove-preferences-and-login-item");
+    #[cfg(target_os = "macos")]
     let logs_result = clean_macos_preferences_and_launch_agent()?;
 
+    cleanup_checkpoint("remove-ai-credentials");
     clear_current_ai_credentials_for_profiles(&SystemCredentialStore, &profile_ids)?;
+    cleanup_checkpoint("remove-app-data-and-cache");
     let data_result = clean_owned_root(&data_root)?;
     let cache_result = clean_owned_root(&cache_root)?;
     #[cfg(not(target_os = "macos"))]
@@ -163,12 +170,20 @@ pub fn clean_current_user_data() -> Result<String, String> {
     let removed_scopes = "database/cache/logs/preferences/login-item=removed";
     #[cfg(target_os = "windows")]
     let removed_scopes = "database/cache/logs=removed";
+    cleanup_checkpoint("complete");
     Ok(format!(
         "Fylura data cleanup verified; credentials=removed; {removed_scopes}; Safe Trash roots preserved={}",
         data_result.preserved_safe_trash_roots
             + cache_result.preserved_safe_trash_roots
             + logs_result.preserved_safe_trash_roots
     ))
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn cleanup_checkpoint(phase: &str) {
+    if std::env::var_os("FYLURA_CLEANUP_DIAGNOSTICS").is_some() {
+        eprintln!("Fylura cleanup phase: {phase}");
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -258,6 +273,7 @@ fn remove_current_macos_launch_agent(home: &Path, name: &str) -> Result<(), Stri
         .and_then(|dictionary| dictionary.get("Label"))
         .and_then(plist::Value::as_string)
         .ok_or_else(|| "Fylura login item was not recognized and was preserved".to_string())?;
+    cleanup_checkpoint("inspect-login-item-state");
     let loaded = Command::new("/bin/launchctl")
         .arg("list")
         .output()
@@ -269,6 +285,7 @@ fn remove_current_macos_launch_agent(home: &Path, name: &str) -> Result<(), Stri
         .lines()
         .any(|line| line.split_whitespace().last() == Some(label));
     if is_loaded {
+        cleanup_checkpoint("stop-login-item");
         let uid = unsafe { libc::geteuid() };
         let bootout = Command::new("/bin/launchctl")
             .args([
@@ -299,6 +316,7 @@ fn remove_current_macos_launch_agent(home: &Path, name: &str) -> Result<(), Stri
             return Err("Fylura login item is still loaded; its file was preserved".to_string());
         }
     }
+    cleanup_checkpoint("remove-login-item-file");
     remove_exact_regular_file(&path, "Fylura login item")
 }
 

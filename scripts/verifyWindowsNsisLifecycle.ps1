@@ -187,7 +187,7 @@ if (-not $IsolatedUserChild) {
         $qaAcl = Get-Acl -LiteralPath $qaRoot
 
         New-LocalUser -Name $qaName -Password $qaPassword -PasswordNeverExpires -AccountNeverExpires `
-            -Description 'Isolated administrator for Fylura NSIS lifecycle QA' | Out-Null
+            -Description 'Isolated Fylura NSIS lifecycle QA' | Out-Null
         $qaUserCreated = $true
         Add-LocalGroupMember -Group 'Administrators' -Member $qaName
         $qaUserSid = (Get-LocalUser -Name $qaName).SID.Value

@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn macos_cleanup_matches_only_the_current_executable_launch_agent() {
-        let executable = std::env::current_exe().unwrap();
+        let executable = fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
         let mut dictionary = plist::Dictionary::new();
         dictionary.insert(
             "Label".to_string(),

@@ -3233,6 +3233,7 @@ fn fl24_legacy_safe_trash_path_restores_after_database_reopen() {
         fs::read(&payload).unwrap(),
         b"legacy Safe Trash restore fixture"
     );
+    drop(runtime);
     drop(reopened);
     f.finish();
 }

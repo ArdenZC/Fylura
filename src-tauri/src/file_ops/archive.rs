@@ -1249,7 +1249,7 @@ mod tests {
             fs::read_dir(&destination)
                 .unwrap()
                 .filter_map(Result::ok)
-                .filter(|entry| entry.file_name().to_string_lossy().contains(".fylura-"))
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".zip-tmp"))
                 .count(),
             0
         );

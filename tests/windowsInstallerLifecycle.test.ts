@@ -527,6 +527,8 @@ describe("W4-04 package NSIS lifecycle", () => {
 
     expect(verifier).toContain(">\"$external_new\"");
     expect(verifier).toContain(" >\"$external_legacy\"");
+    expect(verifier).toContain('HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT"');
+    expect(verifier).toContain('security list-keychains -d user -s "$TEST_KEYCHAIN"');
     expect(verifier).not.toContain("$external_new/user-file.txt");
     expect(verifier).not.toContain("$external_legacy/user-file.txt");
   });

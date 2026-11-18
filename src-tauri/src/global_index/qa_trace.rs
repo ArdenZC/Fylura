@@ -49,14 +49,14 @@ pub(crate) fn is_enabled() -> bool {
     std::env::var_os("ZC_GLOBAL_INDEX_QA_TRACE").is_some()
 }
 
-#[cfg(feature = "native-qa")]
+#[cfg(all(feature = "native-qa", target_os = "windows"))]
 /// The filename-first qualification brackets each synthetic `files` UPSERT
 /// with reset/take so its transaction retries stay attributable to that call.
 pub(crate) fn reset_file_upsert_lock_retry_sample() {
     FILE_UPSERT_LOCK_RETRY_SAMPLE.with(|sample| sample.set(0));
 }
 
-#[cfg(feature = "native-qa")]
+#[cfg(all(feature = "native-qa", target_os = "windows"))]
 pub(crate) fn take_file_upsert_lock_retry_sample() -> u64 {
     FILE_UPSERT_LOCK_RETRY_SAMPLE.with(|sample| sample.replace(0))
 }

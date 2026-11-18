@@ -563,6 +563,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(runner).toContain("-TaskWorker -RunnerTemp $literalRunnerTemp -RunId $literalRunId -SourceSha $literalSourceSha -PythonPath $literalPythonPath");
     expect(runner).toContain("Unregister-ScheduledTask");
     expect(runner).toContain("Remove-LocalUser -Name $userName");
+    expect(runner).toContain('reg.exe" unload "HKU\\$userSid" 2>&1');
+    expect(runner).toContain("Could not remove the disposable lifecycle user profile record");
     expect(verifier).toContain("[switch]$TaskWorker");
     expect(verifier).toContain("[Environment]::UserName -notlike 'Fylura596_*'");
     expect(verifier).toContain("Refusing to overwrite a pre-existing Windows credential target");

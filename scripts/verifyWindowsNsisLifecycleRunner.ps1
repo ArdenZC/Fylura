@@ -213,8 +213,30 @@ finally {
                 if (-not $userProfileRecord -or -not $userProfileRecord.Loaded) { break }
                 Start-Sleep -Milliseconds 500
             }
+            if ($userProfileRecord -and $userProfileRecord.Loaded) {
+                # The hosted scheduled-task logon can leave the disposable
+                # account's registry hive mounted after its process exits.
+                # This SID belongs only to the just-created test account.
+                $hiveUnloadOutput = & "$env:WINDIR\System32\reg.exe" unload "HKU\$userSid" 2>&1
+                $hiveUnloadExitCode = $LASTEXITCODE
+                for ($attempt = 0; $attempt -lt 30; $attempt++) {
+                    $userProfileRecord = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
+                        Where-Object { $_.SID -eq $userSid } | Select-Object -First 1
+                    if (-not $userProfileRecord -or -not $userProfileRecord.Loaded) { break }
+                    Start-Sleep -Milliseconds 500
+                }
+                if ($userProfileRecord -and $userProfileRecord.Loaded) {
+                    $unloadDetail = ($hiveUnloadOutput | Out-String).Trim()
+                    if (-not $unloadDetail) { $unloadDetail = "reg.exe exit code $hiveUnloadExitCode" }
+                    $cleanupFailures.Add("The disposable lifecycle user profile hive remained loaded after cleanup: $unloadDetail")
+                }
+            }
             if ($userProfileRecord -and -not $userProfileRecord.Loaded) {
-                $userProfileRecord | Remove-CimInstance -ErrorAction SilentlyContinue
+                try {
+                    $userProfileRecord | Remove-CimInstance -ErrorAction Stop
+                } catch {
+                    $cleanupFailures.Add("Could not remove the disposable lifecycle user profile record: $($_.Exception.Message)")
+                }
             }
         }
         Remove-LocalUser -Name $userName -ErrorAction SilentlyContinue
@@ -223,7 +245,7 @@ finally {
                 Where-Object { $_.SID -eq $userSid } | Select-Object -First 1
         }
         if ($remainingProfile) {
-            $cleanupFailures.Add('The disposable lifecycle user profile remained loaded or registered.')
+            $cleanupFailures.Add("The disposable lifecycle user profile remained (Loaded=$($remainingProfile.Loaded), Special=$($remainingProfile.Special), LocalPath=$($remainingProfile.LocalPath)).")
         }
         if (Get-LocalUser -Name $userName -ErrorAction SilentlyContinue) {
             $cleanupFailures.Add('The disposable lifecycle user account remained after cleanup.')

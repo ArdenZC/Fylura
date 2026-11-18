@@ -480,6 +480,38 @@ describe("W4-04 package NSIS lifecycle", () => {
     );
   });
 
+  it("defaults to data preservation and routes explicit cleanup through the verified Fylura helper", () => {
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+
+    expect(generated).toContain('LangString confirmFyluraDataDeletion ${LANG_ENGLISH}');
+    expect(generated).toContain("History/Restore records will be removed. Safe Trash and organized files are kept.");
+    expect(generated).toContain('"/DELETE_APP_DATA"');
+    expect(generated).toContain('"/CONFIRM_DELETE_APP_DATA"');
+    expect(generated).toContain("--fylura-uninstall-clean-user-data");
+    expect(generated).toContain("Call un.ZCMarkUninstallIrreversible");
+    expect(generated).not.toContain('RmDir /r "$APPDATA\\${BUNDLEID}"');
+    expect(generated).not.toContain('RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"');
+    expect(generated).toContain("Call un.ZCFailUninstallPartial");
+
+    const cleanup = generated.indexOf("--fylura-uninstall-clean-user-data");
+    const executableDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+    expect(cleanup).toBeGreaterThanOrEqual(0);
+    expect(executableDelete).toBeGreaterThan(cleanup);
+  });
+
+  it("runs destructive uninstall verification only against a fresh Windows CI profile", () => {
+    const verifier = fs.readFileSync(
+      path.join(repositoryRoot, "scripts", "verifyWindowsNsisLifecycle.ps1"),
+      "utf8",
+    );
+
+    expect(verifier).toContain("$env:GITHUB_ACTIONS -eq 'true'");
+    expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)");
+    expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)");
+    expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura application data.");
+    expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura cache or logs.");
+  });
+
   it("keeps the Windows COM identity stable and refuses to adopt the old preview registration", () => {
     const registration = fs.readFileSync(
       path.join(repositoryRoot, "src-tauri", "windows", "preview-handler-registration.nsh"),

@@ -2642,6 +2642,7 @@ mod tests {
         assert!(is_ignored_dir_name(OsStr::new("Node_Modules")));
         assert!(is_ignored_dir_name(OsStr::new("node_modules.cache")));
         assert!(is_ignored_dir_name(OsStr::new(".git-worktree")));
+        assert!(is_ignored_dir_name(OsStr::new(".fylura-trash")));
         assert!(is_ignored_dir_name(OsStr::new(".zen-canvas-trash")));
         assert!(is_ignored_dir_name(OsStr::new("System Volume Information")));
         assert!(!is_ignored_dir_name(OsStr::new("Library")));

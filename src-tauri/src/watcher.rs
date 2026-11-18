@@ -482,7 +482,7 @@ impl FileWatcherManager {
         let timer_root_id = root_id.clone();
         let app_for_retry = app.clone();
         let spawn_result = thread::Builder::new()
-            .name("zen-canvas-watcher-retry".to_string())
+            .name("fylura-watcher-retry".to_string())
             .spawn(move || {
                 let delay = Duration::from_secs(
                     retry_at.saturating_sub(current_unix_seconds()).max(0) as u64,
@@ -913,7 +913,7 @@ fn start_legacy_watcher_session<R: Runtime>(
     emit_watcher_ready(&app, root_labels)?;
 
     let handle = thread::Builder::new()
-        .name("zen-canvas-file-watcher".to_string())
+        .name("fylura-file-watcher".to_string())
         .spawn({
             let stop_requested = Arc::clone(&stop_requested);
             move || run_legacy_watcher_loop(app, watcher, rx, stop_requested)
@@ -953,7 +953,7 @@ fn start_backend_watcher_session<R: Runtime>(
 
     let loop_stop_requested = Arc::clone(&stop_requested);
     let handle = thread::Builder::new()
-        .name("zen-canvas-file-watcher-backend".to_string())
+        .name("fylura-file-watcher-backend".to_string())
         .spawn(move || {
             run_backend_watcher_loop(
                 app,

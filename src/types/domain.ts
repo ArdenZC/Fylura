@@ -94,7 +94,7 @@ export type DeleteDestination = "fylura_trash" | "system_trash";
 export type RestoreRetentionDays = 15 | 30 | 60 | 90;
 export type RuleExecutionMode = "inbox_only" | "all_changed_or_rule_changed";
 export type SearchScopeMode = "all" | "current_scan" | "custom_roots";
-export type OrganizeRootMode = "current_folder" | "zen_canvas_folder" | "custom_root";
+export type OrganizeRootMode = "current_folder" | "fylura_folder" | "custom_root";
 export type AIProviderKind = "openai_compatible" | "ollama";
 export type AIReadinessState =
   | "ready"

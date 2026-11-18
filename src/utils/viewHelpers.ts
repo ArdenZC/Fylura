@@ -126,8 +126,10 @@ export function relativeZenCanvasParts(directory: string): string[] {
 
 export function relativeOrganizeParts(directory: string): string[] {
   const parts = directory.replace(/\\/g, "/").split("/").filter(Boolean);
-  const zenIndex = parts.findIndex((part) => part.toLowerCase() === "zencanvas");
-  if (zenIndex >= 0) return parts.slice(zenIndex + 1);
+  const organizeRootIndex = parts.findIndex((part) =>
+    ["fylura", "zencanvas"].includes(part.toLowerCase()),
+  );
+  if (organizeRootIndex >= 0) return parts.slice(organizeRootIndex + 1);
   const canonicalIndex = parts.findIndex(isCanonicalPreviewMain);
   if (canonicalIndex >= 0) return parts.slice(canonicalIndex);
   return [folderNameLike(directory)];

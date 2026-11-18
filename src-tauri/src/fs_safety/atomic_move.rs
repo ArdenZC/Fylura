@@ -1417,11 +1417,11 @@ fn replacement_backup_path_with_key(
     };
     let digest = blake3::hash(key.as_bytes()).to_hex().to_string();
     let parent = target.parent().unwrap_or(&target);
-    let backup_name = format!(".zen-canvas-replace-{}", &digest[..24]);
+    let backup_name = format!(".fylura-replace-{}", &digest[..24]);
     #[cfg(target_os = "macos")]
     {
         parent
-            .join(".zen-canvas-retirement")
+            .join(".fylura-retirement")
             .join(format!("replace-{}", &digest[..24]))
             .join(backup_name)
     }
@@ -1923,7 +1923,7 @@ mod mac_tests {
             .any(|entry| entry
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".zen-canvas-claim-")));
+                .starts_with(".fylura-claim-")));
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
@@ -1963,10 +1963,8 @@ mod mac_tests {
                 b"source"
             );
             assert_eq!(
-                fs::read(
-                    find_private_entry(&root, ".zen-canvas-claim-").expect("replacement claim"),
-                )
-                .expect("attacker claim bytes"),
+                fs::read(find_private_entry(&root, ".fylura-claim-").expect("replacement claim"),)
+                    .expect("attacker claim bytes"),
                 b"attacker coordinated replacement"
             );
             fs::remove_dir_all(root).expect("remove fixture");
@@ -2014,7 +2012,7 @@ mod mac_tests {
             b"old target"
         );
         let backup =
-            find_private_entry(&root, ".zen-canvas-replace-").expect("replacement backup claim");
+            find_private_entry(&root, ".fylura-replace-").expect("replacement backup claim");
         assert_eq!(
             fs::read(backup).expect("attacker backup"),
             b"attacker replacement backup"

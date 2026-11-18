@@ -99,11 +99,11 @@ export function FileSourcesSettingsSection({
         <SettingsSelect
           id="settings-organize-root-mode"
           label={t("settingsOrganizeRoot")}
-          description={`${organizeRootMode === "current_folder" ? t("organizeRootCurrentDesc") : organizeRootMode === "zen_canvas_folder" ? t("organizeRootZenCanvasDesc") : t("organizeRootCustomDesc")} ${t("organizePreviewStillRequired")}`}
+          description={`${organizeRootMode === "current_folder" ? t("organizeRootCurrentDesc") : organizeRootMode === "fylura_folder" ? t("organizeRootFyluraDesc") : t("organizeRootCustomDesc")} ${t("organizePreviewStillRequired")}`}
           value={organizeRootMode}
           options={[
             { value: "current_folder" as const, label: t("organizeRootCurrentFolder") },
-            { value: "zen_canvas_folder" as const, label: t("organizeRootZenCanvasFolder") },
+            { value: "fylura_folder" as const, label: t("organizeRootFyluraFolder") },
             { value: "custom_root" as const, label: t("organizeRootCustomRoot") }
           ]}
           onChange={onOrganizeRootMode}

@@ -22,6 +22,9 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "dmg"],
+    "resources": {
+      "resources/Uninstall Fylura Data.command": "Uninstall Fylura Data.command"
+    },
     "icon": [
       "../build/icon.png",
       "../build/icon.ico",

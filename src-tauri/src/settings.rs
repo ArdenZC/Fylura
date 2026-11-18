@@ -123,7 +123,8 @@ pub struct SearchRootSetting {
 #[serde(rename_all = "snake_case")]
 pub enum OrganizeRootMode {
     CurrentFolder,
-    ZenCanvasFolder,
+    #[serde(alias = "zen_canvas_folder")]
+    FyluraFolder,
     CustomRoot,
 }
 
@@ -1040,6 +1041,18 @@ mod settings_save_tests {
         }
     }
 
+    #[test]
+    fn legacy_organize_folder_setting_reads_and_serializes_as_fylura() {
+        let mut saved = serde_json::to_value(AppSettings::default()).expect("serialize defaults");
+        saved["organizeRootMode"] = serde_json::Value::String("zen_canvas_folder".to_string());
+
+        let loaded: AppSettings = serde_json::from_value(saved).expect("load legacy setting");
+        assert_eq!(loaded.organize_root_mode, OrganizeRootMode::FyluraFolder);
+
+        let serialized = serde_json::to_value(loaded).expect("serialize migrated setting");
+        assert_eq!(serialized["organizeRootMode"], "fylura_folder");
+    }
+
     impl Drop for TestDatabaseDirectory {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
@@ -1108,7 +1121,7 @@ mod settings_save_tests {
         assert_eq!(winner.revision, initial.revision + 1);
 
         let mut stale_settings = initial.settings.clone();
-        stale_settings.organize_root_mode = OrganizeRootMode::ZenCanvasFolder;
+        stale_settings.organize_root_mode = OrganizeRootMode::FyluraFolder;
         let conflict = save_app_settings_cas(&database, &stale_settings, initial.revision)
             .expect_err("stale expected revision must fail closed");
         assert!(matches!(conflict, SettingsError::RevisionConflict));

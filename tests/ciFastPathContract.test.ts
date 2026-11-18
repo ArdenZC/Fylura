@@ -118,7 +118,7 @@ describe("CI final performance remediation contract", () => {
 
   it("makes Performance Prepare the only performance Rust cache writer", () => {
     for (const workflow of [interactiveWorkflow, fullWorkflow]) {
-      const prepare = section(workflow, "performance-prepare");
+      const prepare = section(workflow, "performance-prepare", "performance-search");
       expect(prepare).toContain("Swatinem/rust-cache");
       expect(prepare).toContain("shared-key: fylura-Windows-performance-v3");
       expect(prepare).toContain("add-job-id-key: false");

@@ -882,7 +882,7 @@ fn move_path_to_system_trash_with_safety(
     let source_parent = source.parent().ok_or_else(|| {
         FileMutationError::Validation(FileOpError::TargetParentMissing.to_string())
     })?;
-    let trash_root = source_parent.join(".zen-canvas-trash");
+    let trash_root = source_parent.join(".fylura-trash");
     let operation_key = blake3::hash(
         format!(
             "{}\0{}",
@@ -1008,7 +1008,7 @@ pub(crate) fn validate_namespace_entry_path(path: &Path) -> Result<PathBuf, Stri
 /// cannot source from or target within it; History Restore has its own
 /// identity-checked path that deliberately allows a trashed source.
 pub(crate) fn ensure_not_safe_trash_operation(path: &Path) -> Result<(), String> {
-    if crate::storage_analyzer::is_zen_canvas_safe_trash_path(path) {
+    if crate::storage_analyzer::is_fylura_safe_trash_path(path) {
         return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
     }
     Ok(())

@@ -1924,6 +1924,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Setup Python for isolated SQLite fixtures
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
       - name: Install dependencies
         run: npm ci
       - name: Rust cache
@@ -1936,6 +1940,22 @@ jobs:
           cache-on-failure: true
       - name: Build NSIS package
         run: npm run build
+      - name: Run isolated Windows install / uninstall lifecycle
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
+          ./scripts/verifyWindowsNsisLifecycle.ps1 `
+            -InstallerPath $installers[0].FullName `
+            -EvidencePath "$env:RUNNER_TEMP/fylura-nsis-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+      - name: Upload Windows install / uninstall evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fylura-nsis-runtime-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.validation_lane }}
+          path: ${{ runner.temp }}/fylura-nsis-runtime-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Write sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
@@ -1959,7 +1979,7 @@ jobs:
   package-macos:
     name: Package unsigned DMG (${{ matrix.validation_lane }})
     needs: [change-scope, validation-plan]
-    if: ${{ needs.change-scope.outputs.full_validation == 'true' }}
+    if: ${{ needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.package_sensitive == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -1999,6 +2019,27 @@ jobs:
           cache-on-failure: true
       - name: Build unsigned DMG
         run: npm run build -- --no-sign
+
+      - name: Run isolated DMG install, remove, cleanup, and preservation cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_files=(src-tauri/target/release/bundle/dmg/*.dmg)
+          if [[ ${#dmg_files[@]} -ne 1 || ! -f ${dmg_files[0]} ]]; then
+            echo "Expected exactly one unsigned Fylura DMG, found ${#dmg_files[@]}." >&2
+            exit 1
+          fi
+          bash scripts/verifyMacosDmgLifecycle.sh \
+            "${dmg_files[0]}" \
+            "$RUNNER_TEMP/fylura-dmg-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+      - name: Upload macOS DMG cleanup evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fylura-dmg-runtime-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.validation_lane }}
+          path: ${{ runner.temp }}/fylura-dmg-runtime-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Write sanitized validation lane result
         if: ${{ always() && github.event_name == 'pull_request' }}
@@ -2276,7 +2317,7 @@ jobs:
           VALIDATION_LANES: ${{ needs.validation-plan.outputs.validation_lanes }}
           LANE_JOB_RESULTS_DIRECTORY: ${{ runner.temp }}/ci-lane-results
           MATRIX_JOB_EXPECTATIONS: >-
-            {"frontend-quality":"${{ needs.change-scope.outputs.frontend_changed }}","rust-macos":"${{ needs.change-scope.outputs.macos_sensitive }}","performance-macos":"${{ needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.performance_sensitive == 'true' }}","performance-prepare":"${{ needs.change-scope.outputs.performance_any }}","performance-search":"${{ needs.change-scope.outputs.perf_search }}","performance-scan-schema":"${{ needs.change-scope.outputs.perf_scan_schema }}","performance-library-content":"${{ needs.change-scope.outputs.perf_library_content }}","performance-intelligence":"${{ needs.change-scope.outputs.perf_intelligence }}","performance-workspace-foundation":"${{ needs.change-scope.outputs.perf_workspace_foundation }}","performance-preview-platform":"${{ needs.change-scope.outputs.perf_preview_platform }}","build-macos":"${{ needs.change-scope.outputs.release_sensitive }}","package-macos":"${{ needs.change-scope.outputs.full_validation }}","package-smoke":"${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}","dependency-audit":"${{ needs.change-scope.outputs.dependency_sensitive }}"}
+            {"frontend-quality":"${{ needs.change-scope.outputs.frontend_changed }}","rust-macos":"${{ needs.change-scope.outputs.macos_sensitive }}","performance-macos":"${{ needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.performance_sensitive == 'true' }}","performance-prepare":"${{ needs.change-scope.outputs.performance_any }}","performance-search":"${{ needs.change-scope.outputs.perf_search }}","performance-scan-schema":"${{ needs.change-scope.outputs.perf_scan_schema }}","performance-library-content":"${{ needs.change-scope.outputs.perf_library_content }}","performance-intelligence":"${{ needs.change-scope.outputs.perf_intelligence }}","performance-workspace-foundation":"${{ needs.change-scope.outputs.perf_workspace_foundation }}","performance-preview-platform":"${{ needs.change-scope.outputs.perf_preview_platform }}","build-macos":"${{ needs.change-scope.outputs.release_sensitive }}","package-macos":"${{ needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.package_sensitive == 'true' }}","package-smoke":"${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}","dependency-audit":"${{ needs.change-scope.outputs.dependency_sensitive }}"}
         run: env -u GITHUB_TOKEN -u CI_GITHUB_TOKEN -u GH_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_APP_TOKEN -u GH_APP_TOKEN -u ACTIONS_RUNTIME_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u AUTHORIZATION -u BEARER_TOKEN node scripts/ciValidationPlan.mjs --aggregate
       - name: Verify macOS gate dependencies
         env:
@@ -2286,7 +2327,7 @@ jobs:
           MACOS_EXPECTED: ${{ needs.change-scope.outputs.macos_sensitive }}
           PERFORMANCE_SENSITIVE: ${{ needs.change-scope.outputs.performance_sensitive }}
           BUILD_EXPECTED: ${{ needs.change-scope.outputs.release_sensitive }}
-          PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation }}
+          PACKAGE_EXPECTED: ${{ needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.package_sensitive == 'true' }}
           PACKAGE_SMOKE_EXPECTED: ${{ needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true' }}
           AUDIT_EXPECTED: ${{ needs.change-scope.outputs.dependency_sensitive }}
           FRONTEND: ${{ needs.frontend-quality.result }}

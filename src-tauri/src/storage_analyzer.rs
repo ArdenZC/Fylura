@@ -4834,9 +4834,7 @@ fn safe_trash_item_path(
 }
 
 fn preferred_safe_trash_root(source: &Path) -> Option<PathBuf> {
-    source
-        .parent()
-        .map(|parent| parent.join(".zen-canvas-trash"))
+    source.parent().map(|parent| parent.join(".fylura-trash"))
 }
 
 struct SafeTrashExpectedIdentity {
@@ -5380,7 +5378,7 @@ fn is_forbidden_storage_path(path: &Path, excluded_paths: &[PathBuf]) -> bool {
         .iter()
         .any(|excluded| is_same_or_child(&lower, &normalize_for_compare(excluded)))
         || (!is_current_user_temp_path(path) && is_system_path_text(&lower))
-        || is_zen_canvas_safe_trash_path_text(&lower)
+        || is_fylura_safe_trash_path_text(&lower)
         || lower.contains("/programdata")
         || lower.contains("/startlan/zen canvas")
         || lower.contains("/startlan/fylura")
@@ -5405,12 +5403,14 @@ fn is_current_user_temp_path(path: &Path) -> bool {
     )
 }
 
-pub fn is_zen_canvas_safe_trash_path(path: &Path) -> bool {
-    is_zen_canvas_safe_trash_path_text(&normalize_for_compare(path))
+pub fn is_fylura_safe_trash_path(path: &Path) -> bool {
+    is_fylura_safe_trash_path_text(&normalize_for_compare(path))
 }
 
-fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
-    lower.ends_with("/.zen-canvas-trash")
+fn is_fylura_safe_trash_path_text(lower: &str) -> bool {
+    lower.ends_with("/.fylura-trash")
+        || lower.contains("/.fylura-trash/")
+        || lower.ends_with("/.zen-canvas-trash")
         || lower.contains("/.zen-canvas-trash/")
         || lower.ends_with("/safe-trash")
         || lower.contains("/safe-trash/items/")

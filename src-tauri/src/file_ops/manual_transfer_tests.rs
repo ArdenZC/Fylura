@@ -1963,7 +1963,7 @@ fn fl20_cancelled_directory_copy_rolls_back_source_and_cleans_partial_stage_with
         .unwrap()
         .file_name()
         .to_string_lossy()
-        .starts_with(".zen-canvas-claim-")));
+        .starts_with(".fylura-claim-")));
     let history = f.db.get_operation_logs(Some(10)).unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, "skipped");
@@ -3175,10 +3175,73 @@ fn fl24_folder_safe_trash_restores_from_journal_and_preserves_hash() {
 }
 
 #[test]
+fn fl24_legacy_safe_trash_path_restores_after_database_reopen() {
+    let f = Fixture::new();
+    let runtime = runtime(&f);
+    let folder = f.root.join("legacy-trash-folder");
+    let payload = folder.join("nested").join("content.bin");
+    fs::create_dir_all(payload.parent().unwrap()).unwrap();
+    fs::write(&payload, b"legacy Safe Trash restore fixture").unwrap();
+    let expected_hash = fixture_file_hash(&payload);
+    let ticket = capture_named(&runtime, &f.root, "legacy-trash-folder");
+    let plan = preview_named(
+        &runtime,
+        vec![ticket.id],
+        &f.root,
+        TransferAction::Trash,
+        None,
+    );
+    assert!(plan.rows[0].error.is_none(), "{:?}", plan.rows[0].error);
+    let moved = execute_moves_with_persistence(
+        &f.db,
+        runtime
+            .take_transfer(TransferExecuteRequest {
+                preview_id: plan.id,
+                confirmed: true,
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(moved.logs[0].status, "success");
+    assert!(moved.logs[0].path_after.contains(".fylura-trash"));
+
+    let current_root = f.root.join(".fylura-trash");
+    let legacy_root = f.root.join(".zen-canvas-trash");
+    fs::rename(&current_root, &legacy_root).unwrap();
+    let historical_trash_path = moved.logs[0]
+        .path_after
+        .replace(".fylura-trash", ".zen-canvas-trash");
+    f.db.conn()
+        .unwrap()
+        .execute(
+            "UPDATE operation_logs SET path_after = ?1 WHERE id = ?2",
+            rusqlite::params![historical_trash_path, moved.logs[0].id],
+        )
+        .unwrap();
+    runtime.dispose();
+
+    let reopened = Database::open(f.root.join("fixture.sqlite3")).unwrap();
+    let history = reopened
+        .get_restorable_operation_logs_by_ids(std::slice::from_ref(&moved.logs[0].id))
+        .unwrap();
+    assert_eq!(history[0].path_after, historical_trash_path);
+    let restored =
+        restore_moves_with_persistence(&reopened, RestoreMovesRequest { logs: history }).unwrap();
+    assert_eq!(restored.logs[0].restore_status, "restored");
+    assert_eq!(fixture_file_hash(&payload), expected_hash);
+    assert_eq!(
+        fs::read(&payload).unwrap(),
+        b"legacy Safe Trash restore fixture"
+    );
+    drop(reopened);
+    f.finish();
+}
+
+#[test]
 fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
     let f = Fixture::new();
     let runtime = runtime(&f);
-    let trash_root = f.root.join(".zen-canvas-trash");
+    let trash_root = f.root.join(".fylura-trash");
     fs::create_dir_all(&trash_root).unwrap();
     let trashed_path = trash_root.join("protected-item.txt");
     fs::write(&trashed_path, b"journal-owned bytes").unwrap();
@@ -3221,7 +3284,7 @@ fn fl24_safe_trash_sources_and_destinations_are_reserved_for_history_restore() {
         "Safe Trash rename preview should fail with a protected-path reason: {:?}",
         rename.rows[0].error
     );
-    let trash_folder_ticket = capture_named(&runtime, &f.root, ".zen-canvas-trash");
+    let trash_folder_ticket = capture_named(&runtime, &f.root, ".fylura-trash");
     let rename_trash_root = preview_named(
         &runtime,
         vec![trash_folder_ticket.id],

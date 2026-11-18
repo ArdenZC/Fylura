@@ -28,7 +28,7 @@ const COPYFILE_ALL: u32 = 0x0000_000f;
 // pass because fcopyfile would then attempt a second data copy into the
 // already-staged destination.
 const COPYFILE_METADATA: u32 = 0x0000_0007;
-const STAGING_PREFIX: &str = ".zen-canvas-stage-";
+const STAGING_PREFIX: &str = ".fylura-stage-";
 const HASH_BUFFER_SIZE: usize = 1024 * 1024;
 const SAMPLE_SIZE: usize = 1024 * 1024;
 const MAX_HARDLINK_GROUPS: usize = 100_000;
@@ -2045,7 +2045,7 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&root).expect("create staging rebound fixture");
-        let staging_name = PathBuf::from(".zen-canvas-stage-rebound");
+        let staging_name = PathBuf::from(".fylura-stage-rebound");
         let staging_path = root.join(&staging_name);
         fs::write(&staging_path, b"original staging payload").expect("write staging fixture");
         let parent = fs::File::open(&root).expect("open staging parent");

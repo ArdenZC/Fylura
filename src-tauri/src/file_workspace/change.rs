@@ -160,7 +160,7 @@ impl EphemeralChangeMonitor {
 
         let runtime_for_worker = Arc::clone(&runtime);
         let worker = match thread::Builder::new()
-            .name("zen-canvas-ephemeral-change".to_string())
+            .name("fylura-ephemeral-change".to_string())
             .spawn(move || run_worker(runtime_for_worker, watcher, rx, overflow))
         {
             Ok(worker) => worker,

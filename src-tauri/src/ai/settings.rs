@@ -22,9 +22,9 @@ use crate::{
 
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-// Keep this credential-store namespace stable across the product rename so
-// existing API keys remain available to the same local user account.
-const AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
+const AI_CREDENTIAL_SERVICE: &str = "com.startlan.fylura";
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const LEGACY_AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const AI_CREDENTIAL_USER: &str = "ai-api-key";
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -154,10 +154,19 @@ pub(crate) fn get_ai_settings_with_store_and_revision(
             .map_err(DbError::from)?,
         None => AISettings::default(),
     };
+    let _credential_migration_guard = AI_SETTINGS_SAVE_LOCK
+        .lock()
+        .map_err(|_| DbError::Validation("credential_transaction_lock_poisoned".to_string()))?;
+    migrate_legacy_profile_credentials(credentials, &settings)?;
     if !settings.api_key.is_empty() {
-        credentials
-            .set(&settings.api_key)
-            .map_err(DbError::Validation)?;
+        migrate_legacy_credential(credentials, None)?;
+        if credential_get(credentials, None)?.is_none() {
+            credential_set(credentials, None, &settings.api_key)?;
+            verify_credential_change(credentials, None, Some(settings.api_key.as_str()), None)?;
+        }
+        // A readable Fylura credential, or a legacy credential that was just
+        // verified and migrated, takes precedence over stale database text.
+        // Clear the obsolete plaintext only after the system store is verified.
         settings.api_key.clear();
         persist_ai_settings_without_secret(db, &settings)?;
         let conn = db.conn()?;
@@ -168,6 +177,8 @@ pub(crate) fn get_ai_settings_with_store_and_revision(
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
+    } else {
+        migrate_legacy_credential(credentials, None)?;
     }
     let settings_revision = app_setting_value_fingerprint(settings_json.as_deref());
     settings.api_key = credentials
@@ -449,6 +460,170 @@ fn credential_delete(
     result.map_err(DbError::Validation)
 }
 
+fn legacy_credential_get(
+    credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
+) -> Result<Option<String>, DbError> {
+    match profile_id {
+        Some(profile_id) => credentials.get_legacy_profile(profile_id),
+        None => credentials.get_legacy(),
+    }
+    .map_err(DbError::Validation)
+}
+
+fn delete_legacy_credential(
+    credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
+) -> Result<(), DbError> {
+    let result = match profile_id {
+        Some(profile_id) => credentials.delete_legacy_profile(profile_id),
+        None => credentials.delete_legacy(),
+    };
+    result.map_err(DbError::Validation)?;
+    if legacy_credential_get(credentials, profile_id)?.is_some() {
+        return Err(DbError::Validation(
+            "legacy credential cleanup verification failed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn migrate_legacy_credential(
+    credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
+) -> Result<(), DbError> {
+    let current = credential_get(credentials, profile_id)?;
+    let legacy = legacy_credential_get(credentials, profile_id)?;
+    match (current, legacy) {
+        (Some(current), Some(legacy)) if current == legacy => {
+            delete_legacy_credential(credentials, profile_id)
+        }
+        (Some(_), _) | (None, None) => Ok(()),
+        (None, Some(legacy)) => {
+            credential_set(credentials, profile_id, &legacy)?;
+            if credential_get(credentials, profile_id)?.as_deref() != Some(legacy.as_str()) {
+                let _ = credential_delete(credentials, profile_id);
+                return Err(DbError::Validation(
+                    "credential migration read-back verification failed".to_string(),
+                ));
+            }
+            delete_legacy_credential(credentials, profile_id)
+        }
+    }
+}
+
+fn migrate_legacy_profile_credentials(
+    credentials: &impl CredentialStore,
+    settings: &AISettings,
+) -> Result<(), DbError> {
+    for profile in &settings.custom_profiles {
+        migrate_legacy_credential(credentials, Some(&profile.id))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn current_custom_profile_ids(
+    database_path: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    match std::fs::symlink_metadata(database_path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {}
+        Ok(_) => {
+            return Err(
+                "Fylura database is not a regular file; credentials were preserved".to_string(),
+            )
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => {
+            return Err(
+                "could not inspect Fylura AI profile metadata; credentials were preserved"
+                    .to_string(),
+            )
+        }
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        database_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|_| "could not read Fylura AI profile metadata".to_string())?;
+    let value = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![AI_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| "could not read Fylura AI profile metadata".to_string())?;
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let settings = serde_json::from_str::<serde_json::Value>(&value).map_err(|_| {
+        "Fylura AI profile metadata is invalid; credentials were preserved".to_string()
+    })?;
+    let custom_profiles = match settings.get("customProfiles") {
+        Some(value) => value.as_array().ok_or_else(|| {
+            "Fylura AI profile metadata is invalid; credentials were preserved".to_string()
+        })?,
+        None => return Ok(Vec::new()),
+    };
+    let mut ids = custom_profiles
+        .iter()
+        .map(|profile| {
+            profile
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    "Fylura AI profile metadata is invalid; credentials were preserved".to_string()
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if ids.iter().any(|id| !is_valid_profile_id(id)) {
+        return Err(
+            "Fylura AI profile metadata is invalid; credentials were preserved".to_string(),
+        );
+    }
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+pub(crate) fn clear_current_ai_credentials_for_profiles(
+    credentials: &impl CredentialStore,
+    profile_ids: &[String],
+) -> Result<(), String> {
+    if profile_ids
+        .iter()
+        .any(|profile_id| !is_valid_profile_id(profile_id))
+    {
+        return Err(
+            "Fylura AI profile metadata is invalid; credentials were preserved".to_string(),
+        );
+    }
+    credentials
+        .delete()
+        .map_err(|_| "could not remove Fylura AI credential".to_string())?;
+    if credentials
+        .get()
+        .map_err(|_| "could not verify Fylura AI credential removal".to_string())?
+        .is_some()
+    {
+        return Err("Fylura AI credential remains after cleanup".to_string());
+    }
+    for profile_id in profile_ids {
+        credentials
+            .delete_profile(profile_id)
+            .map_err(|_| "could not remove a Fylura AI profile credential".to_string())?;
+        if credentials
+            .get_profile(profile_id)
+            .map_err(|_| "could not verify a Fylura AI profile credential removal".to_string())?
+            .is_some()
+        {
+            return Err("a Fylura AI profile credential remains after cleanup".to_string());
+        }
+    }
+    Ok(())
+}
+
 fn active_profile_id(settings: &AISettings) -> Option<&str> {
     if settings.preset != AIProviderPresetId::CustomOpenAICompatible {
         return None;
@@ -547,6 +722,22 @@ pub trait CredentialStore {
     fn delete_profile(&self, _profile_id: &str) -> Result<(), String> {
         self.delete()
     }
+
+    fn get_legacy(&self) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    fn delete_legacy(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn get_legacy_profile(&self, _profile_id: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    fn delete_legacy_profile(&self, _profile_id: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub struct SystemCredentialStore;
@@ -555,6 +746,8 @@ pub struct SystemCredentialStore;
 pub struct InMemoryCredentialStore {
     main: Mutex<Option<String>>,
     profiles: Mutex<HashMap<String, String>>,
+    legacy_main: Mutex<Option<String>>,
+    legacy_profiles: Mutex<HashMap<String, String>>,
 }
 
 impl CredentialStore for InMemoryCredentialStore {
@@ -604,6 +797,36 @@ impl CredentialStore for InMemoryCredentialStore {
             .remove(profile_id);
         Ok(())
     }
+
+    fn get_legacy(&self) -> Result<Option<String>, String> {
+        self.legacy_main
+            .lock()
+            .map(|value| value.clone())
+            .map_err(|_| "in-memory credential store is unavailable".to_string())
+    }
+
+    fn delete_legacy(&self) -> Result<(), String> {
+        *self
+            .legacy_main
+            .lock()
+            .map_err(|_| "in-memory credential store is unavailable".to_string())? = None;
+        Ok(())
+    }
+
+    fn get_legacy_profile(&self, profile_id: &str) -> Result<Option<String>, String> {
+        self.legacy_profiles
+            .lock()
+            .map(|values| values.get(profile_id).cloned())
+            .map_err(|_| "in-memory credential store is unavailable".to_string())
+    }
+
+    fn delete_legacy_profile(&self, profile_id: &str) -> Result<(), String> {
+        self.legacy_profiles
+            .lock()
+            .map_err(|_| "in-memory credential store is unavailable".to_string())?
+            .remove(profile_id);
+        Ok(())
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -618,12 +841,28 @@ fn profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, String> 
         return Err("AI custom provider profile ID is invalid.".to_string());
     }
     keyring::Entry::new(
-        // Existing profile credentials use this service name; do not orphan
-        // them when the Tauri bundle identifier changes.
-        "com.startlan.zencanvas.ai-profile",
+        "com.startlan.fylura.ai-profile",
         &format!("ai-api-key-{profile_id}"),
     )
     .map_err(|error| format!("failed to open custom provider credential store: {error}"))
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn legacy_credential_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(LEGACY_AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
+        .map_err(|error| format!("failed to open legacy system credential store: {error}"))
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn legacy_profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, String> {
+    if !is_valid_profile_id(profile_id) {
+        return Err("AI custom provider profile ID is invalid.".to_string());
+    }
+    keyring::Entry::new(
+        "com.startlan.zencanvas.ai-profile",
+        &format!("ai-api-key-{profile_id}"),
+    )
+    .map_err(|error| format!("failed to open legacy custom provider credential store: {error}"))
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -671,6 +910,40 @@ impl CredentialStore for SystemCredentialStore {
             Err(error) => Err(format!("failed to delete custom provider API key: {error}")),
         }
     }
+
+    fn get_legacy(&self) -> Result<Option<String>, String> {
+        match legacy_credential_entry()?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(format!("failed to read legacy API key: {error}")),
+        }
+    }
+
+    fn delete_legacy(&self) -> Result<(), String> {
+        match legacy_credential_entry()?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("failed to remove legacy API key: {error}")),
+        }
+    }
+
+    fn get_legacy_profile(&self, profile_id: &str) -> Result<Option<String>, String> {
+        match legacy_profile_credential_entry(profile_id)?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(format!(
+                "failed to read legacy custom provider API key: {error}"
+            )),
+        }
+    }
+
+    fn delete_legacy_profile(&self, profile_id: &str) -> Result<(), String> {
+        match legacy_profile_credential_entry(profile_id)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!(
+                "failed to remove legacy custom provider API key: {error}"
+            )),
+        }
+    }
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -696,6 +969,22 @@ impl CredentialStore for SystemCredentialStore {
     }
 
     fn delete_profile(&self, _profile_id: &str) -> Result<(), String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn get_legacy(&self) -> Result<Option<String>, String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn delete_legacy(&self) -> Result<(), String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn get_legacy_profile(&self, _profile_id: &str) -> Result<Option<String>, String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn delete_legacy_profile(&self, _profile_id: &str) -> Result<(), String> {
         Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
     }
 }
@@ -1503,6 +1792,214 @@ mod validation_tests {
             api_key_action,
             ..AISettings::default()
         }
+    }
+
+    #[derive(Default)]
+    struct FaultyLegacyCredentialStore {
+        inner: InMemoryCredentialStore,
+        fail_write: AtomicBool,
+        fail_readback: AtomicBool,
+        fail_legacy_delete: AtomicBool,
+    }
+
+    impl CredentialStore for FaultyLegacyCredentialStore {
+        fn set(&self, value: &str) -> Result<(), String> {
+            if self.fail_write.load(Ordering::SeqCst) {
+                return Err("simulated Fylura credential write failure".to_string());
+            }
+            self.inner.set(value)
+        }
+        fn get(&self) -> Result<Option<String>, String> {
+            let value = self.inner.get()?;
+            if value.is_some() && self.fail_readback.swap(false, Ordering::SeqCst) {
+                return Err("simulated Fylura credential read-back failure".to_string());
+            }
+            Ok(value)
+        }
+        fn delete(&self) -> Result<(), String> {
+            self.inner.delete()
+        }
+        fn set_profile(&self, profile_id: &str, value: &str) -> Result<(), String> {
+            self.inner.set_profile(profile_id, value)
+        }
+        fn get_profile(&self, profile_id: &str) -> Result<Option<String>, String> {
+            self.inner.get_profile(profile_id)
+        }
+        fn delete_profile(&self, profile_id: &str) -> Result<(), String> {
+            self.inner.delete_profile(profile_id)
+        }
+        fn get_legacy(&self) -> Result<Option<String>, String> {
+            self.inner.get_legacy()
+        }
+        fn delete_legacy(&self) -> Result<(), String> {
+            if self.fail_legacy_delete.load(Ordering::SeqCst) {
+                return Err("simulated legacy credential delete failure".to_string());
+            }
+            self.inner.delete_legacy()
+        }
+        fn get_legacy_profile(&self, profile_id: &str) -> Result<Option<String>, String> {
+            self.inner.get_legacy_profile(profile_id)
+        }
+        fn delete_legacy_profile(&self, profile_id: &str) -> Result<(), String> {
+            self.inner.delete_legacy_profile(profile_id)
+        }
+    }
+
+    #[test]
+    fn legacy_main_and_multiple_profile_credentials_migrate_without_reentry_and_are_idempotent() {
+        let path = concurrency_test_db_path("legacy-credential-migration");
+        let db = Database::open(&path).expect("migration database");
+        let mut settings = AISettings {
+            preset: AIProviderPresetId::CustomOpenAICompatible,
+            custom_profiles: vec![custom_profile("alpha"), custom_profile("beta")],
+            active_custom_profile_id: Some("alpha".to_string()),
+            ..AISettings::default()
+        };
+        settings.api_key.clear();
+        persist_ai_settings_without_secret(&db, &settings).expect("persist profile metadata");
+
+        let credentials = InMemoryCredentialStore::default();
+        *credentials.legacy_main.lock().unwrap() = Some("old-main-test-key".to_string());
+        credentials
+            .legacy_profiles
+            .lock()
+            .unwrap()
+            .insert("alpha".to_string(), "old-alpha-test-key".to_string());
+        credentials
+            .legacy_profiles
+            .lock()
+            .unwrap()
+            .insert("beta".to_string(), "old-beta-test-key".to_string());
+
+        let migrated = get_ai_settings_with_store(&db, &credentials).expect("migrate credentials");
+        assert_eq!(migrated.api_key, "old-alpha-test-key");
+        assert!(migrated.api_key_configured);
+        assert!(migrated
+            .custom_profiles
+            .iter()
+            .all(|profile| profile.api_key_configured));
+        assert_eq!(
+            credentials.get().unwrap().as_deref(),
+            Some("old-main-test-key")
+        );
+        assert_eq!(
+            credentials.get_profile("alpha").unwrap().as_deref(),
+            Some("old-alpha-test-key")
+        );
+        assert_eq!(
+            credentials.get_profile("beta").unwrap().as_deref(),
+            Some("old-beta-test-key")
+        );
+        assert!(credentials.get_legacy().unwrap().is_none());
+        assert!(credentials.get_legacy_profile("alpha").unwrap().is_none());
+        assert!(credentials.get_legacy_profile("beta").unwrap().is_none());
+
+        let repeated = get_ai_settings_with_store(&db, &credentials).expect("repeat migration");
+        assert_eq!(repeated.api_key, "old-alpha-test-key");
+        assert_eq!(
+            credentials.get_profile("beta").unwrap().as_deref(),
+            Some("old-beta-test-key")
+        );
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn readable_current_credential_wins_over_stale_database_text() {
+        let path = concurrency_test_db_path("current-credential-over-stale-db");
+        let db = Database::open(&path).expect("credential precedence database");
+        let mut settings = AISettings {
+            api_key: "stale-database-test-key".to_string(),
+            ..AISettings::default()
+        };
+        settings.api_key_action = ApiKeyAction::Preserve;
+        let settings_json = serde_json::to_string(&settings).expect("serialize legacy settings");
+        db.conn()
+            .expect("settings connection")
+            .execute(
+                "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![AI_SETTINGS_KEY, settings_json],
+            )
+            .expect("seed legacy database API key");
+
+        let credentials = InMemoryCredentialStore::default();
+        credentials.set("current-fylura-test-key").unwrap();
+        *credentials.legacy_main.lock().unwrap() = Some("old-legacy-test-key".to_string());
+
+        let migrated = get_ai_settings_with_store(&db, &credentials)
+            .expect("read the current credential and clear database plaintext");
+        assert_eq!(migrated.api_key, "current-fylura-test-key");
+        assert_eq!(
+            credentials.get().unwrap().as_deref(),
+            Some("current-fylura-test-key")
+        );
+        assert_eq!(
+            credentials.get_legacy().unwrap().as_deref(),
+            Some("old-legacy-test-key")
+        );
+        let stored = db
+            .conn()
+            .expect("read cleaned settings")
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = ?1",
+                params![AI_SETTINGS_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("read stored AI settings");
+        let stored = serde_json::from_str::<AISettings>(&stored).expect("parse cleaned settings");
+        assert!(stored.api_key.is_empty());
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn credential_migration_failure_preserves_legacy_and_retries_after_interruption() {
+        let write_failure = FaultyLegacyCredentialStore::default();
+        *write_failure.inner.legacy_main.lock().unwrap() = Some("legacy-test-key".to_string());
+        write_failure.fail_write.store(true, Ordering::SeqCst);
+        assert!(migrate_legacy_credential(&write_failure, None).is_err());
+        assert_eq!(
+            write_failure.get_legacy().unwrap().as_deref(),
+            Some("legacy-test-key")
+        );
+        assert!(write_failure.get().unwrap().is_none());
+
+        let read_failure = FaultyLegacyCredentialStore::default();
+        *read_failure.inner.legacy_main.lock().unwrap() = Some("legacy-test-key".to_string());
+        read_failure.fail_readback.store(true, Ordering::SeqCst);
+        assert!(migrate_legacy_credential(&read_failure, None).is_err());
+        assert_eq!(
+            read_failure.get_legacy().unwrap().as_deref(),
+            Some("legacy-test-key")
+        );
+        assert_eq!(
+            read_failure.get().unwrap().as_deref(),
+            Some("legacy-test-key")
+        );
+        migrate_legacy_credential(&read_failure, None).expect("retry interrupted migration");
+        assert!(read_failure.get_legacy().unwrap().is_none());
+
+        let delete_failure = FaultyLegacyCredentialStore::default();
+        *delete_failure.inner.legacy_main.lock().unwrap() = Some("legacy-test-key".to_string());
+        delete_failure
+            .fail_legacy_delete
+            .store(true, Ordering::SeqCst);
+        assert!(migrate_legacy_credential(&delete_failure, None).is_err());
+        assert_eq!(
+            delete_failure.get().unwrap().as_deref(),
+            Some("legacy-test-key")
+        );
+        assert_eq!(
+            delete_failure.get_legacy().unwrap().as_deref(),
+            Some("legacy-test-key")
+        );
+        delete_failure
+            .fail_legacy_delete
+            .store(false, Ordering::SeqCst);
+        migrate_legacy_credential(&delete_failure, None).expect("retry legacy cleanup");
+        assert!(delete_failure.get_legacy().unwrap().is_none());
     }
 
     fn concurrency_test_db_path(label: &str) -> PathBuf {

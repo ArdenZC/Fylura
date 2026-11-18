@@ -62,6 +62,115 @@ export function buildFyluraNsisTemplate(upstream) {
   output = replaceExactly(
     output,
     lines(
+      "Var DeleteAppDataCheckbox",
+      "Var DeleteAppDataCheckboxState",
+    ),
+    lines(
+      "Var DeleteAppDataCheckbox",
+      "Var DeleteAppDataCheckboxState",
+      "Var DeleteAppDataConfirmationState",
+    ),
+    "uninstall data choice state",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      '  SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1',
+      "FunctionEnd",
+      "!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave",
+      "Function un.ConfirmLeave",
+      "  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState",
+      "FunctionEnd",
+    ),
+    lines(
+      '  SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1',
+      "  ${If} $DeleteAppDataCheckboxState = 1",
+      "    SendMessage $DeleteAppDataCheckbox ${BM_SETCHECK} 1 0",
+      "  ${EndIf}",
+      "FunctionEnd",
+      "!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave",
+      "Function un.ConfirmLeave",
+      "  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState",
+      "  ${If} $DeleteAppDataCheckboxState = 1",
+      "  ${AndIf} $UpdateMode <> 1",
+      "  ${AndIf} $DeleteAppDataConfirmationState <> 1",
+      "    MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 \"$(confirmFyluraDataDeletion)\" IDYES +2",
+      "    Abort",
+      "    StrCpy $DeleteAppDataConfirmationState 1",
+      "  ${EndIf}",
+      "FunctionEnd",
+    ),
+    "explicit uninstall data confirmation",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      '    SetShellVarContext current',
+      '    RmDir /r "$APPDATA\\${BUNDLEID}"',
+      '    RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"',
+    ),
+    lines(
+      '    SetShellVarContext current',
+      '    ; The Fylura helper already verified app ownership and preserves Safe Trash.',
+      '    ; Do not recursively remove either root here: it can contain real user files.',
+    ),
+    "prevent upstream recursive app-data deletion",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      "!insertmacro MUI_RESERVEFILE_LANGDLL",
+      "{{#each language_files}}",
+      '  !include "{{this}}"',
+      "{{/each}}",
+    ),
+    lines(
+      "!insertmacro MUI_RESERVEFILE_LANGDLL",
+      "{{#each language_files}}",
+      '  !include "{{this}}"',
+      "{{/each}}",
+      'LangString confirmFyluraDataDeletion ${LANG_ENGLISH} "This removes this Windows user\'s Fylura settings, database, index, cache, logs, and API credentials. History/Restore records will be removed. Safe Trash and organized files are kept. Continue?"',
+      'LangString confirmFyluraDataDeletion ${LANG_SIMPCHINESE} "这会删除此 Windows 用户的 Fylura 设置、数据库、索引、缓存、日志和 API 凭据。History/Restore 恢复记录会一并删除。Safe Trash 和已整理的文件会保留。是否继续？"',
+    ),
+    "uninstall data confirmation translations",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      '  ${GetOptions} $CMDLINE "/UPDATE" $UpdateMode',
+      "  ${IfNot} ${Errors}",
+      "    StrCpy $UpdateMode 1",
+      "  ${EndIf}",
+      "FunctionEnd",
+    ),
+    lines(
+      '  ${GetOptions} $CMDLINE "/UPDATE" $UpdateMode',
+      "  ${IfNot} ${Errors}",
+      "    StrCpy $UpdateMode 1",
+      "  ${EndIf}",
+      '  ${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R0',
+      "  ${IfNot} ${Errors}",
+      "    StrCpy $DeleteAppDataCheckboxState 1",
+      '    ${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1',
+      "    ${IfNot} ${Errors}",
+      "      StrCpy $DeleteAppDataConfirmationState 1",
+      "    ${ElseIf} ${Silent}",
+      "      SetErrorLevel 2",
+      "      Abort",
+      "    ${EndIf}",
+      "  ${EndIf}",
+      "FunctionEnd",
+    ),
+    "explicit silent uninstall data flags",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
       "  !ifmacrodef NSIS_HOOK_PREINSTALL",
       "    !insertmacro NSIS_HOOK_PREINSTALL",
       "  !endif",
@@ -258,6 +367,21 @@ export function buildFyluraNsisTemplate(upstream) {
       "  ; Zen owns the reversible pre-delete lifecycle. The captured service is",
       "  ; stopped through SCM before the name-only desktop process gate.",
       "  Call un.ZCPrepareUninstallLifecycle",
+      "  ${If} $DeleteAppDataCheckboxState = 1",
+      "  ${AndIf} $UpdateMode <> 1",
+      "    ; The user confirmed full cleanup. Mark this as irreversible before",
+      "    ; credentials or the app database are removed.",
+      "    Call un.ZCMarkUninstallIrreversible",
+      '    nsExec::ExecToStack \'"$INSTDIR\\${MAINBINARYNAME}.exe" --fylura-uninstall-clean-user-data\'',
+      "    Pop $0",
+      "    Pop $1",
+      "    ${If} $0 != 0",
+      "      DetailPrint $1",
+      '      MessageBox MB_ICONSTOP|MB_OK "Fylura app data cleanup could not be verified. $1" /SD IDOK',
+      "      Call un.ZCFailUninstallPartial",
+      "      Abort",
+      "    ${EndIf}",
+      "  ${EndIf}",
     ),
     "uninstall pre-gate",
   );
@@ -342,7 +466,11 @@ export function buildFyluraNsisTemplate(upstream) {
       "  Goto zc_uninstall_generated_success",
       "",
       "zc_uninstall_reversible_failure:",
-      "  Call un.ZCFailUninstallReversible",
+      "  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE >= ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}",
+      "    Call un.ZCFailUninstallPartial",
+      "  ${Else}",
+      "    Call un.ZCFailUninstallReversible",
+      "  ${EndIf}",
       "  Abort",
       "",
       "zc_uninstall_partial_failure:",
@@ -366,6 +494,10 @@ export function buildFyluraNsisTemplate(upstream) {
     "IfErrors zc_install_partial_failure",
     "Call un.ZCPrepareUninstallLifecycle",
     "IfErrors zc_uninstall_reversible_failure",
+    "--fylura-uninstall-clean-user-data",
+    '"/DELETE_APP_DATA"',
+    '"/CONFIRM_DELETE_APP_DATA"',
+    "Do not recursively remove either root",
     "IfErrors zc_uninstall_partial_failure",
   ]) {
     if (!output.includes(required)) {

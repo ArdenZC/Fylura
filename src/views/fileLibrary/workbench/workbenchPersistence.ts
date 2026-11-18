@@ -6,8 +6,10 @@ import {
   type WorkspaceRestoreMetadata,
 } from "../../../fileWorkspace/workspaceSession";
 
-const WORKSPACE_STORAGE_KEY = "zen-canvas:file-library-workbench:v1";
-const TREE_STORAGE_PREFIX = "zen-canvas:file-library-tree:v1:";
+const WORKSPACE_STORAGE_KEY = "fylura:file-library-workbench:v1";
+const LEGACY_WORKSPACE_STORAGE_KEY = "zen-canvas:file-library-workbench:v1";
+const TREE_STORAGE_PREFIX = "fylura:file-library-tree:v1:";
+const LEGACY_TREE_STORAGE_PREFIX = "zen-canvas:file-library-tree:v1:";
 const WORKSPACE_VERSION = 2;
 const MAX_TABS = 8;
 const MAX_PANES_PER_TAB = 4;
@@ -61,6 +63,20 @@ function localStorageOrNull(): Storage | null {
   } catch {
     return null;
   }
+}
+
+function readWithLegacyStorageKey(storage: Storage, key: string, legacyKey: string) {
+  const currentValue = storage.getItem(key);
+  if (currentValue !== null) return currentValue;
+  const legacyValue = storage.getItem(legacyKey);
+  if (legacyValue === null) return null;
+  try {
+    storage.setItem(key, legacyValue);
+    if (storage.getItem(key) === legacyValue) storage.removeItem(legacyKey);
+  } catch {
+    // Keep using the readable legacy value if browser storage is full or read-only.
+  }
+  return legacyValue;
 }
 
 function parsePersistedPane(value: unknown): PersistedWorkbenchPane | null {
@@ -152,7 +168,11 @@ export function readPersistedWorkbench(
 ): PersistedWorkbench | null {
   if (!storage) return null;
   try {
-    const raw = storage.getItem(WORKSPACE_STORAGE_KEY);
+    const raw = readWithLegacyStorageKey(
+      storage,
+      WORKSPACE_STORAGE_KEY,
+      LEGACY_WORKSPACE_STORAGE_KEY,
+    );
     if (!raw || raw.length > MAX_SNAPSHOT_LENGTH) return null;
     return parsePersistedWorkbench(JSON.parse(raw));
   } catch {
@@ -171,6 +191,7 @@ export function writePersistedWorkbench(
     const serialized = JSON.stringify(parsed);
     if (serialized.length > MAX_SNAPSHOT_LENGTH) return false;
     storage.setItem(WORKSPACE_STORAGE_KEY, serialized);
+    storage.removeItem(LEGACY_WORKSPACE_STORAGE_KEY);
     return true;
   } catch {
     return false;
@@ -264,13 +285,21 @@ function treeStorageKey(paneId: string) {
   return `${TREE_STORAGE_PREFIX}${paneId}`;
 }
 
+function legacyTreeStorageKey(paneId: string) {
+  return `${LEGACY_TREE_STORAGE_PREFIX}${paneId}`;
+}
+
 /** Reads a small, non-authoritative set of expanded tree paths for one pane. */
 export function readExpandedTreePaths(paneId: string): string[] {
   if (!validTreePaneId(paneId)) return [];
   const storage = localStorageOrNull();
   if (!storage) return [];
   try {
-    const raw = storage.getItem(treeStorageKey(paneId));
+    const raw = readWithLegacyStorageKey(
+      storage,
+      treeStorageKey(paneId),
+      legacyTreeStorageKey(paneId),
+    );
     if (!raw || raw.length > 128 * 1024) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -296,6 +325,7 @@ export function writeExpandedTreePaths(paneId: string, paths: string[]) {
     const serialized = JSON.stringify(bounded);
     if (serialized.length > 128 * 1024) return false;
     storage.setItem(treeStorageKey(paneId), serialized);
+    storage.removeItem(legacyTreeStorageKey(paneId));
     return true;
   } catch {
     return false;
@@ -309,6 +339,7 @@ export function clearExpandedTreePaths(paneId: string) {
   if (!storage) return false;
   try {
     storage.removeItem(treeStorageKey(paneId));
+    storage.removeItem(legacyTreeStorageKey(paneId));
     return true;
   } catch {
     return false;

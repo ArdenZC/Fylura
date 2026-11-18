@@ -32,6 +32,7 @@ pub mod scanner;
 pub mod scheduler;
 pub mod settings;
 pub mod storage_analyzer;
+pub mod uninstall;
 pub mod watcher;
 pub mod window_auth;
 

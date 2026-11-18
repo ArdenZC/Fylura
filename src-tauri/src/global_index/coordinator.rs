@@ -273,7 +273,7 @@ impl GlobalIndexCoordinator {
         let cancel = self.cancel.clone();
         let wake = self.wake.clone();
         let worker = thread::Builder::new()
-            .name("zen-canvas-global-index".to_string())
+            .name("fylura-global-index".to_string())
             .spawn(move || {
                 let result =
                     run_index_with_state(provider, db, cancel.clone(), wake, state.clone());

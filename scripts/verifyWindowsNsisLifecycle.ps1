@@ -13,7 +13,11 @@ $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')
 $taskRoot = [System.IO.Path]::GetFullPath((Join-Path $runnerTemp "fylura-nsis-runtime-$env:GITHUB_RUN_ID"))
 $installDir = Join-Path $taskRoot 'install'
 $mainBinary = Join-Path $installDir 'fylura.exe'
-$profileRoot = Join-Path $taskRoot 'profile'
+$profileRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+$localProfileRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+$currentDataDir = Join-Path $profileRoot 'com.startlan.fylura'
+$currentCacheDir = Join-Path $localProfileRoot 'com.startlan.fylura'
+$legacyDataDir = Join-Path $profileRoot 'com.startlan.zencanvas'
 $legacyService = 'ZenCanvasGlobalIndex'
 $currentService = 'FyluraGlobalIndex'
 $legacyServiceKey = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$legacyService"
@@ -21,7 +25,12 @@ $currentServiceKey = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Serv
 $uninstallRoot = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
 $evidence = [System.Collections.Generic.List[object]]::new()
 $legacyServiceCreated = $false
-$originalAppData = $env:APPDATA
+$credentialTargets = [ordered]@{
+    main = 'ai-api-key.com.startlan.fylura'
+    alpha = 'ai-api-key-qa_alpha.com.startlan.fylura.ai-profile'
+    beta = 'ai-api-key-qa_beta.com.startlan.fylura.ai-profile'
+}
+$script:taskOwnedCredentialTargets = [System.Collections.Generic.List[string]]::new()
 $script:overallStatus = 'IN_PROGRESS'
 
 function Save-Evidence {
@@ -52,6 +61,28 @@ function Assert-Condition([bool]$Condition, [string]$Message) {
     if (-not $Condition) {
         throw $Message
     }
+}
+
+function Test-CredentialTarget([string]$Target) {
+    $output = & "$env:WINDIR\System32\cmdkey.exe" "/list:$Target" 2>&1
+    $exitCode = $LASTEXITCODE
+    $listing = ($output | Out-String)
+    return $exitCode -eq 0 -and $listing.IndexOf($Target, [StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+function Add-TaskOwnedCredential([string]$Target, [string]$UserName) {
+    $fakeSecret = "fylura-596-qa-$([guid]::NewGuid().ToString('N'))"
+    $script:taskOwnedCredentialTargets.Add($Target)
+    $null = & "$env:WINDIR\System32\cmdkey.exe" "/generic:$Target" "/user:$UserName" "/pass:$fakeSecret" 2>&1
+    Assert-Condition ($LASTEXITCODE -eq 0) 'Could not create a task-owned Windows Credential Manager fixture.'
+    Assert-Condition (Test-CredentialTarget $Target) 'Windows Credential Manager did not retain a task-owned credential fixture.'
+}
+
+function Remove-TaskOwnedCredentialFixtures {
+    foreach ($target in $script:taskOwnedCredentialTargets) {
+        $null = & "$env:WINDIR\System32\cmdkey.exe" "/delete:$target" 2>&1
+    }
+    $script:taskOwnedCredentialTargets.Clear()
 }
 
 function Invoke-Sc([string[]]$Arguments) {
@@ -123,6 +154,8 @@ function Remove-TaskOwnedLegacyService {
 }
 
 try {
+    Assert-Condition ($env:GITHUB_ACTIONS -eq 'true') 'This destructive lifecycle verifier must run only on an isolated GitHub Actions Windows VM.'
+    Assert-Condition ([System.IO.Path]::IsPathFullyQualified($profileRoot) -and [System.IO.Path]::IsPathFullyQualified($localProfileRoot)) 'Windows returned an invalid current-user app-data path.'
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
     Assert-Condition $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'UNVERIFIED: NSIS lifecycle validation requires the disposable runner to be elevated.'
@@ -132,15 +165,20 @@ try {
     Assert-Condition (-not (Test-Path -LiteralPath $currentServiceKey)) "Refusing pre-existing Fylura service: $currentService"
     $existingProducts = @(Get-FyluraUninstallEntries)
     Assert-Condition ($existingProducts.Count -eq 0) 'Refusing to run against a pre-existing Fylura installation.'
+    Assert-Condition (-not (Test-Path -LiteralPath $currentDataDir)) 'Refusing to alter pre-existing current-user Fylura application data.'
+    Assert-Condition (-not (Test-Path -LiteralPath $currentCacheDir)) 'Refusing to alter pre-existing current-user Fylura cache or logs.'
+    Assert-Condition (-not (Test-Path -LiteralPath $legacyDataDir)) 'Refusing to alter pre-existing legacy development application data.'
+    foreach ($target in $credentialTargets.Values) {
+        Assert-Condition (-not (Test-CredentialTarget $target)) "Refusing to overwrite a pre-existing Windows credential target: $target"
+    }
 
     New-Item -ItemType Directory -Path $taskRoot | Out-Null
-    New-Item -ItemType Directory -Path $profileRoot | Out-Null
-    $env:APPDATA = $profileRoot
     Record-Phase 'preflight' @{
         installer = $installer
         taskRoot = $taskRoot
         installDir = $installDir
-        appDataRoot = $profileRoot
+        appDataRoot = $currentDataDir
+        localAppDataRoot = $currentCacheDir
         administrator = $true
         existingFyluraProducts = 0
         existingLegacyService = $false
@@ -190,20 +228,59 @@ try {
         uninstallEntry = $freshEntries[0]
     }
 
-    $currentDataDir = Join-Path $profileRoot 'com.startlan.fylura'
-    $legacyDataDir = Join-Path $profileRoot 'com.startlan.zencanvas'
     $safeTrashSource = Join-Path $taskRoot 'safe-trash-source'
     $trashDir = Join-Path $safeTrashSource '.zen-canvas-trash\items\task-owned-fixture'
-    New-Item -ItemType Directory -Path $currentDataDir, $legacyDataDir, $trashDir -Force | Out-Null
+    $newSafeTrashDir = Join-Path $safeTrashSource '.fylura-trash\items\task-owned-fixture'
+    $ownedSafeTrashDir = Join-Path $currentDataDir 'safe-trash\items\task-owned-fixture'
+    $ownedNewDotTrashDir = Join-Path $currentDataDir '.fylura-trash\items\task-owned-fixture'
+    $ownedLegacyDotTrashDir = Join-Path $currentDataDir '.zen-canvas-trash\items\task-owned-fixture'
+    $cacheLogsDir = Join-Path $currentCacheDir 'logs'
+    New-Item -ItemType Directory -Path $currentDataDir, $currentCacheDir, $legacyDataDir, $trashDir, $newSafeTrashDir, $ownedSafeTrashDir, $ownedNewDotTrashDir, $ownedLegacyDotTrashDir, $cacheLogsDir -Force | Out-Null
     $sentinels = [ordered]@{
         currentDatabase = Join-Path $currentDataDir 'fylura.sqlite3'
-        currentWal = Join-Path $currentDataDir 'fylura.sqlite3-wal'
         legacyDatabase = Join-Path $legacyDataDir 'zen-canvas.sqlite3'
         safeTrash = Join-Path $trashDir 'user-data-sentinel.txt'
+        newSafeTrash = Join-Path $newSafeTrashDir 'user-data-sentinel.txt'
+        appSafeTrash = Join-Path $ownedSafeTrashDir 'user-data-sentinel.txt'
+        appNewDotTrash = Join-Path $ownedNewDotTrashDir 'user-data-sentinel.txt'
+        appLegacyDotTrash = Join-Path $ownedLegacyDotTrashDir 'user-data-sentinel.txt'
+        appCache = Join-Path $cacheLogsDir 'app.log'
     }
     foreach ($entry in $sentinels.GetEnumerator()) {
         [System.IO.File]::WriteAllText($entry.Value, "task-owned $($entry.Key) sentinel")
     }
+    $python = Get-Command python -ErrorAction Stop
+    $seedDbScript = Join-Path $taskRoot 'seed-fylura-db.py'
+    @'
+import json
+import sqlite3
+import sys
+
+connection = sqlite3.connect(sys.argv[1])
+connection.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+connection.execute(
+    "INSERT INTO app_settings (key, value) VALUES (?, ?)",
+    ("ai_settings_v1", json.dumps({"customProfiles": [{"id": "qa_alpha"}, {"id": "qa_beta"}]})),
+)
+connection.commit()
+connection.close()
+'@ | Set-Content -LiteralPath $seedDbScript -Encoding ascii
+    & $python.Source $seedDbScript $sentinels.currentDatabase
+    Assert-Condition ($LASTEXITCODE -eq 0) 'Could not seed the task-owned Fylura SQLite database fixture.'
+    Add-TaskOwnedCredential $credentialTargets.main 'ai-api-key'
+    Add-TaskOwnedCredential $credentialTargets.alpha 'ai-api-key-qa_alpha'
+    Add-TaskOwnedCredential $credentialTargets.beta 'ai-api-key-qa_beta'
+    $verifyDbScript = Join-Path $taskRoot 'verify-fylura-db.py'
+    @'
+import sqlite3
+import sys
+
+connection = sqlite3.connect(sys.argv[1])
+row = connection.execute("SELECT value FROM app_settings WHERE key = ?", ("ai_settings_v1",)).fetchone()
+connection.close()
+if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
+    raise SystemExit("retained Fylura settings could not be read")
+'@ | Set-Content -LiteralPath $verifyDbScript -Encoding ascii
 
     $repeatExitCode = Invoke-Installer $installer
     Assert-Condition ($repeatExitCode -eq 0) "Repeated NSIS install failed with exit code $repeatExitCode."
@@ -231,15 +308,75 @@ try {
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'NSIS uninstall left Fylura in Add/Remove Programs.'
     foreach ($entry in $sentinels.GetEnumerator()) {
         Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "NSIS uninstall deleted task-owned user data: $($entry.Key)."
+        if ($entry.Key -eq 'currentDatabase') { continue }
         $contents = [System.IO.File]::ReadAllText($entry.Value)
         Assert-Condition ($contents -eq "task-owned $($entry.Key) sentinel") "NSIS uninstall changed task-owned user data: $($entry.Key)."
+    }
+    & $python.Source $verifyDbScript $sentinels.currentDatabase
+    Assert-Condition ($LASTEXITCODE -eq 0) 'Ordinary uninstall changed the retained settings database or AI profile metadata.'
+    foreach ($target in $credentialTargets.Values) {
+        Assert-Condition (Test-CredentialTarget $target) "Ordinary uninstall removed task-owned Fylura credentials: $target"
     }
     Record-Phase 'uninstall' @{
         exitCode = $uninstallExitCode
         executableRemoved = $true
         fyluraServiceRemoved = $true
         uninstallRegistrationRemoved = $true
-        currentDatabaseWalLegacyDatabaseAndSafeTrashPreserved = $true
+        currentDatabaseLegacyDatabaseAndSafeTrashPreserved = $true
+    }
+
+    $reinstallExitCode = Invoke-Installer $installer
+    Assert-Condition ($reinstallExitCode -eq 0) "Reinstall after ordinary uninstall failed with exit code $reinstallExitCode."
+    $reinstallMainProcessCount = Stop-TaskOwnedMainWindowProcess
+    Assert-Condition (Test-Path -LiteralPath $mainBinary -PathType Leaf) 'Reinstall after ordinary uninstall did not publish fylura.exe.'
+    foreach ($entry in $sentinels.GetEnumerator()) {
+        Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Reinstall after ordinary uninstall lost retained user data: $($entry.Key)."
+    }
+    & $python.Source $verifyDbScript $sentinels.currentDatabase
+    Assert-Condition ($LASTEXITCODE -eq 0) 'Reinstalled Fylura could not read the retained settings database and AI profile metadata.'
+    foreach ($target in $credentialTargets.Values) {
+        Assert-Condition (Test-CredentialTarget $target) "Reinstall lost task-owned Fylura credentials: $target"
+    }
+    Record-Phase 'reinstall-after-ordinary-uninstall' @{
+        exitCode = $reinstallExitCode
+        stoppedOwnedMainWindowProcesses = $reinstallMainProcessCount
+        databaseReadable = $true
+        userDataPreserved = $true
+    }
+
+    $uninstaller = Join-Path $installDir 'uninstall.exe'
+    $fullUninstallExitCode = (Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/DELETE_APP_DATA', '/CONFIRM_DELETE_APP_DATA') -PassThru -NoNewWindow -Wait).ExitCode
+    Assert-Condition ($fullUninstallExitCode -eq 0) "Confirmed full NSIS uninstall failed with exit code $fullUninstallExitCode."
+    for ($attempt = 0; $attempt -lt 30 -and (Test-Path -LiteralPath $mainBinary); $attempt++) {
+        Start-Sleep -Milliseconds 500
+    }
+    Assert-Condition (-not (Test-Path -LiteralPath $mainBinary)) 'Confirmed full uninstall left the Fylura executable installed.'
+    Assert-Condition (-not (Test-Path -LiteralPath $currentServiceKey)) 'Confirmed full uninstall left FyluraGlobalIndex registered.'
+    Assert-Condition (-not (Test-Path -LiteralPath $sentinels.currentDatabase)) 'Confirmed full uninstall left the Fylura database.'
+    Assert-Condition (-not (Test-Path -LiteralPath $currentCacheDir)) 'Confirmed full uninstall left Fylura cache and logs.'
+    foreach ($target in $credentialTargets.Values) {
+        Assert-Condition (-not (Test-CredentialTarget $target)) "Confirmed full uninstall left a Fylura credential target: $target"
+    }
+    foreach ($name in @('safe-trash', '.fylura-trash', '.zen-canvas-trash')) {
+        $remainingRoot = Join-Path $currentDataDir $name
+        Assert-Condition (Test-Path -LiteralPath $remainingRoot -PathType Container) "Confirmed full uninstall removed Safe Trash root: $name."
+    }
+    foreach ($entry in $sentinels.GetEnumerator()) {
+        if ($entry.Key -in @('currentDatabase', 'appCache')) { continue }
+        Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Confirmed full uninstall deleted user or legacy data: $($entry.Key)."
+        $contents = [System.IO.File]::ReadAllText($entry.Value)
+        Assert-Condition ($contents -eq "task-owned $($entry.Key) sentinel") "Confirmed full uninstall changed user or legacy data: $($entry.Key)."
+    }
+    Assert-Condition (@(Get-ChildItem -LiteralPath $currentDataDir -Force | Where-Object { $_.Name -notin @('safe-trash', '.fylura-trash', '.zen-canvas-trash') }).Count -eq 0) 'Confirmed full uninstall left unexpected Fylura application data.'
+    Record-Phase 'confirmed-full-uninstall' @{
+        exitCode = $fullUninstallExitCode
+        executableRemoved = $true
+        currentDatabaseAndCacheRemoved = $true
+        mainAndMultipleProfileCredentialsRemoved = $true
+        profileIdsReadBeforeDatabaseRemoval = @('qa_alpha', 'qa_beta')
+        currentAndLegacySafeTrashPreserved = $true
+        legacyDevelopmentDataPreserved = $true
+        unrelatedDirectoriesUntouched = $true
     }
     $script:overallStatus = 'PASS'
     Save-Evidence
@@ -255,6 +392,6 @@ catch {
     throw
 }
 finally {
-    $env:APPDATA = $originalAppData
+    Remove-TaskOwnedCredentialFixtures
     Remove-TaskOwnedLegacyService
 }

@@ -2006,33 +2006,37 @@ pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, 
         let Some(name) = name.to_str() else {
             return false;
         };
-        name.strip_prefix(".zen-canvas-claim-")
-            .and_then(|suffix| uuid::Uuid::parse_str(suffix).ok())
-            .is_some()
-            || name
-                .strip_prefix(".zen-canvas-replace-")
-                .is_some_and(|suffix| {
-                    suffix.len() == 24 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+        [".fylura-claim-", ".zen-canvas-claim-"]
+            .iter()
+            .any(|prefix| {
+                name.strip_prefix(prefix)
+                    .and_then(|suffix| uuid::Uuid::parse_str(suffix).ok())
+                    .is_some()
+            })
+            || [".fylura-replace-", ".zen-canvas-replace-"]
+                .iter()
+                .any(|prefix| {
+                    name.strip_prefix(prefix).is_some_and(|suffix| {
+                        suffix.len() == 24 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
                 })
     };
-    #[cfg(target_os = "macos")]
-    let mut saw_retirement_root = false;
     for entry in entries {
         let name = entry.file_name();
-        if name == std::ffi::OsStr::new(".zen-canvas-retirement") {
+        if name == std::ffi::OsStr::new(".fylura-retirement")
+            || name == std::ffi::OsStr::new(".zen-canvas-retirement")
+        {
             #[cfg(not(target_os = "macos"))]
             return Ok(false);
             #[cfg(target_os = "macos")]
             {
-                if saw_retirement_root
-                    || !entry
-                        .file_type()
-                        .map_err(|error| error.to_string())?
-                        .is_dir()
+                if !entry
+                    .file_type()
+                    .map_err(|error| error.to_string())?
+                    .is_dir()
                 {
                     return Ok(false);
                 }
-                saw_retirement_root = true;
                 for session in std::fs::read_dir(entry.path()).map_err(|error| error.to_string())? {
                     let session = session.map_err(|error| error.to_string())?;
                     if !session
@@ -2061,7 +2065,9 @@ pub(super) fn source_directory_is_empty_after_move(path: &Path) -> Result<bool, 
                     }
                 }
             }
-        } else if name == std::ffi::OsStr::new(".zen-canvas-trash") {
+        } else if name == std::ffi::OsStr::new(".fylura-trash")
+            || name == std::ffi::OsStr::new(".zen-canvas-trash")
+        {
             if !entry
                 .file_type()
                 .map_err(|error| error.to_string())?
@@ -2423,7 +2429,7 @@ pub(crate) fn copy_replace_staging_path(operation: &OperationPreviewRequest) -> 
     target
         .parent()
         .unwrap_or_else(|| Path::new("/"))
-        .join(format!(".zen-canvas-stage-copy-replace-{}", &digest[..24]))
+        .join(format!(".fylura-stage-copy-replace-{}", &digest[..24]))
 }
 
 pub(crate) fn execute(
@@ -2813,7 +2819,7 @@ fn safe_trash_operation_target(source: &Path, operation_id: &str) -> String {
         &source
             .parent()
             .unwrap_or_else(|| Path::new("/"))
-            .join(".zen-canvas-trash")
+            .join(".fylura-trash")
             .join("operations")
             .join(&operation_key[..24])
             .join(source.file_name().unwrap_or_default()),
@@ -2994,10 +3000,11 @@ pub(crate) fn complete_browse_selection_batch(
             successful_removals.insert(key.clone());
         }
         if log.operation_type == "move_to_trash"
-            && log_source
-                .parent()
-                .map(|parent| parent.join(".zen-canvas-trash"))
-                .is_some_and(|root| Path::new(&log.path_after).starts_with(root))
+            && log_source.parent().is_some_and(|parent| {
+                [".fylura-trash", ".zen-canvas-trash"]
+                    .iter()
+                    .any(|name| Path::new(&log.path_after).starts_with(parent.join(name)))
+            })
         {
             safe_trash_root_creations.insert(key.clone());
         }

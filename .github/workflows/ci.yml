@@ -2002,6 +2002,12 @@ jobs:
           rustc -vV
           test "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin"
           echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
+      - name: Verify macOS lifecycle script parses with the runner Bash
+        shell: bash
+        run: |
+          command -v bash
+          bash --version | head -n 1
+          bash -n scripts/verifyMacosDmgLifecycle.sh
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:

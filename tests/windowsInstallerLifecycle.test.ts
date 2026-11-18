@@ -553,8 +553,12 @@ describe("W4-04 package NSIS lifecycle", () => {
 
   it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {
     const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
+    const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
+    expect(workflow).toContain("Verify macOS lifecycle script parses with the runner Bash");
+    expect(workflow).toContain("bash --version | head -n 1");
+    expect(workflow).toContain("bash -n scripts/verifyMacosDmgLifecycle.sh");
     expect(verifier).toContain('PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"');
     expect(verifier).toContain("preflight_profile_paths");
     expect(verifier).toContain("APP_PROFILE_ROOTS_OWNED=1");

@@ -531,6 +531,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)");
     expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura application data.");
     expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura cache or logs.");
+    expect(verifier).toContain("$seedOutput = @(& $python $seedDbScript $sentinels.currentDatabase 2>&1)");
+    expect(verifier).toContain("$seedError = ($seedOutput | Out-String).Trim()");
   });
 
   it("runs the NSIS lifecycle worker in a disposable elevated Windows profile", () => {

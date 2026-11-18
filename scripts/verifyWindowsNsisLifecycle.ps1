@@ -355,8 +355,10 @@ connection.execute(
 connection.commit()
 connection.close()
 '@ | Set-Content -LiteralPath $seedDbScript -Encoding ascii
-    & $python $seedDbScript $sentinels.currentDatabase
-    Assert-Condition ($LASTEXITCODE -eq 0) 'Could not seed the task-owned Fylura SQLite database fixture.'
+    $seedOutput = @(& $python $seedDbScript $sentinels.currentDatabase 2>&1)
+    $seedExitCode = $LASTEXITCODE
+    $seedError = ($seedOutput | Out-String).Trim()
+    Assert-Condition ($seedExitCode -eq 0) "Could not seed the task-owned Fylura SQLite database fixture (exit $seedExitCode). $seedError"
     Add-TaskOwnedCredential $credentialTargets.main 'ai-api-key'
     Add-TaskOwnedCredential $credentialTargets.alpha 'ai-api-key-qa_alpha'
     Add-TaskOwnedCredential $credentialTargets.beta 'ai-api-key-qa_beta'
@@ -402,8 +404,10 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
         $contents = [System.IO.File]::ReadAllText($entry.Value)
         Assert-Condition ($contents -eq "task-owned $($entry.Key) sentinel") "NSIS uninstall changed task-owned user data: $($entry.Key)."
     }
-    & $python $verifyDbScript $sentinels.currentDatabase
-    Assert-Condition ($LASTEXITCODE -eq 0) 'Ordinary uninstall changed the retained settings database or AI profile metadata.'
+    $verifyOutput = @(& $python $verifyDbScript $sentinels.currentDatabase 2>&1)
+    $verifyExitCode = $LASTEXITCODE
+    $verifyError = ($verifyOutput | Out-String).Trim()
+    Assert-Condition ($verifyExitCode -eq 0) "Ordinary uninstall changed the retained settings database or AI profile metadata (exit $verifyExitCode). $verifyError"
     foreach ($target in $credentialTargets.Values) {
         Assert-Condition (Test-CredentialTarget $target) "Ordinary uninstall removed task-owned Fylura credentials: $target"
     }
@@ -424,8 +428,10 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
     foreach ($entry in $sentinels.GetEnumerator()) {
         Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Reinstall after ordinary uninstall lost retained user data: $($entry.Key)."
     }
-    & $python $verifyDbScript $sentinels.currentDatabase
-    Assert-Condition ($LASTEXITCODE -eq 0) 'Reinstalled Fylura could not read the retained settings database and AI profile metadata.'
+    $verifyOutput = @(& $python $verifyDbScript $sentinels.currentDatabase 2>&1)
+    $verifyExitCode = $LASTEXITCODE
+    $verifyError = ($verifyOutput | Out-String).Trim()
+    Assert-Condition ($verifyExitCode -eq 0) "Reinstalled Fylura could not read the retained settings database and AI profile metadata (exit $verifyExitCode). $verifyError"
     foreach ($target in $credentialTargets.Values) {
         Assert-Condition (Test-CredentialTarget $target) "Reinstall lost task-owned Fylura credentials: $target"
     }

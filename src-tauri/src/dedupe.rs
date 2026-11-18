@@ -29,6 +29,8 @@ use thiserror::Error;
 
 pub const DEDUPE_PROGRESS_EVENT: &str = "dedupe-progress";
 pub const DEDUPE_COMPLETE_EVENT: &str = "dedupe-complete";
+const DEDUPE_HASH_WORKERS_ENV: &str = "FYLURA_DEDUPE_HASH_WORKERS";
+const LEGACY_DEDUPE_HASH_WORKERS_ENV: &str = "ZEN_CANVAS_DEDUPE_HASH_WORKERS";
 
 #[derive(Clone, Default)]
 pub struct DedupeJobManager(Arc<Mutex<DedupeJobs>>);
@@ -766,7 +768,7 @@ fn run_durable_dedupe_inner(
                 &mut run,
                 "full_hashing",
                 "invalid_dedupe_worker_count",
-                "ZEN_CANVAS_DEDUPE_HASH_WORKERS was invalid; the bounded default was used.",
+                "FYLURA_DEDUPE_HASH_WORKERS was invalid; the bounded default was used.",
             )?;
         }
         hash_results = results;
@@ -1121,12 +1123,11 @@ fn bounded_hash_subjects(
     }
     let scheduler = WorkScheduler::global();
     let detected = scheduler.config().capacities.cpu as usize;
-    let (workers, invalid_override) = dedupe_worker_count(
-        detected,
-        std::env::var("ZEN_CANVAS_DEDUPE_HASH_WORKERS")
-            .ok()
-            .as_deref(),
+    let configured_workers = dedupe_hash_workers_override(
+        std::env::var(DEDUPE_HASH_WORKERS_ENV).ok(),
+        std::env::var(LEGACY_DEDUPE_HASH_WORKERS_ENV).ok(),
     );
+    let (workers, invalid_override) = dedupe_worker_count(detected, configured_workers.as_deref());
     let leases = match acquire_dedupe_hash_leases(&scheduler, run_id, &cancel_flag, workers) {
         Ok(leases) => leases,
         Err(AcquireError::Cancelled) if cancel_flag.load(Ordering::Acquire) => {
@@ -1334,6 +1335,10 @@ fn dedupe_worker_count(detected: usize, configured: Option<&str>) -> (usize, boo
             _ => (default_workers, true),
         },
     }
+}
+
+fn dedupe_hash_workers_override(current: Option<String>, legacy: Option<String>) -> Option<String> {
+    current.or(legacy)
 }
 
 fn hash_file_blake3_cancellable_with_bytes(
@@ -1847,6 +1852,15 @@ mod job_manager_tests {
 
     #[test]
     fn worker_count_uses_bounded_default_and_rejects_invalid_overrides() {
+        assert_eq!(DEDUPE_HASH_WORKERS_ENV, "FYLURA_DEDUPE_HASH_WORKERS");
+        assert_eq!(
+            dedupe_hash_workers_override(None, Some("3".to_string())).as_deref(),
+            Some("3")
+        );
+        assert_eq!(
+            dedupe_hash_workers_override(Some("2".to_string()), Some("3".to_string())).as_deref(),
+            Some("2")
+        );
         assert_eq!(dedupe_worker_count(16, None), (4, false));
         assert_eq!(dedupe_worker_count(2, None), (2, false));
         assert_eq!(dedupe_worker_count(8, Some("1")), (1, false));

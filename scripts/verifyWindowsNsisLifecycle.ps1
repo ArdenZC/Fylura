@@ -244,13 +244,50 @@ try {
     $secondaryUserCreated = $true
     Add-LocalGroupMember -Group 'Users' -Member $secondaryUserName
     $secondaryUserSidValue = (Get-LocalUser -Name $secondaryUserName).SID.Value
-    $secondaryCredential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$secondaryUserName", $secondaryUserPassword)
-    $powershell = (Get-Process -Id $PID).Path
-    $profileWarmup = Start-Process -FilePath $powershell -Credential $secondaryCredential -LoadUserProfile `
-        -ArgumentList @('-NoProfile', '-Command', 'exit 0') -WorkingDirectory $env:SystemRoot -Wait -PassThru
-    Assert-Condition ($profileWarmup.ExitCode -eq 0) 'Could not initialize the task-owned secondary Windows user profile.'
     $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction Stop |
         Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
+    if (-not $secondaryProfile) {
+        $profileApiSource = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class FyluraUserProfileApi {
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ConvertStringSidToSid(string stringSid, out IntPtr sid);
+
+    [DllImport("userenv.dll", CharSet = CharSet.Unicode)]
+    private static extern int CreateProfile(IntPtr sid, string userName, StringBuilder profilePath, uint profilePathSize);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr handle);
+
+    public static int Create(string stringSid, string userName, StringBuilder profilePath) {
+        IntPtr sid;
+        if (!ConvertStringSidToSid(stringSid, out sid)) {
+            return Marshal.GetHRForLastWin32Error();
+        }
+        try {
+            return CreateProfile(sid, userName, profilePath, (uint)profilePath.Capacity);
+        }
+        finally {
+            if (sid != IntPtr.Zero) LocalFree(sid);
+        }
+    }
+}
+'@
+        Add-Type -TypeDefinition $profileApiSource -ErrorAction Stop
+        $profilePathBuffer = [System.Text.StringBuilder]::new(32768)
+        $profileResult = [FyluraUserProfileApi]::Create($secondaryUserSidValue, $secondaryUserName, $profilePathBuffer)
+        $profileResultHex = '0x{0:X8}' -f ($profileResult -band 0xffffffff)
+        Assert-Condition ($profileResult -eq 0) "Could not create the task-owned secondary Windows user profile (HRESULT $profileResultHex)."
+        for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction Stop |
+                Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
+            if ($secondaryProfile -and $secondaryProfile.LocalPath) { break }
+            Start-Sleep -Milliseconds 500
+        }
+    }
     Assert-Condition ($secondaryProfile -and $secondaryProfile.LocalPath) 'Windows did not create the task-owned secondary user profile.'
     $secondaryDataRoot = Join-Path $secondaryProfile.LocalPath 'AppData\Roaming\com.startlan.fylura'
     $secondaryCacheRoot = Join-Path $secondaryProfile.LocalPath 'AppData\Local\com.startlan.fylura'

@@ -721,8 +721,12 @@ try {
     $script:evidence.concurrentWriterAverages = [ordered]@{
         baselineFilesP95Us = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.files.p95Us'
         candidateFilesP95Us = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.files.p95Us'
+        baselineFilesP99Us = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.files.p99Us'
+        candidateFilesP99Us = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.files.p99Us'
         baselineFilesMaxUs = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.files.maxUs'
         candidateFilesMaxUs = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.files.maxUs'
+        baselineFilesLockRetryAttempts = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.filesLockRetryAttempts'
+        candidateFilesLockRetryAttempts = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.filesLockRetryAttempts'
         baselineJournalP95Us = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.journal.p95Us'
         candidateJournalP95Us = Get-Average $candidateRows.ToArray() 'result.concurrentDatabaseWrites.journal.p95Us'
         baselineSettingsP95Us = Get-Average $baselineRows.ToArray() 'result.concurrentDatabaseWrites.settings.p95Us'
@@ -744,6 +748,7 @@ try {
     }).Count -eq 0
     $script:evidence.concurrentWritesTarget = [ordered]@{
         sqliteBusyErrors = $script:evidence.concurrentWriterAverages.candidateBusyErrors
+        filesLockRetryAttempts = $script:evidence.concurrentWriterAverages.candidateFilesLockRetryAttempts
         p95LatencyLimitUs = $normalWriteP95LimitUs
         writesSucceededWithoutErrors = $candidateConcurrentWritesSucceeded
         p95LatencyWithinLimit = $candidateConcurrentWriteLatencyMet

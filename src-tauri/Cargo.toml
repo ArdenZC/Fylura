@@ -1,6 +1,6 @@
 [package]
 name = "fylura-tauri"
-version = "0.1.40"
+version = "1.0.0"
 edition = "2021"
 default-run = "fylura"
 

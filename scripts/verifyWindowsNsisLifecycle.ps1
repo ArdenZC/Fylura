@@ -270,30 +270,57 @@ function Invoke-SecondaryUserContext([string]$Mode) {
     if (Test-Path -LiteralPath $secondaryContextResultPath) {
         Remove-Item -LiteralPath $secondaryContextResultPath -Force -ErrorAction Stop
     }
-    $credential = [System.Management.Automation.PSCredential]::new(
-        "$env:COMPUTERNAME\$secondaryUserName",
-        $secondaryUserPassword
-    )
-    $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $account = "$env:COMPUTERNAME\$secondaryUserName"
+    $taskName = "FyluraSecondaryContext_$([guid]::NewGuid().ToString('N'))"
+    $powershell = (Get-Process -Id $PID).Path
     $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$secondaryContextScriptPath`" -Mode $Mode -ExpectedSid $secondaryUserSidValue -MainBinary `"$mainBinary`" -StatePath `"$secondaryContextStatePath`" -ResultPath `"$secondaryContextResultPath`""
-    $stdoutPath = Join-Path $taskRoot "secondary-user-$Mode.stdout.log"
-    $stderrPath = Join-Path $taskRoot "secondary-user-$Mode.stderr.log"
-    $process = Start-Process -FilePath $powershell -Credential $credential -LoadUserProfile `
-        -ArgumentList $arguments -WorkingDirectory $taskRoot `
-        -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru -Wait
-    if ($process.ExitCode -ne 0) {
-        $stderr = if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
-            ([System.IO.File]::ReadAllText($stderrPath) -replace '\s+', ' ').Trim()
-        } else {
-            ''
+    $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $taskRoot
+    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+    $passwordText = $secondaryUserPassword | ConvertFrom-SecureString -AsPlainText
+    $taskRegistered = $false
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings `
+            -User $account -Password $passwordText -RunLevel Limited -Force | Out-Null
+        $taskRegistered = $true
+        $startedAt = Get-Date
+        Start-ScheduledTask -TaskName $taskName
+        $taskInfo = $null
+        for ($attempt = 0; $attempt -lt 360; $attempt++) {
+            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+            if ($task.State -ne 'Running' -and $taskInfo.LastRunTime -gt $startedAt.AddSeconds(-1)) {
+                break
+            }
+            Start-Sleep -Milliseconds 500
         }
-        if ($stderr.Length -gt 500) { $stderr = $stderr.Substring(0, 500) }
-        throw "The isolated standard-user $Mode action failed with exit code $($process.ExitCode). $stderr"
+        Assert-Condition ($taskInfo -and $taskInfo.LastRunTime -gt $startedAt.AddSeconds(-1)) "The isolated standard-user $Mode task did not start."
+        if ($taskInfo.LastTaskResult -ne 0) {
+            $failureDetail = ''
+            if (Test-Path -LiteralPath $secondaryContextResultPath -PathType Leaf) {
+                try {
+                    $contextResult = Get-Content -LiteralPath $secondaryContextResultPath -Raw | ConvertFrom-Json
+                    $failureDetail = [string]$contextResult.error
+                } catch { }
+            }
+            $failureDetail = ($failureDetail -replace '\s+', ' ').Trim()
+            if ($failureDetail.Length -gt 500) { $failureDetail = $failureDetail.Substring(0, 500) }
+            throw "The isolated standard-user $Mode task failed with result $($taskInfo.LastTaskResult). $failureDetail"
+        }
+        Assert-Condition (Test-Path -LiteralPath $secondaryContextResultPath -PathType Leaf) "The isolated standard-user $Mode action did not write evidence."
+        $result = Get-Content -LiteralPath $secondaryContextResultPath -Raw | ConvertFrom-Json
+        Assert-Condition ($result.status -eq 'PASS') "The isolated standard-user $Mode action did not report PASS."
+        return $result
     }
-    Assert-Condition (Test-Path -LiteralPath $secondaryContextResultPath -PathType Leaf) "The isolated standard-user $Mode action did not write evidence."
-    $result = Get-Content -LiteralPath $secondaryContextResultPath -Raw | ConvertFrom-Json
-    Assert-Condition ($result.status -eq 'PASS') "The isolated standard-user $Mode action did not report PASS."
-    return $result
+    finally {
+        if ($taskRegistered) {
+            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($task -and $task.State -eq 'Running') {
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            }
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+            Assert-Condition (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'The isolated standard-user context task remained after cleanup.'
+        }
+    }
 }
 
 function Invoke-CurrentUserDataCleanup([string]$MainBinary) {
@@ -691,7 +718,7 @@ connection.close()
     Assert-SecondaryProfileDataPreserved
     Record-Phase 'secondary-user-profile-fixture' @{
         otherUserFyluraDataCacheAndOrphanCredentialsSeeded = $true
-        standardUserProfileLoadedByCredentialedProcess = $true
+        standardUserContextTaskCompleted = $true
         fakeCredentialValuesRecorded = $false
     }
     $verifyDbScript = Join-Path $taskRoot 'verify-fylura-db.py'

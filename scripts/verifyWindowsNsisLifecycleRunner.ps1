@@ -114,7 +114,6 @@ try {
     Assert-Condition (Test-Path -LiteralPath $evidence -PathType Leaf) 'The isolated NSIS lifecycle task did not write evidence.'
     $document = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
     Assert-Condition ($document.status -eq 'PASS') 'The isolated NSIS lifecycle task did not report PASS evidence.'
-    Write-Output 'PASS: NSIS install, ordinary uninstall, reinstall, explicit data cleanup, credential cleanup, and other-user preservation ran in a disposable elevated profile.'
 }
 catch {
     $workerFailure = $_.Exception.Message
@@ -133,6 +132,9 @@ finally {
             }
         }
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+            $cleanupFailures.Add('The disposable lifecycle scheduled task remained after cleanup.')
+        }
     }
 
     if ($userCreated) {
@@ -169,5 +171,23 @@ if ($workerFailure) {
     throw $workerFailure
 }
 if ($cleanupFailures.Count -gt 0) {
+    if (Test-Path -LiteralPath $evidence -PathType Leaf) {
+        try {
+            $document = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+            $document.status = 'FAIL'
+            $document.phases = @($document.phases) + @(
+                [pscustomobject]@{
+                    phase = 'runner-cleanup-failed'
+                    at = [DateTime]::UtcNow.ToString('o')
+                    error = ($cleanupFailures -join ' ')
+                }
+            )
+            $document | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidence -Encoding utf8
+        }
+        catch {
+            Write-Error 'Could not update the NSIS lifecycle evidence after test-account cleanup failed.'
+        }
+    }
     throw ($cleanupFailures -join ' ')
 }
+Write-Output 'PASS: NSIS install, ordinary uninstall, reinstall, explicit data cleanup, credential cleanup, and other-user preservation ran in a disposable elevated profile.'

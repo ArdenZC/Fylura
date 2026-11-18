@@ -558,7 +558,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain(">\"$external_new\"");
     expect(verifier).toContain(" >\"$external_legacy\"");
     expect(verifier).toContain("HOME=sys.argv[2]");
-    expect(verifier).toContain("CFFIXED_USER_HOME=sys.argv[2]");
+    expect(verifier).toContain('environment.pop("CFFIXED_USER_HOME", None)');
+    expect(verifier).toContain('export CFFIXED_USER_HOME="$PROFILE_ROOT"');
     expect(verifier).toContain("Keychain selection belongs to the macOS login session");
     expect(verifier).toContain('security list-keychains -d user -s "$TEST_KEYCHAIN"');
     expect(verifier).toContain('security add-generic-password -U -A -T "$app_path"');

@@ -265,10 +265,12 @@ import sys
 environment = os.environ.copy()
 environment.update(
     HOME=sys.argv[2],
-    CFFIXED_USER_HOME=sys.argv[2],
     TMPDIR=sys.argv[3],
     FYLURA_CLEANUP_DIAGNOSTICS="1",
 )
+# Keep Security.framework in the real disposable runner login-keychain domain.
+# HOME still points at the run-scoped tree for dirs-based Fylura data paths.
+environment.pop("CFFIXED_USER_HOME", None)
 try:
     result = subprocess.run(
         [sys.argv[1], "--fylura-uninstall-clean-user-data"],

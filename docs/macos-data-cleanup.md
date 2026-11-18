@@ -8,6 +8,6 @@ The cleanup preserves `safe-trash`, `.fylura-trash`, and legacy `.zen-canvas-tra
 
 ### Acceptance status
 
-- Packaged application CLI cleanup and its Application Support, cache, Preferences, LaunchAgent, and Keychain checks: **PENDING** the Apple Silicon macOS package lifecycle job for this revision. The job uses a disposable CI account and does not exercise a graphical desktop.
+- Packaged application CLI cleanup and its Application Support, cache, Preferences, LaunchAgent, and Keychain checks: **PASS** in [CI run #44340028861](https://github.com/ArdenZC/Fylura/actions/runs/44340028861) on Apple Silicon at PR HEAD `78c90f10300581e8f2c344f5c6108a38dafb68f8`. The job uses a disposable CI account and does not exercise a graphical desktop.
 - `Uninstall Fylura Data.command` interaction (confirmation dialog, cancel, confirm, running-app block, failure message, and Chinese/English rendering): **UNVERIFIED**. These GUI states have not been observed in an interactive Apple Silicon session. They remain for the #597 installer/uninstaller visual acceptance.
 - Ordinary `.app` bundle removal in the headless packaged DMG lifecycle retaining Fylura data and preserving Finder Trash, Safe Trash, and user documents: **PASS**. The job removes its isolated copied bundle; Finder drag interaction itself is not exercised.

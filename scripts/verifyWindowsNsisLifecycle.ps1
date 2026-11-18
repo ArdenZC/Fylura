@@ -274,11 +274,22 @@ function Invoke-SecondaryUserContext([string]$Mode) {
         "$env:COMPUTERNAME\$secondaryUserName",
         $secondaryUserPassword
     )
-    $powershell = (Get-Process -Id $PID).Path
+    $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$secondaryContextScriptPath`" -Mode $Mode -ExpectedSid $secondaryUserSidValue -MainBinary `"$mainBinary`" -StatePath `"$secondaryContextStatePath`" -ResultPath `"$secondaryContextResultPath`""
+    $stdoutPath = Join-Path $taskRoot "secondary-user-$Mode.stdout.log"
+    $stderrPath = Join-Path $taskRoot "secondary-user-$Mode.stderr.log"
     $process = Start-Process -FilePath $powershell -Credential $credential -LoadUserProfile `
-        -ArgumentList $arguments -PassThru -Wait
-    Assert-Condition ($process.ExitCode -eq 0) "The isolated standard-user $Mode action failed with exit code $($process.ExitCode)."
+        -ArgumentList $arguments -WorkingDirectory $taskRoot `
+        -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru -Wait
+    if ($process.ExitCode -ne 0) {
+        $stderr = if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
+            ([System.IO.File]::ReadAllText($stderrPath) -replace '\s+', ' ').Trim()
+        } else {
+            ''
+        }
+        if ($stderr.Length -gt 500) { $stderr = $stderr.Substring(0, 500) }
+        throw "The isolated standard-user $Mode action failed with exit code $($process.ExitCode). $stderr"
+    }
     Assert-Condition (Test-Path -LiteralPath $secondaryContextResultPath -PathType Leaf) "The isolated standard-user $Mode action did not write evidence."
     $result = Get-Content -LiteralPath $secondaryContextResultPath -Raw | ConvertFrom-Json
     Assert-Condition ($result.status -eq 'PASS') "The isolated standard-user $Mode action did not report PASS."

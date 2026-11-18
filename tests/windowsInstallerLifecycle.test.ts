@@ -539,6 +539,9 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("administratorAttemptedAnotherUsersSid = $true");
     expect(verifier).toContain("uacAlternateAdministratorPromptExercised = $false");
     expect(verifier).not.toContain("Start-Process -FilePath $powershell -Credential $secondaryCredential");
+    expect(verifier).toContain("WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(verifier).toContain("-WorkingDirectory $taskRoot");
+    expect(verifier).toContain("-RedirectStandardError $stderrPath");
     expect(verifier).toContain("Assert-SecondaryProfileDataPreserved");
     expect(verifier).not.toContain("IsolatedUserChild");
     expect(verifier).toContain("$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");

@@ -165,8 +165,7 @@ impl ServiceRuntime {
         request: IndexServiceRequest,
         connection: &mut dyn IndexServiceConnection,
     ) -> Result<(), String> {
-        let service_filename_first_enabled =
-            crate::global_index::filename_first_enabled();
+        let service_filename_first_enabled = crate::global_index::filename_first_enabled();
         #[cfg(feature = "native-qa")]
         crate::global_index::qa_trace::record(&format!(
             "index_service_filename_first_mode desktop_enabled={} service_enabled={}",

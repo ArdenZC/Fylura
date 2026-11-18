@@ -522,6 +522,7 @@ fn migrate_legacy_profile_credentials(
     Ok(())
 }
 
+#[cfg_attr(feature = "native-qa", allow(dead_code))]
 pub(crate) fn current_custom_profile_ids(
     database_path: &std::path::Path,
 ) -> Result<Vec<String>, String> {
@@ -587,6 +588,7 @@ pub(crate) fn current_custom_profile_ids(
     Ok(ids)
 }
 
+#[cfg_attr(feature = "native-qa", allow(dead_code))]
 pub(crate) fn clear_current_ai_credentials_for_profiles(
     credentials: &impl CredentialStore,
     profile_ids: &[String],

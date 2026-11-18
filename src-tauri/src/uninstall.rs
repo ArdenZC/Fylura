@@ -1,10 +1,16 @@
 //! Explicit, current-user-only application-data cleanup used by native
 //! uninstall helpers. Safe Trash contains user files and is always retained.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
+
+#[cfg(any(
+    test,
+    all(
+        any(target_os = "windows", target_os = "macos"),
+        not(feature = "native-qa")
+    )
+))]
+use std::path::PathBuf;
 
 const APP_IDENTIFIER: &str = "com.startlan.fylura";
 const DATABASE_NAME: &str = "fylura.sqlite3";

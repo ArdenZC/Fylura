@@ -540,6 +540,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("-User $account -Password $passwordText -RunLevel Limited");
     expect(verifier).toContain("lastTaskResult=$lastResult");
     expect(verifier).toContain("phase = 'cleanup-failed'");
+    expect(verifier).toContain("secondary-user-profile-retained-until-vm-teardown");
+    expect(verifier).toContain("The disposable standard-user test account remained after cleanup.");
     expect(verifier).toContain("standardUserContextTaskCompleted = $true");
     expect(verifier).toContain("--fylura-uninstall-worker-cleanup");
     expect(verifier).toContain("administratorAttemptedAnotherUsersSid = $true");

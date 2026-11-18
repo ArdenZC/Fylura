@@ -1069,11 +1069,24 @@ finally {
         }
         if ($secondaryUserCreated) {
             Remove-LocalUser -Name $secondaryUserName -ErrorAction SilentlyContinue
+            if (Get-LocalUser -Name $secondaryUserName -ErrorAction SilentlyContinue) {
+                throw 'The disposable standard-user test account remained after cleanup.'
+            }
+            $secondaryUserCreated = $false
         }
         if ($secondaryProfileRootCreated -and (Test-Path -LiteralPath $secondaryProfilePath)) {
-            Remove-Item -LiteralPath $secondaryProfilePath -Recurse -Force -ErrorAction Stop
-            if (Test-Path -LiteralPath $secondaryProfilePath) {
-                throw 'The task-owned secondary profile fixture remained after cleanup.'
+            if ($secondaryProfile -and $secondaryProfile.Loaded) {
+                Write-Warning 'The disposable standard-user profile hive is still mounted; its isolated profile directory is retained until GitHub-hosted VM teardown.'
+                Record-Phase 'secondary-user-profile-retained-until-vm-teardown' @{
+                    disposableVm = $true
+                    profileHiveStillMounted = $true
+                    testAccountRemoved = $true
+                }
+            } else {
+                Remove-Item -LiteralPath $secondaryProfilePath -Recurse -Force -ErrorAction Stop
+                if (Test-Path -LiteralPath $secondaryProfilePath) {
+                    throw 'The task-owned secondary profile fixture remained after cleanup.'
+                }
             }
         }
         if ($appDataFixtureCreated) {

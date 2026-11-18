@@ -533,6 +533,11 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura cache or logs.");
     expect(verifier).toContain("$seedOutput = @(& $python $seedDbScript $sentinels.currentDatabase 2>&1)");
     expect(verifier).toContain("$seedError = ($seedOutput | Out-String).Trim()");
+    const sentinelSeedStart = verifier.indexOf("foreach ($entry in $sentinels.GetEnumerator()) {");
+    const sentinelSeedEnd = verifier.indexOf("$python =", sentinelSeedStart);
+    expect(verifier.slice(sentinelSeedStart, sentinelSeedEnd)).toContain(
+      "if ($entry.Key -eq 'currentDatabase') { continue }",
+    );
   });
 
   it("runs the NSIS lifecycle worker in a disposable elevated Windows profile", () => {

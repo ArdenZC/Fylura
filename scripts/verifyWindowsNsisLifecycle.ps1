@@ -336,6 +336,7 @@ try {
         appCache = Join-Path $cacheLogsDir 'app.log'
     }
     foreach ($entry in $sentinels.GetEnumerator()) {
+        if ($entry.Key -eq 'currentDatabase') { continue }
         [System.IO.File]::WriteAllText($entry.Value, "task-owned $($entry.Key) sentinel")
     }
     $python = [System.IO.Path]::GetFullPath($PythonPath)

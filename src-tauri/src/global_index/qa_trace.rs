@@ -7,7 +7,7 @@ static TRACE_FILE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::O
 
 #[cfg(feature = "native-qa")]
 thread_local! {
-    static FILE_UPSERT_LOCK_RETRY_SAMPLE: std::cell::Cell<u64> = std::cell::Cell::new(0);
+    static FILE_UPSERT_LOCK_RETRY_SAMPLE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(feature = "native-qa")]

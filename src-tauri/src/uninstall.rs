@@ -459,7 +459,7 @@ mod windows_uninstall {
     }
 
     fn language_is_chinese() -> bool {
-        use windows_sys::Win32::System::SystemInformation::GetUserDefaultUILanguage;
+        use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
         unsafe { GetUserDefaultUILanguage() & 0x03ff == 0x0004 }
     }
 

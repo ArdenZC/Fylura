@@ -375,14 +375,6 @@ try {
     )
     $installAcl.AddAccessRule($secondaryReadAccess)
     Set-Acl -LiteralPath $installDir -AclObject $installAcl
-    $mainBinaryAcl = Get-Acl -LiteralPath $mainBinary
-    $mainBinaryReadAccess = [System.Security.AccessControl.FileSystemAccessRule]::new(
-        $secondaryAccount,
-        [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
-        [System.Security.AccessControl.AccessControlType]::Allow
-    )
-    $mainBinaryAcl.AddAccessRule($mainBinaryReadAccess)
-    Set-Acl -LiteralPath $mainBinary -AclObject $mainBinaryAcl
     $secondaryContextScriptPath = Join-Path $taskRoot 'secondary-user-context.ps1'
     $secondaryContextStatePath = Join-Path $taskRoot 'secondary-user-context-state.json'
     $secondaryContextResultPath = Join-Path $taskRoot 'secondary-user-context-result.json'
@@ -607,6 +599,14 @@ catch {
     $uninstaller = Join-Path $installDir 'uninstall.exe'
     Assert-Condition (Test-Path -LiteralPath $mainBinary -PathType Leaf) 'Fresh install did not publish fylura.exe.'
     Assert-Condition (Test-Path -LiteralPath $uninstaller -PathType Leaf) 'Fresh install did not publish uninstall.exe.'
+    $mainBinaryAcl = Get-Acl -LiteralPath $mainBinary
+    $mainBinaryReadAccess = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $secondaryAccount,
+        [System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+        [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    $mainBinaryAcl.AddAccessRule($mainBinaryReadAccess)
+    Set-Acl -LiteralPath $mainBinary -AclObject $mainBinaryAcl
     $freshEntries = @(Get-FyluraUninstallEntries)
     Assert-Condition ($freshEntries.Count -eq 1) "Fresh install created $($freshEntries.Count) Fylura uninstall entries; expected exactly one."
     $registrationPath = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($freshEntries[0].key)"
@@ -886,11 +886,18 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
     Save-Evidence
 }
 catch {
+    $errorRecord = $_
     $script:overallStatus = 'FAIL'
     $evidence.Add([ordered]@{
         phase = 'failed'
         at = [DateTime]::UtcNow.ToString('o')
-        error = $_.Exception.Message
+        error = $errorRecord.Exception.Message
+        script = if ($errorRecord.InvocationInfo.ScriptName) {
+            Split-Path -Leaf $errorRecord.InvocationInfo.ScriptName
+        } else {
+            'verifyWindowsNsisLifecycle.ps1'
+        }
+        scriptLine = $errorRecord.InvocationInfo.ScriptLineNumber
     })
     Save-Evidence
     throw

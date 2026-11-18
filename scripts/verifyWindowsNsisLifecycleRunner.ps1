@@ -129,9 +129,21 @@ try {
         $evidenceSummary = ''
         if (Test-Path -LiteralPath $evidence -PathType Leaf) {
             $document = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
-            $failure = @($document.phases | Where-Object { $_.phase -eq 'failed' } | Select-Object -Last 1)
-            if ($failure.Count -gt 0 -and $failure[0].error) {
-                $evidenceSummary = ": $($failure[0].error)"
+            $phases = @($document.phases)
+            $failure = @($phases | Where-Object { $_.phase -eq 'failed' } | Select-Object -Last 1)
+            if ($failure.Count -gt 0) {
+                $previous = @($phases | Where-Object { $_.phase -ne 'failed' } | Select-Object -Last 1)
+                if ($previous.Count -gt 0) {
+                    $evidenceSummary = " after phase '$($previous[0].phase)'"
+                }
+                if ($failure[0].script -and $failure[0].scriptLine) {
+                    $evidenceSummary += " at $($failure[0].script):$($failure[0].scriptLine)"
+                }
+                if ($failure[0].error) {
+                    $errorDetail = ([string]$failure[0].error -replace '\s+', ' ').Trim()
+                    if ($errorDetail.Length -gt 500) { $errorDetail = $errorDetail.Substring(0, 500) }
+                    $evidenceSummary += ": $errorDetail"
+                }
             }
         } elseif (Test-Path -LiteralPath $workerLog -PathType Leaf) {
             $workerError = ([System.IO.File]::ReadAllText($workerLog) -replace '\s+', ' ').Trim()

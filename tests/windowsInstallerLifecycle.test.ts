@@ -586,6 +586,12 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('cmdkey.exe" /list 2>&1');
     expect(verifier).toContain("LegacyGeneric:target=");
     expect(verifier).toContain("candidate.Equals($Target, [StringComparison]::OrdinalIgnoreCase)");
+    expect(verifier.indexOf("$mainBinaryAcl = Get-Acl -LiteralPath $mainBinary")).toBeGreaterThan(
+      verifier.indexOf("$freshExitCode = Invoke-Installer $installer"),
+    );
+    expect(verifier).toContain("scriptLine = $errorRecord.InvocationInfo.ScriptLineNumber");
+    expect(runner).toContain("after phase '$($previous[0].phase)'");
+    expect(runner).toContain(" at $($failure[0].script):$($failure[0].scriptLine)");
   });
 
   it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {

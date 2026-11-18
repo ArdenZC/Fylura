@@ -243,8 +243,8 @@ ensure_owned_fixture_directory() {
     "$PROFILE_ROOT"/*) ;;
     *) echo "Refusing a fixture directory outside the disposable runner home: $target" >&2; return 1 ;;
   esac
-  prefix_length=$((${#PROFILE_ROOT} + 1))
-  relative_target="${target:prefix_length}"
+  prefix_length=$((${#PROFILE_ROOT} + 2))
+  relative_target="$(printf '%s' "$target" | cut -c "$prefix_length"-)"
   IFS='/' read -r -a components <<<"$relative_target"
   current="$PROFILE_ROOT"
   for component in "${components[@]}"; do

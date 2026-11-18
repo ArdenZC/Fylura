@@ -209,15 +209,9 @@ try {
     Add-LocalGroupMember -Group 'Users' -Member $secondaryUserName
     $secondaryUserSidValue = (Get-LocalUser -Name $secondaryUserName).SID.Value
     $secondaryCredential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$secondaryUserName", $secondaryUserPassword)
-    $profileWarmupScript = Join-Path $taskRoot 'load-secondary-profile.ps1'
-    @'
-$null = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
-$null = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
-'@ | Set-Content -LiteralPath $profileWarmupScript -Encoding ascii
     $powershell = (Get-Process -Id $PID).Path
     $profileWarmup = Start-Process -FilePath $powershell -Credential $secondaryCredential -LoadUserProfile `
-        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$profileWarmupScript`"") `
-        -WorkingDirectory $taskRoot -Wait -PassThru
+        -ArgumentList @('-NoProfile', '-Command', 'exit 0') -WorkingDirectory $env:SystemRoot -Wait -PassThru
     Assert-Condition ($profileWarmup.ExitCode -eq 0) 'Could not initialize the task-owned secondary Windows user profile.'
     $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction Stop |
         Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1

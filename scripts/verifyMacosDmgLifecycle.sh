@@ -202,11 +202,7 @@ preflight_profile_paths() {
     echo "The disposable runner's Keychains directory is missing; refusing to create a replacement." >&2
     return 1
   }
-  python3 - "$PROFILE_ROOT" \
-    "$APP_SUPPORT_ROOT" "$LEGACY_DATA_ROOT" "$CACHE_ROOT" "$PREFERENCES_PATH" \
-    "$LOGS_ROOT" "$LAUNCH_AGENT_PATH" "$DOCUMENTS_SAFE_TRASH" \
-    "$DOCUMENTS_LEGACY_TRASH" "$FINDER_TRASH_FILE" \
-    "$PROFILE_ROOT/Library/Keychains/fylura-test-$RUN_ID.keychain-db" <<'PY'
+  python3 - "$PROFILE_ROOT" "$APP_SUPPORT_ROOT" "$LEGACY_DATA_ROOT" "$CACHE_ROOT" "$PREFERENCES_PATH" "$LOGS_ROOT" "$LAUNCH_AGENT_PATH" "$DOCUMENTS_SAFE_TRASH" "$DOCUMENTS_LEGACY_TRASH" "$FINDER_TRASH_FILE" "$PROFILE_ROOT/Library/Keychains/fylura-test-$RUN_ID.keychain-db" <<'PY'
 import os
 import sys
 

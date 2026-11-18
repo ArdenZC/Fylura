@@ -2,11 +2,22 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InstallerPath,
     [Parameter(Mandatory = $true)]
-    [string]$EvidencePath
+    [string]$EvidencePath,
+    [switch]$IsolatedUserChild,
+    [string]$QaRunnerTemp,
+    [string]$QaRunId,
+    [string]$QaSourceSha
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($IsolatedUserChild) {
+    $env:RUNNER_TEMP = $QaRunnerTemp
+    $env:GITHUB_RUN_ID = $QaRunId
+    $env:GITHUB_SHA = $QaSourceSha
+    $env:GITHUB_ACTIONS = 'true'
+}
 
 $installer = [System.IO.Path]::GetFullPath($InstallerPath)
 $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')
@@ -153,6 +164,94 @@ function Remove-TaskOwnedLegacyService {
     $script:legacyServiceCreated = $false
 }
 
+if (-not $IsolatedUserChild) {
+    Assert-Condition ($env:GITHUB_ACTIONS -eq 'true') 'This destructive lifecycle verifier must run only on an isolated GitHub Actions Windows VM.'
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    Assert-Condition $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'Isolated NSIS lifecycle setup requires the disposable runner to be elevated.'
+
+    $qaName = 'FyluraU_' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+    $qaPassword = ConvertTo-SecureString (([guid]::NewGuid().ToString('N')) + 'aA1!') -AsPlainText -Force
+    $qaRoot = Join-Path $runnerTemp "fylura-nsis-user-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+    $qaTemp = Join-Path $qaRoot 'runner-temp'
+    $childEvidence = Join-Path $qaRoot 'lifecycle-evidence.json'
+    $childInstaller = Join-Path $qaRoot 'fylura-installer.exe'
+    $childScript = Join-Path $qaRoot 'verifyWindowsNsisLifecycle.ps1'
+    $qaUserCreated = $false
+    $qaUserSid = $null
+
+    try {
+        Assert-Condition (-not (Test-Path -LiteralPath $qaRoot)) "Refusing pre-existing isolated lifecycle root: $qaRoot"
+        New-Item -ItemType Directory -Path $qaRoot | Out-Null
+        New-Item -ItemType Directory -Path $qaTemp | Out-Null
+        $qaAcl = Get-Acl -LiteralPath $qaRoot
+
+        New-LocalUser -Name $qaName -Password $qaPassword -PasswordNeverExpires -AccountNeverExpires `
+            -Description 'Isolated administrator for Fylura NSIS lifecycle QA' | Out-Null
+        $qaUserCreated = $true
+        Add-LocalGroupMember -Group 'Administrators' -Member $qaName
+        $qaUserSid = (Get-LocalUser -Name $qaName).SID.Value
+        $qaRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $qaUserSid,
+            'FullControl',
+            'ContainerInherit,ObjectInherit',
+            'None',
+            'Allow'
+        )
+        $qaAcl.AddAccessRule($qaRule)
+        Set-Acl -LiteralPath $qaRoot -AclObject $qaAcl
+        Copy-Item -LiteralPath $installer -Destination $childInstaller
+        Copy-Item -LiteralPath $PSCommandPath -Destination $childScript
+
+        $qaCredential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$qaName", $qaPassword)
+        $powershell = (Get-Process -Id $PID).Path
+        $childArguments = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$childScript`"",
+            '-InstallerPath', "`"$childInstaller`"",
+            '-EvidencePath', "`"$childEvidence`"",
+            '-IsolatedUserChild',
+            '-QaRunnerTemp', "`"$qaTemp`"",
+            '-QaRunId', $env:GITHUB_RUN_ID,
+            '-QaSourceSha', $env:GITHUB_SHA
+        )
+        $child = Start-Process -FilePath $powershell -Credential $qaCredential -LoadUserProfile `
+            -ArgumentList $childArguments -WorkingDirectory $qaRoot -Wait -PassThru `
+            -RedirectStandardOutput (Join-Path $qaRoot 'child.stdout.log') `
+            -RedirectStandardError (Join-Path $qaRoot 'child.stderr.log')
+
+        if (Test-Path -LiteralPath $childEvidence -PathType Leaf) {
+            $evidenceParent = Split-Path -Parent $EvidencePath
+            if ($evidenceParent) { New-Item -ItemType Directory -Path $evidenceParent -Force | Out-Null }
+            Copy-Item -LiteralPath $childEvidence -Destination $EvidencePath -Force
+        }
+        if ($child.ExitCode -ne 0) {
+            $stderrPath = Join-Path $qaRoot 'child.stderr.log'
+            $stderr = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Tail 30) -join [Environment]::NewLine } else { '' }
+            throw "Isolated NSIS lifecycle process failed with exit code $($child.ExitCode). $stderr"
+        }
+        Assert-Condition (Test-Path -LiteralPath $EvidencePath -PathType Leaf) 'Isolated NSIS lifecycle process did not produce evidence.'
+        $result = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
+        Assert-Condition ($result.status -eq 'PASS') 'Isolated NSIS lifecycle evidence did not report PASS.'
+        Write-Host "Windows NSIS lifecycle passed in isolated administrator profile $env:COMPUTERNAME\$qaName."
+    }
+    finally {
+        if ($qaUserSid) {
+            $qaProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
+                Where-Object { $_.SID -eq $qaUserSid }
+            if ($qaProfile -and -not $qaProfile.Loaded) {
+                $qaProfile | Remove-CimInstance -ErrorAction SilentlyContinue
+            }
+        }
+        if ($qaUserCreated) {
+            Remove-LocalUser -Name $qaName -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $qaRoot) {
+            Remove-Item -LiteralPath $qaRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    return
+}
+
 try {
     Assert-Condition ($env:GITHUB_ACTIONS -eq 'true') 'This destructive lifecycle verifier must run only on an isolated GitHub Actions Windows VM.'
     Assert-Condition ([System.IO.Path]::IsPathFullyQualified($profileRoot) -and [System.IO.Path]::IsPathFullyQualified($localProfileRoot)) 'Windows returned an invalid current-user app-data path.'
@@ -179,6 +278,7 @@ try {
         installDir = $installDir
         appDataRoot = $currentDataDir
         localAppDataRoot = $currentCacheDir
+        isolatedTestUser = $IsolatedUserChild
         administrator = $true
         existingFyluraProducts = 0
         existingLegacyService = $false

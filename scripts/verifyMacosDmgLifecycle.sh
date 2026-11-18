@@ -217,8 +217,8 @@ PY
   printf '%s\n' 'real file in current app-data Safe Trash' >"$safe_new"
   printf '%s\n' 'real file in legacy app-data Safe Trash' >"$safe_legacy"
   printf '%s\n' 'real file in named app-data Safe Trash' >"$safe_named"
-  printf '%s\n' 'real file in user Documents Safe Trash' >"$external_new/user-file.txt"
-  printf '%s\n' 'real file in legacy user Documents Safe Trash' >"$external_legacy/user-file.txt"
+  printf '%s\n' 'real file in user Documents Safe Trash' >"$external_new"
+  printf '%s\n' 'real file in legacy user Documents Safe Trash' >"$external_legacy"
   printf '%s\n' 'real file in Finder Trash' >"$finder_trash_file"
   printf '%s\n' 'legacy development data' >"$LEGACY_DATA_ROOT/legacy-development-data.sentinel"
   python3 - "$LAUNCH_AGENT_PATH" "$cleanup_binary" <<'PY'

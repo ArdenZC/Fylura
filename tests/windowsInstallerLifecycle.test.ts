@@ -84,6 +84,11 @@ const nsisLifecycleRuntimeScriptPath = path.join(
   "scripts",
   "verifyWindowsNsisLifecycle.ps1",
 );
+const macosDmgLifecycleRuntimeScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyMacosDmgLifecycle.sh",
+);
 
 function sectionBody(source: string, sectionName: string) {
   const start = source.indexOf(`Section ${sectionName}`);
@@ -499,17 +504,31 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(executableDelete).toBeGreaterThan(cleanup);
   });
 
-  it("runs destructive uninstall verification only against a fresh Windows CI profile", () => {
+  it("runs destructive uninstall verification only in a task-owned Windows test profile", () => {
     const verifier = fs.readFileSync(
-      path.join(repositoryRoot, "scripts", "verifyWindowsNsisLifecycle.ps1"),
+      nsisLifecycleRuntimeScriptPath,
       "utf8",
     );
 
     expect(verifier).toContain("$env:GITHUB_ACTIONS -eq 'true'");
+    expect(verifier).toContain("[switch]$IsolatedUserChild");
+    expect(verifier).toContain("New-LocalUser -Name $qaName");
+    expect(verifier).toContain("-Credential $qaCredential -LoadUserProfile");
+    expect(verifier).toContain("isolatedTestUser = $IsolatedUserChild");
+    expect(verifier).toContain("$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");
     expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)");
     expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)");
     expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura application data.");
     expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura cache or logs.");
+  });
+
+  it("seeds macOS Safe Trash as files under the isolated profile paths", () => {
+    const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
+
+    expect(verifier).toContain(">\"$external_new\"");
+    expect(verifier).toContain(" >\"$external_legacy\"");
+    expect(verifier).not.toContain("$external_new/user-file.txt");
+    expect(verifier).not.toContain("$external_legacy/user-file.txt");
   });
 
   it("keeps the Windows COM identity stable and refuses to adopt the old preview registration", () => {

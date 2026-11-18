@@ -549,6 +549,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(runner).toContain("FileSystemAccessRule]::new");
     expect(runner).toContain("worker-error.log");
     expect(runner).toContain("The isolated lifecycle worker ended without writing evidence or an error log.");
+    expect(runner).toContain("-TaskWorker -RunnerTemp $literalRunnerTemp -RunId $literalRunId -SourceSha $literalSourceSha -PythonPath $literalPythonPath");
     expect(runner).toContain("Unregister-ScheduledTask");
     expect(runner).toContain("Remove-LocalUser -Name $userName");
     expect(verifier).toContain("[switch]$TaskWorker");

@@ -87,9 +87,7 @@ try {
     $literalWorkerLog = ConvertTo-PSLiteral $workerLog
     $workerCommand = @"
 try {
-    & $literalWorker -InstallerPath $literalInstaller -EvidencePath $literalEvidence -TaskWorker `
-        -RunnerTemp $literalRunnerTemp -RunId $literalRunId -SourceSha $literalSourceSha `
-        -PythonPath $literalPythonPath
+    & $literalWorker -InstallerPath $literalInstaller -EvidencePath $literalEvidence -TaskWorker -RunnerTemp $literalRunnerTemp -RunId $literalRunId -SourceSha $literalSourceSha -PythonPath $literalPythonPath
     exit 0
 } catch {
     `$message = `$_.Exception.Message

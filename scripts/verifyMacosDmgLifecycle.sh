@@ -280,47 +280,15 @@ PY
 }
 
 run_explicit_data_cleanup() {
-  local output status cleanup_binary="$INSTALLED_APP/Contents/MacOS/$executable_name"
+  local status cleanup_binary="$INSTALLED_APP/Contents/MacOS/$executable_name"
+  local output_path="$TEMP_ROOT/explicit-cleanup-output.log"
   echo "Starting explicit Fylura user-data cleanup."
-  if output="$(python3 - "$cleanup_binary" "$TEMP_ROOT" <<'PY'
-import os
-import subprocess
-import sys
-
-environment = os.environ.copy()
-environment.update(
-    TMPDIR=sys.argv[2],
-    FYLURA_CLEANUP_DIAGNOSTICS="1",
-)
-# Use the disposable runner's real login account so Security.framework sees
-# the same default Keychain that the security CLI configured for this test.
-try:
-    result = subprocess.run(
-        [sys.argv[1], "--fylura-uninstall-clean-user-data"],
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-except subprocess.TimeoutExpired as error:
-    output = error.stdout or ""
-    if isinstance(output, bytes):
-        output = output.decode("utf-8", errors="replace")
-    print(output, end="")
-    print("Fylura explicit user-data cleanup timed out after 180 seconds.", file=sys.stderr)
-    raise SystemExit(124)
-
-print(result.stdout, end="")
-raise SystemExit(result.returncode)
-PY
-  )"; then
+  if python3 "$SCRIPT_DIR/runMacosExplicitCleanup.py" "$cleanup_binary" "$TEMP_ROOT" >"$output_path" 2>&1; then
     DATA_CLEANUP="VERIFYING"
     echo "Fylura's data cleanup command returned successfully; verifying the remaining paths."
   else
     status=$?
-    printf '%s\n' "$output" >&2
+    cat "$output_path" >&2
     echo "Fylura's explicit data cleanup command failed with exit code $status." >&2
     DATA_CLEANUP="FAIL"
     return 1

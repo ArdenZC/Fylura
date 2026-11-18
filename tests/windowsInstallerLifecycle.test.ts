@@ -554,6 +554,7 @@ describe("W4-04 package NSIS lifecycle", () => {
   it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {
     const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
     const preflight = fs.readFileSync(path.join(repositoryRoot, "scripts", "verifyMacosUserProfilePreflight.py"), "utf8");
+    const cleanupRunner = fs.readFileSync(path.join(repositoryRoot, "scripts", "runMacosExplicitCleanup.py"), "utf8");
     const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
@@ -565,6 +566,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("preflight_profile_paths");
     expect(verifier).toContain("APP_PROFILE_ROOTS_OWNED=1");
     expect(verifier).toContain('python3 "$SCRIPT_DIR/verifyMacosUserProfilePreflight.py"');
+    expect(verifier).toContain('python3 "$SCRIPT_DIR/runMacosExplicitCleanup.py"');
     expect(preflight).toContain("os.path.commonpath((home, path)) != home");
     expect(preflight).toContain("os.path.islink(current)");
     expect(preflight).toContain("os.path.lexists(path)");
@@ -572,16 +574,15 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('FINDER_TRASH_FILE="$FINDER_TRASH/fylura-qa-$RUN_ID.txt"');
     expect(verifier).toContain(">\"$external_new\"");
     expect(verifier).toContain(" >\"$external_legacy\"");
-    expect(verifier).toContain("Use the disposable runner's real login account");
     expect(verifier).toContain('security list-keychains -d user -s "$TEST_KEYCHAIN"');
     expect(verifier).toContain('security add-generic-password -U -A -T "$app_path"');
-    expect(verifier).toContain('environment.update(\n    TMPDIR=sys.argv[2],');
     expect(verifier).not.toContain("HOME=sys.argv[2]");
     expect(verifier).not.toContain('export CFFIXED_USER_HOME=');
+    expect(cleanupRunner).toContain('environment["TMPDIR"] = sys.argv[2]');
+    expect(cleanupRunner).toContain('environment["FYLURA_CLEANUP_DIAGNOSTICS"] = "1"');
+    expect(cleanupRunner).toContain("timeout=180");
     expect(verifier).toContain('rmdir "$fixture_directory"');
     expect(verifier).not.toContain("OWNED_FIXTURE_DIRECTORIES");
-    expect(verifier).toContain('timeout=180');
-    expect(verifier).toContain('FYLURA_CLEANUP_DIAGNOSTICS');
     expect(verifier).not.toContain("$external_new/user-file.txt");
     expect(verifier).not.toContain("$external_legacy/user-file.txt");
   });

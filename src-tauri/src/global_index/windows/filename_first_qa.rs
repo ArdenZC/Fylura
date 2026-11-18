@@ -340,7 +340,7 @@ pub fn run_initial(
         .ok_or("qualification fixture path is not nested under a bucket directory")?;
     let durable_connection = db.conn()?;
     let database_path = profile.join("fylura.sqlite3");
-    let filename_first = crate::global_index::filename_first_experimental_enabled();
+    let filename_first = crate::global_index::filename_first_enabled();
     let started = Instant::now();
     let concurrent_writer_stop = Arc::new(AtomicBool::new(false));
     let concurrent_writer_db = db.clone();

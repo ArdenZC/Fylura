@@ -628,7 +628,7 @@ impl DatabaseIndexSink {
     }
 
     fn should_defer_initial_mft(&self, volume_id: &str) -> bool {
-        super::filename_first_experimental_enabled()
+        super::filename_first_enabled()
             && self
                 .operation_context
                 .get(volume_id)

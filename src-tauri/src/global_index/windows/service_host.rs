@@ -166,7 +166,7 @@ impl ServiceRuntime {
         connection: &mut dyn IndexServiceConnection,
     ) -> Result<(), String> {
         let service_filename_first_enabled =
-            crate::global_index::filename_first_experimental_enabled();
+            crate::global_index::filename_first_enabled();
         #[cfg(feature = "native-qa")]
         crate::global_index::qa_trace::record(&format!(
             "index_service_filename_first_mode desktop_enabled={} service_enabled={}",
@@ -183,7 +183,7 @@ impl ServiceRuntime {
                 false,
                 Some("index_filename_first_config_mismatch"),
                 Some(format!(
-                    "desktop filename-first opt-in ({}) does not match installed service opt-in ({})",
+                    "desktop filename-first mode ({}) does not match installed service mode ({})",
                     request.filename_first_enabled, service_filename_first_enabled
                 )),
                 Some(crate::global_index::models::INDEX_STATUS_ERROR.to_string()),
@@ -294,7 +294,7 @@ impl ServiceRuntime {
                     )
                 })?;
             self.set_state("indexing", None);
-            let filename_first_enabled = crate::global_index::filename_first_experimental_enabled();
+            let filename_first_enabled = crate::global_index::filename_first_enabled();
             let defer_initial_mft_metadata =
                 should_defer_initial_mft_metadata(&command, filename_first_enabled);
             let mut sink = PipeSink {
@@ -1076,7 +1076,7 @@ mod tests {
     }
 
     #[test]
-    fn filename_first_service_mode_requires_identical_desktop_and_scm_opt_ins() {
+    fn filename_first_service_mode_requires_identical_desktop_and_scm_modes() {
         for (desktop, service, expected_match) in [
             (false, false, true),
             (true, true, true),
@@ -1093,7 +1093,7 @@ mod tests {
 
     #[test]
     fn service_host_rejects_mismatched_index_commands_before_any_side_effect() {
-        let service_mode = crate::global_index::filename_first_experimental_enabled();
+        let service_mode = crate::global_index::filename_first_enabled();
         let source = authorized_test_source();
 
         for command in [
@@ -1145,7 +1145,7 @@ mod tests {
 
     #[test]
     fn status_and_pause_remain_available_when_filename_first_modes_differ() {
-        let service_mode = crate::global_index::filename_first_experimental_enabled();
+        let service_mode = crate::global_index::filename_first_enabled();
         let calls = ProviderCalls::default();
         let runtime = ServiceRuntime::with_provider(Box::new(CountingProvider(calls.clone())));
 
@@ -1162,7 +1162,7 @@ mod tests {
             let mut connection = CapturedResponseConnection::default();
             runtime
                 .handle_request(request, &mut connection)
-                .expect("mismatched opt-in must not block control commands");
+                .expect("mismatched mode must not block control commands");
 
             let response = connection.0.expect("service response");
             assert!(response.ok);
@@ -1192,7 +1192,7 @@ mod tests {
         let mut connection = CapturedResponseConnection::default();
         runtime
             .handle_request(status_after_pause, &mut connection)
-            .expect("status remains available after pause with mismatched opt-in");
+            .expect("status remains available after pause with mismatched mode");
         let response = connection.0.expect("status response");
         assert!(response.ok);
         assert_eq!(response.status.as_deref(), Some(INDEX_STATUS_PAUSED));

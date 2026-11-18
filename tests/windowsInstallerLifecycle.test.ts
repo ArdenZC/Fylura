@@ -555,6 +555,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
     const preflight = fs.readFileSync(path.join(repositoryRoot, "scripts", "verifyMacosUserProfilePreflight.py"), "utf8");
     const cleanupRunner = fs.readFileSync(path.join(repositoryRoot, "scripts", "runMacosExplicitCleanup.py"), "utf8");
+    const aiSettings = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "src", "ai", "settings.rs"),
+      "utf8",
+    );
     const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
@@ -581,6 +585,11 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(cleanupRunner).toContain('environment["TMPDIR"] = sys.argv[2]');
     expect(cleanupRunner).toContain('environment["FYLURA_CLEANUP_DIAGNOSTICS"] = "1"');
     expect(cleanupRunner).toContain("timeout=180");
+    expect(aiSettings).toContain('Command::new("/usr/bin/security")');
+    expect(aiSettings).toContain('"default-keychain", "-d", "user"');
+    expect(aiSettings).toContain('"delete-generic-password"');
+    expect(aiSettings).toContain("macos_keychain_has_credential");
+    expect(aiSettings).toContain("Duration::from_secs(15)");
     expect(verifier).toContain('rmdir "$fixture_directory"');
     expect(verifier).not.toContain("OWNED_FIXTURE_DIRECTORIES");
     expect(verifier).not.toContain("$external_new/user-file.txt");

@@ -608,9 +608,8 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
     })?;
     credential_cleanup_checkpoint("verify-main-item");
     if credentials
-        .get()
+        .has_credential()
         .map_err(|_| "could not verify Fylura AI credential removal".to_string())?
-        .is_some()
     {
         return Err("Fylura AI credential remains after cleanup".to_string());
     }
@@ -622,9 +621,8 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
         })?;
         credential_cleanup_checkpoint("verify-profile-item");
         if credentials
-            .get_profile(profile_id)
+            .has_profile_credential(profile_id)
             .map_err(|_| "could not verify a Fylura AI profile credential removal".to_string())?
-            .is_some()
         {
             return Err("a Fylura AI profile credential remains after cleanup".to_string());
         }
@@ -731,6 +729,10 @@ pub trait CredentialStore {
     fn get(&self) -> Result<Option<String>, String>;
     fn delete(&self) -> Result<(), String>;
 
+    fn has_credential(&self) -> Result<bool, String> {
+        Ok(self.get()?.is_some())
+    }
+
     fn set_profile(&self, _profile_id: &str, value: &str) -> Result<(), String> {
         self.set(value)
     }
@@ -741,6 +743,10 @@ pub trait CredentialStore {
 
     fn delete_profile(&self, _profile_id: &str) -> Result<(), String> {
         self.delete()
+    }
+
+    fn has_profile_credential(&self, profile_id: &str) -> Result<bool, String> {
+        Ok(self.get_profile(profile_id)?.is_some())
     }
 
     fn get_legacy(&self) -> Result<Option<String>, String> {
@@ -885,6 +891,102 @@ fn legacy_profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, S
     .map_err(|error| format!("failed to open legacy custom provider credential store: {error}"))
 }
 
+#[cfg(target_os = "macos")]
+fn macos_keychain_command(arguments: &[&str]) -> Result<std::process::Output, String> {
+    use std::{
+        process::{Command, Stdio},
+        thread,
+        time::Duration,
+    };
+
+    let mut child = Command::new("/usr/bin/security")
+        .args(arguments)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "could not start the macOS Keychain utility".to_string())?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if started.elapsed() < Duration::from_secs(15) => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("macOS Keychain operation timed out".to_string());
+            }
+        }
+    }
+    child
+        .wait_with_output()
+        .map_err(|_| "could not read the macOS Keychain utility result".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_item_was_not_found(output: &std::process::Output) -> bool {
+    String::from_utf8_lossy(&output.stderr)
+        .to_ascii_lowercase()
+        .contains("item could not be found in the keychain")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_user_default_keychain() -> Result<String, String> {
+    let output = macos_keychain_command(&["default-keychain", "-d", "user"])?;
+    if !output.status.success() {
+        return Err("could not identify the current user's default Keychain".to_string());
+    }
+    let value = String::from_utf8(output.stdout)
+        .map_err(|_| "could not identify the current user's default Keychain".to_string())?;
+    let value = value.trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .unwrap_or(value);
+    if value.is_empty() || !std::path::Path::new(value).is_absolute() {
+        return Err("could not identify the current user's default Keychain".to_string());
+    }
+    Ok(value.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_has_credential(service: &str, account: &str) -> Result<bool, String> {
+    let keychain = macos_user_default_keychain()?;
+    let output = macos_keychain_command(&[
+        "find-generic-password",
+        "-s",
+        service,
+        "-a",
+        account,
+        &keychain,
+    ])?;
+    if output.status.success() {
+        return Ok(true);
+    }
+    if macos_keychain_item_was_not_found(&output) {
+        return Ok(false);
+    }
+    Err("could not verify a Fylura Keychain credential".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_delete(service: &str, account: &str) -> Result<(), String> {
+    let keychain = macos_user_default_keychain()?;
+    let output = macos_keychain_command(&[
+        "delete-generic-password",
+        "-s",
+        service,
+        "-a",
+        account,
+        &keychain,
+    ])?;
+    if output.status.success() || macos_keychain_item_was_not_found(&output) {
+        return Ok(());
+    }
+    Err("could not remove a Fylura Keychain credential".to_string())
+}
+
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 impl CredentialStore for SystemCredentialStore {
     fn set(&self, value: &str) -> Result<(), String> {
@@ -902,12 +1004,24 @@ impl CredentialStore for SystemCredentialStore {
         }
     }
     fn delete(&self) -> Result<(), String> {
-        match credential_entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(format!(
-                "failed to delete API key from system credential store: {error}"
-            )),
+        #[cfg(target_os = "macos")]
+        {
+            macos_keychain_delete(AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
         }
+        #[cfg(target_os = "windows")]
+        {
+            match credential_entry()?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(error) => Err(format!(
+                    "failed to delete API key from system credential store: {error}"
+                )),
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn has_credential(&self) -> Result<bool, String> {
+        macos_keychain_has_credential(AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
     }
 
     fn set_profile(&self, profile_id: &str, value: &str) -> Result<(), String> {
@@ -925,10 +1039,34 @@ impl CredentialStore for SystemCredentialStore {
     }
 
     fn delete_profile(&self, profile_id: &str) -> Result<(), String> {
-        match profile_credential_entry(profile_id)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(format!("failed to delete custom provider API key: {error}")),
+        #[cfg(target_os = "macos")]
+        {
+            if !is_valid_profile_id(profile_id) {
+                return Err("AI custom provider profile ID is invalid.".to_string());
+            }
+            macos_keychain_delete(
+                "com.startlan.fylura.ai-profile",
+                &format!("ai-api-key-{profile_id}"),
+            )
         }
+        #[cfg(target_os = "windows")]
+        {
+            match profile_credential_entry(profile_id)?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(error) => Err(format!("failed to delete custom provider API key: {error}")),
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn has_profile_credential(&self, profile_id: &str) -> Result<bool, String> {
+        if !is_valid_profile_id(profile_id) {
+            return Err("AI custom provider profile ID is invalid.".to_string());
+        }
+        macos_keychain_has_credential(
+            "com.startlan.fylura.ai-profile",
+            &format!("ai-api-key-{profile_id}"),
+        )
     }
 
     fn get_legacy(&self) -> Result<Option<String>, String> {
@@ -940,9 +1078,16 @@ impl CredentialStore for SystemCredentialStore {
     }
 
     fn delete_legacy(&self) -> Result<(), String> {
-        match legacy_credential_entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(format!("failed to remove legacy API key: {error}")),
+        #[cfg(target_os = "macos")]
+        {
+            macos_keychain_delete(LEGACY_AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
+        }
+        #[cfg(target_os = "windows")]
+        {
+            match legacy_credential_entry()?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(error) => Err(format!("failed to remove legacy API key: {error}")),
+            }
         }
     }
 
@@ -957,11 +1102,24 @@ impl CredentialStore for SystemCredentialStore {
     }
 
     fn delete_legacy_profile(&self, profile_id: &str) -> Result<(), String> {
-        match legacy_profile_credential_entry(profile_id)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(format!(
-                "failed to remove legacy custom provider API key: {error}"
-            )),
+        #[cfg(target_os = "macos")]
+        {
+            if !is_valid_profile_id(profile_id) {
+                return Err("AI custom provider profile ID is invalid.".to_string());
+            }
+            macos_keychain_delete(
+                "com.startlan.zencanvas.ai-profile",
+                &format!("ai-api-key-{profile_id}"),
+            )
+        }
+        #[cfg(target_os = "windows")]
+        {
+            match legacy_profile_credential_entry(profile_id)?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(error) => Err(format!(
+                    "failed to remove legacy custom provider API key: {error}"
+                )),
+            }
         }
     }
 }

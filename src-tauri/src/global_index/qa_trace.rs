@@ -225,14 +225,6 @@ pub(crate) fn is_enabled() -> bool {
 }
 
 #[cfg(not(feature = "native-qa"))]
-pub(crate) fn reset_file_upsert_lock_retry_sample() {}
-
-#[cfg(not(feature = "native-qa"))]
-pub(crate) fn take_file_upsert_lock_retry_sample() -> u64 {
-    0
-}
-
-#[cfg(not(feature = "native-qa"))]
 pub(crate) fn record_file_upsert_lock_retry(_attempt: usize) {}
 
 #[cfg(not(feature = "native-qa"))]

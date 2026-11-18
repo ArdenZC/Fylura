@@ -45,6 +45,16 @@ if [[ $choice_status -ne 0 || "$choice" != "button returned:$delete_label" ]]; t
   exit 0
 fi
 
+# The app may have been opened while the confirmation dialog was visible.
+if /usr/bin/pgrep -f '[F]ylura.app/Contents/MacOS/fylura' >/dev/null 2>&1; then
+  /usr/bin/osascript - "$title" <<'APPLESCRIPT'
+on run argv
+  display alert (item 1 of argv) message "Quit Fylura before running data cleanup." as critical
+end run
+APPLESCRIPT
+  exit 1
+fi
+
 output="$("$app_executable" --fylura-uninstall-clean-user-data 2>&1)"
 status=$?
 if [[ $status -eq 0 ]]; then

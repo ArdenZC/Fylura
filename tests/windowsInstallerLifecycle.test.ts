@@ -490,23 +490,37 @@ describe("W4-04 package NSIS lifecycle", () => {
     );
   });
 
-  it("defaults to data preservation and routes explicit cleanup through the verified Fylura helper", () => {
+  it("runs user data consent and cleanup in the initiating user before machine elevation", () => {
     const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
 
-    expect(generated).toContain('LangString confirmFyluraDataDeletion ${LANG_ENGLISH}');
-    expect(generated).toContain("History/Restore records will be removed. Safe Trash and organized files are kept.");
-    expect(generated).toContain('"/DELETE_APP_DATA"');
-    expect(generated).toContain('"/CONFIRM_DELETE_APP_DATA"');
-    expect(generated).toContain("--fylura-uninstall-clean-user-data");
+    expect(generated).toContain('WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\${MAINBINARYNAME}.exe$\\\" --fylura-uninstall-launcher"');
+    expect(generated).toContain("Per-user cleanup runs in the initiating user's account before UAC");
+    expect(generated).toContain("Current-user autostart cleanup runs in the initiating user's account.");
+    expect(generated).not.toContain('DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run"');
+    expect(generated).not.toContain('"/DELETE_APP_DATA"');
+    expect(generated).not.toContain('"/CONFIRM_DELETE_APP_DATA"');
+    expect(generated).not.toContain("--fylura-uninstall-clean-user-data");
+    expect(generated).not.toContain("DeleteAppDataCheckbox");
     expect(generated).toContain("Call un.ZCMarkUninstallIrreversible");
     expect(generated).not.toContain('RmDir /r "$APPDATA\\${BUNDLEID}"');
     expect(generated).not.toContain('RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"');
     expect(generated).toContain("Call un.ZCFailUninstallPartial");
 
-    const cleanup = generated.indexOf("--fylura-uninstall-clean-user-data");
     const executableDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
-    expect(cleanup).toBeGreaterThanOrEqual(0);
-    expect(executableDelete).toBeGreaterThan(cleanup);
+    expect(executableDelete).toBeGreaterThanOrEqual(0);
+  });
+
+  it("admits only the exact previous Fylura uninstall string during in-place updates", () => {
+    const hooks = installerHooksSource();
+    const detection = functionBody(hooks, "DetectZenCanvasPreexistingProduct");
+    const admission = macroBody(hooks, "ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
+
+    expect(detection).toContain('$ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\\\"$INSTDIR\\uninstall.exe$\\\""');
+    expect(detection).toContain("ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
+    expect(admission).toContain("$ZC_EXPECTED_UNINSTALL_STRING");
+    expect(admission).toContain("$ZC_EXPECTED_LEGACY_UNINSTALL_STRING");
+    expect(admission).toContain("${ZC_REG_VALUE_EXACT}");
+    expect(admission).toContain('StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0');
   });
 
   it("runs destructive uninstall verification only on the disposable hosted Windows VM", () => {
@@ -519,10 +533,11 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
     expect(verifier).toContain("isolatedRunnerVm = $true");
     expect(verifier).toContain("New-LocalUser -Name $secondaryUserName");
-    expect(verifier).toContain("profileInitializedByInteractiveLogon = $false");
-    expect(verifier).toContain("$secondaryProfilePath = Join-Path (Split-Path -Parent $userProfilePath) $secondaryUserName");
-    expect(verifier).toContain("Refusing to alter a pre-existing secondary profile path.");
-    expect(verifier).not.toContain("CreateProfile");
+    expect(verifier).toContain("-Credential $credential -LoadUserProfile");
+    expect(verifier).toContain("standardUserProfileLoadedByCredentialedProcess = $true");
+    expect(verifier).toContain("--fylura-uninstall-worker-cleanup");
+    expect(verifier).toContain("administratorAttemptedAnotherUsersSid = $true");
+    expect(verifier).toContain("uacAlternateAdministratorPromptExercised = $false");
     expect(verifier).not.toContain("Start-Process -FilePath $powershell -Credential $secondaryCredential");
     expect(verifier).toContain("Assert-SecondaryProfileDataPreserved");
     expect(verifier).not.toContain("IsolatedUserChild");
@@ -1342,8 +1357,13 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(exactValueState("ERROR", "REG_SZ", "Zen Canvas")).toBe("unknown");
     const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
     for (const value of ["MainBinaryName", "DisplayName", "DisplayIcon", "DisplayVersion", "Publisher", "InstallLocation", "UninstallString", "NoModify", "NoRepair", "EstimatedSize"]) {
-      expect(detect).toContain(`"${value}"`);
+      if (value === "UninstallString") {
+        expect(detect).toContain("ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
+      } else {
+        expect(detect).toContain(`"${value}"`);
+      }
     }
+    expect(macroBody(installerHooksSource(), "ZC_REQUIRE_PRODUCT_UNINSTALL_STRING")).toContain('"UninstallString"');
     for (const value of repairOptionalUrlNames) expect(detect).toContain(`"${value}"`);
     expect(detect.match(/!insertmacro ZC_REQUIRE_OPTIONAL_PRODUCT_STRING/gu)).toHaveLength(3);
   });
@@ -1762,7 +1782,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
     const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
     expect(detect.match(/!insertmacro ZC_REQUIRE_OPTIONAL_PRODUCT_STRING/gu)).toHaveLength(3);
-    expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_STRING/gu)).toHaveLength(8);
+    expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_STRING/gu)).toHaveLength(7);
     expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_DWORD/gu)).toHaveLength(3);
     expect(detect).toContain("StrCpy $ZC_PREEXISTING_PRODUCT 1");
     expect(detect).not.toContain("WriteReg");

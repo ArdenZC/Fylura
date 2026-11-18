@@ -23,6 +23,10 @@ use crate::{
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const AI_CREDENTIAL_SERVICE: &str = "com.startlan.fylura";
+#[cfg(any(test, target_os = "windows", target_os = "macos"))]
+const AI_PROFILE_CREDENTIAL_SERVICE: &str = "com.startlan.fylura.ai-profile";
+#[cfg(any(test, target_os = "windows", target_os = "macos"))]
+const AI_PROFILE_CREDENTIAL_PREFIX: &str = "ai-api-key-";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const LEGACY_AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -523,84 +527,22 @@ fn migrate_legacy_profile_credentials(
 }
 
 #[cfg_attr(feature = "native-qa", allow(dead_code))]
-pub(crate) fn current_custom_profile_ids(
-    database_path: &std::path::Path,
-) -> Result<Vec<String>, String> {
-    match std::fs::symlink_metadata(database_path) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {}
-        Ok(_) => {
-            return Err(
-                "Fylura database is not a regular file; credentials were preserved".to_string(),
-            )
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(_) => {
-            return Err(
-                "could not inspect Fylura AI profile metadata; credentials were preserved"
-                    .to_string(),
-            )
-        }
-    }
-    let conn = rusqlite::Connection::open_with_flags(
-        database_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|_| "could not read Fylura AI profile metadata".to_string())?;
-    let value = conn
-        .query_row(
-            "SELECT value FROM app_settings WHERE key = ?1",
-            params![AI_SETTINGS_KEY],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|_| "could not read Fylura AI profile metadata".to_string())?;
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    let settings = serde_json::from_str::<serde_json::Value>(&value).map_err(|_| {
-        "Fylura AI profile metadata is invalid; credentials were preserved".to_string()
-    })?;
-    let custom_profiles = match settings.get("customProfiles") {
-        Some(value) => value.as_array().ok_or_else(|| {
-            "Fylura AI profile metadata is invalid; credentials were preserved".to_string()
-        })?,
-        None => return Ok(Vec::new()),
-    };
-    let mut ids = custom_profiles
-        .iter()
-        .map(|profile| {
-            profile
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    "Fylura AI profile metadata is invalid; credentials were preserved".to_string()
-                })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if ids.iter().any(|id| !is_valid_profile_id(id)) {
-        return Err(
-            "Fylura AI profile metadata is invalid; credentials were preserved".to_string(),
-        );
-    }
-    ids.sort();
-    ids.dedup();
-    Ok(ids)
-}
-
-#[cfg_attr(feature = "native-qa", allow(dead_code))]
-pub(crate) fn clear_current_ai_credentials_for_profiles(
+pub(crate) fn clear_current_ai_credentials(
     credentials: &impl CredentialStore,
-    profile_ids: &[String],
 ) -> Result<(), String> {
+    let mut profile_ids = credentials.list_profile_credential_ids().map_err(|_| {
+        "could not enumerate Fylura AI profile credentials; cleanup incomplete".to_string()
+    })?;
     if profile_ids
         .iter()
         .any(|profile_id| !is_valid_profile_id(profile_id))
     {
         return Err(
-            "Fylura AI profile metadata is invalid; credentials were preserved".to_string(),
+            "Fylura AI profile credentials could not be identified; cleanup incomplete".to_string(),
         );
     }
+    profile_ids.sort();
+    profile_ids.dedup();
     credential_cleanup_checkpoint("remove-main-item");
     credentials.delete().map_err(|error| {
         credential_cleanup_error("remove-main-item", &error);
@@ -613,7 +555,7 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
     {
         return Err("Fylura AI credential remains after cleanup".to_string());
     }
-    for profile_id in profile_ids {
+    for profile_id in &profile_ids {
         credential_cleanup_checkpoint("remove-profile-item");
         credentials.delete_profile(profile_id).map_err(|error| {
             credential_cleanup_error("remove-profile-item", &error);
@@ -627,7 +569,44 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
             return Err("a Fylura AI profile credential remains after cleanup".to_string());
         }
     }
+    if !credentials
+        .list_profile_credential_ids()
+        .map_err(|_| "could not verify Fylura AI profile credential cleanup".to_string())?
+        .is_empty()
+    {
+        return Err("Fylura AI profile credentials remain after cleanup".to_string());
+    }
+    if credentials
+        .has_credential()
+        .map_err(|_| "could not verify Fylura AI credential cleanup".to_string())?
+    {
+        return Err("Fylura AI credential remains after cleanup".to_string());
+    }
     Ok(())
+}
+
+fn profile_id_from_keyring_account(account: &str) -> Result<String, String> {
+    let profile_id = account
+        .strip_prefix(AI_PROFILE_CREDENTIAL_PREFIX)
+        .ok_or_else(|| {
+            "Fylura AI profile credential account could not be identified".to_string()
+        })?;
+    if !is_valid_profile_id(profile_id) {
+        return Err("Fylura AI profile credential account could not be identified".to_string());
+    }
+    Ok(profile_id.to_string())
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn profile_id_from_windows_target(target: &str, username: &str) -> Result<Option<String>, String> {
+    const SERVICE_SUFFIX: &str = ".com.startlan.fylura.ai-profile";
+    let Some(account) = target.strip_suffix(SERVICE_SUFFIX) else {
+        return Ok(None);
+    };
+    if username != account {
+        return Err("Fylura AI profile credential account could not be identified".to_string());
+    }
+    profile_id_from_keyring_account(account).map(Some)
 }
 
 fn credential_cleanup_checkpoint(phase: &str) {
@@ -749,6 +728,12 @@ pub trait CredentialStore {
         Ok(self.get_profile(profile_id)?.is_some())
     }
 
+    /// Discover every profile key under Fylura's exact AI-profile namespace.
+    /// Backends without exhaustive discovery must fail closed during cleanup.
+    fn list_profile_credential_ids(&self) -> Result<Vec<String>, String> {
+        Err("Fylura AI profile credential enumeration is unavailable".to_string())
+    }
+
     fn get_legacy(&self) -> Result<Option<String>, String> {
         Ok(None)
     }
@@ -824,6 +809,18 @@ impl CredentialStore for InMemoryCredentialStore {
         Ok(())
     }
 
+    fn list_profile_credential_ids(&self) -> Result<Vec<String>, String> {
+        let mut profile_ids = self
+            .profiles
+            .lock()
+            .map_err(|_| "in-memory credential store is unavailable".to_string())?
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        profile_ids.sort();
+        Ok(profile_ids)
+    }
+
     fn get_legacy(&self) -> Result<Option<String>, String> {
         self.legacy_main
             .lock()
@@ -867,8 +864,8 @@ fn profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, String> 
         return Err("AI custom provider profile ID is invalid.".to_string());
     }
     keyring::Entry::new(
-        "com.startlan.fylura.ai-profile",
-        &format!("ai-api-key-{profile_id}"),
+        AI_PROFILE_CREDENTIAL_SERVICE,
+        &format!("{AI_PROFILE_CREDENTIAL_PREFIX}{profile_id}"),
     )
     .map_err(|error| format!("failed to open custom provider credential store: {error}"))
 }
@@ -971,6 +968,125 @@ fn macos_keychain_has_credential(service: &str, account: &str) -> Result<bool, S
 }
 
 #[cfg(target_os = "macos")]
+fn macos_keychain_profile_credential_ids() -> Result<Vec<String>, String> {
+    use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
+
+    const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+    let mut search = ItemSearchOptions::new();
+    let results = search
+        .class(ItemClass::generic_password())
+        .service(AI_PROFILE_CREDENTIAL_SERVICE)
+        .load_attributes(true)
+        .limit(Limit::All)
+        .search();
+    let results = match results {
+        Ok(results) => results,
+        Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => return Ok(Vec::new()),
+        Err(_) => return Err("could not enumerate Fylura AI profile credentials".to_string()),
+    };
+
+    let mut profile_ids = Vec::with_capacity(results.len());
+    for result in results {
+        let attributes = result
+            .simplify_dict()
+            .ok_or_else(|| "could not inspect Fylura AI profile credential metadata".to_string())?;
+        let account = attributes
+            .get("acct")
+            .ok_or_else(|| "could not identify Fylura AI profile credential account".to_string())?;
+        profile_ids.push(profile_id_from_keyring_account(account)?);
+    }
+    Ok(profile_ids)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_profile_credential_ids() -> Result<Vec<String>, String> {
+    use std::{ffi::c_void, ptr, slice};
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, ERROR_NOT_FOUND},
+        Security::Credentials::{CredEnumerateW, CredFree, CREDENTIALW, CRED_TYPE_GENERIC},
+    };
+
+    const MAX_TARGET_LENGTH: usize = 32_768;
+    const MAX_USERNAME_LENGTH: usize = 513;
+
+    unsafe fn read_wide(value: *const u16, maximum_length: usize) -> Result<String, String> {
+        if value.is_null() {
+            return Err("could not inspect Fylura AI profile credential metadata".to_string());
+        }
+        let length = (0..maximum_length)
+            .find(|index| unsafe { *value.add(*index) == 0 })
+            .ok_or_else(|| "Fylura AI profile credential metadata is invalid".to_string())?;
+        let value = unsafe { slice::from_raw_parts(value, length) };
+        String::from_utf16(value)
+            .map_err(|_| "Fylura AI profile credential metadata is invalid".to_string())
+    }
+
+    let mut count = 0u32;
+    let mut credentials: *mut *mut CREDENTIALW = ptr::null_mut();
+    let found = unsafe { CredEnumerateW(ptr::null(), 0, &mut count, &mut credentials) };
+    if found == 0 {
+        let error = unsafe { GetLastError() };
+        if error == ERROR_NOT_FOUND {
+            return Ok(Vec::new());
+        }
+        return Err("could not enumerate Fylura AI profile credentials".to_string());
+    }
+    if count > 0 && credentials.is_null() {
+        return Err("could not inspect Windows credential metadata".to_string());
+    }
+    if count == 0 {
+        if !credentials.is_null() {
+            unsafe { CredFree(credentials.cast::<c_void>()) };
+        }
+        return Ok(Vec::new());
+    }
+
+    let discovered = (|| {
+        let mut profile_ids = Vec::new();
+        for credential in unsafe { slice::from_raw_parts(credentials, count as usize) } {
+            if credential.is_null() {
+                return Err("could not inspect Windows credential metadata".to_string());
+            }
+            let credential = unsafe { &**credential };
+            if credential.Type != CRED_TYPE_GENERIC {
+                continue;
+            }
+            let target = unsafe { read_wide(credential.TargetName, MAX_TARGET_LENGTH)? };
+            let namespace_suffix = ".com.startlan.fylura.ai-profile";
+            if !target
+                .get(target.len().saturating_sub(namespace_suffix.len())..)
+                .is_some_and(|suffix| suffix.eq_ignore_ascii_case(namespace_suffix))
+            {
+                continue;
+            }
+            let username = unsafe { read_wide(credential.UserName, MAX_USERNAME_LENGTH)? };
+            let profile_id = profile_id_from_windows_target(&target, &username)?
+                .ok_or_else(|| "could not identify Fylura AI profile credential".to_string())?;
+            profile_ids.push(profile_id);
+        }
+        profile_ids.sort();
+        profile_ids.dedup();
+        Ok(profile_ids)
+    })();
+
+    if !credentials.is_null() {
+        for credential in unsafe { slice::from_raw_parts(credentials, count as usize) } {
+            if credential.is_null() {
+                continue;
+            }
+            let credential = unsafe { &**credential };
+            if !credential.CredentialBlob.is_null() {
+                for index in 0..credential.CredentialBlobSize as usize {
+                    unsafe { ptr::write_volatile(credential.CredentialBlob.add(index), 0) };
+                }
+            }
+        }
+        unsafe { CredFree(credentials.cast::<c_void>()) };
+    }
+    discovered
+}
+
+#[cfg(target_os = "macos")]
 fn macos_keychain_delete(service: &str, account: &str) -> Result<(), String> {
     let keychain = macos_user_default_keychain()?;
     let output = macos_keychain_command(&[
@@ -1024,6 +1140,11 @@ impl CredentialStore for SystemCredentialStore {
         macos_keychain_has_credential(AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
     }
 
+    #[cfg(target_os = "macos")]
+    fn list_profile_credential_ids(&self) -> Result<Vec<String>, String> {
+        macos_keychain_profile_credential_ids()
+    }
+
     fn set_profile(&self, profile_id: &str, value: &str) -> Result<(), String> {
         profile_credential_entry(profile_id)?
             .set_password(value.trim())
@@ -1045,8 +1166,8 @@ impl CredentialStore for SystemCredentialStore {
                 return Err("AI custom provider profile ID is invalid.".to_string());
             }
             macos_keychain_delete(
-                "com.startlan.fylura.ai-profile",
-                &format!("ai-api-key-{profile_id}"),
+                AI_PROFILE_CREDENTIAL_SERVICE,
+                &format!("{AI_PROFILE_CREDENTIAL_PREFIX}{profile_id}"),
             )
         }
         #[cfg(target_os = "windows")]
@@ -1064,9 +1185,34 @@ impl CredentialStore for SystemCredentialStore {
             return Err("AI custom provider profile ID is invalid.".to_string());
         }
         macos_keychain_has_credential(
-            "com.startlan.fylura.ai-profile",
-            &format!("ai-api-key-{profile_id}"),
+            AI_PROFILE_CREDENTIAL_SERVICE,
+            &format!("{AI_PROFILE_CREDENTIAL_PREFIX}{profile_id}"),
         )
+    }
+
+    #[cfg(target_os = "windows")]
+    fn has_credential(&self) -> Result<bool, String> {
+        match credential_entry()?.get_attributes() {
+            Ok(_) => Ok(true),
+            Err(keyring::Error::NoEntry) => Ok(false),
+            Err(error) => Err(format!("could not verify Fylura AI credential: {error}")),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn has_profile_credential(&self, profile_id: &str) -> Result<bool, String> {
+        match profile_credential_entry(profile_id)?.get_attributes() {
+            Ok(_) => Ok(true),
+            Err(keyring::Error::NoEntry) => Ok(false),
+            Err(error) => Err(format!(
+                "could not verify Fylura AI profile credential: {error}"
+            )),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn list_profile_credential_ids(&self) -> Result<Vec<String>, String> {
+        windows_profile_credential_ids()
     }
 
     fn get_legacy(&self) -> Result<Option<String>, String> {
@@ -1147,6 +1293,10 @@ impl CredentialStore for SystemCredentialStore {
     }
 
     fn delete_profile(&self, _profile_id: &str) -> Result<(), String> {
+        Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
+    }
+
+    fn list_profile_credential_ids(&self) -> Result<Vec<String>, String> {
         Err(SYSTEM_CREDENTIAL_STORE_UNSUPPORTED_PLATFORM.to_string())
     }
 
@@ -1656,6 +1806,37 @@ mod validation_tests {
         time::Duration,
     };
 
+    #[test]
+    fn windows_profile_credential_discovery_requires_the_exact_service_and_account() {
+        assert_eq!(
+            profile_id_from_windows_target(
+                "ai-api-key-qa_alpha.com.startlan.fylura.ai-profile",
+                "ai-api-key-qa_alpha",
+            )
+            .unwrap()
+            .as_deref(),
+            Some("qa_alpha")
+        );
+        assert_eq!(
+            profile_id_from_windows_target(
+                "foreign-account.com.other-app.ai-profile",
+                "foreign-account",
+            )
+            .unwrap(),
+            None
+        );
+        assert!(profile_id_from_windows_target(
+            "ai-api-key-qa_alpha.com.startlan.fylura.ai-profile",
+            "ai-api-key-qa_beta",
+        )
+        .is_err());
+        assert!(profile_id_from_windows_target(
+            "ai-api-key-../secrets.com.startlan.fylura.ai-profile",
+            "ai-api-key-../secrets",
+        )
+        .is_err());
+    }
+
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     #[test]
     fn system_credential_store_fails_closed_on_unsupported_platforms() {
@@ -1935,6 +2116,10 @@ mod validation_tests {
                 return Err("simulated keyring deletion failure".to_string());
             }
             self.inner.delete_profile(profile_id)
+        }
+
+        fn list_profile_credential_ids(&self) -> Result<Vec<String>, String> {
+            self.inner.list_profile_credential_ids()
         }
     }
 

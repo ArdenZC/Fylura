@@ -59,6 +59,7 @@ Var ZC_PRODUCT_NAME
 Var ZC_MANUFACTURER_NAME
 Var ZC_EXPECTED_INSTALL_LOCATION
 Var ZC_EXPECTED_UNINSTALL_STRING
+Var ZC_EXPECTED_LEGACY_UNINSTALL_STRING
 Var ZC_EXPECTED_DISPLAY_ICON
 Var ZC_EXPECTED_DISPLAY_VERSION
 Var ZC_EXPECTED_PUBLISHER
@@ -397,6 +398,19 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+; The previous Fylura package registered uninstall.exe directly. Accept that
+; exact same-install-path value only while admitting an existing installation
+; for update; new packages always register the current-user Fylura launcher.
+!macro ZC_REQUIRE_PRODUCT_UNINSTALL_STRING PATH
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "UninstallString" "$ZC_EXPECTED_LEGACY_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+      StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 ; Conditional ARP URL metadata is optional during repair admission. A missing
 ; value is valid, but a present value must still be the exact typed value that
 ; the current package expects. Foreign or unreadable state fails closed.
@@ -424,7 +438,8 @@ Function DetectZenCanvasPreexistingProduct
   StrCpy $ZC_UNINSTALLER_KEY_PRESENT 0
   StrCpy $ZC_MANUFACTURER_KEY_PRESENT 0
   StrCpy $ZC_EXPECTED_INSTALL_LOCATION "$\"$INSTDIR$\""
-  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
+  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\fylura.exe$\" --fylura-uninstall-launcher"
+  StrCpy $ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
   StrCpy $ZC_EXPECTED_DISPLAY_ICON "$\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME$\""
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"
@@ -473,7 +488,7 @@ detect_product_uninstaller_absent:
   !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion" "$ZC_EXPECTED_DISPLAY_VERSION"
   !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher" "$ZC_EXPECTED_PUBLISHER"
   !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"
-  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"
+  !insertmacro ZC_REQUIRE_PRODUCT_UNINSTALL_STRING "$ZC_UNINSTALLER_REGISTRY_KEY"
   !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoModify" 1
   !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoRepair" 1
   !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "EstimatedSize" $ZC_EXPECTED_ESTIMATED_SIZE
@@ -2259,7 +2274,7 @@ FunctionEnd
   StrCpy $ZC_PRODUCT_NAME "${PRODUCTNAME}"
   StrCpy $ZC_MANUFACTURER_NAME "${MANUFACTURER}"
   StrCpy $ZC_EXPECTED_INSTALL_LOCATION "$\"$INSTDIR$\""
-  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
+  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\fylura.exe$\" --fylura-uninstall-launcher"
   StrCpy $ZC_EXPECTED_DISPLAY_ICON "$\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME$\""
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"

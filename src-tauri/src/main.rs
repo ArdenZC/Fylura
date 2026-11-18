@@ -35,10 +35,7 @@ fn qualification_startup_checkpoint(name: &str) {
 fn main() {
     qualification_startup_checkpoint("process_main_entered");
     let launch_args = std::env::args().collect::<Vec<_>>();
-    #[cfg(all(
-        any(target_os = "windows", target_os = "macos"),
-        not(feature = "native-qa")
-    ))]
+    #[cfg(all(target_os = "macos", not(feature = "native-qa")))]
     if launch_args
         .get(1)
         .is_some_and(|argument| argument == "--fylura-uninstall-clean-user-data")
@@ -53,6 +50,27 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    }
+    #[cfg(all(target_os = "windows", not(feature = "native-qa")))]
+    if launch_args
+        .get(1)
+        .is_some_and(|argument| argument == "--fylura-uninstall-launcher")
+    {
+        std::process::exit(fylura_tauri::uninstall::windows_uninstall_launcher(
+            &launch_args[2..],
+        ));
+    }
+    #[cfg(all(target_os = "windows", not(feature = "native-qa")))]
+    if launch_args
+        .get(1)
+        .is_some_and(|argument| argument == "--fylura-uninstall-worker")
+        || launch_args
+            .get(1)
+            .is_some_and(|argument| argument == "--fylura-uninstall-worker-cleanup")
+    {
+        std::process::exit(fylura_tauri::uninstall::windows_uninstall_worker(
+            &launch_args[1..],
+        ));
     }
     #[cfg(windows)]
     if launch_args

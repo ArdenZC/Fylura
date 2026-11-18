@@ -260,6 +260,20 @@ function Invoke-Probe(
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     if (-not $process.Start()) { throw "failed to start $Label" }
+    $runCpuStopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $clientCpuStartMs = 0.0
+    $serviceCpuStartMs = $null
+    $serviceCpuComplete = $false
+    try {
+        $process.Refresh()
+        $clientCpuStartMs = $process.TotalProcessorTime.TotalMilliseconds
+        if ($script:serviceProcessId) {
+            $serviceCpuProcess = Get-Process -Id $script:serviceProcessId -ErrorAction Stop
+            $serviceCpuProcess.Refresh()
+            $serviceCpuStartMs = $serviceCpuProcess.TotalProcessorTime.TotalMilliseconds
+            $serviceCpuComplete = $true
+        }
+    } catch { }
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
     $deadline = [DateTime]::UtcNow.AddMinutes($TimeoutMinutes)
@@ -312,6 +326,23 @@ function Invoke-Probe(
     $peakServicePrivateBytes = [Math]::Max($peakServicePrivateBytes, $servicePrivateBytes)
     $peakWorkingSet = [Math]::Max($peakWorkingSet, $process.WorkingSet64 + $serviceWorkingSet)
     $peakPrivateBytes = [Math]::Max($peakPrivateBytes, $process.PrivateMemorySize64 + $servicePrivateBytes)
+    $runCpuStopwatch.Stop()
+    $clientCpuTimeMs = [Math]::Max(0.0, $process.TotalProcessorTime.TotalMilliseconds - $clientCpuStartMs)
+    $serviceCpuTimeMs = $null
+    if ($serviceCpuComplete) {
+        try {
+            $serviceCpuProcess = Get-Process -Id $script:serviceProcessId -ErrorAction Stop
+            $serviceCpuProcess.Refresh()
+            $serviceCpuTimeMs = [Math]::Max(0.0, $serviceCpuProcess.TotalProcessorTime.TotalMilliseconds - $serviceCpuStartMs)
+        } catch {
+            $serviceCpuComplete = $false
+        }
+    }
+    $totalCpuTimeMs = if ($serviceCpuComplete -and $null -ne $serviceCpuTimeMs) { $clientCpuTimeMs + $serviceCpuTimeMs } else { $null }
+    $logicalProcessorCount = [Environment]::ProcessorCount
+    $cpuWallTimeMs = $runCpuStopwatch.Elapsed.TotalMilliseconds
+    $meanCpuPercentOfOneCore = if ($null -ne $totalCpuTimeMs -and $cpuWallTimeMs -gt 0) { 100.0 * $totalCpuTimeMs / $cpuWallTimeMs } else { $null }
+    $meanCpuPercentOfMachineCapacity = if ($null -ne $meanCpuPercentOfOneCore -and $logicalProcessorCount -gt 0) { $meanCpuPercentOfOneCore / $logicalProcessorCount } else { $null }
     $stdout = $stdoutTask.Result.Trim()
     $stderr = $stderrTask.Result.Trim()
     if ($process.ExitCode -ne 0) { throw "$Label failed (exit=$($process.ExitCode)): $stderr $stdout" }
@@ -366,6 +397,14 @@ function Invoke-Probe(
         peakClientPrivateBytes = $peakClientPrivateBytes
         peakServiceWorkingSetBytes = $peakServiceWorkingSet
         peakServicePrivateBytes = $peakServicePrivateBytes
+        clientCpuTimeMs = $clientCpuTimeMs
+        serviceCpuTimeMs = $serviceCpuTimeMs
+        totalCpuTimeMs = $totalCpuTimeMs
+        cpuWallTimeMs = $cpuWallTimeMs
+        logicalProcessorCount = $logicalProcessorCount
+        meanCpuPercentOfOneCore = $meanCpuPercentOfOneCore
+        meanCpuPercentOfMachineCapacity = $meanCpuPercentOfMachineCapacity
+        cpuMetricsComplete = $serviceCpuComplete
         serviceProcessId = $script:serviceProcessId
         serviceIpcBatching = $serviceBatching
         tracePath = $TracePath
@@ -544,6 +583,9 @@ try {
             if ($serviceRouteEvents.Count -lt 1) {
                 throw "$side initial run $repetition did not complete a Windows Service named-pipe route; Direct fallback is not accepted"
             }
+            if (-not $run.cpuMetricsComplete -or $null -eq $run.totalCpuTimeMs -or $run.cpuWallTimeMs -le 0) {
+                throw "$side initial run $repetition could not measure desktop and SCM Service CPU time"
+            }
             $serviceBatching = $run.serviceIpcBatching
             if (-not $serviceBatching -or
                 [long]$serviceBatching.input_entries -lt $FileCount -or
@@ -607,6 +649,13 @@ try {
                 peakClientPrivateBytes = $run.peakClientPrivateBytes
                 peakServiceWorkingSetBytes = $run.peakServiceWorkingSetBytes
                 peakServicePrivateBytes = $run.peakServicePrivateBytes
+                clientCpuTimeMs = $run.clientCpuTimeMs
+                serviceCpuTimeMs = $run.serviceCpuTimeMs
+                totalCpuTimeMs = $run.totalCpuTimeMs
+                cpuWallTimeMs = $run.cpuWallTimeMs
+                logicalProcessorCount = $run.logicalProcessorCount
+                meanCpuPercentOfOneCore = $run.meanCpuPercentOfOneCore
+                meanCpuPercentOfMachineCapacity = $run.meanCpuPercentOfMachineCapacity
                 serviceRouteObserved = $serviceRouteEvents.Count -gt 0
                 serviceIpcBatching = $serviceBatching
                 candidatePersistBatch = $script:candidatePersistBatch
@@ -687,6 +736,10 @@ try {
         candidatePeakWorkingSetBytes = Get-Average $candidateRows.ToArray() 'peakWorkingSetBytes'
         baselinePeakPrivateBytes = Get-Average $baselineRows.ToArray() 'peakPrivateBytes'
         candidatePeakPrivateBytes = Get-Average $candidateRows.ToArray() 'peakPrivateBytes'
+        baselineTotalCpuTimeMs = Get-Average $baselineRows.ToArray() 'totalCpuTimeMs'
+        candidateTotalCpuTimeMs = Get-Average $candidateRows.ToArray() 'totalCpuTimeMs'
+        baselineMeanCpuPercentOfMachineCapacity = Get-Average $baselineRows.ToArray() 'meanCpuPercentOfMachineCapacity'
+        candidateMeanCpuPercentOfMachineCapacity = Get-Average $candidateRows.ToArray() 'meanCpuPercentOfMachineCapacity'
         baselineDatabaseBytes = Get-Average $baselineRows.ToArray() 'result.databaseBytesWithWal'
         candidateDatabaseBytes = Get-Average $candidateRows.ToArray() 'result.databaseBytesWithWal'
         baselinePeakDatabaseAndWalBytes = Get-Average $baselineRows.ToArray() 'result.peakDatabaseBytesWithWal'

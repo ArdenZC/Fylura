@@ -84,6 +84,11 @@ const nsisLifecycleRuntimeScriptPath = path.join(
   "scripts",
   "verifyWindowsNsisLifecycle.ps1",
 );
+const nsisLifecycleRunnerScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyWindowsNsisLifecycleRunner.ps1",
+);
 const macosDmgLifecycleRuntimeScriptPath = path.join(
   repositoryRoot,
   "scripts",
@@ -522,6 +527,27 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)");
     expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura application data.");
     expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura cache or logs.");
+  });
+
+  it("runs the NSIS lifecycle worker in a disposable elevated Windows profile", () => {
+    const runner = fs.readFileSync(nsisLifecycleRunnerScriptPath, "utf8");
+    const verifier = fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8");
+    const workflow = fs.readFileSync(
+      path.join(repositoryRoot, ".github", "workflows", "ci.yml"),
+      "utf8",
+    );
+
+    expect(workflow).toContain("verifyWindowsNsisLifecycleRunner.ps1");
+    expect(runner).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
+    expect(runner).toContain("New-LocalUser -Name $userName");
+    expect(runner).toContain("-Group 'Administrators'");
+    expect(runner).toContain("Register-ScheduledTask");
+    expect(runner).toContain("-RunLevel Highest");
+    expect(runner).toContain("-Password $passwordText");
+    expect(runner).toContain("Unregister-ScheduledTask");
+    expect(runner).toContain("Remove-LocalUser -Name $userName");
+    expect(verifier).toContain("[switch]$TaskWorker");
+    expect(verifier).toContain("Refusing to overwrite a pre-existing Windows credential target");
   });
 
   it("seeds macOS Safe Trash as files under the isolated profile paths", () => {

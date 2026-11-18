@@ -602,9 +602,10 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
         );
     }
     credential_cleanup_checkpoint("remove-main-item");
-    credentials
-        .delete()
-        .map_err(|_| "could not remove Fylura AI credential".to_string())?;
+    credentials.delete().map_err(|error| {
+        credential_cleanup_error("remove-main-item", &error);
+        "could not remove Fylura AI credential".to_string()
+    })?;
     credential_cleanup_checkpoint("verify-main-item");
     if credentials
         .get()
@@ -615,9 +616,10 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
     }
     for profile_id in profile_ids {
         credential_cleanup_checkpoint("remove-profile-item");
-        credentials
-            .delete_profile(profile_id)
-            .map_err(|_| "could not remove a Fylura AI profile credential".to_string())?;
+        credentials.delete_profile(profile_id).map_err(|error| {
+            credential_cleanup_error("remove-profile-item", &error);
+            "could not remove a Fylura AI profile credential".to_string()
+        })?;
         credential_cleanup_checkpoint("verify-profile-item");
         if credentials
             .get_profile(profile_id)
@@ -633,6 +635,12 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
 fn credential_cleanup_checkpoint(phase: &str) {
     if std::env::var_os("FYLURA_CLEANUP_DIAGNOSTICS").is_some() {
         eprintln!("Fylura credential cleanup phase: {phase}");
+    }
+}
+
+fn credential_cleanup_error(phase: &str, error: &str) {
+    if std::env::var_os("FYLURA_CLEANUP_DIAGNOSTICS").is_some() {
+        eprintln!("Fylura credential cleanup backend error: phase={phase}; {error}");
     }
 }
 

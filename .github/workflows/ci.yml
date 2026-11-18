@@ -1945,7 +1945,7 @@ jobs:
         run: |
           $installers = @(Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -File)
           if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
-          ./scripts/verifyWindowsNsisLifecycle.ps1 `
+          ./scripts/verifyWindowsNsisLifecycleRunner.ps1 `
             -InstallerPath $installers[0].FullName `
             -EvidencePath "$env:RUNNER_TEMP/fylura-nsis-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
       - name: Upload Windows install / uninstall evidence

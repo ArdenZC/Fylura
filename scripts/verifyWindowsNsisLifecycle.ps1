@@ -2,11 +2,30 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InstallerPath,
     [Parameter(Mandatory = $true)]
-    [string]$EvidencePath
+    [string]$EvidencePath,
+    [Parameter(Mandatory = $true)]
+    [switch]$TaskWorker,
+    [Parameter(Mandatory = $true)]
+    [string]$RunnerTemp,
+    [Parameter(Mandatory = $true)]
+    [string]$RunId,
+    [Parameter(Mandatory = $true)]
+    [string]$SourceSha,
+    [Parameter(Mandatory = $true)]
+    [string]$PythonPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if (-not $TaskWorker) {
+    throw 'Run this lifecycle worker through verifyWindowsNsisLifecycleRunner.ps1 so credentials stay isolated from the logged-in runner account.'
+}
+$env:GITHUB_ACTIONS = 'true'
+$env:RUNNER_ENVIRONMENT = 'github-hosted'
+$env:RUNNER_TEMP = [System.IO.Path]::GetFullPath($RunnerTemp)
+$env:GITHUB_RUN_ID = $RunId
+$env:GITHUB_SHA = $SourceSha
 
 $installer = [System.IO.Path]::GetFullPath($InstallerPath)
 $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')
@@ -201,7 +220,7 @@ try {
     # which NSIS needs to exercise its per-machine service/registry lifecycle.
     # Create a separate standard-user profile with sentinels so full cleanup
     # also proves it leaves other Windows users' Fylura roots untouched.
-    $secondaryUserName = 'FyluraOther_' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+    $secondaryUserName = 'FylOther_' + [guid]::NewGuid().ToString('N').Substring(0, 10)
     $secondaryUserPassword = ConvertTo-SecureString (([guid]::NewGuid().ToString('N')) + 'aA1!') -AsPlainText -Force
     New-LocalUser -Name $secondaryUserName -Password $secondaryUserPassword -PasswordNeverExpires -AccountNeverExpires `
         -Description 'Isolated Fylura other-user cleanup fixture' | Out-Null
@@ -298,7 +317,8 @@ try {
     foreach ($entry in $sentinels.GetEnumerator()) {
         [System.IO.File]::WriteAllText($entry.Value, "task-owned $($entry.Key) sentinel")
     }
-    $python = Get-Command python -ErrorAction Stop
+    $python = [System.IO.Path]::GetFullPath($PythonPath)
+    Assert-Condition (Test-Path -LiteralPath $python -PathType Leaf) 'Python is unavailable to the isolated NSIS lifecycle worker.'
     $seedDbScript = Join-Path $taskRoot 'seed-fylura-db.py'
     @'
 import json
@@ -314,7 +334,7 @@ connection.execute(
 connection.commit()
 connection.close()
 '@ | Set-Content -LiteralPath $seedDbScript -Encoding ascii
-    & $python.Source $seedDbScript $sentinels.currentDatabase
+    & $python $seedDbScript $sentinels.currentDatabase
     Assert-Condition ($LASTEXITCODE -eq 0) 'Could not seed the task-owned Fylura SQLite database fixture.'
     Add-TaskOwnedCredential $credentialTargets.main 'ai-api-key'
     Add-TaskOwnedCredential $credentialTargets.alpha 'ai-api-key-qa_alpha'
@@ -361,7 +381,7 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
         $contents = [System.IO.File]::ReadAllText($entry.Value)
         Assert-Condition ($contents -eq "task-owned $($entry.Key) sentinel") "NSIS uninstall changed task-owned user data: $($entry.Key)."
     }
-    & $python.Source $verifyDbScript $sentinels.currentDatabase
+    & $python $verifyDbScript $sentinels.currentDatabase
     Assert-Condition ($LASTEXITCODE -eq 0) 'Ordinary uninstall changed the retained settings database or AI profile metadata.'
     foreach ($target in $credentialTargets.Values) {
         Assert-Condition (Test-CredentialTarget $target) "Ordinary uninstall removed task-owned Fylura credentials: $target"
@@ -383,7 +403,7 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
     foreach ($entry in $sentinels.GetEnumerator()) {
         Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Reinstall after ordinary uninstall lost retained user data: $($entry.Key)."
     }
-    & $python.Source $verifyDbScript $sentinels.currentDatabase
+    & $python $verifyDbScript $sentinels.currentDatabase
     Assert-Condition ($LASTEXITCODE -eq 0) 'Reinstalled Fylura could not read the retained settings database and AI profile metadata.'
     foreach ($target in $credentialTargets.Values) {
         Assert-Condition (Test-CredentialTarget $target) "Reinstall lost task-owned Fylura credentials: $target"

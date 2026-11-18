@@ -51,8 +51,10 @@ ORIGINAL_DEFAULT_KEYCHAIN=""
 ORIGINAL_KEYCHAINS=()
 ORIGINAL_KEYCHAIN_COUNT=0
 TEST_KEYCHAIN=""
+TEST_KEYCHAIN_CREATED=0
 TASK_CREDENTIALS=()
 TASK_CREDENTIAL_COUNT=0
+TASK_ROOT_CREATED=0
 
 write_evidence() {
   mkdir -p "$(dirname "$EVIDENCE_PATH")"
@@ -125,10 +127,11 @@ restore_task_keychain() {
   if [[ "$ORIGINAL_KEYCHAIN_COUNT" -gt 0 ]]; then
     /usr/bin/security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" >/dev/null 2>&1 || result=1
   fi
-  if [[ -e "$TEST_KEYCHAIN" ]]; then
+  if [[ "$TEST_KEYCHAIN_CREATED" -eq 1 && -e "$TEST_KEYCHAIN" ]]; then
     /usr/bin/security delete-keychain "$TEST_KEYCHAIN" >/dev/null 2>&1 || result=1
   fi
   TEST_KEYCHAIN=""
+  TEST_KEYCHAIN_CREATED=0
   return "$result"
 }
 
@@ -158,10 +161,20 @@ prepare_task_keychain() {
     fi
   done
 
-  TEST_KEYCHAIN="$PROFILE_ROOT/Library/Keychains/fylura-test.keychain-db"
+  local runner_home="${HOME:?HOME must identify the disposable runner account}"
+  TEST_KEYCHAIN="$runner_home/Library/Keychains/fylura-test-$RUN_ID.keychain-db"
+  [[ ! -e "$TEST_KEYCHAIN" ]] || {
+    echo "Refusing a pre-existing task-owned Keychain path: $TEST_KEYCHAIN" >&2
+    return 1
+  }
   password="$(/usr/bin/uuidgen)"
   mkdir -p "$(dirname "$TEST_KEYCHAIN")"
-  /usr/bin/security create-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null
+  if /usr/bin/security create-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null; then
+    TEST_KEYCHAIN_CREATED=1
+  else
+    [[ -e "$TEST_KEYCHAIN" ]] && TEST_KEYCHAIN_CREATED=1
+    return 1
+  fi
   /usr/bin/security unlock-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null
   /usr/bin/security set-keychain-settings -lut 21600 "$TEST_KEYCHAIN" >/dev/null
   # Keychain selection belongs to the macOS login session, not the HOME
@@ -404,6 +417,21 @@ cleanup() {
     exit_code=1
   fi
 
+  if [[ "$TASK_ROOT_CREATED" -eq 1 ]]; then
+    case "$TASK_ROOT/" in
+      "$RUNNER_TEMP"/*) /bin/rm -R "$TASK_ROOT" || {
+        echo "Failed to remove the task-owned macOS lifecycle fixture root." >&2
+        STATUS="FAIL"
+        exit_code=1
+      } ;;
+      *)
+        echo "Refusing to remove a lifecycle fixture root outside RUNNER_TEMP." >&2
+        STATUS="FAIL"
+        exit_code=1
+        ;;
+    esac
+  fi
+
   if [[ "$exit_code" -ne 0 ]]; then
     STATUS="FAIL"
   fi
@@ -429,6 +457,7 @@ if [[ -e "$TASK_ROOT" ]]; then
   exit 1
 fi
 
+TASK_ROOT_CREATED=1
 mkdir -p "$MOUNT_POINT" "$INSTALL_ROOT" "$PROFILE_ROOT" "$TEMP_ROOT"
 hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_POINT"
 MOUNT_ATTACHED=1

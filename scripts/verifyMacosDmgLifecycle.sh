@@ -62,6 +62,7 @@ DOCUMENTS_SAFE_TRASH_FILE_CREATED=0
 DOCUMENTS_LEGACY_TRASH_FILE_CREATED=0
 FINDER_TRASH_FILE_CREATED=0
 OWNED_FIXTURE_DIRECTORIES=()
+OWNED_FIXTURE_DIRECTORY_COUNT=0
 PROFILE_ROOTS_TO_CHECK=()
 
 write_evidence() {
@@ -256,7 +257,8 @@ ensure_owned_fixture_directory() {
       [[ -d "$current" ]] || { echo "Fixture path is not a directory: $current" >&2; return 1; }
     else
       mkdir "$current"
-      OWNED_FIXTURE_DIRECTORIES+=("$current")
+      OWNED_FIXTURE_DIRECTORIES[$OWNED_FIXTURE_DIRECTORY_COUNT]="$current"
+      OWNED_FIXTURE_DIRECTORY_COUNT=$((OWNED_FIXTURE_DIRECTORY_COUNT + 1))
     fi
   done
 }
@@ -549,7 +551,7 @@ cleanup() {
   if [[ "$FINDER_TRASH_FILE_CREATED" -eq 1 ]]; then
     /bin/rm -f "$FINDER_TRASH_FILE" || { STATUS="FAIL"; exit_code=1; }
   fi
-  for ((directory_index=${#OWNED_FIXTURE_DIRECTORIES[@]}-1; directory_index>=0; directory_index--)); do
+  for ((directory_index=OWNED_FIXTURE_DIRECTORY_COUNT-1; directory_index>=0; directory_index--)); do
     if [[ -L "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" ]]; then
       echo "Refusing to remove a symlinked task-owned fixture directory: ${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" >&2
       STATUS="FAIL"

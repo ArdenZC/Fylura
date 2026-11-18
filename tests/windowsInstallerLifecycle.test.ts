@@ -569,7 +569,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('environment.update(\n    TMPDIR=sys.argv[2],');
     expect(verifier).not.toContain("HOME=sys.argv[2]");
     expect(verifier).not.toContain('export CFFIXED_USER_HOME=');
-    expect(verifier).toContain('OWNED_FIXTURE_DIRECTORIES+=("$current")');
+    expect(verifier).toContain('OWNED_FIXTURE_DIRECTORIES[$OWNED_FIXTURE_DIRECTORY_COUNT]="$current"');
     expect(verifier).toContain('rmdir "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}"');
     expect(verifier).toContain('timeout=180');
     expect(verifier).toContain('FYLURA_CLEANUP_DIAGNOSTICS');

@@ -555,6 +555,9 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("[switch]$TaskWorker");
     expect(verifier).toContain("[Environment]::UserName -notlike 'Fylura596_*'");
     expect(verifier).toContain("Refusing to overwrite a pre-existing Windows credential target");
+    expect(verifier).toContain('cmdkey.exe" /list 2>&1');
+    expect(verifier).toContain("LegacyGeneric:target=");
+    expect(verifier).toContain("candidate.Equals($Target, [StringComparison]::OrdinalIgnoreCase)");
   });
 
   it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {

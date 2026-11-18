@@ -90,10 +90,24 @@ function Assert-Condition([bool]$Condition, [string]$Message) {
 }
 
 function Test-CredentialTarget([string]$Target) {
-    $output = & "$env:WINDIR\System32\cmdkey.exe" "/list:$Target" 2>&1
+    $output = & "$env:WINDIR\System32\cmdkey.exe" /list 2>&1
     $exitCode = $LASTEXITCODE
-    $listing = ($output | Out-String)
-    return $exitCode -eq 0 -and $listing.IndexOf($Target, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    Assert-Condition ($exitCode -eq 0) 'Could not inspect the current Windows Credential Manager targets.'
+    foreach ($line in $output) {
+        if ($line -match '^\s*Target:\s*(.+?)\s*$') {
+            $candidate = $Matches[1].Trim()
+            foreach ($prefix in @('LegacyGeneric:target=', 'Generic:target=')) {
+                if ($candidate.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    $candidate = $candidate.Substring($prefix.Length)
+                    break
+                }
+            }
+            if ($candidate.Equals($Target, [StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
+        }
+    }
+    return $false
 }
 
 function Add-TaskOwnedCredential([string]$Target, [string]$UserName) {

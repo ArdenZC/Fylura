@@ -12,6 +12,7 @@ fi
 
 DMG_PATH="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
 EVIDENCE_PATH="$2"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 RUNNER_TEMP="${RUNNER_TEMP:?RUNNER_TEMP must be set by the isolated macOS runner}"
 RUN_ID="${GITHUB_RUN_ID:?GITHUB_RUN_ID must be set by GitHub Actions}"
 TASK_ROOT="$RUNNER_TEMP/fylura-dmg-runtime-$RUN_ID"
@@ -202,26 +203,7 @@ preflight_profile_paths() {
     echo "The disposable runner's Keychains directory is missing; refusing to create a replacement." >&2
     return 1
   }
-  python3 - "$PROFILE_ROOT" "$APP_SUPPORT_ROOT" "$LEGACY_DATA_ROOT" "$CACHE_ROOT" "$PREFERENCES_PATH" "$LOGS_ROOT" "$LAUNCH_AGENT_PATH" "$DOCUMENTS_SAFE_TRASH" "$DOCUMENTS_LEGACY_TRASH" "$FINDER_TRASH_FILE" "$PROFILE_ROOT/Library/Keychains/fylura-test-$RUN_ID.keychain-db" <<'PY'
-import os
-import sys
-
-home = os.path.abspath(sys.argv[1])
-for candidate in sys.argv[2:]:
-    path = os.path.abspath(candidate)
-    if os.path.commonpath((home, path)) != home:
-        raise SystemExit("Refusing a Fylura test path outside the disposable runner home: " + path)
-    current = path
-    while current != home:
-        if os.path.islink(current):
-            raise SystemExit("Refusing a symlink in a Fylura lifecycle test path: " + current)
-        parent = os.path.dirname(current)
-        if parent == current:
-            raise SystemExit("Could not find the disposable home in a Fylura test path: " + path)
-        current = parent
-    if os.path.lexists(path):
-        raise SystemExit("Refusing a pre-existing Fylura lifecycle test path: " + path)
-PY
+  python3 "$SCRIPT_DIR/verifyMacosUserProfilePreflight.py" "$PROFILE_ROOT" "$APP_SUPPORT_ROOT" "$LEGACY_DATA_ROOT" "$CACHE_ROOT" "$PREFERENCES_PATH" "$LOGS_ROOT" "$LAUNCH_AGENT_PATH" "$DOCUMENTS_SAFE_TRASH" "$DOCUMENTS_LEGACY_TRASH" "$FINDER_TRASH_FILE" "$PROFILE_ROOT/Library/Keychains/fylura-test-$RUN_ID.keychain-db"
   APP_PROFILE_ROOTS_OWNED=1
 }
 

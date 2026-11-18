@@ -553,6 +553,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
   it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {
     const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
+    const preflight = fs.readFileSync(path.join(repositoryRoot, "scripts", "verifyMacosUserProfilePreflight.py"), "utf8");
     const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
@@ -562,9 +563,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"');
     expect(verifier).toContain("preflight_profile_paths");
     expect(verifier).toContain("APP_PROFILE_ROOTS_OWNED=1");
-    expect(verifier).toContain("os.path.commonpath((home, path)) != home");
-    expect(verifier).toContain("os.path.islink(current)");
-    expect(verifier).toContain("os.path.lexists(path)");
+    expect(verifier).toContain('python3 "$SCRIPT_DIR/verifyMacosUserProfilePreflight.py"');
+    expect(preflight).toContain("os.path.commonpath((home, path)) != home");
+    expect(preflight).toContain("os.path.islink(current)");
+    expect(preflight).toContain("os.path.lexists(path)");
     expect(verifier).toContain('DOCUMENTS_SAFE_TRASH="$PROFILE_ROOT/Documents/.fylura-trash/operations/task-owned-fixture-$RUN_ID"');
     expect(verifier).toContain('FINDER_TRASH_FILE="$FINDER_TRASH/fylura-qa-$RUN_ID.txt"');
     expect(verifier).toContain(">\"$external_new\"");

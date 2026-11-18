@@ -144,13 +144,13 @@ finally {
         }
         if ($userSid) {
             for ($attempt = 0; $attempt -lt 30; $attempt++) {
-                $profile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
+                $userProfileRecord = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
                     Where-Object { $_.SID -eq $userSid } | Select-Object -First 1
-                if (-not $profile -or -not $profile.Loaded) { break }
+                if (-not $userProfileRecord -or -not $userProfileRecord.Loaded) { break }
                 Start-Sleep -Milliseconds 500
             }
-            if ($profile -and -not $profile.Loaded) {
-                $profile | Remove-CimInstance -ErrorAction SilentlyContinue
+            if ($userProfileRecord -and -not $userProfileRecord.Loaded) {
+                $userProfileRecord | Remove-CimInstance -ErrorAction SilentlyContinue
             }
         }
         Remove-LocalUser -Name $userName -ErrorAction SilentlyContinue

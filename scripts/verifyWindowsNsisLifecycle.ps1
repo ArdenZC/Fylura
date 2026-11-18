@@ -53,6 +53,8 @@ $secondaryUserSidValue = $null
 $secondaryProfilePath = $null
 $secondaryProfileRootCreated = $false
 $secondaryUserDataSentinels = @()
+$script:secondaryBatchLogonRightGranted = $false
+$script:secondaryBatchLogonRightCleanupFailure = $null
 $credentialTargets = [ordered]@{
     main = 'ai-api-key.com.startlan.fylura'
     alpha = 'ai-api-key-qa_alpha.com.startlan.fylura.ai-profile'
@@ -90,6 +92,99 @@ function Assert-Condition([bool]$Condition, [string]$Message) {
     if (-not $Condition) {
         throw $Message
     }
+}
+
+function Set-TaskOwnedBatchLogonRight([string]$Sid, [bool]$Grant) {
+    if (-not ('Fylura596BatchLogonRight' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class Fylura596BatchLogonRight
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LSA_UNICODE_STRING
+    {
+        public ushort Length;
+        public ushort MaximumLength;
+        public IntPtr Buffer;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LSA_OBJECT_ATTRIBUTES
+    {
+        public int Length;
+        public IntPtr RootDirectory;
+        public IntPtr ObjectName;
+        public uint Attributes;
+        public IntPtr SecurityDescriptor;
+        public IntPtr SecurityQualityOfService;
+    }
+
+    [DllImport("advapi32.dll")]
+    private static extern uint LsaOpenPolicy(IntPtr SystemName, ref LSA_OBJECT_ATTRIBUTES ObjectAttributes, uint DesiredAccess, out IntPtr PolicyHandle);
+
+    [DllImport("advapi32.dll")]
+    private static extern uint LsaAddAccountRights(IntPtr PolicyHandle, IntPtr AccountSid, LSA_UNICODE_STRING[] UserRights, uint CountOfRights);
+
+    [DllImport("advapi32.dll")]
+    private static extern uint LsaRemoveAccountRights(IntPtr PolicyHandle, IntPtr AccountSid, byte AllRights, LSA_UNICODE_STRING[] UserRights, uint CountOfRights);
+
+    [DllImport("advapi32.dll")]
+    private static extern uint LsaClose(IntPtr PolicyHandle);
+
+    [DllImport("advapi32.dll")]
+    private static extern uint LsaNtStatusToWinError(uint Status);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "ConvertStringSidToSidW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ConvertStringSidToSid(string StringSid, out IntPtr Sid);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr Memory);
+
+    public static void Set(string sidText, bool grant)
+    {
+        const uint PolicyLookupNames = 0x00000800;
+        const uint PolicyCreateAccount = 0x00000010;
+        IntPtr policy = IntPtr.Zero;
+        IntPtr sid = IntPtr.Zero;
+        IntPtr rightBuffer = IntPtr.Zero;
+        try
+        {
+            var attributes = new LSA_OBJECT_ATTRIBUTES { Length = Marshal.SizeOf(typeof(LSA_OBJECT_ATTRIBUTES)) };
+            var status = LsaOpenPolicy(IntPtr.Zero, ref attributes, PolicyLookupNames | PolicyCreateAccount, out policy);
+            if (status != 0) Throw(status, "Could not open the local security policy for the isolated test account.");
+            if (!ConvertStringSidToSid(sidText, out sid))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not resolve the isolated test account SID.");
+
+            const string right = "SeBatchLogonRight";
+            rightBuffer = Marshal.StringToHGlobalUni(right);
+            var rights = new[] { new LSA_UNICODE_STRING { Length = (ushort)(right.Length * 2), MaximumLength = (ushort)((right.Length + 1) * 2), Buffer = rightBuffer } };
+            status = grant
+                ? LsaAddAccountRights(policy, sid, rights, 1)
+                : LsaRemoveAccountRights(policy, sid, 0, rights, 1);
+            if (status != 0) Throw(status, grant
+                ? "Could not grant the isolated test account the scheduled-task logon right."
+                : "Could not revoke the isolated test account's scheduled-task logon right.");
+        }
+        finally
+        {
+            if (rightBuffer != IntPtr.Zero) Marshal.FreeHGlobal(rightBuffer);
+            if (sid != IntPtr.Zero) LocalFree(sid);
+            if (policy != IntPtr.Zero) LsaClose(policy);
+        }
+    }
+
+    private static void Throw(uint status, string message)
+    {
+        throw new Win32Exception((int)LsaNtStatusToWinError(status), message);
+    }
+}
+'@ -ErrorAction Stop | Out-Null
+    }
+    [Fylura596BatchLogonRight]::Set($Sid, $Grant)
 }
 
 $script:runKeyPath = 'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -293,7 +388,13 @@ function Invoke-SecondaryUserContext([string]$Mode) {
             }
             Start-Sleep -Milliseconds 500
         }
-        Assert-Condition ($taskInfo -and $taskInfo.LastRunTime -gt $startedAt.AddSeconds(-1)) "The isolated standard-user $Mode task did not start."
+        if (-not $taskInfo -or $taskInfo.LastRunTime -le $startedAt.AddSeconds(-1)) {
+            $lastResult = if ($taskInfo) { '0x{0:X8}' -f [uint32]$taskInfo.LastTaskResult } else { 'unavailable' }
+            $lastRun = if ($taskInfo) { $taskInfo.LastRunTime.ToString('o') } else { 'unavailable' }
+            $taskState = if ($task) { [string]$task.State } else { 'unavailable' }
+            $logonType = if ($task -and $task.Principal) { [string]$task.Principal.LogonType } else { 'unavailable' }
+            throw "The isolated standard-user $Mode task did not start (state=$taskState; logonType=$logonType; lastTaskResult=$lastResult; lastRunTime=$lastRun)."
+        }
         if ($taskInfo.LastTaskResult -ne 0) {
             $failureDetail = ''
             if (Test-Path -LiteralPath $secondaryContextResultPath -PathType Leaf) {
@@ -391,6 +492,8 @@ try {
     $secondaryUserCreated = $true
     Add-LocalGroupMember -Group 'Users' -Member $secondaryUserName
     $secondaryUserSidValue = (Get-LocalUser -Name $secondaryUserName).SID.Value
+    Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $true
+    $script:secondaryBatchLogonRightGranted = $true
     $secondaryAccount = "$env:COMPUTERNAME\$secondaryUserName"
     $taskAcl = Get-Acl -LiteralPath $taskRoot
     $secondaryAccess = [System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -955,6 +1058,14 @@ finally {
             $secondaryProfile | Remove-CimInstance -ErrorAction SilentlyContinue
         }
     }
+    if ($script:secondaryBatchLogonRightGranted -and $secondaryUserSidValue) {
+        try {
+            Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $false
+            $script:secondaryBatchLogonRightGranted = $false
+        } catch {
+            $script:secondaryBatchLogonRightCleanupFailure = $_.Exception.Message
+        }
+    }
     if ($secondaryUserCreated) {
         Remove-LocalUser -Name $secondaryUserName -ErrorAction SilentlyContinue
     }
@@ -969,5 +1080,8 @@ finally {
     }
     if (Test-Path -LiteralPath $taskRoot) {
         Remove-Item -LiteralPath $taskRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($script:secondaryBatchLogonRightCleanupFailure) {
+        throw "Could not revoke the temporary scheduled-task logon right: $($script:secondaryBatchLogonRightCleanupFailure)"
     }
 }

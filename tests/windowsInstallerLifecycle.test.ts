@@ -533,8 +533,12 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
     expect(verifier).toContain("isolatedRunnerVm = $true");
     expect(verifier).toContain("New-LocalUser -Name $secondaryUserName");
+    expect(verifier).toContain("Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $true");
+    expect(verifier).toContain("Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $false");
+    expect(verifier).toContain("SeBatchLogonRight");
     expect(verifier).toContain("Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings");
     expect(verifier).toContain("-User $account -Password $passwordText -RunLevel Limited");
+    expect(verifier).toContain("lastTaskResult=$lastResult");
     expect(verifier).toContain("standardUserContextTaskCompleted = $true");
     expect(verifier).toContain("--fylura-uninstall-worker-cleanup");
     expect(verifier).toContain("administratorAttemptedAnotherUsersSid = $true");

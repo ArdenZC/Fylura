@@ -209,7 +209,9 @@ describe("CI final performance remediation contract", () => {
       expect(apfsEvidenceStep).not.toContain("^FL23_APFS_NATIVE_PASS");
       expect(macosQuality).toContain("- name: Upload APFS native directory Move evidence");
 
-      expect(raceStep).toContain("        env:\n          ZEN_CANVAS_MACOS_RACE_ITERATIONS: \"" + iterations + "\"\n          ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS: \"" + iterations + "\"");
+      expect(raceStep).toContain("        env:\n          FYLURA_MACOS_RACE_ITERATIONS: \"" + iterations + "\"\n          FYLURA_MACOS_EXPANDED_RACE_ITERATIONS: \"" + iterations + "\"");
+      expect(raceStep).not.toContain("ZEN_CANVAS_MACOS_RACE_ITERATIONS");
+      expect(raceStep).not.toContain("ZEN_CANVAS_MACOS_EXPANDED_RACE_ITERATIONS");
       expect(raceStep).toContain("--test macos_mutation_fail_closed");
       expect((raceStep.match(/--test macos_mutation_fail_closed/g) ?? []).length).toBe(1);
       expect((raceStep.match(/cargo test /g) ?? []).length).toBe(1);

@@ -551,18 +551,25 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("Refusing to overwrite a pre-existing Windows credential target");
   });
 
-  it("seeds macOS Safe Trash as files under the isolated profile paths", () => {
+  it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {
     const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
 
     expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
+    expect(verifier).toContain('PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"');
+    expect(verifier).toContain("preflight_profile_paths");
+    expect(verifier).toContain("APP_PROFILE_ROOTS_OWNED=1");
+    expect(verifier).toContain('DOCUMENTS_SAFE_TRASH="$PROFILE_ROOT/Documents/.fylura-trash/operations/task-owned-fixture-$RUN_ID"');
+    expect(verifier).toContain('FINDER_TRASH_FILE="$FINDER_TRASH/fylura-qa-$RUN_ID.txt"');
     expect(verifier).toContain(">\"$external_new\"");
     expect(verifier).toContain(" >\"$external_legacy\"");
-    expect(verifier).toContain("HOME=sys.argv[2]");
-    expect(verifier).toContain('environment.pop("CFFIXED_USER_HOME", None)');
-    expect(verifier).toContain('export CFFIXED_USER_HOME="$PROFILE_ROOT"');
-    expect(verifier).toContain("Keychain selection belongs to the macOS login session");
+    expect(verifier).toContain("Use the disposable runner's real login account");
     expect(verifier).toContain('security list-keychains -d user -s "$TEST_KEYCHAIN"');
     expect(verifier).toContain('security add-generic-password -U -A -T "$app_path"');
+    expect(verifier).toContain('environment.update(\n    TMPDIR=sys.argv[2],');
+    expect(verifier).not.toContain("HOME=sys.argv[2]");
+    expect(verifier).not.toContain('export CFFIXED_USER_HOME=');
+    expect(verifier).toContain('OWNED_FIXTURE_DIRECTORIES+=("$current")');
+    expect(verifier).toContain('rmdir "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}"');
     expect(verifier).toContain('timeout=180');
     expect(verifier).toContain('FYLURA_CLEANUP_DIAGNOSTICS');
     expect(verifier).not.toContain("$external_new/user-file.txt");

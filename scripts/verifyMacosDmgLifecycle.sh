@@ -18,7 +18,7 @@ TASK_ROOT="$RUNNER_TEMP/fylura-dmg-runtime-$RUN_ID"
 MOUNT_POINT="$TASK_ROOT/mount"
 INSTALL_ROOT="$TASK_ROOT/Applications"
 INSTALLED_APP="$INSTALL_ROOT/Fylura.app"
-PROFILE_ROOT="$TASK_ROOT/profile"
+PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"
 TEMP_ROOT="$TASK_ROOT/tmp"
 BUNDLE_ID="com.startlan.fylura"
 LEGACY_BUNDLE_ID="com.startlan.zencanvas"
@@ -30,9 +30,10 @@ CACHE_ROOT="$PROFILE_ROOT/Library/Caches/$BUNDLE_ID"
 PREFERENCES_PATH="$PROFILE_ROOT/Library/Preferences/$BUNDLE_ID.plist"
 LOGS_ROOT="$PROFILE_ROOT/Library/Logs/$BUNDLE_ID"
 LAUNCH_AGENT_PATH="$PROFILE_ROOT/Library/LaunchAgents/Fylura.plist"
-DOCUMENTS_SAFE_TRASH="$PROFILE_ROOT/Documents/.fylura-trash/operations/task-owned-fixture"
-DOCUMENTS_LEGACY_TRASH="$PROFILE_ROOT/Documents/.zen-canvas-trash/operations/task-owned-fixture"
+DOCUMENTS_SAFE_TRASH="$PROFILE_ROOT/Documents/.fylura-trash/operations/task-owned-fixture-$RUN_ID"
+DOCUMENTS_LEGACY_TRASH="$PROFILE_ROOT/Documents/.zen-canvas-trash/operations/task-owned-fixture-$RUN_ID"
 FINDER_TRASH="$PROFILE_ROOT/.Trash"
+FINDER_TRASH_FILE="$FINDER_TRASH/fylura-qa-$RUN_ID.txt"
 APP_PID=""
 SOURCE_APP=""
 APP_BINARY=""
@@ -55,6 +56,13 @@ TEST_KEYCHAIN_CREATED=0
 TASK_CREDENTIALS=()
 TASK_CREDENTIAL_COUNT=0
 TASK_ROOT_CREATED=0
+APP_PROFILE_ROOTS_OWNED=0
+LEGACY_DATA_ROOT_OWNED=0
+DOCUMENTS_SAFE_TRASH_FILE_CREATED=0
+DOCUMENTS_LEGACY_TRASH_FILE_CREATED=0
+FINDER_TRASH_FILE_CREATED=0
+OWNED_FIXTURE_DIRECTORIES=()
+PROFILE_ROOTS_TO_CHECK=()
 
 write_evidence() {
   mkdir -p "$(dirname "$EVIDENCE_PATH")"
@@ -168,7 +176,6 @@ prepare_task_keychain() {
     return 1
   }
   password="$(/usr/bin/uuidgen)"
-  mkdir -p "$(dirname "$TEST_KEYCHAIN")"
   if /usr/bin/security create-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null; then
     TEST_KEYCHAIN_CREATED=1
   else
@@ -177,12 +184,79 @@ prepare_task_keychain() {
   fi
   /usr/bin/security unlock-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null
   /usr/bin/security set-keychain-settings -lut 21600 "$TEST_KEYCHAIN" >/dev/null
-  # Keychain selection belongs to the macOS login session, not the HOME
-  # override used to isolate application files. Point the disposable runner's
-  # real search list at the task-owned keychain so Security.framework and the
-  # security CLI see the same unlocked test credentials; restore it on exit.
+  # Point the disposable runner's real login search list at the task-owned
+  # keychain so Security.framework and the security CLI see the same unlocked
+  # test credentials; restore it on exit.
   /usr/bin/security list-keychains -d user -s "$TEST_KEYCHAIN" >/dev/null
   /usr/bin/security default-keychain -d user -s "$TEST_KEYCHAIN" >/dev/null
+}
+
+preflight_profile_paths() {
+  local candidate
+  PROFILE_ROOTS_TO_CHECK=(
+    "$APP_SUPPORT_ROOT"
+    "$LEGACY_DATA_ROOT"
+    "$CACHE_ROOT"
+    "$PREFERENCES_PATH"
+    "$LOGS_ROOT"
+    "$LAUNCH_AGENT_PATH"
+    "$DOCUMENTS_SAFE_TRASH"
+    "$DOCUMENTS_LEGACY_TRASH"
+    "$FINDER_TRASH_FILE"
+    "$PROFILE_ROOT/Library/Keychains/fylura-test-$RUN_ID.keychain-db"
+  )
+  [[ -d "$PROFILE_ROOT" && ! -L "$PROFILE_ROOT" ]] || {
+    echo "Refusing an invalid or symlinked disposable runner home: $PROFILE_ROOT" >&2
+    return 1
+  }
+  if [[ -n "${CFFIXED_USER_HOME:-}" && "$CFFIXED_USER_HOME" != "$PROFILE_ROOT" ]]; then
+    echo "Refusing a runner with CFFIXED_USER_HOME outside its actual login home." >&2
+    return 1
+  fi
+  for candidate in "${PROFILE_ROOTS_TO_CHECK[@]}"; do
+    local current="/" component
+    local -a path_components
+    IFS='/' read -r -a path_components <<<"${candidate#/}"
+    for component in "${path_components[@]}"; do
+      current="${current%/}/$component"
+      [[ ! -L "$current" ]] || {
+        echo "Refusing a symlink in a Fylura lifecycle test path: $current" >&2
+        return 1
+      }
+    done
+    [[ ! -e "$candidate" ]] || {
+      echo "Refusing a pre-existing Fylura lifecycle test path: $candidate" >&2
+      return 1
+    }
+  done
+  [[ -d "$PROFILE_ROOT/Library/Keychains" ]] || {
+    echo "The disposable runner's Keychains directory is missing; refusing to create a replacement." >&2
+    return 1
+  }
+  APP_PROFILE_ROOTS_OWNED=1
+}
+
+ensure_owned_fixture_directory() {
+  local target="$1" current component
+  local -a components
+  case "$target" in
+    "$PROFILE_ROOT"/*) ;;
+    *) echo "Refusing a fixture directory outside the disposable runner home: $target" >&2; return 1 ;;
+  esac
+  IFS='/' read -r -a components <<<"${target#"$PROFILE_ROOT"/}"
+  current="$PROFILE_ROOT"
+  for component in "${components[@]}"; do
+    current="$current/$component"
+    if [[ -L "$current" ]]; then
+      echo "Refusing a symlink in a task-owned fixture path: $current" >&2
+      return 1
+    elif [[ -e "$current" ]]; then
+      [[ -d "$current" ]] || { echo "Fixture path is not a directory: $current" >&2; return 1; }
+    else
+      mkdir "$current"
+      OWNED_FIXTURE_DIRECTORIES+=("$current")
+    fi
+  done
 }
 
 add_task_credential() {
@@ -201,15 +275,13 @@ seed_cleanup_fixtures() {
   local safe_named="$APP_SUPPORT_ROOT/safe-trash/items/task-owned-fixture/real-file.txt"
   local external_new="$DOCUMENTS_SAFE_TRASH/user-file.txt"
   local external_legacy="$DOCUMENTS_LEGACY_TRASH/user-file.txt"
-  local finder_trash_file="$FINDER_TRASH/user-file.txt"
+  local finder_trash_file="$FINDER_TRASH_FILE"
 
   [[ -x "$SOURCE_APP/Contents/Resources/Uninstall Fylura Data.command" ]] || {
     echo "The Fylura app data cleanup command is missing or not executable in the DMG." >&2
     return 1
   }
   bash -n "$SOURCE_APP/Contents/Resources/Uninstall Fylura Data.command"
-  [[ ! -e "$LAUNCH_AGENT_PATH" ]] || { echo "Refusing a pre-existing task-owned Fylura LaunchAgent fixture." >&2; return 1; }
-
   python3 - "$DATABASE_PATH" <<'PY'
 import json
 import sqlite3
@@ -225,9 +297,18 @@ connection.commit()
 connection.close()
 PY
 
-  mkdir -p "$(dirname "$safe_new")" "$(dirname "$safe_legacy")" "$(dirname "$safe_named")" \
-    "$CACHE_ROOT/quick-look" "$LOGS_ROOT" "$(dirname "$PREFERENCES_PATH")" \
-    "$(dirname "$LAUNCH_AGENT_PATH")" "$DOCUMENTS_SAFE_TRASH" "$DOCUMENTS_LEGACY_TRASH" "$FINDER_TRASH" "$LEGACY_DATA_ROOT"
+  ensure_owned_fixture_directory "$(dirname "$safe_new")"
+  ensure_owned_fixture_directory "$(dirname "$safe_legacy")"
+  ensure_owned_fixture_directory "$(dirname "$safe_named")"
+  ensure_owned_fixture_directory "$CACHE_ROOT/quick-look"
+  ensure_owned_fixture_directory "$LOGS_ROOT"
+  ensure_owned_fixture_directory "$(dirname "$PREFERENCES_PATH")"
+  ensure_owned_fixture_directory "$(dirname "$LAUNCH_AGENT_PATH")"
+  ensure_owned_fixture_directory "$DOCUMENTS_SAFE_TRASH"
+  ensure_owned_fixture_directory "$DOCUMENTS_LEGACY_TRASH"
+  ensure_owned_fixture_directory "$FINDER_TRASH"
+  ensure_owned_fixture_directory "$LEGACY_DATA_ROOT"
+  LEGACY_DATA_ROOT_OWNED=1
   printf '%s\n' 'task-owned database-adjacent data' >"$APP_SUPPORT_ROOT/unrelated-app-data.sentinel"
   printf '%s\n' 'task-owned cache' >"$CACHE_ROOT/quick-look/cache.sentinel"
   printf '%s\n' 'task-owned log' >"$LOGS_ROOT/app.log"
@@ -235,8 +316,11 @@ PY
   printf '%s\n' 'real file in current app-data Safe Trash' >"$safe_new"
   printf '%s\n' 'real file in legacy app-data Safe Trash' >"$safe_legacy"
   printf '%s\n' 'real file in named app-data Safe Trash' >"$safe_named"
+  DOCUMENTS_SAFE_TRASH_FILE_CREATED=1
   printf '%s\n' 'real file in user Documents Safe Trash' >"$external_new"
+  DOCUMENTS_LEGACY_TRASH_FILE_CREATED=1
   printf '%s\n' 'real file in legacy user Documents Safe Trash' >"$external_legacy"
+  FINDER_TRASH_FILE_CREATED=1
   printf '%s\n' 'real file in Finder Trash' >"$finder_trash_file"
   printf '%s\n' 'legacy development data' >"$LEGACY_DATA_ROOT/legacy-development-data.sentinel"
   python3 - "$LAUNCH_AGENT_PATH" "$cleanup_binary" <<'PY'
@@ -257,20 +341,18 @@ PY
 run_explicit_data_cleanup() {
   local output status cleanup_binary="$INSTALLED_APP/Contents/MacOS/$executable_name"
   echo "Starting explicit Fylura user-data cleanup."
-  if output="$(python3 - "$cleanup_binary" "$PROFILE_ROOT" "$TEMP_ROOT" <<'PY'
+  if output="$(python3 - "$cleanup_binary" "$TEMP_ROOT" <<'PY'
 import os
 import subprocess
 import sys
 
 environment = os.environ.copy()
 environment.update(
-    HOME=sys.argv[2],
-    TMPDIR=sys.argv[3],
+    TMPDIR=sys.argv[2],
     FYLURA_CLEANUP_DIAGNOSTICS="1",
 )
-# Keep Security.framework in the real disposable runner login-keychain domain.
-# HOME still points at the run-scoped tree for dirs-based Fylura data paths.
-environment.pop("CFFIXED_USER_HOME", None)
+# Use the disposable runner's real login account so Security.framework sees
+# the same default Keychain that the security CLI configured for this test.
 try:
     result = subprocess.run(
         [sys.argv[1], "--fylura-uninstall-clean-user-data"],
@@ -293,8 +375,8 @@ print(result.stdout, end="")
 raise SystemExit(result.returncode)
 PY
   )"; then
-    DATA_CLEANUP="PASS"
-    echo "Explicit Fylura user-data cleanup completed."
+    DATA_CLEANUP="VERIFYING"
+    echo "Fylura's data cleanup command returned successfully; verifying the remaining paths."
   else
     status=$?
     printf '%s\n' "$output" >&2
@@ -313,7 +395,7 @@ PY
     echo "User Safe Trash data was changed by Fylura cleanup." >&2
     return 1
   }
-  [[ -f "$FINDER_TRASH/user-file.txt" ]] || { echo "Finder Trash was changed by Fylura cleanup." >&2; return 1; }
+  [[ -f "$FINDER_TRASH_FILE" ]] || { echo "Finder Trash was changed by Fylura cleanup." >&2; return 1; }
 
   python3 - "$APP_SUPPORT_ROOT" <<'PY'
 import os
@@ -340,6 +422,7 @@ PY
   done
   MULTIPLE_PROFILE_CREDENTIALS_REMOVED=1
   SAFE_TRASH_PRESERVED=1
+  DATA_CLEANUP="PASS"
 }
 
 assert_data_preserved_after_ordinary_removal() {
@@ -354,7 +437,7 @@ assert_data_preserved_after_ordinary_removal() {
     return 1
   }
   [[ -f "$DOCUMENTS_SAFE_TRASH/user-file.txt" && -f "$DOCUMENTS_LEGACY_TRASH/user-file.txt" \
-    && -f "$FINDER_TRASH/user-file.txt" ]] || {
+    && -f "$FINDER_TRASH_FILE" ]] || {
     echo "User or Finder Trash data did not survive ordinary app removal." >&2
     return 1
   }
@@ -387,6 +470,10 @@ cleanup() {
   exit_code=$?
   trap - EXIT
 
+  if [[ "$DATA_CLEANUP" == "VERIFYING" ]]; then
+    DATA_CLEANUP="FAIL"
+  fi
+
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill -TERM "$APP_PID" 2>/dev/null || true
     for _ in $(seq 1 15); do
@@ -418,6 +505,61 @@ cleanup() {
     STATUS="FAIL"
     exit_code=1
   fi
+
+  if [[ "$APP_PROFILE_ROOTS_OWNED" -eq 1 ]]; then
+    local owned_path
+    for owned_path in "$APP_SUPPORT_ROOT" "$CACHE_ROOT" "$LOGS_ROOT"; do
+      if [[ -L "$owned_path" ]]; then
+        echo "Refusing to remove a symlinked Fylura data path during test cleanup: $owned_path" >&2
+        STATUS="FAIL"
+        exit_code=1
+      elif [[ -e "$owned_path" ]]; then
+        /bin/rm -R "$owned_path" || { echo "Failed to remove task-owned Fylura test data: $owned_path" >&2; STATUS="FAIL"; exit_code=1; }
+      fi
+    done
+    for owned_path in "$PREFERENCES_PATH" "$LAUNCH_AGENT_PATH"; do
+      if [[ -L "$owned_path" ]]; then
+        echo "Refusing to remove a symlinked Fylura file during test cleanup: $owned_path" >&2
+        STATUS="FAIL"
+        exit_code=1
+      elif [[ -e "$owned_path" ]]; then
+        /bin/rm -f "$owned_path" || { echo "Failed to remove task-owned Fylura test file: $owned_path" >&2; STATUS="FAIL"; exit_code=1; }
+      fi
+    done
+  fi
+
+  if [[ "$LEGACY_DATA_ROOT_OWNED" -eq 1 ]]; then
+    if [[ -L "$LEGACY_DATA_ROOT" ]]; then
+      echo "Refusing to remove a symlinked legacy fixture path: $LEGACY_DATA_ROOT" >&2
+      STATUS="FAIL"
+      exit_code=1
+    elif [[ -e "$LEGACY_DATA_ROOT" ]]; then
+      /bin/rm -R "$LEGACY_DATA_ROOT" || { echo "Failed to remove task-owned legacy fixture data." >&2; STATUS="FAIL"; exit_code=1; }
+    fi
+  fi
+
+  if [[ "$DOCUMENTS_SAFE_TRASH_FILE_CREATED" -eq 1 ]]; then
+    /bin/rm -f "$DOCUMENTS_SAFE_TRASH/user-file.txt" || { STATUS="FAIL"; exit_code=1; }
+  fi
+  if [[ "$DOCUMENTS_LEGACY_TRASH_FILE_CREATED" -eq 1 ]]; then
+    /bin/rm -f "$DOCUMENTS_LEGACY_TRASH/user-file.txt" || { STATUS="FAIL"; exit_code=1; }
+  fi
+  if [[ "$FINDER_TRASH_FILE_CREATED" -eq 1 ]]; then
+    /bin/rm -f "$FINDER_TRASH_FILE" || { STATUS="FAIL"; exit_code=1; }
+  fi
+  for ((directory_index=${#OWNED_FIXTURE_DIRECTORIES[@]}-1; directory_index>=0; directory_index--)); do
+    if [[ -L "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" ]]; then
+      echo "Refusing to remove a symlinked task-owned fixture directory: ${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" >&2
+      STATUS="FAIL"
+      exit_code=1
+    elif [[ -d "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" ]]; then
+      rmdir "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" 2>/dev/null || {
+        echo "Task-owned fixture directory is not empty after cleanup: ${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" >&2
+        STATUS="FAIL"
+        exit_code=1
+      }
+    fi
+  done
 
   if [[ "$TASK_ROOT_CREATED" -eq 1 ]]; then
     case "$TASK_ROOT/" in
@@ -460,7 +602,8 @@ if [[ -e "$TASK_ROOT" ]]; then
 fi
 
 TASK_ROOT_CREATED=1
-mkdir -p "$MOUNT_POINT" "$INSTALL_ROOT" "$PROFILE_ROOT" "$TEMP_ROOT"
+mkdir -p "$MOUNT_POINT" "$INSTALL_ROOT" "$TEMP_ROOT"
+preflight_profile_paths
 hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_POINT"
 MOUNT_ATTACHED=1
 
@@ -526,8 +669,6 @@ launch_and_check() {
   launch_number=$((LAUNCH_COUNT + 1))
   log_path="$TASK_ROOT/fylura-launch-$launch_number.log"
   (
-    export HOME="$PROFILE_ROOT"
-    export CFFIXED_USER_HOME="$PROFILE_ROOT"
     export TMPDIR="$TEMP_ROOT"
     exec "$APP_BINARY"
   ) >"$log_path" 2>&1 &

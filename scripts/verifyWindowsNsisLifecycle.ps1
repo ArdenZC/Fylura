@@ -1044,44 +1044,59 @@ catch {
     throw
 }
 finally {
-    Remove-TaskOwnedAutostartFixture
-    Remove-TaskOwnedCredentialFixtures
-    Remove-TaskOwnedLegacyService
-    if ($secondaryUserSidValue) {
-        $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
-            Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
-        if ($secondaryProfile -and $secondaryProfile.LocalPath) {
-            $secondaryProfilePath = $secondaryProfile.LocalPath
-            $secondaryProfileRootCreated = $true
+    try {
+        Remove-TaskOwnedAutostartFixture
+        Remove-TaskOwnedCredentialFixtures
+        Remove-TaskOwnedLegacyService
+        if ($secondaryUserSidValue) {
+            $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
+                Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
+            if ($secondaryProfile -and $secondaryProfile.LocalPath) {
+                $secondaryProfilePath = $secondaryProfile.LocalPath
+                $secondaryProfileRootCreated = $true
+            }
+            if ($secondaryProfile -and -not $secondaryProfile.Loaded) {
+                $secondaryProfile | Remove-CimInstance -ErrorAction SilentlyContinue
+            }
         }
-        if ($secondaryProfile -and -not $secondaryProfile.Loaded) {
-            $secondaryProfile | Remove-CimInstance -ErrorAction SilentlyContinue
+        if ($script:secondaryBatchLogonRightGranted -and $secondaryUserSidValue) {
+            try {
+                Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $false
+                $script:secondaryBatchLogonRightGranted = $false
+            } catch {
+                $script:secondaryBatchLogonRightCleanupFailure = $_.Exception.Message
+            }
         }
-    }
-    if ($script:secondaryBatchLogonRightGranted -and $secondaryUserSidValue) {
-        try {
-            Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $false
-            $script:secondaryBatchLogonRightGranted = $false
-        } catch {
-            $script:secondaryBatchLogonRightCleanupFailure = $_.Exception.Message
+        if ($secondaryUserCreated) {
+            Remove-LocalUser -Name $secondaryUserName -ErrorAction SilentlyContinue
         }
-    }
-    if ($secondaryUserCreated) {
-        Remove-LocalUser -Name $secondaryUserName -ErrorAction SilentlyContinue
-    }
-    if ($secondaryProfileRootCreated -and (Test-Path -LiteralPath $secondaryProfilePath)) {
-        Remove-Item -LiteralPath $secondaryProfilePath -Recurse -Force -ErrorAction Stop
-        if (Test-Path -LiteralPath $secondaryProfilePath) {
-            throw 'The task-owned secondary profile fixture remained after cleanup.'
+        if ($secondaryProfileRootCreated -and (Test-Path -LiteralPath $secondaryProfilePath)) {
+            Remove-Item -LiteralPath $secondaryProfilePath -Recurse -Force -ErrorAction Stop
+            if (Test-Path -LiteralPath $secondaryProfilePath) {
+                throw 'The task-owned secondary profile fixture remained after cleanup.'
+            }
         }
-    }
-    if ($appDataFixtureCreated) {
-        Remove-Item -LiteralPath $currentDataDir, $currentCacheDir, $legacyDataDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    if (Test-Path -LiteralPath $taskRoot) {
-        Remove-Item -LiteralPath $taskRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    if ($script:secondaryBatchLogonRightCleanupFailure) {
-        throw "Could not revoke the temporary scheduled-task logon right: $($script:secondaryBatchLogonRightCleanupFailure)"
+        if ($appDataFixtureCreated) {
+            Remove-Item -LiteralPath $currentDataDir, $currentCacheDir, $legacyDataDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $taskRoot) {
+            Remove-Item -LiteralPath $taskRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        if ($script:secondaryBatchLogonRightCleanupFailure) {
+            throw "Could not revoke the temporary scheduled-task logon right: $($script:secondaryBatchLogonRightCleanupFailure)"
+        }
+    } catch {
+        $script:overallStatus = 'FAIL'
+        $cleanupError = ($_.Exception.Message -replace '\s+', ' ').Trim()
+        if ($cleanupError.Length -gt 800) { $cleanupError = $cleanupError.Substring(0, 800) }
+        $evidence.Add([ordered]@{
+            phase = 'cleanup-failed'
+            at = [DateTime]::UtcNow.ToString('o')
+            error = $cleanupError
+            script = 'verifyWindowsNsisLifecycle.ps1'
+            scriptLine = $_.InvocationInfo.ScriptLineNumber
+        })
+        Save-Evidence
+        throw
     }
 }

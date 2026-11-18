@@ -539,6 +539,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings");
     expect(verifier).toContain("-User $account -Password $passwordText -RunLevel Limited");
     expect(verifier).toContain("lastTaskResult=$lastResult");
+    expect(verifier).toContain("phase = 'cleanup-failed'");
     expect(verifier).toContain("standardUserContextTaskCompleted = $true");
     expect(verifier).toContain("--fylura-uninstall-worker-cleanup");
     expect(verifier).toContain("administratorAttemptedAnotherUsersSid = $true");
@@ -581,6 +582,9 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(runner).toContain("Refusing pre-existing isolated lifecycle staging path");
     expect(runner).toContain("FileSystemAccessRule]::new");
     expect(runner).toContain("worker-error.log");
+    expect(runner).toContain("runner-observed-worker-failure");
+    expect(runner).toContain("$document.status = 'FAIL'");
+    expect(runner).toContain("The isolated lifecycle task returned");
     expect(runner).toContain("The isolated lifecycle worker ended without writing evidence or an error log.");
     expect(runner).toContain("-TaskWorker -RunnerTemp $literalRunnerTemp -RunId $literalRunId -SourceSha $literalSourceSha -PythonPath $literalPythonPath");
     expect(runner).toContain("Unregister-ScheduledTask");

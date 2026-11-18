@@ -127,12 +127,29 @@ try {
     }
     if ($taskInfo.LastTaskResult -ne 0) {
         $evidenceSummary = ''
+        $workerError = ''
+        if (Test-Path -LiteralPath $workerLog -PathType Leaf) {
+            $workerError = ([System.IO.File]::ReadAllText($workerLog) -replace '\s+', ' ').Trim()
+            if ($workerError.Length -gt 500) { $workerError = $workerError.Substring(0, 500) }
+        }
         if (Test-Path -LiteralPath $evidence -PathType Leaf) {
             $document = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
             $phases = @($document.phases)
-            $failure = @($phases | Where-Object { $_.phase -eq 'failed' } | Select-Object -Last 1)
+            $failure = @($phases | Where-Object { $_.phase -in @('failed', 'cleanup-failed', 'runner-observed-worker-failure') } | Select-Object -Last 1)
+            if ($failure.Count -eq 0) {
+                $observedError = if ($workerError) { $workerError } else { "The isolated lifecycle task returned $($taskInfo.LastTaskResult) after writing PASS evidence." }
+                $document.status = 'FAIL'
+                $document.phases = @($phases) + @([pscustomobject]@{
+                    phase = 'runner-observed-worker-failure'
+                    at = [DateTime]::UtcNow.ToString('o')
+                    error = $observedError
+                })
+                $document | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidence -Encoding utf8
+                $phases = @($document.phases)
+                $failure = @($phases | Where-Object { $_.phase -eq 'runner-observed-worker-failure' } | Select-Object -Last 1)
+            }
             if ($failure.Count -gt 0) {
-                $previous = @($phases | Where-Object { $_.phase -ne 'failed' } | Select-Object -Last 1)
+                $previous = @($phases | Where-Object { $_.phase -notin @('failed', 'cleanup-failed', 'runner-observed-worker-failure') } | Select-Object -Last 1)
                 if ($previous.Count -gt 0) {
                     $evidenceSummary = " after phase '$($previous[0].phase)'"
                 }
@@ -145,10 +162,11 @@ try {
                     $evidenceSummary += ": $errorDetail"
                 }
             }
-        } elseif (Test-Path -LiteralPath $workerLog -PathType Leaf) {
-            $workerError = ([System.IO.File]::ReadAllText($workerLog) -replace '\s+', ' ').Trim()
-            if ($workerError.Length -gt 500) { $workerError = $workerError.Substring(0, 500) }
-            if ($workerError) { $evidenceSummary = ": $workerError" }
+        } elseif ($workerError) {
+            $evidenceSummary = ": $workerError"
+        }
+        if ($workerError -and -not $evidenceSummary.Contains($workerError)) {
+            $evidenceSummary += "; worker error: $workerError"
         }
         throw "Isolated elevated NSIS lifecycle task failed with result $($taskInfo.LastTaskResult)$evidenceSummary"
     }

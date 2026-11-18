@@ -558,7 +558,9 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"');
     expect(verifier).toContain("preflight_profile_paths");
     expect(verifier).toContain("APP_PROFILE_ROOTS_OWNED=1");
-    expect(verifier).toContain('relative_target="$(printf \'%s\' "$target" | cut -c "$prefix_length"-)"');
+    expect(verifier).toContain("os.path.commonpath((home, path)) != home");
+    expect(verifier).toContain("os.path.islink(current)");
+    expect(verifier).toContain("os.path.lexists(path)");
     expect(verifier).toContain('DOCUMENTS_SAFE_TRASH="$PROFILE_ROOT/Documents/.fylura-trash/operations/task-owned-fixture-$RUN_ID"');
     expect(verifier).toContain('FINDER_TRASH_FILE="$FINDER_TRASH/fylura-qa-$RUN_ID.txt"');
     expect(verifier).toContain(">\"$external_new\"");
@@ -569,8 +571,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('environment.update(\n    TMPDIR=sys.argv[2],');
     expect(verifier).not.toContain("HOME=sys.argv[2]");
     expect(verifier).not.toContain('export CFFIXED_USER_HOME=');
-    expect(verifier).toContain('OWNED_FIXTURE_DIRECTORIES[$OWNED_FIXTURE_DIRECTORY_COUNT]="$current"');
-    expect(verifier).toContain('rmdir "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}"');
+    expect(verifier).toContain('rmdir "$fixture_directory"');
+    expect(verifier).not.toContain("OWNED_FIXTURE_DIRECTORIES");
     expect(verifier).toContain('timeout=180');
     expect(verifier).toContain('FYLURA_CLEANUP_DIAGNOSTICS');
     expect(verifier).not.toContain("$external_new/user-file.txt");

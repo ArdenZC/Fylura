@@ -61,9 +61,6 @@ LEGACY_DATA_ROOT_OWNED=0
 DOCUMENTS_SAFE_TRASH_FILE_CREATED=0
 DOCUMENTS_LEGACY_TRASH_FILE_CREATED=0
 FINDER_TRASH_FILE_CREATED=0
-OWNED_FIXTURE_DIRECTORIES=()
-OWNED_FIXTURE_DIRECTORY_COUNT=0
-PROFILE_ROOTS_TO_CHECK=()
 
 write_evidence() {
   mkdir -p "$(dirname "$EVIDENCE_PATH")"
@@ -193,19 +190,6 @@ prepare_task_keychain() {
 }
 
 preflight_profile_paths() {
-  local candidate
-  PROFILE_ROOTS_TO_CHECK=(
-    "$APP_SUPPORT_ROOT"
-    "$LEGACY_DATA_ROOT"
-    "$CACHE_ROOT"
-    "$PREFERENCES_PATH"
-    "$LOGS_ROOT"
-    "$LAUNCH_AGENT_PATH"
-    "$DOCUMENTS_SAFE_TRASH"
-    "$DOCUMENTS_LEGACY_TRASH"
-    "$FINDER_TRASH_FILE"
-    "$PROFILE_ROOT/Library/Keychains/fylura-test-$RUN_ID.keychain-db"
-  )
   [[ -d "$PROFILE_ROOT" && ! -L "$PROFILE_ROOT" ]] || {
     echo "Refusing an invalid or symlinked disposable runner home: $PROFILE_ROOT" >&2
     return 1
@@ -214,53 +198,35 @@ preflight_profile_paths() {
     echo "Refusing a runner with CFFIXED_USER_HOME outside its actual login home." >&2
     return 1
   fi
-  for candidate in "${PROFILE_ROOTS_TO_CHECK[@]}"; do
-    local current="/" component
-    local -a path_components
-    IFS='/' read -r -a path_components <<<"${candidate#/}"
-    for component in "${path_components[@]}"; do
-      current="${current%/}/$component"
-      [[ ! -L "$current" ]] || {
-        echo "Refusing a symlink in a Fylura lifecycle test path: $current" >&2
-        return 1
-      }
-    done
-    [[ ! -e "$candidate" ]] || {
-      echo "Refusing a pre-existing Fylura lifecycle test path: $candidate" >&2
-      return 1
-    }
-  done
   [[ -d "$PROFILE_ROOT/Library/Keychains" ]] || {
     echo "The disposable runner's Keychains directory is missing; refusing to create a replacement." >&2
     return 1
   }
-  APP_PROFILE_ROOTS_OWNED=1
-}
+  python3 - "$PROFILE_ROOT" \
+    "$APP_SUPPORT_ROOT" "$LEGACY_DATA_ROOT" "$CACHE_ROOT" "$PREFERENCES_PATH" \
+    "$LOGS_ROOT" "$LAUNCH_AGENT_PATH" "$DOCUMENTS_SAFE_TRASH" \
+    "$DOCUMENTS_LEGACY_TRASH" "$FINDER_TRASH_FILE" \
+    "$PROFILE_ROOT/Library/Keychains/fylura-test-$RUN_ID.keychain-db" <<'PY'
+import os
+import sys
 
-ensure_owned_fixture_directory() {
-  local target="$1" current component relative_target prefix_length
-  local -a components
-  case "$target" in
-    "$PROFILE_ROOT"/*) ;;
-    *) echo "Refusing a fixture directory outside the disposable runner home: $target" >&2; return 1 ;;
-  esac
-  prefix_length=$((${#PROFILE_ROOT} + 2))
-  relative_target="$(printf '%s' "$target" | cut -c "$prefix_length"-)"
-  IFS='/' read -r -a components <<<"$relative_target"
-  current="$PROFILE_ROOT"
-  for component in "${components[@]}"; do
-    current="$current/$component"
-    if [[ -L "$current" ]]; then
-      echo "Refusing a symlink in a task-owned fixture path: $current" >&2
-      return 1
-    elif [[ -e "$current" ]]; then
-      [[ -d "$current" ]] || { echo "Fixture path is not a directory: $current" >&2; return 1; }
-    else
-      mkdir "$current"
-      OWNED_FIXTURE_DIRECTORIES[$OWNED_FIXTURE_DIRECTORY_COUNT]="$current"
-      OWNED_FIXTURE_DIRECTORY_COUNT=$((OWNED_FIXTURE_DIRECTORY_COUNT + 1))
-    fi
-  done
+home = os.path.abspath(sys.argv[1])
+for candidate in sys.argv[2:]:
+    path = os.path.abspath(candidate)
+    if os.path.commonpath((home, path)) != home:
+        raise SystemExit("Refusing a Fylura test path outside the disposable runner home: " + path)
+    current = path
+    while current != home:
+        if os.path.islink(current):
+            raise SystemExit("Refusing a symlink in a Fylura lifecycle test path: " + current)
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise SystemExit("Could not find the disposable home in a Fylura test path: " + path)
+        current = parent
+    if os.path.lexists(path):
+        raise SystemExit("Refusing a pre-existing Fylura lifecycle test path: " + path)
+PY
+  APP_PROFILE_ROOTS_OWNED=1
 }
 
 add_task_credential() {
@@ -301,18 +267,11 @@ connection.commit()
 connection.close()
 PY
 
-  ensure_owned_fixture_directory "$(dirname "$safe_new")"
-  ensure_owned_fixture_directory "$(dirname "$safe_legacy")"
-  ensure_owned_fixture_directory "$(dirname "$safe_named")"
-  ensure_owned_fixture_directory "$CACHE_ROOT/quick-look"
-  ensure_owned_fixture_directory "$LOGS_ROOT"
-  ensure_owned_fixture_directory "$(dirname "$PREFERENCES_PATH")"
-  ensure_owned_fixture_directory "$(dirname "$LAUNCH_AGENT_PATH")"
-  ensure_owned_fixture_directory "$DOCUMENTS_SAFE_TRASH"
-  ensure_owned_fixture_directory "$DOCUMENTS_LEGACY_TRASH"
-  ensure_owned_fixture_directory "$FINDER_TRASH"
-  ensure_owned_fixture_directory "$LEGACY_DATA_ROOT"
   LEGACY_DATA_ROOT_OWNED=1
+  mkdir -p "$(dirname "$safe_new")" "$(dirname "$safe_legacy")" "$(dirname "$safe_named")" \
+    "$CACHE_ROOT/quick-look" "$LOGS_ROOT" "$(dirname "$PREFERENCES_PATH")" \
+    "$(dirname "$LAUNCH_AGENT_PATH")" "$DOCUMENTS_SAFE_TRASH" "$DOCUMENTS_LEGACY_TRASH" \
+    "$FINDER_TRASH" "$LEGACY_DATA_ROOT"
   printf '%s\n' 'task-owned database-adjacent data' >"$APP_SUPPORT_ROOT/unrelated-app-data.sentinel"
   printf '%s\n' 'task-owned cache' >"$CACHE_ROOT/quick-look/cache.sentinel"
   printf '%s\n' 'task-owned log' >"$LOGS_ROOT/app.log"
@@ -551,14 +510,14 @@ cleanup() {
   if [[ "$FINDER_TRASH_FILE_CREATED" -eq 1 ]]; then
     /bin/rm -f "$FINDER_TRASH_FILE" || { STATUS="FAIL"; exit_code=1; }
   fi
-  for ((directory_index=OWNED_FIXTURE_DIRECTORY_COUNT-1; directory_index>=0; directory_index--)); do
-    if [[ -L "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" ]]; then
-      echo "Refusing to remove a symlinked task-owned fixture directory: ${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" >&2
+  for fixture_directory in "$DOCUMENTS_SAFE_TRASH" "$DOCUMENTS_LEGACY_TRASH"; do
+    if [[ -L "$fixture_directory" ]]; then
+      echo "Refusing to remove a symlinked task-owned fixture directory: $fixture_directory" >&2
       STATUS="FAIL"
       exit_code=1
-    elif [[ -d "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" ]]; then
-      rmdir "${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" 2>/dev/null || {
-        echo "Task-owned fixture directory is not empty after cleanup: ${OWNED_FIXTURE_DIRECTORIES[$directory_index]}" >&2
+    elif [[ -d "$fixture_directory" ]]; then
+      rmdir "$fixture_directory" 2>/dev/null || {
+        echo "Task-owned fixture directory is not empty after cleanup: $fixture_directory" >&2
         STATUS="FAIL"
         exit_code=1
       }

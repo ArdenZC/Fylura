@@ -50,6 +50,8 @@ $legacyServiceCreated = $false
 $appDataFixtureCreated = $false
 $secondaryUserCreated = $false
 $secondaryUserSidValue = $null
+$secondaryProfilePath = $null
+$secondaryProfileRootCreated = $false
 $secondaryUserDataSentinels = @()
 $credentialTargets = [ordered]@{
     main = 'ai-api-key.com.startlan.fylura'
@@ -244,53 +246,17 @@ try {
     $secondaryUserCreated = $true
     Add-LocalGroupMember -Group 'Users' -Member $secondaryUserName
     $secondaryUserSidValue = (Get-LocalUser -Name $secondaryUserName).SID.Value
-    $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction Stop |
-        Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
-    if (-not $secondaryProfile) {
-        $profileApiSource = @'
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-
-public static class FyluraUserProfileApi {
-    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool ConvertStringSidToSid(string stringSid, out IntPtr sid);
-
-    [DllImport("userenv.dll", CharSet = CharSet.Unicode)]
-    private static extern int CreateProfile(IntPtr sid, string userName, StringBuilder profilePath, uint profilePathSize);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr LocalFree(IntPtr handle);
-
-    public static int Create(string stringSid, string userName, StringBuilder profilePath) {
-        IntPtr sid;
-        if (!ConvertStringSidToSid(stringSid, out sid)) {
-            return Marshal.GetHRForLastWin32Error();
-        }
-        try {
-            return CreateProfile(sid, userName, profilePath, (uint)profilePath.Capacity);
-        }
-        finally {
-            if (sid != IntPtr.Zero) LocalFree(sid);
-        }
-    }
-}
-'@
-        Add-Type -TypeDefinition $profileApiSource -ErrorAction Stop
-        $profilePathBuffer = [System.Text.StringBuilder]::new(32768)
-        $profileResult = [FyluraUserProfileApi]::Create($secondaryUserSidValue, $secondaryUserName, $profilePathBuffer)
-        $profileResultHex = '0x{0:X8}' -f ($profileResult -band 0xffffffff)
-        Assert-Condition ($profileResult -eq 0) "Could not create the task-owned secondary Windows user profile (HRESULT $profileResultHex)."
-        for ($attempt = 0; $attempt -lt 30; $attempt++) {
-            $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction Stop |
-                Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
-            if ($secondaryProfile -and $secondaryProfile.LocalPath) { break }
-            Start-Sleep -Milliseconds 500
-        }
-    }
-    Assert-Condition ($secondaryProfile -and $secondaryProfile.LocalPath) 'Windows did not create the task-owned secondary user profile.'
-    $secondaryDataRoot = Join-Path $secondaryProfile.LocalPath 'AppData\Roaming\com.startlan.fylura'
-    $secondaryCacheRoot = Join-Path $secondaryProfile.LocalPath 'AppData\Local\com.startlan.fylura'
+    # New-LocalUser intentionally does not initialize a profile until first
+    # interactive logon. Stage the account's exact profile tree directly so
+    # this test does not need a logon session or mutate Windows profile state.
+    $userProfilePath = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    Assert-Condition ([System.IO.Path]::IsPathFullyQualified($userProfilePath)) 'Windows returned an invalid current-user profile path.'
+    $secondaryProfilePath = Join-Path (Split-Path -Parent $userProfilePath) $secondaryUserName
+    Assert-Condition (-not (Test-Path -LiteralPath $secondaryProfilePath)) 'Refusing to alter a pre-existing secondary profile path.'
+    New-Item -ItemType Directory -Path $secondaryProfilePath -ErrorAction Stop | Out-Null
+    $secondaryProfileRootCreated = $true
+    $secondaryDataRoot = Join-Path $secondaryProfilePath 'AppData\Roaming\com.startlan.fylura'
+    $secondaryCacheRoot = Join-Path $secondaryProfilePath 'AppData\Local\com.startlan.fylura'
     New-Item -ItemType Directory -Path $secondaryDataRoot, $secondaryCacheRoot -Force | Out-Null
     $secondaryUserDataSentinels = @(
         [pscustomobject]@{ path = (Join-Path $secondaryDataRoot 'other-user-data.sentinel'); contents = 'other-user-data-preserved' },
@@ -303,6 +269,7 @@ public static class FyluraUserProfileApi {
     Record-Phase 'secondary-user-profile-fixture' @{
         otherUserFyluraDataAndCacheSeeded = $true
         standardUser = $true
+        profileInitializedByInteractiveLogon = $false
         noCredentialValuesRecorded = $true
     }
 
@@ -530,6 +497,12 @@ finally {
     }
     if ($secondaryUserCreated) {
         Remove-LocalUser -Name $secondaryUserName -ErrorAction SilentlyContinue
+    }
+    if ($secondaryProfileRootCreated -and (Test-Path -LiteralPath $secondaryProfilePath)) {
+        Remove-Item -LiteralPath $secondaryProfilePath -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $secondaryProfilePath) {
+            throw 'The task-owned secondary profile fixture remained after cleanup.'
+        }
     }
     if ($appDataFixtureCreated) {
         Remove-Item -LiteralPath $currentDataDir, $currentCacheDir, $legacyDataDir -Recurse -Force -ErrorAction SilentlyContinue

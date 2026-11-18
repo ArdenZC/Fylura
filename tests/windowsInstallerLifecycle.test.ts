@@ -519,8 +519,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
     expect(verifier).toContain("isolatedRunnerVm = $true");
     expect(verifier).toContain("New-LocalUser -Name $secondaryUserName");
-    expect(verifier).toContain("FyluraUserProfileApi");
-    expect(verifier).toContain("CreateProfile(sid, userName, profilePath");
+    expect(verifier).toContain("profileInitializedByInteractiveLogon = $false");
+    expect(verifier).toContain("$secondaryProfilePath = Join-Path (Split-Path -Parent $userProfilePath) $secondaryUserName");
+    expect(verifier).toContain("Refusing to alter a pre-existing secondary profile path.");
+    expect(verifier).not.toContain("CreateProfile");
     expect(verifier).not.toContain("Start-Process -FilePath $powershell -Credential $secondaryCredential");
     expect(verifier).toContain("Assert-SecondaryProfileDataPreserved");
     expect(verifier).not.toContain("IsolatedUserChild");

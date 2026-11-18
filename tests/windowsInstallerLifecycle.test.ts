@@ -544,6 +544,11 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(runner).toContain("Register-ScheduledTask");
     expect(runner).toContain("-RunLevel Highest");
     expect(runner).toContain("-Password $passwordText");
+    expect(runner).toContain('$sharedRoot = Join-Path $env:ProgramData');
+    expect(runner).toContain("Refusing pre-existing isolated lifecycle staging path");
+    expect(runner).toContain("FileSystemAccessRule]::new");
+    expect(runner).toContain("worker-error.log");
+    expect(runner).toContain("The isolated lifecycle worker ended without writing evidence or an error log.");
     expect(runner).toContain("Unregister-ScheduledTask");
     expect(runner).toContain("Remove-LocalUser -Name $userName");
     expect(verifier).toContain("[switch]$TaskWorker");

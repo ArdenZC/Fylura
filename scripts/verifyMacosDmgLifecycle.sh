@@ -237,13 +237,15 @@ preflight_profile_paths() {
 }
 
 ensure_owned_fixture_directory() {
-  local target="$1" current component
+  local target="$1" current component relative_target prefix_length
   local -a components
   case "$target" in
     "$PROFILE_ROOT"/*) ;;
     *) echo "Refusing a fixture directory outside the disposable runner home: $target" >&2; return 1 ;;
   esac
-  IFS='/' read -r -a components <<<"${target#"$PROFILE_ROOT"/}"
+  prefix_length=$((${#PROFILE_ROOT} + 1))
+  relative_target="${target:prefix_length}"
+  IFS='/' read -r -a components <<<"$relative_target"
   current="$PROFILE_ROOT"
   for component in "${components[@]}"; do
     current="$current/$component"

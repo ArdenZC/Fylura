@@ -558,6 +558,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"');
     expect(verifier).toContain("preflight_profile_paths");
     expect(verifier).toContain("APP_PROFILE_ROOTS_OWNED=1");
+    expect(verifier).toContain('relative_target="${target:prefix_length}"');
     expect(verifier).toContain('DOCUMENTS_SAFE_TRASH="$PROFILE_ROOT/Documents/.fylura-trash/operations/task-owned-fixture-$RUN_ID"');
     expect(verifier).toContain('FINDER_TRASH_FILE="$FINDER_TRASH/fylura-qa-$RUN_ID.txt"');
     expect(verifier).toContain(">\"$external_new\"");

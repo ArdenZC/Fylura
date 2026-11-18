@@ -671,14 +671,12 @@ mod windows_uninstall {
                 "Full cleanup was not started because Windows could not verify the initiating user's account. Personal data and startup settings were preserved; rerun uninstall from the intended user's normal desktop session.".to_string(),
             ));
         }
-        if target_sid.is_none() && !updating {
-            if !silent {
-                windows_message_box(
-                    "Windows could not verify the initiating account because this process is elevated or its account token is unavailable. Fylura will be removed for this computer, while personal data and startup settings are retained.",
-                    "Fylura Uninstall",
-                    MB_OK | MB_ICONWARNING | MB_SETFOREGROUND,
-                );
-            }
+        if target_sid.is_none() && !updating && !silent {
+            windows_message_box(
+                "Windows could not verify the initiating account because this process is elevated or its account token is unavailable. Fylura will be removed for this computer, while personal data and startup settings are retained.",
+                "Fylura Uninstall",
+                MB_OK | MB_ICONWARNING | MB_SETFOREGROUND,
+            );
         }
         let delete_user_data = if updating || silent || target_sid.is_none() {
             false

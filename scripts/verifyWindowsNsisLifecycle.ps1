@@ -544,16 +544,16 @@ try {
         $helper = [string]$state.helper
         $process = Start-Process -FilePath $helper -ArgumentList @('--fylura-uninstall-worker-cleanup', $ExpectedSid, $MainBinary, '/S') -PassThru -Wait
         Assert-Condition ($process.ExitCode -eq 0) "The current-user cleanup worker returned $($process.ExitCode)."
-        Assert-Condition (-not (Test-Path -LiteralPath $state.database)) 'The authorized user's Fylura database remained.'
-        Assert-Condition (-not (Test-Path -LiteralPath $state.cacheRoot)) 'The authorized user's Fylura cache remained.'
+        Assert-Condition (-not (Test-Path -LiteralPath $state.database)) "The authorized user's Fylura database remained."
+        Assert-Condition (-not (Test-Path -LiteralPath $state.cacheRoot)) "The authorized user's Fylura cache remained."
         Assert-Condition ((Test-Path -LiteralPath $state.dataRoot -PathType Container)) 'Safe Trash preservation did not retain the application data root.'
         foreach ($sentinel in $state.trashSentinels) {
             Assert-Condition (Test-Path -LiteralPath $sentinel.path -PathType Leaf) 'The cleanup worker removed a Safe Trash file.'
             Assert-Condition ([System.IO.File]::ReadAllText($sentinel.path) -eq $sentinel.contents) 'The cleanup worker changed a Safe Trash file.'
         }
-        Assert-Condition ([System.IO.File]::ReadAllText($state.document) -eq 'secondary user document fixture') 'The cleanup worker changed the user's document.'
-        Assert-Condition (-not (Test-CredentialTarget $state.mainTarget)) 'The user's Fylura main credential remained.'
-        Assert-Condition (-not (Test-CredentialTarget $state.profileTarget)) 'The user's orphan Fylura profile credential remained.'
+        Assert-Condition ([System.IO.File]::ReadAllText($state.document) -eq 'secondary user document fixture') "The cleanup worker changed the user's document."
+        Assert-Condition (-not (Test-CredentialTarget $state.mainTarget)) "The user's Fylura main credential remained."
+        Assert-Condition (-not (Test-CredentialTarget $state.profileTarget)) "The user's orphan Fylura profile credential remained."
         Assert-Condition (Test-CredentialTarget $state.foreignTarget) 'The cleanup worker removed an unrelated credential.'
         Assert-UserAutostartRemoved
         Remove-FakeCredential $state.foreignTarget
@@ -718,7 +718,7 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
     $wrongTargetExitCode = (Start-Process -FilePath $wrongTargetHelper `
         -ArgumentList @('--fylura-uninstall-worker-cleanup', $secondaryUserSidValue, $mainBinary, '/S') `
         -PassThru -NoNewWindow -Wait).ExitCode
-    Assert-Condition ($wrongTargetExitCode -ne 0) 'A helper running under the administrator account accepted another user's SID.'
+    Assert-Condition ($wrongTargetExitCode -ne 0) "A helper running under the administrator account accepted another user's SID."
     Assert-Condition (Test-Path -LiteralPath $sentinels.currentDatabase -PathType Leaf) 'A rejected cross-account request changed the administrator database.'
     Assert-Condition (Test-Path -LiteralPath $currentCacheDir -PathType Container) 'A rejected cross-account request changed the administrator cache.'
     foreach ($target in $credentialTargets.Values) {
@@ -863,7 +863,7 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
         Assert-Condition ($contents -eq "task-owned $($entry.Key) sentinel") "Confirmed full uninstall changed user or legacy data: $($entry.Key)."
     }
     $secondaryVerify = Invoke-SecondaryUserContext 'verify'
-    Assert-Condition $secondaryVerify.dataAndCredentialsPreserved 'Administrator full cleanup changed another user's Fylura data or credentials.'
+    Assert-Condition $secondaryVerify.dataAndCredentialsPreserved "Administrator full cleanup changed another user's Fylura data or credentials."
     Assert-SecondaryProfileDataPreserved
     Assert-Condition (@(Get-ChildItem -LiteralPath $currentDataDir -Force | Where-Object { $_.Name -notin @('safe-trash', '.fylura-trash', '.zen-canvas-trash') }).Count -eq 0) 'Confirmed full uninstall left unexpected Fylura application data.'
     Record-Phase 'current-user-cleanup-plus-machine-uninstall' @{

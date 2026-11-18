@@ -504,18 +504,19 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(executableDelete).toBeGreaterThan(cleanup);
   });
 
-  it("runs destructive uninstall verification only in a task-owned Windows test profile", () => {
+  it("runs destructive uninstall verification only on the disposable hosted Windows VM", () => {
     const verifier = fs.readFileSync(
       nsisLifecycleRuntimeScriptPath,
       "utf8",
     );
 
     expect(verifier).toContain("$env:GITHUB_ACTIONS -eq 'true'");
-    expect(verifier).toContain("[switch]$IsolatedUserChild");
-    expect(verifier).toContain("New-LocalUser -Name $qaName");
-    expect(verifier).toContain("$qaUserSid = (Get-LocalUser -Name $qaName).SID");
-    expect(verifier).toContain("-Credential $qaCredential -LoadUserProfile");
-    expect(verifier).toContain("isolatedTestUser = $IsolatedUserChild");
+    expect(verifier).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
+    expect(verifier).toContain("isolatedRunnerVm = $true");
+    expect(verifier).toContain("New-LocalUser -Name $secondaryUserName");
+    expect(verifier).toContain("-Credential $secondaryCredential -LoadUserProfile");
+    expect(verifier).toContain("Assert-SecondaryProfileDataPreserved");
+    expect(verifier).not.toContain("IsolatedUserChild");
     expect(verifier).toContain("$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");
     expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)");
     expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)");
@@ -526,9 +527,12 @@ describe("W4-04 package NSIS lifecycle", () => {
   it("seeds macOS Safe Trash as files under the isolated profile paths", () => {
     const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
 
+    expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
     expect(verifier).toContain(">\"$external_new\"");
     expect(verifier).toContain(" >\"$external_legacy\"");
-    expect(verifier).toContain('HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT"');
+    expect(verifier).toContain("HOME=sys.argv[2]");
+    expect(verifier).toContain("CFFIXED_USER_HOME=sys.argv[2]");
+    expect(verifier).toContain("Keychain selection belongs to the macOS login session");
     expect(verifier).toContain('security list-keychains -d user -s "$TEST_KEYCHAIN"');
     expect(verifier).toContain('security add-generic-password -U -A -T "$app_path"');
     expect(verifier).toContain('timeout=180');

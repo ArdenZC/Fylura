@@ -601,9 +601,11 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
             "Fylura AI profile metadata is invalid; credentials were preserved".to_string(),
         );
     }
+    credential_cleanup_checkpoint("remove-main-item");
     credentials
         .delete()
         .map_err(|_| "could not remove Fylura AI credential".to_string())?;
+    credential_cleanup_checkpoint("verify-main-item");
     if credentials
         .get()
         .map_err(|_| "could not verify Fylura AI credential removal".to_string())?
@@ -612,9 +614,11 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
         return Err("Fylura AI credential remains after cleanup".to_string());
     }
     for profile_id in profile_ids {
+        credential_cleanup_checkpoint("remove-profile-item");
         credentials
             .delete_profile(profile_id)
             .map_err(|_| "could not remove a Fylura AI profile credential".to_string())?;
+        credential_cleanup_checkpoint("verify-profile-item");
         if credentials
             .get_profile(profile_id)
             .map_err(|_| "could not verify a Fylura AI profile credential removal".to_string())?
@@ -624,6 +628,12 @@ pub(crate) fn clear_current_ai_credentials_for_profiles(
         }
     }
     Ok(())
+}
+
+fn credential_cleanup_checkpoint(phase: &str) {
+    if std::env::var_os("FYLURA_CLEANUP_DIAGNOSTICS").is_some() {
+        eprintln!("Fylura credential cleanup phase: {phase}");
+    }
 }
 
 fn active_profile_id(settings: &AISettings) -> Option<&str> {

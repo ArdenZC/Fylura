@@ -5,6 +5,10 @@ if [[ $# -ne 2 ]]; then
   echo "usage: $0 <fylura.dmg> <evidence.json>" >&2
   exit 2
 fi
+if [[ "${GITHUB_ACTIONS:-}" != "true" || "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]]; then
+  echo "Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM." >&2
+  exit 1
+fi
 
 DMG_PATH="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
 EVIDENCE_PATH="$2"
@@ -105,8 +109,7 @@ remove_task_credentials() {
   for ((index = 0; index < TASK_CREDENTIAL_COUNT; index++)); do
     item="${TASK_CREDENTIALS[$index]}"
     IFS='|' read -r service account <<<"$item"
-    HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-      /usr/bin/security delete-generic-password -s "$service" -a "$account" "$TEST_KEYCHAIN" >/dev/null 2>&1 || true
+    /usr/bin/security delete-generic-password -s "$service" -a "$account" "$TEST_KEYCHAIN" >/dev/null 2>&1 || true
   done
   TASK_CREDENTIALS=()
   TASK_CREDENTIAL_COUNT=0
@@ -131,8 +134,7 @@ restore_task_keychain() {
 
 credential_exists() {
   local service="$1" account="$2"
-  HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security find-generic-password -s "$service" -a "$account" "$TEST_KEYCHAIN" >/dev/null 2>&1
+  /usr/bin/security find-generic-password -s "$service" -a "$account" "$TEST_KEYCHAIN" >/dev/null 2>&1
 }
 
 prepare_task_keychain() {
@@ -159,16 +161,15 @@ prepare_task_keychain() {
   TEST_KEYCHAIN="$PROFILE_ROOT/Library/Keychains/fylura-test.keychain-db"
   password="$(/usr/bin/uuidgen)"
   mkdir -p "$(dirname "$TEST_KEYCHAIN")"
-  HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security create-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null
-  HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security unlock-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null
-  HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security set-keychain-settings -lut 21600 "$TEST_KEYCHAIN" >/dev/null
-  HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security list-keychains -d user -s "$TEST_KEYCHAIN" >/dev/null
-  HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security default-keychain -d user -s "$TEST_KEYCHAIN" >/dev/null
+  /usr/bin/security create-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null
+  /usr/bin/security unlock-keychain -p "$password" "$TEST_KEYCHAIN" >/dev/null
+  /usr/bin/security set-keychain-settings -lut 21600 "$TEST_KEYCHAIN" >/dev/null
+  # Keychain selection belongs to the macOS login session, not the HOME
+  # override used to isolate application files. Point the disposable runner's
+  # real search list at the task-owned keychain so Security.framework and the
+  # security CLI see the same unlocked test credentials; restore it on exit.
+  /usr/bin/security list-keychains -d user -s "$TEST_KEYCHAIN" >/dev/null
+  /usr/bin/security default-keychain -d user -s "$TEST_KEYCHAIN" >/dev/null
 }
 
 add_task_credential() {
@@ -176,8 +177,7 @@ add_task_credential() {
   secret="$(/usr/bin/uuidgen)"
   TASK_CREDENTIALS[$TASK_CREDENTIAL_COUNT]="$service|$account"
   TASK_CREDENTIAL_COUNT=$((TASK_CREDENTIAL_COUNT + 1))
-  HOME="$PROFILE_ROOT" CFFIXED_USER_HOME="$PROFILE_ROOT" \
-    /usr/bin/security add-generic-password -U -A -T "$app_path" -s "$service" -a "$account" -w "$secret" "$TEST_KEYCHAIN" >/dev/null
+  /usr/bin/security add-generic-password -U -A -T "$app_path" -s "$service" -a "$account" -w "$secret" "$TEST_KEYCHAIN" >/dev/null
   credential_exists "$service" "$account"
 }
 

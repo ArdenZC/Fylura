@@ -2,22 +2,11 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InstallerPath,
     [Parameter(Mandatory = $true)]
-    [string]$EvidencePath,
-    [switch]$IsolatedUserChild,
-    [string]$QaRunnerTemp,
-    [string]$QaRunId,
-    [string]$QaSourceSha
+    [string]$EvidencePath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-if ($IsolatedUserChild) {
-    $env:RUNNER_TEMP = $QaRunnerTemp
-    $env:GITHUB_RUN_ID = $QaRunId
-    $env:GITHUB_SHA = $QaSourceSha
-    $env:GITHUB_ACTIONS = 'true'
-}
 
 $installer = [System.IO.Path]::GetFullPath($InstallerPath)
 $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')
@@ -36,6 +25,10 @@ $currentServiceKey = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Serv
 $uninstallRoot = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
 $evidence = [System.Collections.Generic.List[object]]::new()
 $legacyServiceCreated = $false
+$appDataFixtureCreated = $false
+$secondaryUserCreated = $false
+$secondaryUserSidValue = $null
+$secondaryUserDataSentinels = @()
 $credentialTargets = [ordered]@{
     main = 'ai-api-key.com.startlan.fylura'
     alpha = 'ai-api-key-qa_alpha.com.startlan.fylura.ai-profile'
@@ -164,98 +157,15 @@ function Remove-TaskOwnedLegacyService {
     $script:legacyServiceCreated = $false
 }
 
-if (-not $IsolatedUserChild) {
-    Assert-Condition ($env:GITHUB_ACTIONS -eq 'true') 'This destructive lifecycle verifier must run only on an isolated GitHub Actions Windows VM.'
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    Assert-Condition $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'Isolated NSIS lifecycle setup requires the disposable runner to be elevated.'
-
-    $qaName = 'FyluraU_' + [guid]::NewGuid().ToString('N').Substring(0, 12)
-    $qaPassword = ConvertTo-SecureString (([guid]::NewGuid().ToString('N')) + 'aA1!') -AsPlainText -Force
-    $qaRoot = Join-Path $runnerTemp "fylura-nsis-user-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-    $qaTemp = Join-Path $qaRoot 'runner-temp'
-    $childEvidence = Join-Path $qaRoot 'lifecycle-evidence.json'
-    $childInstaller = Join-Path $qaRoot 'fylura-installer.exe'
-    $childScript = Join-Path $qaRoot 'verifyWindowsNsisLifecycle.ps1'
-    $qaUserCreated = $false
-    $qaUserSid = $null
-    $qaUserSidValue = $null
-
-    try {
-        Assert-Condition (-not (Test-Path -LiteralPath $qaRoot)) "Refusing pre-existing isolated lifecycle root: $qaRoot"
-        New-Item -ItemType Directory -Path $qaRoot | Out-Null
-        New-Item -ItemType Directory -Path $qaTemp | Out-Null
-        $qaAcl = Get-Acl -LiteralPath $qaRoot
-
-        New-LocalUser -Name $qaName -Password $qaPassword -PasswordNeverExpires -AccountNeverExpires `
-            -Description 'Isolated Fylura NSIS lifecycle QA' | Out-Null
-        $qaUserCreated = $true
-        Add-LocalGroupMember -Group 'Administrators' -Member $qaName
-        $qaUserSid = (Get-LocalUser -Name $qaName).SID
-        $qaUserSidValue = $qaUserSid.Value
-        $qaRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-            $qaUserSid,
-            'FullControl',
-            'ContainerInherit,ObjectInherit',
-            'None',
-            'Allow'
-        )
-        $qaAcl.AddAccessRule($qaRule)
-        Set-Acl -LiteralPath $qaRoot -AclObject $qaAcl
-        Copy-Item -LiteralPath $installer -Destination $childInstaller
-        Copy-Item -LiteralPath $PSCommandPath -Destination $childScript
-
-        $qaCredential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$qaName", $qaPassword)
-        $powershell = (Get-Process -Id $PID).Path
-        $childArguments = @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$childScript`"",
-            '-InstallerPath', "`"$childInstaller`"",
-            '-EvidencePath', "`"$childEvidence`"",
-            '-IsolatedUserChild',
-            '-QaRunnerTemp', "`"$qaTemp`"",
-            '-QaRunId', $env:GITHUB_RUN_ID,
-            '-QaSourceSha', $env:GITHUB_SHA
-        )
-        $child = Start-Process -FilePath $powershell -Credential $qaCredential -LoadUserProfile `
-            -ArgumentList $childArguments -WorkingDirectory $qaRoot -Wait -PassThru `
-            -RedirectStandardOutput (Join-Path $qaRoot 'child.stdout.log') `
-            -RedirectStandardError (Join-Path $qaRoot 'child.stderr.log')
-
-        if (Test-Path -LiteralPath $childEvidence -PathType Leaf) {
-            $evidenceParent = Split-Path -Parent $EvidencePath
-            if ($evidenceParent) { New-Item -ItemType Directory -Path $evidenceParent -Force | Out-Null }
-            Copy-Item -LiteralPath $childEvidence -Destination $EvidencePath -Force
-        }
-        if ($child.ExitCode -ne 0) {
-            $stderrPath = Join-Path $qaRoot 'child.stderr.log'
-            $stderr = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Tail 30) -join [Environment]::NewLine } else { '' }
-            throw "Isolated NSIS lifecycle process failed with exit code $($child.ExitCode). $stderr"
-        }
-        Assert-Condition (Test-Path -LiteralPath $EvidencePath -PathType Leaf) 'Isolated NSIS lifecycle process did not produce evidence.'
-        $result = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
-        Assert-Condition ($result.status -eq 'PASS') 'Isolated NSIS lifecycle evidence did not report PASS.'
-        Write-Host "Windows NSIS lifecycle passed in isolated administrator profile $env:COMPUTERNAME\$qaName."
+function Assert-SecondaryProfileDataPreserved {
+    foreach ($sentinel in $secondaryUserDataSentinels) {
+        Assert-Condition (Test-Path -LiteralPath $sentinel.path -PathType Leaf) 'Fylura cleanup changed another Windows user profile.'
+        Assert-Condition ([System.IO.File]::ReadAllText($sentinel.path) -eq $sentinel.contents) 'Fylura cleanup changed another Windows user profile.'
     }
-    finally {
-        if ($qaUserSid) {
-            $qaProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
-                Where-Object { $_.SID -eq $qaUserSidValue }
-            if ($qaProfile -and -not $qaProfile.Loaded) {
-                $qaProfile | Remove-CimInstance -ErrorAction SilentlyContinue
-            }
-        }
-        if ($qaUserCreated) {
-            Remove-LocalUser -Name $qaName -ErrorAction SilentlyContinue
-        }
-        if (Test-Path -LiteralPath $qaRoot) {
-            Remove-Item -LiteralPath $qaRoot -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-    return
 }
 
 try {
-    Assert-Condition ($env:GITHUB_ACTIONS -eq 'true') 'This destructive lifecycle verifier must run only on an isolated GitHub Actions Windows VM.'
+    Assert-Condition ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') 'This destructive lifecycle verifier must run only on a disposable GitHub-hosted Windows VM.'
     Assert-Condition ([System.IO.Path]::IsPathFullyQualified($profileRoot) -and [System.IO.Path]::IsPathFullyQualified($localProfileRoot)) 'Windows returned an invalid current-user app-data path.'
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -280,11 +190,53 @@ try {
         installDir = $installDir
         appDataRoot = $currentDataDir
         localAppDataRoot = $currentCacheDir
-        isolatedTestUser = $IsolatedUserChild
+        isolatedRunnerVm = $true
         administrator = $true
         existingFyluraProducts = 0
         existingLegacyService = $false
         existingFyluraService = $false
+    }
+
+    # The hosted runner VM is disposable and its current account is elevated,
+    # which NSIS needs to exercise its per-machine service/registry lifecycle.
+    # Create a separate standard-user profile with sentinels so full cleanup
+    # also proves it leaves other Windows users' Fylura roots untouched.
+    $secondaryUserName = 'FyluraOther_' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+    $secondaryUserPassword = ConvertTo-SecureString (([guid]::NewGuid().ToString('N')) + 'aA1!') -AsPlainText -Force
+    New-LocalUser -Name $secondaryUserName -Password $secondaryUserPassword -PasswordNeverExpires -AccountNeverExpires `
+        -Description 'Isolated Fylura other-user cleanup fixture' | Out-Null
+    $secondaryUserCreated = $true
+    Add-LocalGroupMember -Group 'Users' -Member $secondaryUserName
+    $secondaryUserSidValue = (Get-LocalUser -Name $secondaryUserName).SID.Value
+    $secondaryCredential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$secondaryUserName", $secondaryUserPassword)
+    $profileWarmupScript = Join-Path $taskRoot 'load-secondary-profile.ps1'
+    @'
+$null = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+$null = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+'@ | Set-Content -LiteralPath $profileWarmupScript -Encoding ascii
+    $powershell = (Get-Process -Id $PID).Path
+    $profileWarmup = Start-Process -FilePath $powershell -Credential $secondaryCredential -LoadUserProfile `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$profileWarmupScript`"") `
+        -WorkingDirectory $taskRoot -Wait -PassThru
+    Assert-Condition ($profileWarmup.ExitCode -eq 0) 'Could not initialize the task-owned secondary Windows user profile.'
+    $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction Stop |
+        Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
+    Assert-Condition ($secondaryProfile -and $secondaryProfile.LocalPath) 'Windows did not create the task-owned secondary user profile.'
+    $secondaryDataRoot = Join-Path $secondaryProfile.LocalPath 'AppData\Roaming\com.startlan.fylura'
+    $secondaryCacheRoot = Join-Path $secondaryProfile.LocalPath 'AppData\Local\com.startlan.fylura'
+    New-Item -ItemType Directory -Path $secondaryDataRoot, $secondaryCacheRoot -Force | Out-Null
+    $secondaryUserDataSentinels = @(
+        [pscustomobject]@{ path = (Join-Path $secondaryDataRoot 'other-user-data.sentinel'); contents = 'other-user-data-preserved' },
+        [pscustomobject]@{ path = (Join-Path $secondaryCacheRoot 'other-user-cache.sentinel'); contents = 'other-user-cache-preserved' }
+    )
+    foreach ($sentinel in $secondaryUserDataSentinels) {
+        [System.IO.File]::WriteAllText($sentinel.path, $sentinel.contents)
+    }
+    Assert-SecondaryProfileDataPreserved
+    Record-Phase 'secondary-user-profile-fixture' @{
+        otherUserFyluraDataAndCacheSeeded = $true
+        standardUser = $true
+        noCredentialValuesRecorded = $true
     }
 
     $legacyBinPath = "`"$env:WINDIR\System32\cmd.exe`" /c exit 0"
@@ -337,6 +289,7 @@ try {
     $ownedNewDotTrashDir = Join-Path $currentDataDir '.fylura-trash\items\task-owned-fixture'
     $ownedLegacyDotTrashDir = Join-Path $currentDataDir '.zen-canvas-trash\items\task-owned-fixture'
     $cacheLogsDir = Join-Path $currentCacheDir 'logs'
+    $appDataFixtureCreated = $true
     New-Item -ItemType Directory -Path $currentDataDir, $currentCacheDir, $legacyDataDir, $trashDir, $newSafeTrashDir, $ownedSafeTrashDir, $ownedNewDotTrashDir, $ownedLegacyDotTrashDir, $cacheLogsDir -Force | Out-Null
     $sentinels = [ordered]@{
         currentDatabase = Join-Path $currentDataDir 'fylura.sqlite3'
@@ -419,12 +372,14 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
     foreach ($target in $credentialTargets.Values) {
         Assert-Condition (Test-CredentialTarget $target) "Ordinary uninstall removed task-owned Fylura credentials: $target"
     }
+    Assert-SecondaryProfileDataPreserved
     Record-Phase 'uninstall' @{
         exitCode = $uninstallExitCode
         executableRemoved = $true
         fyluraServiceRemoved = $true
         uninstallRegistrationRemoved = $true
         currentDatabaseLegacyDatabaseAndSafeTrashPreserved = $true
+        otherUserFyluraDataAndCachePreserved = $true
     }
 
     $reinstallExitCode = Invoke-Installer $installer
@@ -469,6 +424,7 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
         $contents = [System.IO.File]::ReadAllText($entry.Value)
         Assert-Condition ($contents -eq "task-owned $($entry.Key) sentinel") "Confirmed full uninstall changed user or legacy data: $($entry.Key)."
     }
+    Assert-SecondaryProfileDataPreserved
     Assert-Condition (@(Get-ChildItem -LiteralPath $currentDataDir -Force | Where-Object { $_.Name -notin @('safe-trash', '.fylura-trash', '.zen-canvas-trash') }).Count -eq 0) 'Confirmed full uninstall left unexpected Fylura application data.'
     Record-Phase 'confirmed-full-uninstall' @{
         exitCode = $fullUninstallExitCode
@@ -478,6 +434,7 @@ if row is None or 'qa_alpha' not in row[0] or 'qa_beta' not in row[0]:
         profileIdsReadBeforeDatabaseRemoval = @('qa_alpha', 'qa_beta')
         currentAndLegacySafeTrashPreserved = $true
         legacyDevelopmentDataPreserved = $true
+        otherUserFyluraDataAndCachePreserved = $true
         unrelatedDirectoriesUntouched = $true
     }
     $script:overallStatus = 'PASS'
@@ -496,4 +453,20 @@ catch {
 finally {
     Remove-TaskOwnedCredentialFixtures
     Remove-TaskOwnedLegacyService
+    if ($secondaryUserSidValue) {
+        $secondaryProfile = Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue |
+            Where-Object { $_.SID -eq $secondaryUserSidValue } | Select-Object -First 1
+        if ($secondaryProfile -and -not $secondaryProfile.Loaded) {
+            $secondaryProfile | Remove-CimInstance -ErrorAction SilentlyContinue
+        }
+    }
+    if ($secondaryUserCreated) {
+        Remove-LocalUser -Name $secondaryUserName -ErrorAction SilentlyContinue
+    }
+    if ($appDataFixtureCreated) {
+        Remove-Item -LiteralPath $currentDataDir, $currentCacheDir, $legacyDataDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $taskRoot) {
+        Remove-Item -LiteralPath $taskRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }

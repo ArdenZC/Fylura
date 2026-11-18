@@ -21,6 +21,9 @@ $ErrorActionPreference = 'Stop'
 if (-not $TaskWorker) {
     throw 'Run this lifecycle worker through verifyWindowsNsisLifecycleRunner.ps1 so credentials stay isolated from the logged-in runner account.'
 }
+if ([Environment]::UserName -notlike 'Fylura596_*') {
+    throw 'The NSIS lifecycle worker only runs as its disposable Fylura596 test account.'
+}
 $env:GITHUB_ACTIONS = 'true'
 $env:RUNNER_ENVIRONMENT = 'github-hosted'
 $env:RUNNER_TEMP = [System.IO.Path]::GetFullPath($RunnerTemp)

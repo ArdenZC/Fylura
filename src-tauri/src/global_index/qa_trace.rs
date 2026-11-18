@@ -6,6 +6,11 @@
 static TRACE_FILE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
 
 #[cfg(feature = "native-qa")]
+thread_local! {
+    static FILE_UPSERT_LOCK_RETRY_SAMPLE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(feature = "native-qa")]
 pub(crate) fn record(event: &str) {
     use std::fs::OpenOptions;
     use std::io::Write;
@@ -42,6 +47,30 @@ pub(crate) fn record(event: &str) {
 #[cfg(feature = "native-qa")]
 pub(crate) fn is_enabled() -> bool {
     std::env::var_os("ZC_GLOBAL_INDEX_QA_TRACE").is_some()
+}
+
+#[cfg(all(feature = "native-qa", target_os = "windows"))]
+/// The filename-first qualification brackets each synthetic `files` UPSERT
+/// with reset/take so its transaction retries stay attributable to that call.
+pub(crate) fn reset_file_upsert_lock_retry_sample() {
+    FILE_UPSERT_LOCK_RETRY_SAMPLE.with(|sample| sample.set(0));
+}
+
+#[cfg(all(feature = "native-qa", target_os = "windows"))]
+pub(crate) fn take_file_upsert_lock_retry_sample() -> u64 {
+    FILE_UPSERT_LOCK_RETRY_SAMPLE.with(|sample| sample.replace(0))
+}
+
+#[cfg(feature = "native-qa")]
+pub(crate) fn record_file_upsert_lock_retry(attempt: usize) {
+    FILE_UPSERT_LOCK_RETRY_SAMPLE.with(|sample| {
+        sample.set(sample.get().saturating_add(1));
+    });
+    if is_enabled() {
+        record(&format!(
+            "sqlite_lock_retry source=files.insert_files attempt={attempt}"
+        ));
+    }
 }
 
 #[cfg(feature = "native-qa")]
@@ -194,6 +223,9 @@ pub(crate) fn record(_event: &str) {}
 pub(crate) fn is_enabled() -> bool {
     false
 }
+
+#[cfg(not(feature = "native-qa"))]
+pub(crate) fn record_file_upsert_lock_retry(_attempt: usize) {}
 
 #[cfg(not(feature = "native-qa"))]
 pub(crate) fn take_page_cache_counters(_connection: &rusqlite::Connection) -> Option<(i32, i32)> {

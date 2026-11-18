@@ -124,10 +124,21 @@ function Set-TaskServiceFilenameFirstMode([string]$Mode) {
         Remove-ItemProperty -LiteralPath $registryPath -Name Environment -ErrorAction SilentlyContinue
         return
     }
-    if ($Mode -ne 'enabled') { throw "unsupported task service mode: $Mode" }
+    if ($Mode -notin @('enabled', 'disabled')) { throw "unsupported task service mode: $Mode" }
+    $value = if ($Mode -eq 'enabled') { '1' } else { '0' }
     New-ItemProperty -LiteralPath $registryPath -Name Environment -PropertyType MultiString -Value @(
-        'ZC_GLOBAL_INDEX_FILENAME_FIRST=1'
+        "ZC_GLOBAL_INDEX_FILENAME_FIRST=$value"
     ) -Force | Out-Null
+}
+
+function Get-ExpectedFilenameFirstMode([string]$Mode) {
+    switch ($Mode) {
+        'enabled' { return $true }
+        'disabled' { return $false }
+        # This qualification runs on Windows, whose unset default is enabled.
+        'unset' { return $true }
+        default { throw "unsupported filename-first mode: $Mode" }
+    }
 }
 
 function Start-TaskService {
@@ -176,7 +187,7 @@ function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label, [string]$
     $script:serviceModeProbeSequence++
     $reportName = 'filename-first-service-mode-{0:D2}-{1}-{2}.json' -f $script:serviceModeProbeSequence, $Label, $Command
     $reportPath = Join-Path $taskRoot $reportName
-    if ($DesktopMode -notin @('enabled', 'unset')) { throw "unsupported desktop service mode: $DesktopMode" }
+    if ($DesktopMode -notin @('enabled', 'disabled', 'unset')) { throw "unsupported desktop service mode: $DesktopMode" }
     $lastFailure = $null
     for ($attempt = 1; $attempt -le 20; $attempt++) {
         $startInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -192,6 +203,8 @@ function Invoke-ServiceModeProbe([string]$DesktopMode, [string]$Label, [string]$
         $startInfo.Environment['RUNNER_TEMP'] = $runnerTemp.TrimEnd('\')
         if ($DesktopMode -eq 'enabled') {
             $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = '1'
+        } elseif ($DesktopMode -eq 'disabled') {
+            $startInfo.Environment['ZC_GLOBAL_INDEX_FILENAME_FIRST'] = '0'
         } else {
             $startInfo.Environment.Remove('ZC_GLOBAL_INDEX_FILENAME_FIRST') | Out-Null
         }
@@ -223,10 +236,13 @@ function Test-InstalledServiceFilenameFirstModeMatrix {
         throw "host machine environment sets ZC_GLOBAL_INDEX_FILENAME_FIRST; cannot prove an unset SCM service: $machineSetting"
     }
     $cases = @(
-        [pscustomobject]@{ name = 'both_unset'; service = 'unset'; desktop = 'unset'; expectedOk = $true; expectedMode = $false },
-        [pscustomobject]@{ name = 'both_enabled'; service = 'enabled'; desktop = 'enabled'; expectedOk = $true; expectedMode = $true },
-        [pscustomobject]@{ name = 'desktop_enabled_service_unset'; service = 'unset'; desktop = 'enabled'; expectedOk = $true; expectedMode = $true },
-        [pscustomobject]@{ name = 'desktop_unset_service_enabled'; service = 'enabled'; desktop = 'unset'; expectedOk = $true; expectedMode = $false }
+        [pscustomobject]@{ name = 'both_unset'; service = 'unset'; desktop = 'unset'; expectedOk = $true },
+        [pscustomobject]@{ name = 'both_enabled'; service = 'enabled'; desktop = 'enabled'; expectedOk = $true },
+        [pscustomobject]@{ name = 'both_disabled'; service = 'disabled'; desktop = 'disabled'; expectedOk = $true },
+        [pscustomobject]@{ name = 'desktop_enabled_service_disabled'; service = 'disabled'; desktop = 'enabled'; expectedOk = $true },
+        [pscustomobject]@{ name = 'desktop_disabled_service_enabled'; service = 'enabled'; desktop = 'disabled'; expectedOk = $true },
+        [pscustomobject]@{ name = 'desktop_unset_service_disabled'; service = 'disabled'; desktop = 'unset'; expectedOk = $true },
+        [pscustomobject]@{ name = 'desktop_disabled_service_unset'; service = 'unset'; desktop = 'disabled'; expectedOk = $true }
     )
     $results = [Collections.Generic.List[object]]::new()
     Stop-TaskService
@@ -234,8 +250,9 @@ function Test-InstalledServiceFilenameFirstModeMatrix {
         Set-TaskServiceFilenameFirstMode $case.service
         $caseService = Start-TaskService
         $probe = Invoke-ServiceModeProbe $case.desktop $case.name
-        if ([bool]$probe.desktopFilenameFirstEnabled -ne [bool]$case.expectedMode) {
-            throw "desktop experiment mode was not captured as expected for $($case.name): $($probe | ConvertTo-Json -Compress)"
+        $expectedDesktopMode = Get-ExpectedFilenameFirstMode $case.desktop
+        if ([bool]$probe.desktopFilenameFirstEnabled -ne [bool]$expectedDesktopMode) {
+            throw "desktop filename-first mode was not captured as expected for $($case.name): $($probe | ConvertTo-Json -Compress)"
         }
         if ([bool]$probe.responseOk -ne [bool]$case.expectedOk) {
             throw "installed service mode response mismatch for $($case.name): $($probe | ConvertTo-Json -Compress)"
@@ -250,10 +267,10 @@ function Test-InstalledServiceFilenameFirstModeMatrix {
             name = $case.name
             serviceMode = $case.service
             desktopMode = $case.desktop
+            desktopFilenameFirstEnabled = [bool]$probe.desktopFilenameFirstEnabled
             responseOk = [bool]$probe.responseOk
             errorCode = $probe.errorCode
             serviceStatus = $probe.serviceStatus
-            desktopFilenameFirstEnabled = [bool]$probe.desktopFilenameFirstEnabled
             desktopProcessId = [long]$probe.desktopProcessId
             serviceProcessId = [long]$script:serviceProcessId
             serviceImagePath = $caseService.PathName
@@ -265,7 +282,7 @@ function Test-InstalledServiceFilenameFirstModeMatrix {
         if ($case.service -ne $case.desktop) {
             $pauseProbe = Invoke-ServiceModeProbe $case.desktop $case.name 'pause'
             if (-not $pauseProbe.responseOk -or $pauseProbe.errorCode -or $pauseProbe.serviceStatus -ne 'paused') {
-                throw "Pause failed despite the experiment mismatch for $($case.name): $($pauseProbe | ConvertTo-Json -Compress)"
+                throw "Pause failed despite the filename-first mode mismatch for $($case.name): $($pauseProbe | ConvertTo-Json -Compress)"
             }
             $caseEvidence.pauseResponseOk = [bool]$pauseProbe.responseOk
             $caseEvidence.pauseStatus = $pauseProbe.serviceStatus
@@ -279,7 +296,7 @@ function Test-InstalledServiceFilenameFirstModeMatrix {
 
                 $indexProbe = Invoke-ServiceModeProbe $case.desktop $case.name $command
                 if ($indexProbe.responseOk -or $indexProbe.errorCode -ne 'index_filename_first_config_mismatch') {
-                    throw "index command was not rejected for the experiment mismatch ($($case.name), $command): $($indexProbe | ConvertTo-Json -Compress)"
+                    throw "index command was not rejected for the filename-first mode mismatch ($($case.name), $command): $($indexProbe | ConvertTo-Json -Compress)"
                 }
                 if (-not $indexProbe.sideEffectFree) {
                     throw "rejected index command changed task-owned source/index data ($($case.name), $command): $($indexProbe | ConvertTo-Json -Compress)"

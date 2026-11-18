@@ -799,12 +799,24 @@ jobs:
           if ($report.smartLeanDirect.firstSearchableUs -le 0 -or $report.smartLeanDirect.databaseReopenBackfillUs -le 0) { throw "exact-service evidence lacks direct first-search/reopen timing" }
           if (@(Get-Content -LiteralPath (Join-Path $evidenceRoot "recovery-trace.log") | Where-Object { $_ -match '(?:^|\s)windows_recovery_rebuild_admitted(?:\s|$)' }).Count -eq 0) { throw "retained recovery trace lacks Background admission evidence" }
           $modeCases = @($report.filenameFirstServiceModeMatrix)
-          $expectedModes = @('both_unset', 'both_enabled', 'desktop_enabled_service_unset', 'desktop_unset_service_enabled')
+          $expectedModes = @('both_unset', 'both_enabled', 'both_disabled', 'desktop_enabled_service_disabled', 'desktop_disabled_service_enabled', 'desktop_unset_service_disabled', 'desktop_disabled_service_unset')
           if ($modeCases.Count -ne $expectedModes.Count) { throw "installed Service mode matrix evidence is incomplete: $($modeCases | ConvertTo-Json -Compress)" }
           foreach ($name in $expectedModes) {
             if (@($modeCases | Where-Object { $_.name -eq $name }).Count -ne 1) { throw "installed Service mode matrix is missing unique case $name" }
+            $case = @($modeCases | Where-Object { $_.name -eq $name })[0]
+            $expectedDesktopMode = switch ($case.desktopMode) {
+              'unset' { $true }
+              'enabled' { $true }
+              'disabled' { $false }
+              default { throw "installed Service mode matrix has an unknown desktop mode: $($case | ConvertTo-Json -Compress)" }
+            }
+            if ([bool]$case.desktopFilenameFirstEnabled -ne [bool]$expectedDesktopMode) { throw "desktop effective mode disagrees with its matrix configuration: $($case | ConvertTo-Json -Compress)" }
           }
-          foreach ($name in @('desktop_enabled_service_unset', 'desktop_unset_service_enabled')) {
+          foreach ($name in @('both_unset', 'both_enabled', 'both_disabled')) {
+            $case = @($modeCases | Where-Object { $_.name -eq $name })[0]
+            if (-not $case.responseOk -or $case.errorCode -or $case.indexCommandRejections.Count -ne 0) { throw "matching Service mode case is invalid: $($case | ConvertTo-Json -Compress)" }
+          }
+          foreach ($name in @('desktop_enabled_service_disabled', 'desktop_disabled_service_enabled', 'desktop_unset_service_disabled', 'desktop_disabled_service_unset')) {
             $case = @($modeCases | Where-Object { $_.name -eq $name })[0]
             if (-not $case.responseOk -or -not $case.pauseResponseOk -or $case.pauseStatus -ne 'paused') { throw "mismatched Service mode must allow Status and Pause: $($case | ConvertTo-Json -Compress)" }
             $indexResults = @($case.indexCommandRejections)

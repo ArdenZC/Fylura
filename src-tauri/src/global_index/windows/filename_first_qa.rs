@@ -340,7 +340,7 @@ pub fn run_initial(
         .ok_or("qualification fixture path is not nested under a bucket directory")?;
     let durable_connection = db.conn()?;
     let database_path = profile.join("fylura.sqlite3");
-    let filename_first = crate::global_index::filename_first_experimental_enabled();
+    let filename_first = crate::global_index::filename_first_enabled();
     let started = Instant::now();
     let concurrent_writer_stop = Arc::new(AtomicBool::new(false));
     let concurrent_writer_db = db.clone();
@@ -354,10 +354,12 @@ pub fn run_initial(
         let mut errors = Vec::new();
         let mut index = 0_u64;
         let mut peak_wal_bytes = 0_u64;
+        let mut files_lock_retry_attempts = 0_u64;
         while !concurrent_writer_stop_thread.load(Ordering::Acquire) {
             peak_wal_bytes =
                 peak_wal_bytes.max(file_size(&sidecar(&concurrent_writer_db_path, "-wal")));
             let file_started = Instant::now();
+            crate::global_index::qa_trace::reset_file_upsert_lock_retry_sample();
             let file_result = concurrent_writer_db.insert_file(InsertFileRequest {
                 id: format!("filename-first-concurrent-{index}"),
                 path: format!("Z:\\fylura-native-qa-concurrent\\{index}.txt"),
@@ -369,6 +371,9 @@ pub fn run_initial(
                 is_dir: false,
                 state_code: 0,
             });
+            files_lock_retry_attempts = files_lock_retry_attempts.saturating_add(
+                crate::global_index::qa_trace::take_file_upsert_lock_retry_sample(),
+            );
             file_latencies_us.push(file_started.elapsed().as_micros() as u64);
             if let Err(error) = file_result {
                 crate::global_index::qa_trace::record_db_error(
@@ -435,6 +440,7 @@ pub fn run_initial(
             "settings": latency_summary(&settings_latencies_us),
             "errors": errors,
             "sqliteBusyErrors": sqlite_busy_errors,
+            "filesLockRetryAttempts": files_lock_retry_attempts,
         })
     }));
     let search_poller_stop = Arc::new(AtomicBool::new(false));
@@ -655,6 +661,7 @@ pub fn run_initial(
             "settings": latency_summary(&[]),
             "errors": [],
             "sqliteBusyErrors": 0,
+            "filesLockRetryAttempts": 0,
         })
     };
     let search_polling = if let Some(poller) = search_poller {
@@ -1143,7 +1150,7 @@ fn process_memory_sample() -> Option<(u64, u64)> {
 
 fn latency_summary(samples: &[u64]) -> Value {
     if samples.is_empty() {
-        return json!({"count": 0, "maxUs": 0, "p95Us": 0});
+        return json!({"count": 0, "maxUs": 0, "p95Us": 0, "p99Us": 0});
     }
     let mut ordered = samples.to_vec();
     ordered.sort_unstable();
@@ -1154,10 +1161,18 @@ fn latency_summary(samples: &[u64]) -> Value {
         .checked_div(100)
         .unwrap_or_default()
         .saturating_sub(1);
+    let p99_index = ordered
+        .len()
+        .saturating_mul(99)
+        .saturating_add(99)
+        .checked_div(100)
+        .unwrap_or_default()
+        .saturating_sub(1);
     json!({
         "count": ordered.len(),
         "maxUs": ordered.last().copied().unwrap_or_default(),
         "p95Us": ordered[p95_index.min(ordered.len() - 1)],
+        "p99Us": ordered[p99_index.min(ordered.len() - 1)],
     })
 }
 

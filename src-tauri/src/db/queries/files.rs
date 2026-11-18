@@ -216,6 +216,7 @@ impl Database {
                         && std::time::Instant::now() < retry_deadline
                         && is_file_upsert_contention(&error) =>
                 {
+                    crate::global_index::qa_trace::record_file_upsert_lock_retry(attempt + 1);
                     // This transaction reads existing row identity before it
                     // writes. It now acquires the writer slot before those
                     // reads, avoiding a stale WAL snapshot upgrade. If an

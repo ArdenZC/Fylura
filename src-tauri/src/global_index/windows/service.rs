@@ -41,8 +41,8 @@ pub struct IndexServiceRequest {
     #[serde(default)]
     pub source: Option<GlobalVolume>,
     /// The desktop process and SCM-launched service have separate environments.
-    /// Indexing requests carry the desktop's opt-in so a misconfigured
-    /// installation cannot run half of the experimental indexing path.
+    /// Indexing requests carry the desktop's effective mode so a
+    /// misconfigured installation cannot run half of the filename-first path.
     #[serde(default)]
     pub filename_first_enabled: bool,
 }
@@ -139,7 +139,7 @@ impl IndexServiceRequest {
             request_id: uuid::Uuid::new_v4().to_string(),
             command,
             source,
-            filename_first_enabled: crate::global_index::filename_first_experimental_enabled(),
+            filename_first_enabled: crate::global_index::filename_first_enabled(),
         }
     }
 

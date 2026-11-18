@@ -364,6 +364,7 @@ try {
     )
     $taskAcl.AddAccessRule($secondaryAccess)
     Set-Acl -LiteralPath $taskRoot -AclObject $taskAcl
+    New-Item -ItemType Directory -Path $installDir | Out-Null
     $installAcl = Get-Acl -LiteralPath $installDir
     $secondaryReadAccess = [System.Security.AccessControl.FileSystemAccessRule]::new(
         $secondaryAccount,

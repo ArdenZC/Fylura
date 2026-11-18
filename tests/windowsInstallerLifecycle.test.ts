@@ -559,6 +559,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
     expect(workflow).toContain("Verify macOS lifecycle script parses with the runner Bash");
     expect(workflow).toContain("bash --version | head -n 1");
+    expect(workflow).toContain("verifyMacosBashCompatibility.py scripts/verifyMacosDmgLifecycle.sh");
     expect(workflow).toContain("bash -n scripts/verifyMacosDmgLifecycle.sh");
     expect(verifier).toContain('PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"');
     expect(verifier).toContain("preflight_profile_paths");

@@ -1,4 +1,4 @@
-import { HardDrive, ListChecks, FolderOpen } from "lucide-react";
+import { ChevronDown, HardDrive, ListChecks, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { tauriApi, type ManagedScanEvent, type ScanRootDto } from "../../api/tauriApi";
 import { requestSettingsSection } from "../../components/spotlight/commandRegistry";
@@ -403,7 +403,13 @@ export function ScannerView() {
       />
 
       <OverviewSpaceSummary summary={summary} t={t} />
-      <OverviewSystemCoverage coverage={systemCoverage} t={t} />
+      <details className="v340-section" data-overview-technical-details>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-4 py-3 text-sm font-medium text-[var(--zc-text-secondary)]">
+          <span>{t("overviewTechnicalDetails")}</span>
+          <ChevronDown size={15} aria-hidden="true" />
+        </summary>
+        <OverviewSystemCoverage coverage={systemCoverage} t={t} />
+      </details>
       <OverviewRecentActivityList activities={activities} t={t} language={language} onOpenHistory={() => setView("restore")} />
       <OverviewBackgroundTaskList
         tasks={backgroundTasks}

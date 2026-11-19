@@ -17,11 +17,13 @@ import { Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import { cn, focusSurface, focusVisibleState, selectedFocusSurface, selectedFocusVisibleState, selectedSurface } from "../../../utils/tw";
 import { playOverlayEnter, playOverlayExit, prefersReducedMotion } from "../../../utils/motion";
 import { switchThumb, switchTrack } from "../../../components/ui/Switch";
+import { settingsNavigationSectionId } from "../settingsSectionModel";
 import "../settingsV340.css";
 
 export type SettingsSectionOption = {
   id: string;
   label: string;
+  contentIds?: readonly string[];
 };
 
 export type SettingsSearchResult = {
@@ -104,39 +106,42 @@ export function collectSettingsSearchResults(
 
   const results: SettingsSearchResult[] = [];
   for (const sectionOption of sections) {
-    const section = container.querySelector<HTMLElement>(`#${sectionOption.id}`);
-    if (!section) continue;
-    const sectionTitle = section.getAttribute("data-settings-search-label") ?? sectionOption.label;
-    const sectionDescription = section.getAttribute("data-settings-search-description") ?? undefined;
-    const sectionMatches = normalizedSearchText(`${sectionTitle} ${sectionDescription ?? ""}`).includes(term);
-    const candidates = [...section.querySelectorAll<HTMLElement>("[data-settings-search-label]")]
-      .filter((element) => element !== section)
-      .filter((element) => settingsSearchElementText(element).includes(term))
-      .sort((left, right) => {
-        const leftLabelMatch = normalizedSearchText(left.getAttribute("data-settings-search-label")).includes(term);
-        const rightLabelMatch = normalizedSearchText(right.getAttribute("data-settings-search-label")).includes(term);
-        return Number(rightLabelMatch) - Number(leftLabelMatch);
-      });
+    const contentIds = sectionOption.contentIds ?? [sectionOption.id];
+    for (const contentId of contentIds) {
+      const section = container.querySelector<HTMLElement>(`#${contentId}`);
+      if (!section) continue;
+      const sectionTitle = section.getAttribute("data-settings-search-label") ?? sectionOption.label;
+      const sectionDescription = section.getAttribute("data-settings-search-description") ?? undefined;
+      const sectionMatches = normalizedSearchText(`${sectionTitle} ${sectionDescription ?? ""}`).includes(term);
+      const candidates = [...section.querySelectorAll<HTMLElement>("[data-settings-search-label]")]
+        .filter((element) => element !== section)
+        .filter((element) => settingsSearchElementText(element).includes(term))
+        .sort((left, right) => {
+          const leftLabelMatch = normalizedSearchText(left.getAttribute("data-settings-search-label")).includes(term);
+          const rightLabelMatch = normalizedSearchText(right.getAttribute("data-settings-search-label")).includes(term);
+          return Number(rightLabelMatch) - Number(leftLabelMatch);
+        });
 
-    if (sectionMatches) {
-      results.push({
-        sectionId: sectionOption.id,
-        sectionLabel: sectionOption.label,
-        title: sectionTitle,
-        description: sectionDescription,
-        targetId: `${sectionOption.id}-heading`
-      });
-    }
-    for (const candidate of candidates) {
-      const title = candidate.getAttribute("data-settings-search-label") ?? sectionTitle;
-      const description = candidate.getAttribute("data-settings-search-description") ?? undefined;
-      results.push({
-        sectionId: sectionOption.id,
-        sectionLabel: sectionOption.label,
-        title,
-        description,
-        targetId: settingsSearchTargetId(candidate) ?? `${sectionOption.id}-heading`
-      });
+      if (sectionMatches) {
+        results.push({
+          sectionId: sectionOption.id,
+          sectionLabel: sectionOption.label,
+          title: sectionTitle,
+          description: sectionDescription,
+          targetId: `${contentId}-heading`
+        });
+      }
+      for (const candidate of candidates) {
+        const title = candidate.getAttribute("data-settings-search-label") ?? sectionTitle;
+        const description = candidate.getAttribute("data-settings-search-description") ?? undefined;
+        results.push({
+          sectionId: sectionOption.id,
+          sectionLabel: sectionOption.label,
+          title,
+          description,
+          targetId: settingsSearchTargetId(candidate) ?? `${contentId}-heading`
+        });
+      }
     }
   }
   return results;
@@ -168,6 +173,10 @@ function settingsSectionCount(container: HTMLElement | null, sectionId: string) 
   const section = container?.querySelector<HTMLElement>(`[id="${sectionId}"]`);
   if (!section) return 0;
   return section.querySelectorAll<HTMLElement>("[data-settings-row], [data-settings-item]").length;
+}
+
+function settingsGroupCount(container: HTMLElement | null, section: SettingsSectionOption) {
+  return (section.contentIds ?? [section.id]).reduce((count, id) => count + settingsSectionCount(container, id), 0);
 }
 
 function sameCounts(left: Record<string, number>, right: Record<string, number>) {
@@ -373,14 +382,18 @@ export function SettingsLayout({
   const navButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const sectionKey = sections.map((section) => section.id).join("|");
   const searching = Boolean(query.trim());
-  const totalItems = Object.values(counts).reduce((total, count) => total + count, 0);
+  const totalItems = sections.reduce((total, section) => total + (counts[section.id] ?? 0), 0);
 
   useLayoutEffect(() => {
     const container = ownerRef.current;
     if (!container) return undefined;
     const measure = () => {
       const next: Record<string, number> = {};
-      for (const section of sections) next[section.id] = settingsSectionCount(container, section.id);
+      for (const section of sections) {
+        const contentIds = [...new Set([section.id, ...(section.contentIds ?? [])])];
+        contentIds.forEach((id) => { next[id] = settingsSectionCount(container, id); });
+        next[section.id] = settingsGroupCount(container, section);
+      }
       setCounts((current) => sameCounts(current, next) ? current : next);
     };
     measure();
@@ -676,7 +689,7 @@ export function SettingsSection({
     "data-settings-section-content": true,
     "data-settings-search-label": title,
     "data-settings-search-description": description,
-    "data-settings-section-current": page ? String(page.activeSectionId === id) : "true"
+    "data-settings-section-current": page ? String(page.activeSectionId === settingsNavigationSectionId(id)) : "true"
   } as const;
 
   if (progressiveDisclosure) {

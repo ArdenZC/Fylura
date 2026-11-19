@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type * as React from "react";
-import { Activity, ChevronRight, CornerDownLeft, File as FileIcon, Folder, LayoutGrid, Radar, Search, X } from "lucide-react";
+import { Activity, Brush, ChevronRight, Clock3, CornerDownLeft, File as FileIcon, Folder, LayoutGrid, Radar, Search, Star, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
+import { fileManagementApi, type KnownLocation, type SavedPlace } from "../api/fileManagementApi";
 import { searchRuntimeApi } from "../api/searchRuntimeApi";
 import type { SearchWindowSnapshot } from "../api/types";
 import type { GlobalIndexStatus, GlobalSearchResult } from "../types/domain";
@@ -19,6 +20,7 @@ import { groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } fr
 import { globalSearchFeedback } from "./spotlight/globalSearchFeedback";
 import { SpotlightQueryController } from "./spotlight/spotlightQueryController";
 import { settingsTargetForSection, type SearchSettingsTarget } from "../utils/searchNavigation";
+import { projectKnownLocations, projectSavedPlaces, type BrowsePlaceEntry } from "../views/fileLibrary/browse/browsePlacesProjection";
 
 const tauriApi = searchRuntimeApi;
 
@@ -76,6 +78,16 @@ const commandBackgroundStatus = "flex min-h-9 items-center gap-2 border-t border
 const SEARCH_RESULT_LIMIT = 80;
 const standaloneSearchWindowCollapsedHeight = 160;
 const standaloneSearchWindowExpandedHeight = 660;
+
+type CommandIdleItem =
+  | { kind: "view"; key: string; view: View; label: string; icon: React.ReactNode }
+  | { kind: "place"; key: string; entry: BrowsePlaceEntry; label: string; icon: React.ReactNode };
+
+interface CommandIdleGroup {
+  key: string;
+  label: string;
+  items: CommandIdleItem[];
+}
 
 export function findSpotlightSettingsRestoreTarget(requestedSection: string | null, fallback: HTMLElement | null = null) {
   if (!requestedSection) return fallback;
@@ -156,6 +168,7 @@ export function CommandModal({
   setSelectedFileId,
   activateFileLibraryFile,
   openGlobalEntry,
+  openBrowsePlace,
   onClose,
   platform,
   t,
@@ -169,6 +182,7 @@ export function CommandModal({
   setSelectedFileId: (id: string) => void;
   activateFileLibraryFile?: (id: string) => void;
   openGlobalEntry?: (id: string, accept: () => boolean | Promise<boolean>) => Promise<boolean>;
+  openBrowsePlace?: (path: string, displayName: string) => Promise<boolean>;
   onClose: () => void;
   platform: NodeJS.Platform | "browser";
   t: Translator;
@@ -191,6 +205,10 @@ export function CommandModal({
   const [searchWindowSnapshot, setSearchWindowSnapshot] = useState<SearchWindowSnapshot | null>(null);
   const [revisionRefetchNonce, setRevisionRefetchNonce] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [idleActiveIndex, setIdleActiveIndex] = useState(0);
+  const [knownLocations, setKnownLocations] = useState<KnownLocation[] | null>(null);
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[] | null>(null);
+  const [idlePlacesStatus, setIdlePlacesStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [inputFocused, setInputFocused] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const isComposingRef = useRef(false);
@@ -201,6 +219,21 @@ export function CommandModal({
   const libraryActionButtonRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => () => { libraryActionRef.current += 1; }, []);
   const standaloneActivationRef = useRef({ pending: 0, epoch: 0 });
+  useEffect(() => {
+    if (standalone) return undefined;
+    let cancelled = false;
+    setIdlePlacesStatus("loading");
+    void Promise.all([
+      fileManagementApi.fileLibraryKnownLocations().catch(() => null),
+      fileManagementApi.fileLibraryPlaces().catch(() => null)
+    ]).then(([known, saved]) => {
+      if (cancelled) return;
+      setKnownLocations(known);
+      setSavedPlaces(saved);
+      setIdlePlacesStatus(known === null && saved === null ? "failed" : "ready");
+    });
+    return () => { cancelled = true; };
+  }, [standalone]);
   const trackStandaloneActivation = useCallback((pending: boolean) => {
     if (pending) {
       standaloneActivationRef.current.pending += 1;
@@ -214,6 +247,7 @@ export function CommandModal({
   const searchWindowSnapshotRef = useRef<SearchWindowSnapshot | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const trimmedSearch = search.trim();
+  const shouldShowIdleState = !standalone && !trimmedSearch;
   const searchableQuery = isComposing ? "" : trimmedSearch;
   const currentGlobalResults = filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results);
   const commandRegistry = useMemo(
@@ -230,7 +264,44 @@ export function CommandModal({
   );
   const resultGroups = useMemo(() => groupSpotlightResults(visibleResults, t), [t, visibleResults]);
   const showResults = !isComposing && trimmedSearch.length > 0 && visibleResults.length > 0;
-  const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
+  const idleGroups = useMemo<CommandIdleGroup[]>(() => {
+    const viewItems: CommandIdleItem[] = [
+      { kind: "view", key: "view:library", view: "library", label: t("files"), icon: <Folder size={17} className="text-[var(--zc-primary)]" aria-hidden="true" /> },
+      { kind: "view", key: "view:scanner", view: "scanner", label: t("overview"), icon: <Radar size={17} className="text-[var(--zc-primary)]" aria-hidden="true" /> },
+      { kind: "view", key: "view:organize", view: "organize", label: t("organizeFiles"), icon: <LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" /> },
+      { kind: "view", key: "view:cleanup", view: "cleanup", label: t("storageCleanup"), icon: <Brush size={17} className="text-[var(--zc-primary)]" aria-hidden="true" /> }
+    ];
+    const projectedSaved = projectSavedPlaces(savedPlaces ?? [], t);
+    const favorites = projectedSaved.filter((entry) => entry.kind === "favorite").slice(0, 4);
+    const recent = projectedSaved.filter((entry) => entry.kind === "recent").slice(0, 4);
+    const usedPaths = new Set([...favorites, ...recent].map((entry) => entry.path));
+    const common = projectKnownLocations(knownLocations ?? [], t)
+      .filter((entry) => !usedPaths.has(entry.path))
+      .slice(0, 4);
+    const placeItems = (entries: BrowsePlaceEntry[]): CommandIdleItem[] => entries.map((entry) => ({
+      kind: "place",
+      key: entry.key,
+      entry,
+      label: entry.label,
+      icon: entry.kind === "favorite"
+        ? <Star size={16} className="text-[var(--zc-primary)]" aria-hidden="true" />
+        : entry.kind === "recent"
+          ? <Clock3 size={16} className="text-[var(--zc-text-tertiary)]" aria-hidden="true" />
+          : <Folder size={16} className="text-[var(--zc-text-tertiary)]" aria-hidden="true" />
+    }));
+    return [
+      { key: "tasks", label: t("spotlightCommonTasks"), items: viewItems },
+      ...(favorites.length ? [{ key: "favorites", label: t("spotlightFavoriteLocations"), items: placeItems(favorites) }] : []),
+      ...(recent.length ? [{ key: "recent", label: t("spotlightRecentLocations"), items: placeItems(recent) }] : []),
+      ...(common.length ? [{ key: "common", label: t("spotlightCommonLocations"), items: placeItems(common) }] : [])
+    ];
+  }, [knownLocations, savedPlaces, t]);
+  const idleItems = useMemo(() => idleGroups.flatMap((group) => group.items), [idleGroups]);
+  const activeResultId = showResults
+    ? `command-result-${activeIndex}`
+    : shouldShowIdleState && idleItems.length > 0
+      ? `command-idle-item-${idleActiveIndex}`
+      : undefined;
   const statusTitle =
     feedback && queryState !== "pending" && queryState !== "failed" ? feedback.title :
     queryState === "pending"
@@ -261,7 +332,6 @@ export function CommandModal({
     standalone
     && !trimmedSearch
     && queryState === "idle";
-  const shouldShowIdleState = !standalone && !trimmedSearch;
   const shouldShowStateBlock = !showResults && trimmedSearch.length > 0 && queryState !== "idle";
   const showGlobalIndexMeta = !isStandaloneCollapsed && Boolean(
     globalIndexStatus
@@ -445,9 +515,18 @@ export function CommandModal({
   }, [visibleResults.length]);
 
   useEffect(() => {
+    setIdleActiveIndex((index) => Math.min(index, Math.max(0, idleItems.length - 1)));
+  }, [idleItems.length]);
+
+  useEffect(() => {
     if (!showResults || !activeResultId) return;
     document.getElementById(activeResultId)?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, activeResultId, showResults]);
+
+  useEffect(() => {
+    if (!shouldShowIdleState || !activeResultId) return;
+    document.getElementById(activeResultId)?.scrollIntoView({ block: "nearest" });
+  }, [activeResultId, idleActiveIndex, shouldShowIdleState]);
 
   async function chooseGlobalEntry(entry: GlobalSearchResult) {
     if (libraryActionPending) return;
@@ -572,6 +651,29 @@ export function CommandModal({
     });
   }
 
+  async function openIdlePlace(entry: BrowsePlaceEntry) {
+    if (libraryActionPending || !entry.openable || !openBrowsePlace) return;
+    setLibraryActionPending(true);
+    setCommandError("");
+    try {
+      const opened = await openBrowsePlace(entry.path, entry.label);
+      if (!opened) throw new Error("browse_place_open_failed");
+      setView("library");
+      closeSpotlight();
+    } catch (error) {
+      const message = readableError(error);
+      setCommandError(message === "browse_place_open_failed" ? t("browsePlaceUnavailable") : message);
+      onError?.(message);
+    } finally {
+      setLibraryActionPending(false);
+    }
+  }
+
+  function selectIdleItem(item: CommandIdleItem) {
+    if (item.kind === "view") openIdleDestination(item.view);
+    else void openIdlePlace(item.entry);
+  }
+
   function openGlobalIndexSettings() {
     const command = commandRegistry.find((item) => item.id === "global-index-settings");
     if (command) void chooseCommand(command);
@@ -615,6 +717,25 @@ export function CommandModal({
           // Buttons retain native activation/focus behavior; Enter on Refresh
           // must never open the currently highlighted file.
           if (event.target instanceof Element && event.target.closest("button")) return;
+          if (shouldShowIdleState && idleItems.length > 0) {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setIdleActiveIndex((index) => event.key === "ArrowDown"
+                ? Math.min(index + 1, idleItems.length - 1)
+                : Math.max(index - 1, 0));
+              return;
+            }
+            if (event.key === "Home" || event.key === "End") {
+              event.preventDefault();
+              setIdleActiveIndex(event.key === "Home" ? 0 : idleItems.length - 1);
+              return;
+            }
+            if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+              event.preventDefault();
+              selectIdleItem(idleItems[idleActiveIndex]);
+              return;
+            }
+          }
           const tabLeavesResults = event.shiftKey ? activeIndex === 0 : activeIndex === visibleResults.length - 1;
           if (event.key === "Tab" && visibleResults.length > 0 && !tabLeavesResults) {
             event.preventDefault();
@@ -688,8 +809,8 @@ export function CommandModal({
           <input
             ref={inputRef}
             role="combobox"
-            aria-expanded={showResults}
-            aria-controls="command-results"
+            aria-expanded={showResults || shouldShowIdleState}
+            aria-controls={showResults ? "command-results" : shouldShowIdleState ? "command-idle-results" : undefined}
             aria-activedescendant={activeResultId}
             value={search}
             readOnly={standalone && libraryActionPending}
@@ -804,8 +925,13 @@ export function CommandModal({
         {shouldShowIdleState && (
           <CommandIdleGroups
             t={t}
+            groups={idleGroups}
+            activeIndex={idleActiveIndex}
+            placesStatus={idlePlacesStatus}
+            busy={libraryActionPending}
             backgroundStatus={backgroundStatus}
-            onOpen={openIdleDestination}
+            onActivate={setIdleActiveIndex}
+            onSelect={selectIdleItem}
           />
         )}
         {shouldShowStateBlock && (
@@ -930,16 +1056,26 @@ function SpotlightResultGroups({
 
 function CommandIdleGroups({
   t,
+  groups,
+  activeIndex,
+  placesStatus,
+  busy,
   backgroundStatus,
-  onOpen
+  onActivate,
+  onSelect
 }: {
   t: Translator;
+  groups: CommandIdleGroup[];
+  activeIndex: number;
+  placesStatus: "loading" | "ready" | "failed";
+  busy: boolean;
   backgroundStatus?: {
     isRunning: boolean;
     currentRoot: string | null;
     pending: number;
   };
-  onOpen: (view: View) => void;
+  onActivate: (index: number) => void;
+  onSelect: (item: CommandIdleItem) => void;
 }) {
   const isBackgroundIndexing = backgroundStatus?.isRunning ?? false;
   const currentBackgroundRoot = backgroundStatus?.currentRoot ?? null;
@@ -952,11 +1088,55 @@ function CommandIdleGroups({
 
   return (
     <>
-      <div className={commandIdleGroups} aria-label={t("commandIdleTitle")}>
-        <IdleGroup title={t("spotlightCommonTasks")}>
-          <IdleAction icon={<Radar size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("overview")} onClick={() => onOpen("scanner")} />
-          <IdleAction icon={<LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("organizeFiles")} onClick={() => onOpen("organize")} />
-        </IdleGroup>
+      <div className={commandIdleGroups}>
+        <div id="command-idle-results" role="listbox" aria-label={t("commandIdleTitle")}>
+          {groups.map((group, groupIndex) => {
+            const startIndex = groups.slice(0, groupIndex).reduce((count, item) => count + item.items.length, 0);
+            return (
+              <section className={commandIdleGroup} key={group.key} role="group" aria-label={group.label}>
+                <h3 className="px-2 text-xs font-semibold text-[var(--zc-text-tertiary)]">{group.label}</h3>
+                {group.items.map((item, itemIndex) => {
+                  const index = startIndex + itemIndex;
+                  const active = index === activeIndex;
+                  const place = item.kind === "place" ? item.entry : null;
+                  const description = place ? compactPath(formatDisplayPath(place.path), 48) : null;
+                  return (
+                    <button
+                      key={item.key}
+                      id={`command-idle-item-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      title={place?.path}
+                      disabled={busy || (place !== null && !place.openable)}
+                      className={cn(commandIdleAction, active && commandResultItemActive, (busy || (place !== null && !place.openable)) && "cursor-not-allowed opacity-55")}
+                      onClick={() => onSelect(item)}
+                      onMouseMove={() => onActivate(index)}
+                    >
+                      {item.icon}
+                      <span className="grid min-w-0 flex-1 gap-0.5">
+                        <strong className="truncate font-medium">{item.label}</strong>
+                        {description ? <span className={commandFileMeta}>{description}</span> : null}
+                        {place && !place.openable ? <span className="text-[10px] text-[var(--zc-text-tertiary)]">{t("browsePlaceUnavailable")}</span> : null}
+                      </span>
+                      <ChevronRight size={15} className="ml-auto shrink-0 text-[var(--zc-text-tertiary)]" />
+                    </button>
+                  );
+                })}
+              </section>
+            );
+          })}
+          {placesStatus === "loading" ? <p className="px-2 py-1 text-xs text-[var(--zc-text-tertiary)]" role="status">{t("loading")}</p> : null}
+          {placesStatus === "failed" ? <p className="px-2 py-1 text-xs text-[var(--zc-text-tertiary)]" role="status">{t("spotlightPlacesLoadFailed")}</p> : null}
+          {placesStatus === "ready" && groups.length === 1 ? <p className="px-2 py-1 text-xs text-[var(--zc-text-tertiary)]" role="status">{t("browsePlacesEmpty")}</p> : null}
+        </div>
+        <div className={cn(commandFooter, "mt-1 rounded-b-2xl")}>
+          <div className={shortcutHints}>
+            <ShortcutHint badge="↑↓" label={t("commandNavigateHint")} />
+            <ShortcutHint badge="ENTER" label={t("commandSelectHint")} />
+            <ShortcutHint badge="ESC" label={t("commandCloseHint")} />
+          </div>
+        </div>
       </div>
       {backgroundStatus ? (
         <div className={commandBackgroundStatus} role="status" aria-label={t("spotlightBackgroundTasks")}>
@@ -965,33 +1145,6 @@ function CommandIdleGroups({
         </div>
       ) : null}
     </>
-  );
-}
-
-function IdleGroup({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className={commandIdleGroup}>
-      <h3 className="px-2 text-xs font-semibold text-[var(--zc-text-tertiary)]">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function IdleAction({
-  icon,
-  label,
-  onClick
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button className={commandIdleAction} onClick={onClick}>
-      {icon}
-      <span>{label}</span>
-      <ChevronRight size={15} className="ml-auto text-[var(--zc-text-tertiary)]" />
-    </button>
   );
 }
 

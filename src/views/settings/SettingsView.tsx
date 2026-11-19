@@ -80,7 +80,8 @@ import { PrivacyContentSettingsSection } from "./sections/PrivacyContentSettings
 import { PlatformDiagnosticsSettingsSection } from "./sections/PlatformDiagnosticsSettingsSection";
 import { DeveloperDiagnosticsSection } from "./sections/DeveloperDiagnosticsSection";
 import type { FolderDeleteConfirmState } from "./sections/settingsSectionTypes";
-import { SETTINGS_SECTION_IDS, useSettingsNavigationController } from "./controllers/useSettingsNavigationController";
+import { useSettingsNavigationController } from "./controllers/useSettingsNavigationController";
+import { SETTINGS_NAV_SECTION_CONTENT_IDS } from "./settingsSectionModel";
 import { useSettingsGlobalIndexController } from "./controllers/useSettingsGlobalIndexController";
 import { projectSettingsSelectedFile, settingsSelectedFileDetailRequestId } from "./settingsSelectedFile";
 
@@ -361,16 +362,12 @@ export function SettingsView() {
   }, [inspectorDetail?.id, inspectorError, inspectorIsLoading, inspectorSelectedId, loadLibraryDetail, selectedLibraryFileId]);
 
   const settingsSections = [
-    { id: "settings-general", label: t("settingsGeneral") },
-    { id: "settings-files-scan", label: t("settingsFilesScan") },
-    { id: "settings-search", label: t("settingsSearch") },
-    { id: "settings-global-index", label: t("globalIndexSettings") },
-    { id: "settings-platform-diagnostics", label: t("platformDiagnosticsNav") },
-    { id: "settings-managed-scopes", label: t("managedScopesTitle") },
-    { id: "settings-automation", label: t("settingsSmartOrganize") },
-    { id: "settings-ai", label: t("settingsAIPrivacy") },
-    { id: "settings-privacy", label: t("settingsDiagnostics") },
-    { id: "settings-about", label: t("settingsAbout") }
+    { id: "settings-general", label: t("settingsGeneral"), contentIds: SETTINGS_NAV_SECTION_CONTENT_IDS["settings-general"] },
+    { id: "settings-file-management", label: t("settingsFileManagementGroup"), contentIds: SETTINGS_NAV_SECTION_CONTENT_IDS["settings-file-management"] },
+    { id: "settings-search", label: t("settingsSearch"), contentIds: SETTINGS_NAV_SECTION_CONTENT_IDS["settings-search"] },
+    { id: "settings-ai-automation", label: t("settingsAIAutomationGroup"), contentIds: SETTINGS_NAV_SECTION_CONTENT_IDS["settings-ai-automation"] },
+    { id: "settings-advanced", label: t("settingsAdvancedDiagnostics"), contentIds: SETTINGS_NAV_SECTION_CONTENT_IDS["settings-advanced"] },
+    { id: "settings-about", label: t("settingsAbout"), contentIds: SETTINGS_NAV_SECTION_CONTENT_IDS["settings-about"] }
   ];
 
   function setDeveloperModePreference(next: boolean) {
@@ -1012,7 +1009,6 @@ export function SettingsView() {
         <FileSourcesSettingsSection
           t={t}
           defaultScanFolders={defaultScanFolders}
-          watcherRootStatuses={watcherRootStatuses}
           organizeRootMode={organizeRootMode}
           organizeRootPath={organizeRootPath ?? null}
           onAddScanFolder={() => void addDefaultScanFolder()}
@@ -1072,6 +1068,7 @@ export function SettingsView() {
           globalIndexSources={globalIndexSources}
           globalIndexLoadState={globalIndexLoadState}
           statusText={(status) => globalIndexStatusText(status, t)}
+          watcherRootStatuses={watcherRootStatuses}
         />
 
         <ManagedLibrarySettingsSection

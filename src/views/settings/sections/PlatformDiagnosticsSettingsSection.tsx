@@ -1,6 +1,9 @@
+import type { WatcherReconciliationStatus } from "../../../api/tauriApi";
 import type { GlobalIndexSource, GlobalIndexStatus, RuntimeCapabilities } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { cn, focusVisibleState } from "../../../utils/tw";
+import { compactPath } from "../../../utils/viewHelpers";
+import { deriveWatcherPresentation } from "../../../utils/watcherPresentation";
 import { quietText } from "../../shared/ui";
 import type { GlobalIndexLoadState } from "../controllers/useSettingsGlobalIndexController";
 import { SettingsControlGroup, SettingsRow, SettingsSection } from "../components/SettingsPrimitives";
@@ -12,6 +15,7 @@ export interface PlatformDiagnosticsSettingsSectionProps {
   globalIndexSources: GlobalIndexSource[];
   globalIndexLoadState: GlobalIndexLoadState;
   statusText: (status: string) => string;
+  watcherRootStatuses: Record<string, WatcherReconciliationStatus>;
 }
 
 function platformLabel(value: string | undefined, t: Translator) {
@@ -61,7 +65,8 @@ export function PlatformDiagnosticsSettingsSection({
   globalIndexStatus,
   globalIndexSources,
   globalIndexLoadState,
-  statusText
+  statusText,
+  watcherRootStatuses
 }: PlatformDiagnosticsSettingsSectionProps) {
   const isMac = capabilities?.platform === "macos";
   const knownSources = globalIndexLoadState === "loaded" ? globalIndexSources : [];
@@ -108,6 +113,19 @@ export function PlatformDiagnosticsSettingsSection({
           <span className={quietText}>{coverage}</span>
         </SettingsRow>
       </SettingsControlGroup>
+
+      {Object.values(watcherRootStatuses).length ? (
+        <SettingsControlGroup title={t("settingsWatcherDiagnostics")} description={t("settingsWatcherDiagnosticsDesc")}>
+          {Object.values(watcherRootStatuses).map((status) => {
+            const presentation = deriveWatcherPresentation(status);
+            return (
+              <SettingsRow key={status.scanRootId} label={compactPath(status.path, 72)}>
+                <span className={quietText}>{t(presentation.labelKey)}</span>
+              </SettingsRow>
+            );
+          })}
+        </SettingsControlGroup>
+      ) : null}
 
       <SettingsControlGroup title={t("platformSafetyTitle")} description={t("platformSafetyDesc")}>
         <SettingsRow label={t("platformDiagnosticsPackages")}><span className={quietText}>{capabilityLabel(capabilities?.packageMutationAvailable, t)}</span></SettingsRow>

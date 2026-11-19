@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 
-import { act, createElement } from "react";
+import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WatcherReconciliationStatus } from "../src/api/tauriApi";
 import { makeTranslator } from "../src/i18n";
 import type { ScanRootSetting } from "../src/types/domain";
 import { FileSourcesSettingsSection } from "../src/views/settings/sections/FileSourcesSettingsSection";
+import { PlatformDiagnosticsSettingsSection } from "../src/views/settings/sections/PlatformDiagnosticsSettingsSection";
 import { ToastContainer } from "../src/components/AppShell";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
 import { useFsWatcher } from "../src/hooks/useFsWatcher";
@@ -48,24 +49,34 @@ let container: HTMLDivElement;
 
 function renderStatus(status: WatcherReconciliationStatus) {
   act(() => {
-    root.render(createElement(FileSourcesSettingsSection, {
-      t,
-      defaultScanFolders: [rootSetting],
-      watcherRootStatuses: { [rootSetting.id]: status },
-      organizeRootMode: "current_folder",
-      organizeRootPath: null,
-      onAddScanFolder: vi.fn(),
-      onSetScanRootEnabled: vi.fn(),
-      onScanRootNow: vi.fn(),
-      onRequestDelete: vi.fn(),
-      onOrganizeRootMode: vi.fn(),
-      onOrganizeRootPath: vi.fn(),
-      onChooseOrganizeRootPath: vi.fn()
-    }));
+    root.render(createElement(Fragment, null,
+      createElement(FileSourcesSettingsSection, {
+        t,
+        defaultScanFolders: [rootSetting],
+        organizeRootMode: "current_folder",
+        organizeRootPath: null,
+        onAddScanFolder: vi.fn(),
+        onSetScanRootEnabled: vi.fn(),
+        onScanRootNow: vi.fn(),
+        onRequestDelete: vi.fn(),
+        onOrganizeRootMode: vi.fn(),
+        onOrganizeRootPath: vi.fn(),
+        onChooseOrganizeRootPath: vi.fn()
+      }),
+      createElement(PlatformDiagnosticsSettingsSection, {
+        t,
+        capabilities: null,
+        globalIndexStatus: null,
+        globalIndexSources: [],
+        globalIndexLoadState: "loaded",
+        statusText: (value) => value,
+        watcherRootStatuses: { [rootSetting.id]: status }
+      })
+    ));
   });
 }
 
-describe("mounted watcher health language priority", () => {
+describe("advanced watcher health language priority", () => {
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -90,7 +101,8 @@ describe("mounted watcher health language priority", () => {
     ["healthy is shown when no attention state exists", watcherStatus(), "已同步"]
   ])("uses the stable priority when %s", (_name, status, expected) => {
     renderStatus(status);
-    expect(container.textContent).toContain(expected);
+    expect(container.querySelector("#settings-files-scan")?.textContent).not.toContain(expected);
+    expect(container.querySelector("#settings-platform-diagnostics")?.textContent).toContain(expected);
   });
 });
 

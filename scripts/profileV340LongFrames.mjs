@@ -10,20 +10,27 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { createServer, preview } from "vite";
+import { createServer } from "vite";
 
 const outDir = path.join(process.cwd(), "docs/design/v340-evidence/parity/perf");
 await mkdir(outDir, { recursive: true });
 const usePreview = process.argv.includes("--preview");
 const withProfiler = process.argv.includes("--profile");
+const iterationCount = Math.max(1, Number(process.env.V340_LONG_FRAME_RUNS ?? 5));
+if (usePreview) {
+  throw new Error("Production preview cannot run this browser-mock profile: src/api/core.ts loads browser mocks only when import.meta.env.DEV is true.");
+}
 const port = 5200 + Math.floor(Math.random() * 400);
-const server = usePreview
-  ? await preview({ root: process.cwd(), preview: { host: "127.0.0.1", port, strictPort: true } })
-  : await createServer({ root: process.cwd(), server: { host: "127.0.0.1", port } });
-if (!usePreview) await server.listen();
+const server = await createServer({ root: process.cwd(), server: { host: "127.0.0.1", port } });
+await server.listen();
 const baseUrl = server.resolvedUrls?.local?.[0]?.replace(/\/$/u, "");
 if (!baseUrl) throw new Error("vite server did not start");
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+    ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+    : {})
+});
 
 const INSTRUMENT = `(() => {
   window.__perf = { frames: [], loaf: [] };
@@ -89,9 +96,11 @@ async function openPage() {
   await page.goto(`${baseUrl}/?browser-mock=1`);
   await page.waitForTimeout(1500);
   await page.locator(".zc-sidebar").getByRole("button", { name: "文件", exact: true }).click();
-  await page.waitForTimeout(1200);
-  await page.getByText("Managed mock root", { exact: false }).first().click();
-  await page.waitForTimeout(1400);
+  await page.locator('[data-workbench-ready="true"]').waitFor();
+  await page.locator('[data-browse-state="locations"]').waitFor();
+  await page.locator('[data-browse-place-action="open"]').first().click();
+  await page.locator('[data-browse-state="current-folder"]').waitFor();
+  await page.locator('[data-file-entry-kind]').first().waitFor();
   return { context, page, cdp };
 }
 
@@ -127,9 +136,27 @@ const SCENARIOS = {
   layout: async (page) => {
     await page.locator("[data-pane-menu] .wb-pane-menu-trigger").click();
     await page.waitForTimeout(120);
-    await page.locator("[data-pane-menu] .wb-seg button").filter({ hasText: /^4$/ }).first().click();
+    const menu = page.locator('[data-pane-menu][data-open="true"]').first();
+    await menu.locator(".wb-pane-menu-panel").waitFor({ state: "visible" });
+    const started = Date.now();
+    const setFourPanes = menu.locator(".wb-pane-menu-panel button").nth(3);
+    await setFourPanes.click();
+    const clickResponseMs = Date.now() - started;
+    const panes = page.locator("[data-pane-id]");
+    await page.waitForFunction(() => document.querySelectorAll("[data-pane-id]").length === 4);
+    await Promise.all(Array.from({ length: 4 }, (_, index) => panes.nth(index).waitFor({ state: "visible" })));
+    await Promise.all(Array.from({ length: 4 }, (_, index) =>
+      panes.nth(index).locator(".browse-mode, [data-library-source-owner]").first().waitFor()
+    ));
+    const contentAvailableMs = Date.now() - started;
+    const fileEntryCount = await panes.locator("[data-file-entry-kind]").count();
     await page.waitForTimeout(900);
-    return (await page.locator("[data-pane-id]").count()) === 4;
+    return {
+      verified: await panes.count() === 4,
+      clickResponseMs,
+      contentAvailableMs,
+      fileEntryCount
+    };
   },
   rail: async (page) => {
     const toggle = page.locator(".zc-titlebar-toggle");
@@ -142,17 +169,18 @@ const SCENARIOS = {
   }
 };
 
-const report = { chrome: browser.version(), mode: usePreview ? "production-build" : "vite-dev", profiler: withProfiler, cpu: 4, viewport: "1440x900", dpr: 1, runs: [] };
+const report = { chrome: browser.version(), mode: "vite-dev", profiler: withProfiler, cpu: 4, viewport: "1440x900", dpr: 1, runs: [] };
 for (const [id, action] of Object.entries(SCENARIOS)) {
   const samples = [];
-  for (let iteration = 1; iteration <= 5; iteration += 1) {
+  for (let iteration = 1; iteration <= iterationCount; iteration += 1) {
     const { context, page, cdp } = await openPage();
     try {
       await page.evaluate(INSTRUMENT);
       const before = await metrics(cdp);
       if (withProfiler) await cdp.send("Profiler.start");
       const started = Date.now();
-      const verified = await action(page);
+      const actionResult = await action(page);
+      const verified = typeof actionResult === "boolean" ? actionResult : actionResult.verified;
       const elapsed = Date.now() - started;
       const profile = withProfiler
         ? topFunctions((await cdp.send("Profiler.stop")).profile)
@@ -164,6 +192,9 @@ for (const [id, action] of Object.entries(SCENARIOS)) {
         iteration,
         durationMs: elapsed,
         verified,
+        clickResponseMs: typeof actionResult === "boolean" ? null : actionResult.clickResponseMs ?? null,
+        contentAvailableMs: typeof actionResult === "boolean" ? null : actionResult.contentAvailableMs ?? null,
+        fileEntryCount: typeof actionResult === "boolean" ? null : actionResult.fileEntryCount ?? null,
         frames: stats.frames,
         idleFrames: stats.idleFrames,
         p50: stats.p50,
@@ -195,6 +226,11 @@ for (const [id, action] of Object.entries(SCENARIOS)) {
     summary: {
       p95Median: pct(samples.map((sample) => sample.p95), 0.5),
       p95Worst: Math.max(...samples.map((sample) => sample.p95)),
+      clickResponseMedian: pct(samples.map((sample) => sample.clickResponseMs).filter((value) => value !== null), 0.5),
+      clickResponseWorst: Math.max(...samples.map((sample) => sample.clickResponseMs ?? 0)),
+      contentAvailableMedian: pct(samples.map((sample) => sample.contentAvailableMs).filter((value) => value !== null), 0.5),
+      contentAvailableWorst: Math.max(...samples.map((sample) => sample.contentAvailableMs ?? 0)),
+      fileEntryCountMedian: pct(samples.map((sample) => sample.fileEntryCount).filter((value) => value !== null), 0.5),
       loafMaxMedian: pct(samples.map((sample) => sample.loafMax), 0.5),
       loafMaxWorst: Math.max(...samples.map((sample) => sample.loafMax)),
       layoutMsAverage: Math.round(samples.reduce((sum, sample) => sum + sample.layoutMs, 0) / samples.length),
@@ -203,6 +239,9 @@ for (const [id, action] of Object.entries(SCENARIOS)) {
     }
   });
   console.log(`[long-frame] ${id} verified=${report.runs.at(-1).verified} p95 median ${report.runs.at(-1).summary.p95Median} · LoAF max median ${report.runs.at(-1).summary.loafMaxMedian}ms (worst ${report.runs.at(-1).summary.loafMaxWorst}ms)`);
+  if (id === "layout") {
+    console.log(`  click response ${report.runs.at(-1).summary.clickResponseMedian}ms median / ${report.runs.at(-1).summary.clickResponseWorst}ms worst · pane content ${report.runs.at(-1).summary.contentAvailableMedian}ms median / ${report.runs.at(-1).summary.contentAvailableWorst}ms worst · file rows ${report.runs.at(-1).summary.fileEntryCountMedian} median`);
+  }
   const longest = samples.map((sample) => sample.longestLoaf).filter(Boolean).sort((a, b) => b.duration - a.duration)[0];
   if (longest) {
     const totalScript = longest.scripts.reduce((sum, script) => sum + script.duration, 0);
@@ -213,7 +252,8 @@ for (const [id, action] of Object.entries(SCENARIOS)) {
   console.log(`  CPU profile total ${profile.sampledMs}ms · top ${profile.top.slice(0, 3).map((item) => `${item.frame.split(" @ ")[0]} ${item.selfMs}ms`).join(" | ")}`);
 }
 
-await writeFile(path.join(outDir, `long-frames-4x${withProfiler ? "-profile" : ""}.json`), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+const reportFile = `long-frames-4x${withProfiler ? "-profile" : ""}${iterationCount === 5 ? "" : `-${iterationCount}-run`}.json`;
+await writeFile(path.join(outDir, reportFile), `${JSON.stringify(report, null, 2)}\n`, "utf8");
 await browser.close();
 await server.close();
 const invalid = report.runs.filter((run) => !run.verified);
@@ -221,4 +261,4 @@ if (invalid.length) {
   console.error(`[long-frame] INVALID: ${invalid.map((run) => run.id).join(", ")}`);
   process.exit(1);
 }
-console.log(`[long-frame] PASS 2 scenarios × 5 runs → long-frames-4x${withProfiler ? "-profile" : ""}.json`);
+console.log(`[long-frame] PASS 2 scenarios × ${iterationCount} runs → ${reportFile}`);

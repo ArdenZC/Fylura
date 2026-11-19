@@ -17,7 +17,7 @@ vi.mock("../src/contexts/AppContexts", async () => {
   return { useI18nContext: () => ({ t, language: "en" }), useChromeContext: () => ({ platform: mocks.platform }), useNavigationContext: () => ({ setView: mocks.setView }), useSettingsContext: () => ({ settings: { deleteDestination: mocks.defaultDeleteDestination } }) };
 });
 vi.mock("../src/views/fileLibrary/FileLibraryExperienceProvider", () => ({ useFileLibraryExperience: () => ({ controller: { openBrowse: mocks.navigate } }) }));
-vi.mock("../src/views/fileLibrary/preview/PreviewExperienceProvider", () => ({ usePreviewExperience: () => ({ controller: { close: mocks.close, closeForFileOperation: mocks.close } }) }));
+vi.mock("../src/views/fileLibrary/preview/PreviewExperienceProvider", () => ({ usePreviewExperience: () => ({ controller: { close: mocks.close, closeForFileOperation: mocks.close } }), useOptionalPreviewExperience: () => ({ controller: { close: mocks.close, closeForFileOperation: mocks.close } }) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.openDirectory }));
 vi.mock("../src/store/useOperationQueueStore", () => {
   const state = { operationLogs: [], operationProgress: null, activeOperationKind: null, isOperationCanceling: false } as Record<string, any>;

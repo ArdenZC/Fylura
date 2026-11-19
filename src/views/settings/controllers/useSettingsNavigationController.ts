@@ -12,8 +12,8 @@ export { SETTINGS_SECTION_IDS } from "../settingsSectionModel";
 type SettingsFocusOptions = { focusContent?: boolean };
 
 /**
- * v3.40 §8.2: Settings renders one section at a time. Navigation is explicit
- * state instead of a scroll-spy, but deep links, focus placement, disclosure
+ * v3.40 §8.2: Settings renders one navigation group at a time. Navigation is
+ * explicit state instead of a scroll-spy, but deep links, focus placement, disclosure
  * reveal and the single scroll owner stay unchanged.
  */
 export function useSettingsNavigationController() {

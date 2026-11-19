@@ -2023,6 +2023,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(serviceCleanup).toContain("$ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}");
 
     const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const uninstall = sectionBody(generated, "Uninstall");
     const mainDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
     const serviceCleanupCall = generated.indexOf("Call un.DeleteZenCanvasIndexService", mainDelete);
     const serviceStatusCheck = generated.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1", serviceCleanupCall);
@@ -2031,6 +2032,12 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(serviceCleanupCall).toBeGreaterThan(mainDelete);
     expect(serviceStatusCheck).toBeGreaterThan(serviceCleanupCall);
     expect(remainingFiles).toBeGreaterThan(serviceStatusCheck);
+
+    const registrationCleanupCall = uninstall.indexOf("Call un.RemoveFyluraUninstallRegistration");
+    expect(registrationCleanupCall).toBeGreaterThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
+    expect(registrationCleanupCall).toBeLessThan(uninstall.indexOf("Goto zc_uninstall_generated_success"));
+    expect(uninstall).toContain("$ZC_UNINSTALL_REGISTRATION_CLEAN != 1");
+    expect(uninstall).not.toContain('DeleteRegKey HKLM "${UNINSTKEY}"');
 
     const final = functionBody(
       fs.readFileSync(finalPath, "utf8"),

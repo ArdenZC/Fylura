@@ -1110,17 +1110,7 @@ pub async fn test_ai_provider_connection(
 ) -> Result<AIConnectionTestResult, String> {
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let settings = match settings {
-            Some(mut settings) => {
-                if settings.api_key.trim().is_empty() {
-                    settings.api_key = get_ai_settings_for_db(&db)
-                        .map_err(|error| error.to_string())?
-                        .api_key;
-                }
-                normalize_ai_settings(settings)
-            }
-            None => get_ai_settings_for_db(&db).map_err(|error| error.to_string())?,
-        };
+        let settings = get_ai_settings_for_request(&db, settings)?;
         test_ai_provider_connection_for_settings(settings)
     })
     .await
@@ -1134,21 +1124,61 @@ pub async fn list_ai_models(
 ) -> Result<Vec<AIModelInfo>, String> {
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let settings = match settings {
-            Some(mut settings) => {
-                if settings.api_key.trim().is_empty() {
-                    settings.api_key = get_ai_settings_for_db(&db)
-                        .map_err(|error| error.to_string())?
-                        .api_key;
-                }
-                normalize_ai_settings(settings)
-            }
-            None => get_ai_settings_for_db(&db).map_err(|error| error.to_string())?,
-        };
+        let settings = get_ai_settings_for_request(&db, settings)?;
         list_ai_models_for_settings(settings)
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+fn get_ai_settings_for_request(
+    db: &Database,
+    request_settings: Option<AISettings>,
+) -> Result<AISettings, String> {
+    if let Some(settings) = request_settings.as_ref() {
+        if !settings.api_key.trim().is_empty() {
+            return Ok(normalize_ai_settings(settings.clone()));
+        }
+    }
+    let saved_settings = get_ai_settings_for_db(db).map_err(|error| error.to_string())?;
+    Ok(resolve_ai_settings_for_request(
+        saved_settings,
+        request_settings,
+    ))
+}
+
+fn resolve_ai_settings_for_request(
+    saved_settings: AISettings,
+    request_settings: Option<AISettings>,
+) -> AISettings {
+    let saved_settings = normalize_ai_settings(saved_settings);
+    let Some(request_settings) = request_settings else {
+        return saved_settings;
+    };
+
+    let has_explicit_key = !request_settings.api_key.trim().is_empty();
+    let mut request_settings = normalize_ai_settings(request_settings);
+    if !has_explicit_key && ai_key_source_matches(&saved_settings, &request_settings) {
+        request_settings.api_key = saved_settings.api_key;
+    }
+    request_settings
+}
+
+fn ai_key_source_matches(saved: &AISettings, requested: &AISettings) -> bool {
+    saved.provider == requested.provider
+        && saved.preset == requested.preset
+        && saved.active_custom_profile_id == requested.active_custom_profile_id
+        && normalized_provider_origin(&saved.base_url)
+            .zip(normalized_provider_origin(&requested.base_url))
+            .is_some_and(|(saved_origin, requested_origin)| saved_origin == requested_origin)
+}
+
+fn normalized_provider_origin(base_url: &str) -> Option<url::Origin> {
+    let parsed = url::Url::parse(base_url.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+    Some(parsed.origin())
 }
 
 fn normalize_chat_path(value: &str) -> String {
@@ -1180,10 +1210,12 @@ fn sanitize_ai_error(message: String, api_key: &str) -> String {
 mod validation_tests {
     use super::*;
     use std::{
+        io::{Read, Write},
+        net::TcpListener,
         path::PathBuf,
         sync::{
             atomic::{AtomicBool, AtomicUsize, Ordering},
-            Arc,
+            mpsc, Arc,
         },
         thread,
         time::Duration,
@@ -1246,6 +1278,234 @@ mod validation_tests {
         assert_eq!(json["apiKeyConfigured"], true);
         assert!(json.get("apiKeyAction").is_none());
         assert!(!json.to_string().contains("top-secret"));
+    }
+
+    #[test]
+    fn request_key_inheritance_requires_matching_provider_profile_and_normalized_origin() {
+        let saved = AISettings {
+            base_url: "https://API.Example.com:443/v1".to_string(),
+            api_key: "stored-key".to_string(),
+            ..AISettings::default()
+        };
+
+        let same_origin = resolve_ai_settings_for_request(
+            saved.clone(),
+            Some(AISettings {
+                base_url: "https://api.example.com/other/path/".to_string(),
+                ..AISettings::default()
+            }),
+        );
+        assert_eq!(same_origin.api_key, "stored-key");
+
+        let changed_origin = resolve_ai_settings_for_request(
+            saved.clone(),
+            Some(AISettings {
+                base_url: "https://api.example.com:444/v1".to_string(),
+                ..AISettings::default()
+            }),
+        );
+        assert!(changed_origin.api_key.is_empty());
+
+        let changed_provider = resolve_ai_settings_for_request(
+            saved.clone(),
+            Some(AISettings {
+                provider: AIProviderKind::Ollama,
+                preset: AIProviderPresetId::Ollama,
+                base_url: "http://127.0.0.1:11434".to_string(),
+                ..AISettings::default()
+            }),
+        );
+        assert!(changed_provider.api_key.is_empty());
+        assert_eq!(changed_provider.base_url, "http://127.0.0.1:11434");
+
+        let mut saved_profile = profile_settings("profile-a", ApiKeyAction::Preserve);
+        saved_profile.api_key = "profile-a-key".to_string();
+        let mut requested_profile = profile_settings("profile-b", ApiKeyAction::Preserve);
+        requested_profile.api_key.clear();
+        requested_profile.custom_profiles[0].base_url =
+            saved_profile.custom_profiles[0].base_url.clone();
+        let changed_profile =
+            resolve_ai_settings_for_request(saved_profile, Some(requested_profile));
+        assert!(changed_profile.api_key.is_empty());
+
+        let explicit_key = resolve_ai_settings_for_request(
+            saved,
+            Some(AISettings {
+                base_url: "https://other.example.com/v1".to_string(),
+                api_key: "user-entered-key".to_string(),
+                ..AISettings::default()
+            }),
+        );
+        assert_eq!(explicit_key.api_key, "user-entered-key");
+    }
+
+    #[test]
+    fn request_key_inheritance_preserves_local_ollama_and_self_hosted_origins() {
+        let ollama_saved = AISettings {
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: "http://localhost:11434".to_string(),
+            api_key: "unused-local-key".to_string(),
+            ..AISettings::default()
+        };
+        let ollama_request = AISettings {
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: "http://LOCALHOST:11434/".to_string(),
+            ..AISettings::default()
+        };
+        assert_eq!(
+            resolve_ai_settings_for_request(ollama_saved, Some(ollama_request)).api_key,
+            "unused-local-key"
+        );
+
+        let self_hosted_saved = AISettings {
+            base_url: "http://192.168.1.40:8080/v1".to_string(),
+            api_key: "self-hosted-key".to_string(),
+            ..AISettings::default()
+        };
+        let self_hosted_request = AISettings {
+            base_url: "http://192.168.1.40:8080/custom-path".to_string(),
+            ..AISettings::default()
+        };
+        assert_eq!(
+            resolve_ai_settings_for_request(self_hosted_saved.clone(), Some(self_hosted_request))
+                .api_key,
+            "self-hosted-key"
+        );
+        let changed_self_hosted_origin = resolve_ai_settings_for_request(
+            self_hosted_saved,
+            Some(AISettings {
+                base_url: "http://192.168.1.41:8080/v1".to_string(),
+                ..AISettings::default()
+            }),
+        );
+        assert!(changed_self_hosted_origin.api_key.is_empty());
+    }
+
+    #[test]
+    fn provider_requests_do_not_send_stored_key_to_a_changed_origin() {
+        const STORED_KEY: &str = "stored-cross-origin-test-key";
+        let saved_settings = AISettings {
+            base_url: "http://127.0.0.1:1".to_string(),
+            api_key: STORED_KEY.to_string(),
+            timeout_seconds: 2,
+            ..AISettings::default()
+        };
+
+        let (test_url, test_request, test_server) =
+            provider_http_fixture(r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#);
+        let test_settings = resolve_ai_settings_for_request(
+            saved_settings.clone(),
+            Some(AISettings {
+                base_url: test_url,
+                timeout_seconds: 2,
+                ..AISettings::default()
+            }),
+        );
+        assert!(test_settings.api_key.is_empty());
+        test_ai_provider_connection_for_settings(test_settings).expect("connection probe");
+        let test_request = test_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("probe request");
+        test_server.join().expect("probe fixture server");
+        assert!(!test_request.contains(STORED_KEY));
+
+        let (models_url, models_request, models_server) =
+            provider_http_fixture(r#"{"data":[{"id":"fixture-model"}]}"#);
+        let models_settings = resolve_ai_settings_for_request(
+            saved_settings,
+            Some(AISettings {
+                base_url: models_url,
+                timeout_seconds: 2,
+                ..AISettings::default()
+            }),
+        );
+        assert!(models_settings.api_key.is_empty());
+        list_ai_models_for_settings(models_settings).expect("model discovery");
+        let models_request = models_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("model request");
+        models_server.join().expect("model fixture server");
+        assert!(!models_request.contains(STORED_KEY));
+    }
+
+    #[test]
+    fn explicit_key_remains_available_for_a_custom_provider_request() {
+        const EXPLICIT_KEY: &str = "explicit-custom-provider-key";
+        let (base_url, request, server) =
+            provider_http_fixture(r#"{"data":[{"id":"fixture-model"}]}"#);
+        let mut profile = custom_profile("custom-provider");
+        profile.base_url = base_url;
+        let requested_settings = AISettings {
+            preset: AIProviderPresetId::CustomOpenAICompatible,
+            provider: AIProviderKind::OpenAICompatible,
+            custom_profiles: vec![profile],
+            active_custom_profile_id: Some("custom-provider".to_string()),
+            api_key: EXPLICIT_KEY.to_string(),
+            timeout_seconds: 2,
+            ..AISettings::default()
+        };
+        let database_path = concurrency_test_db_path("explicit-key-provider");
+        let db = Database::open(&database_path).expect("explicit-key provider database");
+        let resolved = get_ai_settings_for_request(&db, Some(requested_settings))
+            .expect("resolve explicit custom provider key without reading Keyring");
+        list_ai_models_for_settings(resolved).expect("custom provider model discovery");
+        let request = request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("custom request");
+        server.join().expect("custom fixture server");
+        assert!(request.contains(&format!("Bearer {EXPLICIT_KEY}")));
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    fn provider_http_fixture(
+        response_body: &'static str,
+    ) -> (String, mpsc::Receiver<String>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind provider fixture");
+        let address = listener.local_addr().expect("fixture address");
+        let (sender, receiver) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept provider request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("set fixture timeout");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let read = stream.read(&mut buffer).expect("read provider request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                let Some(headers_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
+                else {
+                    continue;
+                };
+                let headers = String::from_utf8_lossy(&request[..headers_end]);
+                let content_length = headers.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                });
+                if content_length
+                    .map(|length| request.len() >= headers_end + 4 + length)
+                    .unwrap_or(true)
+                {
+                    break;
+                }
+            }
+            let _ = sender.send(String::from_utf8_lossy(&request).into_owned());
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        });
+        (format!("http://{address}"), receiver, worker)
     }
 
     #[test]

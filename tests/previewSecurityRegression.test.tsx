@@ -83,6 +83,16 @@ describe("W3-09 merged-provider renderer security harness", () => {
     expect(csp).not.toContain("http:");
   });
 
+  it("limits Tauri asset access to completed Quick Look thumbnail files", () => {
+    const config = JSON.parse(readFileSync(resolve("src-tauri/tauri.conf.json"), "utf8")) as {
+      app?: { security?: { assetProtocol?: { scope?: string[] } } };
+    };
+    const scope = config.app?.security?.assetProtocol?.scope ?? [];
+    expect(scope).toEqual(["$APPDATA/quick-look/*.png"]);
+    expect(scope).not.toContain("$APPDATA/**");
+    expect(scope).not.toContain("$APPDATA/file-workspace-thumbnails/**");
+  });
+
   it("keeps PDF.js password and active-content controls on the real loading-task lifecycle", () => {
     const renderer = readFileSync(resolve("src/views/fileLibrary/preview/renderers/PdfPreviewRenderer.tsx"), "utf8");
     expect(renderer).toContain("loadingTask = pdfjs.getDocument(documentInit)");

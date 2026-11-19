@@ -1814,20 +1814,11 @@ Function un.RemoveFyluraUninstallRegistration
     Return
   ${EndIf}
 
+  ; This is the product's exact per-machine uninstall key. Set the registry
+  ; view explicitly before using NSIS's native deletion command; the upstream
+  ; template may have left a different view active after its generated cleanup.
   ClearErrors
-  System::Call 'advapi32::RegDeleteKeyExW(p ${ZC_REG_ROOT_HKLM}, w "$ZC_UNINSTALLER_REGISTRY_KEY", i ${ZC_REG_KEY_WOW64_64KEY}, i 0) i.r9'
-  StrCpy $ZC_REG_RESULT $9
-  ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
-    !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
-    ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
-      StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1
-      Return
-    ${EndIf}
-    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "RegDeleteKeyExW failed with Windows error $ZC_REG_RESULT"
-    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
-    SetErrorLevel 2
-    Return
-  ${EndIf}
+  DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"
 
   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
   ${If} ${Errors}

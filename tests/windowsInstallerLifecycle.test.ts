@@ -2041,9 +2041,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(registrationCleanup).toContain('"DisplayName" "$ZC_PRODUCT_NAME"');
     expect(registrationCleanup).toContain('"InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"');
     expect(registrationCleanup).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
-    expect(registrationCleanup).toContain("RegDeleteKeyExW");
-    expect(registrationCleanup).toContain("${ZC_REG_KEY_WOW64_64KEY}");
-    expect(registrationCleanup).toContain("RegDeleteKeyExW failed with Windows error $ZC_REG_RESULT");
+    expect(registrationCleanup).toContain("SetRegView 64");
+    expect(registrationCleanup).toContain('DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(registrationCleanup).toContain('ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(registrationCleanup).toContain("the product uninstall registration remains after deletion");
     expect(registrationCleanup).toContain("StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1");
     expect(final).toContain("$ZC_UNINSTALL_REGISTRATION_ERROR");
   });

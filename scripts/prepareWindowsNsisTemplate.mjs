@@ -180,7 +180,7 @@ export function buildFyluraNsisTemplate(upstream) {
       "  ${EndIf}",
       "  ${EndIf}",
       "  ClearErrors",
-      '  ReadEnvStr $R3 "FYLURA_NSIS_QA_DIAGNOSTIC"',
+      '  ${GetOptions} $CMDLINE "/FYLURA_NSIS_QA_DIAGNOSTIC=" $R3',
       '  ${If} $R3 != ""',
       '    FileOpen $R4 "$R3" w',
       '    ${If} $R4 != ""',

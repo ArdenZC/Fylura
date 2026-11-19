@@ -484,7 +484,8 @@ Function un.ZCPostUninstallLifecycleFinal
   StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0
   SetErrorLevel 2
   Call un.ZCMarkUninstallPostGeneratedIntegration
-  ReadEnvStr $R3 "FYLURA_NSIS_QA_DIAGNOSTIC"
+  ClearErrors
+  ${GetOptions} $CMDLINE "/FYLURA_NSIS_QA_DIAGNOSTIC=" $R3
   ${If} $R3 != ""
     FileOpen $R4 "$R3" a
     ${If} $R4 != ""

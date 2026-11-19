@@ -63,19 +63,14 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $diagnosticPath = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex)-diagnostic.txt"
     $script:lastUninstallerDiagnostics = ''
     $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
-    $previousDiagnostic = [Environment]::GetEnvironmentVariable('FYLURA_NSIS_QA_DIAGNOSTIC', 'Process')
-    [Environment]::SetEnvironmentVariable('FYLURA_NSIS_QA_DIAGNOSTIC', $diagnosticPath, 'Process')
-    try {
-        $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
-        if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
-        $p.Refresh()
-        return [int]$p.ExitCode
-    } finally {
-        [Environment]::SetEnvironmentVariable('FYLURA_NSIS_QA_DIAGNOSTIC', $previousDiagnostic, 'Process')
-        if (Test-Path -LiteralPath $diagnosticPath -PathType Leaf) {
-            $script:lastUninstallerDiagnostics = [IO.File]::ReadAllText($diagnosticPath)
-        }
+    $arguments += "/FYLURA_NSIS_QA_DIAGNOSTIC=$diagnosticPath"
+    $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
+    if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
+    $p.Refresh()
+    if (Test-Path -LiteralPath $diagnosticPath -PathType Leaf) {
+        $script:lastUninstallerDiagnostics = [IO.File]::ReadAllText($diagnosticPath)
     }
+    return [int]$p.ExitCode
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }

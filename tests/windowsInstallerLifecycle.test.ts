@@ -572,6 +572,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     );
     expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
     expect(verifier).toContain("if ($null -ne $s) { $s.Dispose() }");
+    expect(verifier).toContain('"/LOG=$script:lastUninstallerLog"');
+    expect(verifier).toContain("SCM query exit=");
     expect(verifier).toContain("Assert-Preview $false");
     expect(verifier).toContain("Assert-Preview $true");
     expect(verifier).toContain("phase = 'cleanup-failed'");

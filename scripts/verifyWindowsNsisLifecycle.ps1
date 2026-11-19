@@ -58,7 +58,10 @@ function Install {
     return [int]$p.ExitCode
 }
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
-    $p = Start-Process -FilePath $uninstaller -ArgumentList $UninstallArgs -PassThru -NoNewWindow
+    $script:uninstallerLogIndex++
+    $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
+    $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
+    $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
     if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
     $p.Refresh()
     return [int]$p.ExitCode
@@ -125,7 +128,15 @@ function Assert-Service {
 function Assert-Uninstalled {
     for ($i = 0; $i -lt 120 -and (Test-Path -LiteralPath $main); $i++) { Start-Sleep -Milliseconds 500 }
     Assert-Condition (-not (Test-Path -LiteralPath $main) -and -not (Test-Path -LiteralPath $uninstaller)) 'Program files remained after uninstall.'
-    Assert-Condition (-not (Test-Path -LiteralPath $serviceKey)) 'FyluraGlobalIndex remained after uninstall.'
+    if (Test-Path -LiteralPath $serviceKey) {
+        $scm = Invoke-Sc @('query', $service)
+        $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
+        $serviceLog = @()
+        if (Test-Path -LiteralPath $script:lastUninstallerLog) {
+            $serviceLog = @(Get-Content -LiteralPath $script:lastUninstallerLog | Where-Object { $_ -match 'Fylura Global Index|service registration|incomplete|uninstall' } | Select-Object -Last 20)
+        }
+        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code); ImagePath=$imagePath; NSIS service log=$($serviceLog -join ' | ')"
+    }
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Fylura remained in Add/Remove Programs.'
     Assert-Preview $false
 }
@@ -169,6 +180,8 @@ $installer = [IO.Path]::GetFullPath($InstallerPath)
 $script:evidence = [System.Collections.Generic.List[object]]::new()
 $script:status = 'IN_PROGRESS'
 $script:credentialFixtures = [System.Collections.Generic.List[string]]::new()
+$script:uninstallerLogIndex = 0
+$script:lastUninstallerLog = $null
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $appDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
 $localAppDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)

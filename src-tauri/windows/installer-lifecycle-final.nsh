@@ -483,6 +483,9 @@ Function un.ZCPostUninstallLifecycleFinal
   ; can return to the NSIS section. A partial cleanup must never look successful.
   StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0
   SetErrorLevel 2
+  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.entered" "1"
+  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.update" "$ZC_UNINSTALL_IS_UPDATE"
+  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.startupClean" "$ZC_UNINSTALL_STARTUP_CLEAN"
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Push $R0
   Push $R1

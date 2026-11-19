@@ -695,6 +695,8 @@ Function un.ZCFinishUninstallLifecycle
 FunctionEnd
 
 Function un.ZCRemoveFyluraStartup
+  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.entered" "1"
+  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.update" "$ZC_UNINSTALL_IS_UPDATE"
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
 
   SetRegView 64
@@ -704,6 +706,7 @@ Function un.ZCRemoveFyluraStartup
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
   SetRegView 64
+  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.deleteComplete" "1"
   ClearErrors
 
   ; Confirm both values are absent in both registry views before reporting a

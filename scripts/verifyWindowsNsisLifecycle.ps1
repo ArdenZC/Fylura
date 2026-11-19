@@ -70,6 +70,18 @@ function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments) {
         $process.Dispose()
     }
 }
+function Get-LifecycleProbe {
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Default)
+    try {
+        $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
+        if ($null -eq $key) { return 'probe key absent' }
+        try {
+            $values = [ordered]@{}
+            foreach ($name in $key.GetValueNames()) { $values[$name] = $key.GetValue($name) }
+            return ($values | ConvertTo-Json -Compress)
+        } finally { $key.Dispose() }
+    } finally { $base.Dispose() }
+}
 function Install {
     return Invoke-CurrentUserProcess $installer @('/S', "/D=$installDir")
 }
@@ -84,6 +96,7 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
     } else {
         $script:lastUninstallerDiagnostics = 'diagnostics file was not created'
     }
+    $script:lastUninstallerProbe = Get-LifecycleProbe
     return $exitCode
 }
 function Get-FyluraUninstallEntries {
@@ -249,7 +262,7 @@ function Assert-Autostart([bool]$FyluraPresent) {
         $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
         $uninstallLogExists = $script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)
         $uninstallLogTail = if ($uninstallLogExists) { @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 40) } else { @() }
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics; logExists=$uninstallLogExists; logTail=$($uninstallLogTail -join ' | ')"
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics; lifecycle probe=$script:lastUninstallerProbe; logExists=$uninstallLogExists; logTail=$($uninstallLogTail -join ' | ')"
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'
@@ -271,8 +284,11 @@ function Cleanup-Autostart {
 }
 
 $installer = [IO.Path]::GetFullPath($InstallerPath)
+$probeKeyPath = 'HKCU:\Software\Fylura\CodexUninstallLifecycleProbe'
+Assert-Condition (-not (Test-Path -LiteralPath $probeKeyPath)) 'The temporary NSIS lifecycle probe key already exists; refusing to overwrite it.'
 $script:evidence = [System.Collections.Generic.List[object]]::new()
 $script:status = 'IN_PROGRESS'
+$script:lastUninstallerProbe = 'not run'
 $script:credentialFixtures = [System.Collections.Generic.List[string]]::new()
 $script:uninstallerLogIndex = 0
 $script:lastUninstallerLog = $null
@@ -491,6 +507,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         Cleanup-Autostart
         Remove-Credentials
         Remove-LegacyServiceFixture
+        if (Test-Path -LiteralPath $probeKeyPath) { Remove-Item -LiteralPath $probeKeyPath -Recurse -Force -ErrorAction SilentlyContinue }
         if ($script:appDataFixtureCreated) { Remove-Item -LiteralPath $data, $cache, $legacyData -Recurse -Force -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $taskRoot) {
             $resolved = [IO.Path]::GetFullPath($taskRoot)

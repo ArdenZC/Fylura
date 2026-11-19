@@ -29,6 +29,9 @@ const LEGACY_SKIP_DIR_NAMES: &[&str] = &[
     ".vscode",
     ".cache",
     ".zen-canvas-trash",
+    ".fylura-trash",
+    ".zen-canvas-retirement",
+    ".fylura-retirement",
     ".parcel-cache",
     ".turbo",
     ".next",
@@ -339,6 +342,8 @@ mod tests {
             ".venv/lib/a.py",
             ".vscode/settings.json",
             ".cache/file",
+            ".fylura-retirement/01234567-89ab-cdef-0123-456789abcdef/.fylura-claim-a",
+            ".zen-canvas-retirement/01234567-89ab-cdef-0123-456789abcdef/.zen-canvas-claim-a",
         ] {
             assert!(filter.excludes(&root.join(name), false), "{name}");
         }

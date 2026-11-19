@@ -69,7 +69,7 @@ impl MacLifecycleController {
             let callback: Arc<dyn Fn(MacLifecycleEvent) -> Result<(), String> + Send + Sync> =
                 Arc::new(on_event);
             let worker = thread::Builder::new()
-                .name("zen-canvas-macos-lifecycle".to_string())
+                .name("fylura-macos-lifecycle".to_string())
                 .spawn(move || {
                     objc2::rc::autoreleasepool(|_| {
                         run_workspace_observer(

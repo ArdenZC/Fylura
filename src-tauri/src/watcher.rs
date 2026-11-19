@@ -30,7 +30,8 @@ const FILE_EVENT_NAME: &str = "fs-event";
 const WATCHER_READY_EVENT_NAME: &str = "fs-watcher-ready";
 const WATCHER_ERROR_EVENT_NAME: &str = "fs-watcher-error";
 pub const WATCHER_RECONCILIATION_STATUS_EVENT_NAME: &str = "watcher-reconciliation-status";
-pub const WATCHER_BACKEND_ENV: &str = "ZEN_CANVAS_BACKEND_WATCHER_RECONCILIATION";
+pub const WATCHER_BACKEND_ENV: &str = "FYLURA_BACKEND_WATCHER_RECONCILIATION";
+const LEGACY_WATCHER_BACKEND_ENV: &str = "ZEN_CANVAS_BACKEND_WATCHER_RECONCILIATION";
 const WATCHER_CHANNEL_CAPACITY: usize = 2048;
 const WATCHER_BATCH_LIMIT: usize = 500;
 const WATCHER_MAX_ATTEMPTS: usize = 8;
@@ -482,7 +483,7 @@ impl FileWatcherManager {
         let timer_root_id = root_id.clone();
         let app_for_retry = app.clone();
         let spawn_result = thread::Builder::new()
-            .name("zen-canvas-watcher-retry".to_string())
+            .name("fylura-watcher-retry".to_string())
             .spawn(move || {
                 let delay = Duration::from_secs(
                     retry_at.saturating_sub(current_unix_seconds()).max(0) as u64,
@@ -786,7 +787,20 @@ pub fn suspend_file_watcher_for_lifecycle<R: Runtime>(
 }
 
 pub fn backend_watcher_reconciliation_enabled() -> bool {
-    backend_watcher_reconciliation_enabled_value(std::env::var(WATCHER_BACKEND_ENV).ok().as_deref())
+    let current = std::env::var(WATCHER_BACKEND_ENV).ok();
+    let legacy = if current.is_none() {
+        std::env::var(LEGACY_WATCHER_BACKEND_ENV).ok()
+    } else {
+        None
+    };
+    backend_watcher_reconciliation_enabled_values(current.as_deref(), legacy.as_deref())
+}
+
+fn backend_watcher_reconciliation_enabled_values(
+    current: Option<&str>,
+    legacy: Option<&str>,
+) -> bool {
+    backend_watcher_reconciliation_enabled_value(current.or(legacy))
 }
 
 fn backend_watcher_reconciliation_enabled_value(value: Option<&str>) -> bool {
@@ -913,7 +927,7 @@ fn start_legacy_watcher_session<R: Runtime>(
     emit_watcher_ready(&app, root_labels)?;
 
     let handle = thread::Builder::new()
-        .name("zen-canvas-file-watcher".to_string())
+        .name("fylura-file-watcher".to_string())
         .spawn({
             let stop_requested = Arc::clone(&stop_requested);
             move || run_legacy_watcher_loop(app, watcher, rx, stop_requested)
@@ -953,7 +967,7 @@ fn start_backend_watcher_session<R: Runtime>(
 
     let loop_stop_requested = Arc::clone(&stop_requested);
     let handle = thread::Builder::new()
-        .name("zen-canvas-file-watcher-backend".to_string())
+        .name("fylura-file-watcher-backend".to_string())
         .spawn(move || {
             run_backend_watcher_loop(
                 app,
@@ -3130,7 +3144,8 @@ mod tests {
     }
 
     #[test]
-    fn backend_owner_switch_defaults_on_and_accepts_explicit_legacy_values() {
+    fn backend_owner_switch_uses_fylura_name_and_reads_legacy_value_as_fallback() {
+        assert_eq!(WATCHER_BACKEND_ENV, "FYLURA_BACKEND_WATCHER_RECONCILIATION");
         assert!(backend_watcher_reconciliation_enabled_value(None));
         assert!(backend_watcher_reconciliation_enabled_value(Some("true")));
         assert!(!backend_watcher_reconciliation_enabled_value(Some("false")));
@@ -3138,6 +3153,18 @@ mod tests {
         assert!(!backend_watcher_reconciliation_enabled_value(Some(
             "disabled"
         )));
+        assert!(!backend_watcher_reconciliation_enabled_values(
+            None,
+            Some("false")
+        ));
+        assert!(backend_watcher_reconciliation_enabled_values(
+            Some("true"),
+            Some("false")
+        ));
+        assert!(!backend_watcher_reconciliation_enabled_values(
+            Some("false"),
+            Some("true")
+        ));
     }
 
     fn scan_root(id: &str, path: &str, enabled: bool) -> ScanRootSetting {

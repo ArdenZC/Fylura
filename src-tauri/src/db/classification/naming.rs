@@ -89,9 +89,9 @@ pub(crate) fn build_target_path(
 fn target_base_directory(row: &IndexedFileRow, organize_root: &OrganizeRootConfig) -> PathBuf {
     match organize_root.mode {
         OrganizeRootMode::CurrentFolder => PathBuf::from(parent_directory(&row.path)),
-        OrganizeRootMode::ZenCanvasFolder => {
+        OrganizeRootMode::FyluraFolder => {
             let mut target = PathBuf::from(parent_directory(&row.path));
-            target.push("ZenCanvas");
+            target.push("Fylura");
             target
         }
         OrganizeRootMode::CustomRoot => organize_root

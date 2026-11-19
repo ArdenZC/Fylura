@@ -299,7 +299,7 @@ pub fn spawn_update_watcher(
     let stop_signal_for_thread = stop_signal.clone();
     let stopped_for_handle = stopped.clone();
     let thread = thread::Builder::new()
-        .name("zen-canvas-macos-spotlight".to_string())
+        .name("fylura-macos-spotlight".to_string())
         .spawn(move || {
             let result = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
                 autoreleasepool(|_| {

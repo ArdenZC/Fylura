@@ -479,16 +479,33 @@ Function ZCFailPostInstallLifecycleFinal
 FunctionEnd
 
 Function un.ZCPostUninstallLifecycleFinal
-  ; Keep non-zero until all exact-owned finalization succeeds. If any helper
-  ; aborts, silent uninstall returns failure instead of a false success.
+  ; The generated caller checks this result because Abort inside a function
+  ; can return to the NSIS section. A partial cleanup must never look successful.
+  StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0
   SetErrorLevel 2
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation
-  Call un.DeleteZenCanvasIndexService
-  Call un.RemoveZenCanvasManufacturerProductMarker
+  ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Global Index service was not verified as removed before the remaining program files were deleted." /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
+  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1
+    ${If} $ZC_UNINSTALL_STARTUP_CLEAN != 1
+      MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. Fylura current-user startup entries could not be verified as removed." /SD IDOK
+      SetErrorLevel 2
+      Abort
+    ${EndIf}
+  ${EndIf}
+  Call un.RemoveFyluraUninstallRegistration
+  ${If} $ZC_UNINSTALL_REGISTRATION_CLEAN != 1
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Add/Remove Programs registration could not be verified as removed: $ZC_UNINSTALL_REGISTRATION_ERROR." /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
   ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1
-    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker was not verified as removed before deleting the uninstaller." /SD IDOK
     Abort
   ${EndIf}
   ${If} $ZC_PREVIEW_ARTIFACT_REMOVED != 1
@@ -500,4 +517,5 @@ Function un.ZCPostUninstallLifecycleFinal
     Abort
   ${EndIf}
   SetErrorLevel 0
+  StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1
 FunctionEnd

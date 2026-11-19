@@ -72,6 +72,19 @@ impl Fixture {
     }
     pub(super) fn finish(self) {
         drop(self.db);
+        #[cfg(windows)]
+        {
+            for attempt in 0..=10 {
+                match fs::remove_dir_all(&self.root) {
+                    Ok(()) => return,
+                    Err(error) if error.raw_os_error() == Some(32) && attempt < 10 => {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(error) => panic!("could not remove test fixture: {error}"),
+                }
+            }
+        }
+        #[cfg(not(windows))]
         fs::remove_dir_all(self.root).unwrap();
     }
 }

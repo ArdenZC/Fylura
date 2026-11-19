@@ -218,7 +218,7 @@ export function managementMock(command: string, request: any, resolve: (ref: Ent
         ? parent(ticket.path)
         : request.destinationDirectory;
       let target = request.action === "trash"
-        ? `${parent(ticket.path)}/.zen-canvas-trash/operations/mock-${serial + 1}/${ticket.name}`
+        ? `${parent(ticket.path)}/.fylura-trash/operations/mock-${serial + 1}/${ticket.name}`
         : `${targetDirectory}/${name}`;
       if (request.keepBoth?.includes(ticketId) && (files.has(target) || reserved.has(target))) {
         const dot = name.lastIndexOf("."); const stem = dot > 0 ? name.slice(0, dot) : name; const ext = dot > 0 ? name.slice(dot) : "";

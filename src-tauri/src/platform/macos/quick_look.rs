@@ -397,7 +397,7 @@ impl MacThumbnailService {
             let worker_cleanup_root = cleanup_root.clone();
             let worker_helper_path = helper_path.clone();
             let worker = thread::Builder::new()
-                .name("zen-canvas-macos-quick-look".to_string())
+                .name("fylura-macos-quick-look".to_string())
                 .spawn(move || {
                     let result = generate_thumbnail(
                         &source_handle,

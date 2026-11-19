@@ -59,6 +59,7 @@ Var ZC_PRODUCT_NAME
 Var ZC_MANUFACTURER_NAME
 Var ZC_EXPECTED_INSTALL_LOCATION
 Var ZC_EXPECTED_UNINSTALL_STRING
+Var ZC_EXPECTED_LEGACY_UNINSTALL_STRING
 Var ZC_EXPECTED_DISPLAY_ICON
 Var ZC_EXPECTED_DISPLAY_VERSION
 Var ZC_EXPECTED_PUBLISHER
@@ -88,6 +89,11 @@ Var ZC_INSTALL_LIFECYCLE_ACTIVE
 Var ZC_PREVIEW_ARTIFACT_REMOVED
 Var ZC_UNINSTALL_SERVICE_CLEAN
 Var ZC_UNINSTALL_MANUFACTURER_CLEAN
+Var ZC_UNINSTALL_REGISTRATION_CLEAN
+Var ZC_UNINSTALL_REGISTRATION_ERROR
+Var ZC_UNINSTALL_STARTUP_CLEAN
+Var ZC_UNINSTALL_IS_UPDATE
+Var ZC_UNINSTALL_FINAL_CLEAN
 Var ZC_INDEX_SERVICE_CREATE_SUCCEEDED
 Var ZC_INDEX_SERVICE_CREATE_OWNERSHIP_VERIFIED
 Var ZC_UNINSTALL_LIFECYCLE_STAGE
@@ -397,6 +403,18 @@ FunctionEnd
   ${EndIf}
 !macroend
 
+; Accept the current direct NSIS uninstaller and the exact same-install-path
+; launcher value used by the earlier PR build while admitting an update.
+!macro ZC_REQUIRE_PRODUCT_UNINSTALL_STRING PATH
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "UninstallString" "$ZC_EXPECTED_LEGACY_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
+    ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+      StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 ; Conditional ARP URL metadata is optional during repair admission. A missing
 ; value is valid, but a present value must still be the exact typed value that
 ; the current package expects. Foreign or unreadable state fails closed.
@@ -425,6 +443,7 @@ Function DetectZenCanvasPreexistingProduct
   StrCpy $ZC_MANUFACTURER_KEY_PRESENT 0
   StrCpy $ZC_EXPECTED_INSTALL_LOCATION "$\"$INSTDIR$\""
   StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
+  StrCpy $ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\"$INSTDIR\fylura.exe$\" --fylura-uninstall-launcher"
   StrCpy $ZC_EXPECTED_DISPLAY_ICON "$\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME$\""
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"
@@ -473,7 +492,7 @@ detect_product_uninstaller_absent:
   !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayVersion" "$ZC_EXPECTED_DISPLAY_VERSION"
   !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "Publisher" "$ZC_EXPECTED_PUBLISHER"
   !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"
-  !insertmacro ZC_REQUIRE_PRODUCT_STRING "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"
+  !insertmacro ZC_REQUIRE_PRODUCT_UNINSTALL_STRING "$ZC_UNINSTALLER_REGISTRY_KEY"
   !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoModify" 1
   !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "NoRepair" 1
   !insertmacro ZC_REQUIRE_PRODUCT_DWORD "$ZC_UNINSTALLER_REGISTRY_KEY" "EstimatedSize" $ZC_EXPECTED_ESTIMATED_SIZE
@@ -1758,6 +1777,74 @@ un_preview_artifact_removed:
   Call un.CommitZenCanvasPreviewQuiesce
 FunctionEnd
 
+; Remove the uninstall registration only when its display name and both
+; install-owned paths still match this exact per-machine Fylura installation.
+Function un.RemoveFyluraUninstallRegistration
+  StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 0
+  StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "could not verify Fylura registration ownership"
+  SetRegView 64
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1
+    Return
+  ${EndIf}
+  ${If} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_PRESENT}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the uninstall registration could not be inspected"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName" "$ZC_PRODUCT_NAME" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the DisplayName does not match Fylura"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the InstallLocation does not match this installation"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the UninstallString does not match this installation"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+
+  ; Use the explicit 64-bit API because this is a per-machine registration and
+  ; the uninstaller may otherwise inherit a different NSIS registry view.
+  ClearErrors
+  System::Call 'advapi32::RegDeleteKeyExW(p ${ZC_REG_ROOT_HKLM}, w "$ZC_UNINSTALLER_REGISTRY_KEY", i ${ZC_REG_KEY_WOW64_64KEY}, i 0) i.r9'
+  StrCpy $ZC_REG_RESULT $9
+  ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
+    !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+    ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+      StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1
+      Return
+    ${EndIf}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "RegDeleteKeyExW failed with Windows error $ZC_REG_RESULT"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+  ${If} ${Errors}
+  ${OrIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the product uninstall registration remains after deletion"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+  StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1
+FunctionEnd
+
 ; Tauri writes the manufacturer product default as an install-location marker.
 ; Remove it only when the current REG_SZ value is the exact install directory
 ; captured by this uninstaller. Foreign, wrong-type and UNKNOWN values remain
@@ -1767,8 +1854,26 @@ Function un.RemoveZenCanvasManufacturerProductMarker
   SetRegView 64
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
-    ClearErrors
-    DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+    ; Use the same explicit 64-bit registry view as the ownership query. The
+    ; marker is only the default value, so deleting it through a writable key
+    ; handle avoids NSIS' implicit registry-view handling in the uninstaller.
+    System::Call 'advapi32::RegOpenKeyExW(p ${ZC_REG_ROOT_HKLM}, w "$ZC_MANUFACTURER_PRODUCT_KEY", i 0, i 0x0102, *p .r8) i.r9'
+    StrCpy $ZC_REG_RESULT $9
+    ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
+      DetailPrint "The Fylura manufacturer install-location marker could not be opened for cleanup (Windows error $ZC_REG_RESULT)."
+      Return
+    ${EndIf}
+    System::Call 'advapi32::RegDeleteValueW(p r8, p 0) i.r9'
+    StrCpy $ZC_REG_RESULT $9
+    System::Call 'advapi32::RegCloseKey(p r8) i.r9'
+    ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
+      StrCpy $R9 $ZC_REG_RESULT
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
+      ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+        DetailPrint "The Fylura manufacturer install-location marker could not be deleted (Windows error $R9)."
+        Return
+      ${EndIf}
+    ${EndIf}
     !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
     ${If} ${Errors}
     ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
@@ -1972,16 +2077,19 @@ un_stop_wait_timeout:
 FunctionEnd
 
 Function un.DeleteZenCanvasIndexService
-  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
-  Call un.ValidateZenCanvasIndexServiceOwnership
+  ; Failure is the default. The caller may continue only after this function
+  ; proves the service absent or removes the exact current Fylura registration.
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+  Call un.ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
     Return
   ${EndIf}
-  ; Re-check immediately before deletion. A foreign or empty ImagePath is
-  ; never deleted, even if the service name is the expected one.
-  Call un.ValidateZenCanvasIndexServiceOwnership
-  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
-    Return
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura Global Index service exists but its ImagePath is foreign or could not be verified. Uninstall is incomplete; the service was preserved." /SD IDOK
+    DetailPrint "Uninstall is incomplete; the Global Index service was preserved because ownership could not be verified."
+    SetErrorLevel 2
+    Abort
   ${EndIf}
   DetailPrint "Removing Fylura Global Index service registration..."
   nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'
@@ -1992,6 +2100,7 @@ Function un.DeleteZenCanvasIndexService
       StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
       MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but the Fylura Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
       DetailPrint "Uninstall is incomplete; the Fylura Global Index service was not removed."
+      SetErrorLevel 2
       Abort
     ${EndIf}
   ${EndIf}
@@ -2001,25 +2110,23 @@ un_delete_wait_loop:
   IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} un_delete_wait_timeout 0 0
   Call un.ReadZenCanvasIndexServiceRuntimeState
   ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
-    Goto un_delete_registry_absence_verify
+    ; SCM can stop reporting a service just before its registry key disappears.
+    ; Keep polling until both views confirm removal, rather than treating that
+    ; short transition as either success or a false cleanup failure.
+    !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
+    ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+      StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+      Return
+    ${EndIf}
   ${EndIf}
   Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
   IntOp $2 $2 + 1
   Goto un_delete_wait_loop
 
-un_delete_registry_absence_verify:
-  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
-  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
-    StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
-    Return
-  ${EndIf}
-  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-  MessageBox MB_ICONSTOP|MB_OK "The service control manager no longer reports Fylura Global Index, but registry-key absence was not verified. Uninstall is incomplete." /SD IDOK
-  Abort
-
 un_delete_wait_timeout:
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
   MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but removal of the Fylura Global Index service was not verified. Restart Windows to finish cleanup.$\r$\n$\r$\nUninstall is incomplete." /SD IDOK
+  SetErrorLevel 2
   Abort
 FunctionEnd
 

@@ -17,10 +17,10 @@
 !define ZC_REG_ERROR_PATH_NOT_FOUND 3
 !define ZC_REG_ERROR_NO_MORE_ITEMS 259
 
-!define ZC_REG_KEY_QUERY_VALUE 0x0001
 !define ZC_REG_KEY_ENUMERATE_SUB_KEYS 0x0008
 !define ZC_REG_KEY_WOW64_64KEY 0x0100
 !define ZC_REG_KEY_READ_64 0x0109
+!define ZC_REG_KEY_READ_32 0x0209
 
 !define ZC_REG_TYPE_SZ 1
 !define ZC_REG_TYPE_EXPAND_SZ 2
@@ -77,19 +77,24 @@ Var ZC_REG_ENUM_NAME_LENGTH
   ${EndIf}
 !macroend
 
-; Query an exact raw string. MODE selects REG_SZ, REG_EXPAND_SZ, or either.
-; A present wrong type/size/value is FOREIGN. API uncertainty is UNKNOWN.
+; Query an exact raw string in an explicit registry view. MODE selects REG_SZ,
+; REG_EXPAND_SZ, or either. A present wrong type/size/value is FOREIGN.
+; API uncertainty is UNKNOWN.
 !macro ZC_REG_QUERY_STRING_STATE ROOT PATH NAME EXPECTED MODE
-  !insertmacro ZC_REG_QUERY_STRING_STATE_IMPL ${ROOT} "${PATH}" "${NAME}" "${EXPECTED}" ${MODE} ${__COUNTER__}
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ROOT} "${PATH}" "${NAME}" "${EXPECTED}" ${MODE} ${ZC_REG_KEY_READ_64}
 !macroend
 
-!macro ZC_REG_QUERY_STRING_STATE_IMPL ROOT PATH NAME EXPECTED MODE ID
+!macro ZC_REG_QUERY_STRING_STATE_VIEW ROOT PATH NAME EXPECTED MODE ACCESS
+  !insertmacro ZC_REG_QUERY_STRING_STATE_IMPL ${ROOT} "${PATH}" "${NAME}" "${EXPECTED}" ${MODE} ${ACCESS} ${__COUNTER__}
+!macroend
+
+!macro ZC_REG_QUERY_STRING_STATE_IMPL ROOT PATH NAME EXPECTED MODE ACCESS ID
   StrCpy $ZC_REG_VALUE_STATE ${ZC_REG_VALUE_UNKNOWN}
   StrCpy $ZC_REG_VALUE_DATA ""
   StrCpy $ZC_REG_VALUE_TYPE 0
   StrCpy $ZC_REG_VALUE_SIZE 0
   StrCpy $ZC_REG_HANDLE 0
-  System::Call 'advapi32::RegOpenKeyExW(p ${ROOT}, w "${PATH}", i 0, i ${ZC_REG_KEY_READ_64}, *p .r8) i.r9'
+  System::Call 'advapi32::RegOpenKeyExW(p ${ROOT}, w "${PATH}", i 0, i ${ACCESS}, *p .r8) i.r9'
   StrCpy $ZC_REG_HANDLE $8
   StrCpy $ZC_REG_RESULT $9
   ${If} $ZC_REG_RESULT == ${ZC_REG_ERROR_FILE_NOT_FOUND}

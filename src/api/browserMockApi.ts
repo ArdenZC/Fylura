@@ -4041,7 +4041,7 @@ function mockWorkflowCleanupExecution(args?: Record<string, unknown>): CleanupEx
   const findings = mockAnalysisFindings.filter((item) => item.runId === runId && selected.has(item.id));
   const batchId = `browser-workflow-cleanup-${Date.now()}`;
   const movedAt = new Date().toISOString();
-  const items: CleanupTrashBatch["items"] = findings.map((finding, index) => ({ id: `${batchId}-${index}`, batchId, originalPath: finding.pathSnapshot ?? "", trashPath: `C:/Users/Zen/.zen-canvas-trash/${batchId}/${finding.title}`, name: finding.title, size: finding.sizeBytes, movedAt, restoredAt: null, status: "moved", message: "Browser simulation: moved to app-owned Safe Trash." }));
+  const items: CleanupTrashBatch["items"] = findings.map((finding, index) => ({ id: `${batchId}-${index}`, batchId, originalPath: finding.pathSnapshot ?? "", trashPath: `C:/Users/Zen/.fylura-trash/${batchId}/${finding.title}`, name: finding.title, size: finding.sizeBytes, movedAt, restoredAt: null, status: "moved", message: "Browser simulation: moved to app-owned Safe Trash." }));
   mockWorkflowCleanupBatches.unshift({ id: batchId, createdAt: movedAt, root: Array.isArray(run?.scope.paths) ? String(run.scope.paths[0] ?? "") : "", totalItems: items.length, totalSize: items.reduce((sum, item) => sum + item.size, 0), status: "success", items });
   mockAnalysisFindings = mockAnalysisFindings.map((finding) => selected.has(finding.id) ? { ...finding, status: "stale", revision: finding.revision + 1 } : finding);
   if (run) {
@@ -4064,7 +4064,7 @@ function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupEx
         ? "Moved to Fylura Safe Trash. Restore it from Recovery records."
         : log.message,
       itemId: `browser-cleanup-item-${index}`,
-      trashPath: `C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-${index}/${log.name}`
+      trashPath: `C:/Users/Zen/.fylura-trash/items/browser-cleanup-batch/item-${index}/${log.name}`
     }))
   };
 }
@@ -4120,7 +4120,7 @@ function mockCleanupTrashBatches(): CleanupTrashBatch[] {
       id: "browser-cleanup-restorable-0",
       batchId: "browser-cleanup-batch",
       originalPath: "C:/Users/Zen/Projects/demo/node_modules",
-      trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-0/node_modules",
+      trashPath: "C:/Users/Zen/.fylura-trash/items/browser-cleanup-batch/item-0/node_modules",
       name: "node_modules",
       size: 1_850_000_000,
       movedAt,
@@ -4132,7 +4132,7 @@ function mockCleanupTrashBatches(): CleanupTrashBatch[] {
       id: "browser-cleanup-restorable-1",
       batchId: "browser-cleanup-batch",
       originalPath: "C:/Users/Zen/Projects/demo/dist",
-      trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-1/dist",
+      trashPath: "C:/Users/Zen/.fylura-trash/items/browser-cleanup-batch/item-1/dist",
       name: "dist",
       size: 120_000_000,
       movedAt,
@@ -4777,7 +4777,7 @@ function applyMockAIClassification(files: FileRecord[]): RuleExecutionSummary {
     if (file.purpose === "Unknown") file.purpose = "Work";
     if (file.suggested_action === "Keep") {
       file.suggested_action = "Move";
-      file.suggested_target_path = `${file.directory}/ZenCanvas/${file.file_type}`;
+      file.suggested_target_path = `${file.directory}/Fylura/${file.file_type}`;
     }
     file.requires_confirmation = file.requires_confirmation || file.confidence < 0.65 || file.risk_level === "Sensitive";
   }

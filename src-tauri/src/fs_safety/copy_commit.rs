@@ -1410,7 +1410,7 @@ impl StagingDirectory {
     ) -> Result<Self, AtomicMoveError> {
         parent.ensure_unchanged().map_err(map_directory_error)?;
         for _ in 0..4 {
-            let name = OsString::from(format!(".zen-canvas-stage-{}", uuid::Uuid::new_v4()));
+            let name = OsString::from(format!(".fylura-stage-{}", uuid::Uuid::new_v4()));
             let path = parent.path().join(name);
             match fs::create_dir(&path) {
                 Ok(()) => {
@@ -2534,7 +2534,7 @@ fn copy_file_from_claim(
 }
 
 fn unique_staging_name(_target_name: &std::ffi::OsStr) -> OsString {
-    OsString::from(format!(".zen-canvas-stage-{}", uuid::Uuid::new_v4()))
+    OsString::from(format!(".fylura-stage-{}", uuid::Uuid::new_v4()))
 }
 
 #[cfg(windows)]
@@ -3280,7 +3280,7 @@ mod tests {
                 .expect("read target parent entry")
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".zen-canvas-stage-")));
+                .starts_with(".fylura-stage-")));
         let _ = fs::remove_dir_all(root);
     }
 

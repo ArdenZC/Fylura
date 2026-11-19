@@ -2705,7 +2705,7 @@ mod tests {
         assert!(result.logs[0].error_message.is_none());
         assert_eq!(result.logs[0].operation_type, "move_to_trash");
         let trashed = PathBuf::from(&result.logs[0].path_after);
-        assert!(trashed.to_string_lossy().contains(".zen-canvas-trash"));
+        assert!(trashed.to_string_lossy().contains(".fylura-trash"));
         assert!(!source.exists());
         assert_eq!(
             blake3::hash(&fs::read(&trashed).expect("read Safe Trash copy")),
@@ -3341,7 +3341,7 @@ mod tests {
                     .any(|entry| entry
                         .file_name()
                         .to_string_lossy()
-                        .starts_with(".zen-canvas-claim-")));
+                        .starts_with(".fylura-claim-")));
                 assert_eq!(
                     db.get_pending_operation_logs().expect("pending logs").len(),
                     1

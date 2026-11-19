@@ -468,7 +468,8 @@ impl SelectionChangeMonitor {
                 if matches!(
                     change.kind,
                     SelectionNamespaceChangeKind::Create | SelectionNamespaceChangeKind::PathChange
-                ) && path == directory.join(".zen-canvas-trash")
+                ) && (path == directory.join(".fylura-trash")
+                    || path == directory.join(".zen-canvas-trash"))
                     && !allowed_removals.is_empty()
                     && private_directory_event_is_authorized(
                         &path,
@@ -481,7 +482,8 @@ impl SelectionChangeMonitor {
                 if matches!(
                     change.kind,
                     SelectionNamespaceChangeKind::Create | SelectionNamespaceChangeKind::PathChange
-                ) && path == directory.join(".zen-canvas-retirement")
+                ) && (path == directory.join(".fylura-retirement")
+                    || path == directory.join(".zen-canvas-retirement"))
                     && !allowed_removals.is_empty()
                     && private_directory_event_is_authorized(
                         &path,
@@ -626,7 +628,10 @@ fn private_directory_event_is_authorized(
 fn is_private_source_claim_path(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .and_then(|name| name.strip_prefix(".zen-canvas-claim-"))
+        .and_then(|name| {
+            name.strip_prefix(".fylura-claim-")
+                .or_else(|| name.strip_prefix(".zen-canvas-claim-"))
+        })
         .is_some_and(|uuid| Uuid::parse_str(uuid).is_ok())
 }
 
@@ -3951,17 +3956,17 @@ mod tests {
         let moved = first[0].clone();
         let trash_target = fixture
             .root
-            .join(".zen-canvas-trash")
+            .join(".fylura-trash")
             .join("operations")
             .join("test")
             .join(&moved.name);
         fs::create_dir_all(trash_target.parent().expect("trash target parent"))
             .expect("create safe trash parent");
-        fs::create_dir(fixture.root.join(".zen-canvas-retirement"))
+        fs::create_dir(fixture.root.join(".fylura-retirement"))
             .expect("create source-claim retirement root");
         let claim_path = fixture
             .root
-            .join(format!(".zen-canvas-claim-{}", Uuid::new_v4()));
+            .join(format!(".fylura-claim-{}", Uuid::new_v4()));
         fs::write(&claim_path, b"private claim").expect("create transient source claim");
         fs::remove_file(claim_path).expect("remove transient source claim");
         fs::rename(&moved.path, &trash_target).expect("move selected item into safe trash");
@@ -4056,7 +4061,12 @@ mod tests {
 
     #[test]
     fn directory_selection_rejects_unrelated_private_root_creation() {
-        for name in [".zen-canvas-trash", ".zen-canvas-retirement"] {
+        for name in [
+            ".fylura-trash",
+            ".zen-canvas-trash",
+            ".fylura-retirement",
+            ".zen-canvas-retirement",
+        ] {
             let fixture = Fixture::new();
             fs::write(fixture.root.join("selected.txt"), b"selected").expect("selected file");
             let service = service(BrowseLimits::default());
@@ -4088,7 +4098,7 @@ mod tests {
     #[test]
     fn authorized_private_root_events_remain_bound_to_the_original_directory() {
         let fixture = Fixture::new();
-        let path = fixture.root.join(".zen-canvas-trash");
+        let path = fixture.root.join(".fylura-trash");
         fs::create_dir(&path).expect("create safe root");
         let identity = Mutex::new(None);
         assert!(private_directory_event_is_authorized(
@@ -4120,7 +4130,7 @@ mod tests {
         fs::write(
             fixture
                 .root
-                .join(format!(".zen-canvas-claim-{}", Uuid::new_v4())),
+                .join(format!(".fylura-claim-{}", Uuid::new_v4())),
             b"unrelated claim",
         )
         .expect("create unrelated claim path");

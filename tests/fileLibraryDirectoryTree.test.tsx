@@ -121,11 +121,13 @@ describe("File Library directory tree", () => {
   it("keeps the internal Safe Trash namespace out of the user directory tree", async () => {
     vi.mocked(fileWorkspaceApi.browseStartEnumeration).mockResolvedValue(page([
       directory(".zen-canvas-trash", "C:/.zen-canvas-trash", "safe-trash"),
+      directory(".fylura-trash", "C:/.fylura-trash", "safe-trash-current"),
       directory("Visible Folder", "C:/Visible Folder", "visible"),
       directory("operations", "C:/.zen-canvas-trash/operations", "safe-trash-operations"),
     ]));
     await render();
     expect(container.querySelector('button[title="C:/.zen-canvas-trash"]')).toBeNull();
+    expect(container.querySelector('button[title="C:/.fylura-trash"]')).toBeNull();
     expect(container.querySelector('button[title="C:/.zen-canvas-trash/operations"]')).toBeNull();
     expect(container.querySelector('button[title="C:/Visible Folder"]')).toBeTruthy();
   });
@@ -354,5 +356,13 @@ describe("File Library directory tree", () => {
     expect(writeExpandedTreePaths("pane-right", right)).toBe(true);
     expect(readExpandedTreePaths("pane-left")).toHaveLength(MAX_PERSISTED_TREE_PATHS);
     expect(readExpandedTreePaths("pane-right")).toEqual(right);
+  });
+
+  it("migrates the old expanded-tree storage key without losing paths", () => {
+    const paths = ["C:/Projects", "@zen-canvas/tree-root-collapsed:v1"];
+    window.localStorage.setItem("zen-canvas:file-library-tree:v1:pane-old", JSON.stringify(paths));
+    expect(readExpandedTreePaths("pane-old")).toEqual(paths);
+    expect(window.localStorage.getItem("fylura:file-library-tree:v1:pane-old")).toBe(JSON.stringify(paths));
+    expect(window.localStorage.getItem("zen-canvas:file-library-tree:v1:pane-old")).toBeNull();
   });
 });

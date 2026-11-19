@@ -98,13 +98,16 @@ try {
     assert.equal(await page.locator('[data-pane-id]:visible').count(), 4);
     // A real legacy stored session keeps its hidden second pane through migration.
     const legacy = await page.evaluate(() => {
-        const saved = JSON.parse(localStorage.getItem('zen-canvas:file-library-workbench:v1'));
+        const saved = JSON.parse(localStorage.getItem('fylura:file-library-workbench:v1'));
         const tab = saved.tabs[0];
         return { version: 1, activeTabIndex: 0,
             tabs: [{ id: tab.id, panes: tab.panes.slice(0, 2), activePaneIndex: 0, dual: false }],
         };
     });
-    await page.addInitScript((saved) => localStorage.setItem('zen-canvas:file-library-workbench:v1', JSON.stringify(saved)), legacy);
+    await page.addInitScript((saved) => {
+        localStorage.removeItem('fylura:file-library-workbench:v1');
+        localStorage.setItem('zen-canvas:file-library-workbench:v1', JSON.stringify(saved));
+    }, legacy);
     await page.reload();
     await page.locator('[data-workbench-ready="true"]').waitFor();
     assert.equal(await readPaneCount(page), '1');

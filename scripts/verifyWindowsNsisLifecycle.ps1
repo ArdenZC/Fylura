@@ -159,7 +159,11 @@ function Assert-Uninstalled([string]$phase) {
         if ($installDirExists) {
             $remainingInstallFiles = @(Get-ChildItem -LiteralPath $installDir -Force | ForEach-Object { $_.Name })
         }
-        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|')"
+        $uninstallLogTail = @()
+        if ($script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)) {
+            $uninstallLogTail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 80)
+        }
+        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|'); NSIS diagnostic=$script:lastUninstallerDiagnostics; NSIS log tail=$($uninstallLogTail -join ' | ')"
     }
     if (Test-Path -LiteralPath $serviceKey) {
         $scm = Invoke-Sc @('query', $service)
@@ -274,6 +278,7 @@ $script:status = 'IN_PROGRESS'
 $script:credentialFixtures = [System.Collections.Generic.List[string]]::new()
 $script:uninstallerLogIndex = 0
 $script:lastUninstallerLog = $null
+$script:lastUninstallerDiagnostics = $null
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $appDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
 $localAppDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
@@ -472,7 +477,13 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $EvidencePath -Encoding utf8
 } catch {
     $script:status = 'FAIL'
-    $script:evidence.Add([ordered]@{ phase = 'failed'; at = [DateTime]::UtcNow.ToString('o'); error = $_.Exception.Message; script = 'verifyWindowsNsisLifecycle.ps1'; scriptLine = $_.InvocationInfo.ScriptLineNumber })
+    $errorDetails = $_.Exception.Message
+    if ($script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)) {
+        $tail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 80)
+        if ($tail.Count -gt 0) { $errorDetails += "; NSIS log tail=$($tail -join ' | ')" }
+    }
+    if ($script:lastUninstallerDiagnostics) { $errorDetails += "; NSIS diagnostic=$script:lastUninstallerDiagnostics" }
+    $script:evidence.Add([ordered]@{ phase = 'failed'; at = [DateTime]::UtcNow.ToString('o'); error = $errorDetails; script = 'verifyWindowsNsisLifecycle.ps1'; scriptLine = $_.InvocationInfo.ScriptLineNumber })
     $parent = Split-Path -Parent $EvidencePath
     if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     Save-Evidence

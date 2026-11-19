@@ -4,6 +4,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:lastUninstallLog = $null
 
 function Assert-Condition([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -74,7 +75,9 @@ function Install {
     return Invoke-CurrentUserProcess $installer @('/S', "/D=$installDir")
 }
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
-    return Invoke-CurrentUserProcess $uninstaller $UninstallArgs
+    $script:lastUninstallLog = Join-Path $taskRoot "uninstall-$([guid]::NewGuid().ToString('N')).log"
+    $loggedArgs = @($UninstallArgs) + @("/LOG=$script:lastUninstallLog")
+    return Invoke-CurrentUserProcess $uninstaller $loggedArgs
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }
@@ -186,7 +189,11 @@ function Assert-Uninstalled([string]$phase) {
     }
     $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
     $manufacturerKeyExists = Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Startlan\Fylura'
-    Assert-Condition ($null -eq $manufacturerMarker) "Fylura manufacturer marker remained after $phase uninstall. Value=$manufacturerMarker; keyExists=$manufacturerKeyExists"
+    $nsisLogExcerpt = '<no uninstaller log>'
+    if ($null -ne $script:lastUninstallLog -and (Test-Path -LiteralPath $script:lastUninstallLog)) {
+        $nsisLogExcerpt = (Get-Content -LiteralPath $script:lastUninstallLog -Tail 60 | Where-Object { $_ -match 'Fylura manufacturer|error|Error' } | Select-Object -Last 20) -join ' | '
+    }
+    Assert-Condition ($null -eq $manufacturerMarker) "Fylura manufacturer marker remained after $phase uninstall. Value=$manufacturerMarker; keyExists=$manufacturerKeyExists; NSIS=$nsisLogExcerpt"
     Assert-Preview $false
 }
 function Seed-Autostart {

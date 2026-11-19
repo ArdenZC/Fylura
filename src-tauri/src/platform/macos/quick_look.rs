@@ -941,7 +941,7 @@ fn copy_preview_source(
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn trim_cache(cache_dir: &Path, max_entries: usize, max_bytes: u64, keep: &Path) {
     let mut entries = fs::read_dir(cache_dir)
         .into_iter()
@@ -956,7 +956,13 @@ fn trim_cache(cache_dir: &Path, max_entries: usize, max_bytes: u64, keep: &Path)
             Some((path, metadata.len(), metadata.modified().ok()))
         })
         .collect::<Vec<_>>();
-    entries.sort_by_key(|(_, _, modified)| *modified);
+    entries.sort_by(
+        |(left_path, _, left_modified), (right_path, _, right_modified)| {
+            right_modified
+                .cmp(left_modified)
+                .then_with(|| left_path.cmp(right_path))
+        },
+    );
     let mut total = fs::symlink_metadata(keep)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
@@ -973,9 +979,9 @@ fn trim_cache(cache_dir: &Path, max_entries: usize, max_bytes: u64, keep: &Path)
 
 #[cfg(test)]
 mod tests {
-    use super::cache_key;
     #[cfg(not(target_os = "macos"))]
     use super::thumbnail_available;
+    use super::{cache_key, trim_cache};
     #[cfg(target_os = "macos")]
     use super::{
         cleanup_stale_pending_at, copy_preview_source, ensure_cache_dir,
@@ -987,10 +993,10 @@ mod tests {
     use crate::fs_safety::ExpectedFileIdentity;
     #[cfg(target_os = "macos")]
     use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
     #[cfg(target_os = "macos")]
-    use std::path::Path;
-    #[cfg(target_os = "macos")]
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn thumbnail_availability_is_false_outside_native_macos() {
@@ -1026,6 +1032,111 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cache_trim_uses_path_order_for_entries_with_equal_modification_times() {
+        let root = test_root("trim-equal-mtime");
+        let modified = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let keep = write_cache_entry(&root, "keep.png", b"k", modified);
+        let first = write_cache_entry(&root, "a.png", b"a", modified);
+        let second = write_cache_entry(&root, "b.png", b"b", modified);
+
+        trim_cache(&root, 2, 10, &keep);
+
+        assert!(keep.exists());
+        assert!(first.exists());
+        assert!(!second.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_trim_keeps_the_newest_entries_within_the_byte_limit() {
+        let root = test_root("trim-byte-limit");
+        let keep = write_cache_entry(&root, "keep.png", b"kk", UNIX_EPOCH);
+        let old = write_cache_entry(&root, "old.png", b"oo", UNIX_EPOCH + Duration::from_secs(1));
+        let newest = write_cache_entry(
+            &root,
+            "newest.png",
+            b"nnn",
+            UNIX_EPOCH + Duration::from_secs(2),
+        );
+
+        trim_cache(&root, 10, 5, &keep);
+
+        assert!(keep.exists());
+        assert!(newest.exists());
+        assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_trim_enforces_the_entry_limit_by_removing_the_oldest_entries() {
+        let root = test_root("trim-entry-limit");
+        let keep = write_cache_entry(&root, "keep.png", b"k", UNIX_EPOCH);
+        let oldest = write_cache_entry(
+            &root,
+            "oldest.png",
+            b"a",
+            UNIX_EPOCH + Duration::from_secs(1),
+        );
+        let middle = write_cache_entry(
+            &root,
+            "middle.png",
+            b"b",
+            UNIX_EPOCH + Duration::from_secs(2),
+        );
+        let newest = write_cache_entry(
+            &root,
+            "newest.png",
+            b"c",
+            UNIX_EPOCH + Duration::from_secs(3),
+        );
+
+        trim_cache(&root, 3, 10, &keep);
+
+        assert!(keep.exists());
+        assert!(!oldest.exists());
+        assert!(middle.exists());
+        assert!(newest.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_trim_preserves_the_keep_file_even_when_it_exceeds_limits() {
+        let root = test_root("trim-keep-over-limit");
+        let keep = write_cache_entry(&root, "keep.png", b"larger-than-limit", UNIX_EPOCH);
+        let other = write_cache_entry(
+            &root,
+            "other.png",
+            b"x",
+            UNIX_EPOCH + Duration::from_secs(1),
+        );
+
+        trim_cache(&root, 1, 1, &keep);
+
+        assert!(keep.exists());
+        assert!(!other.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn write_cache_entry(
+        root: &Path,
+        name: &str,
+        contents: &[u8],
+        modified: SystemTime,
+    ) -> PathBuf {
+        use std::fs::{FileTimes, OpenOptions};
+
+        let path = root.join(name);
+        std::fs::write(&path, contents).expect("cache entry");
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("open cache entry")
+            .set_times(FileTimes::new().set_modified(modified))
+            .expect("set cache entry modification time");
+        path
+    }
+
     #[cfg(target_os = "macos")]
     fn test_identity(size: u64) -> ExpectedFileIdentity {
         ExpectedFileIdentity {
@@ -1038,7 +1149,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
     fn test_root(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
             "zen-canvas-quick-look-{name}-{}-{}",

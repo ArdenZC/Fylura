@@ -203,7 +203,27 @@ function Assert-Autostart([bool]$FyluraPresent) {
         Assert-Condition ($r.Fylura -eq "$main --background") 'Fylura startup command changed.'
         Assert-Condition ($null -ne $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry is missing.'
     } else {
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall: $($r.Fylura)."
+        $viewSnapshot = foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+            $registryRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+            try {
+                $runValues = $registryRoot.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+                $approvedValues = $registryRoot.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run')
+                try {
+                    [pscustomobject]@{
+                        view = $view.ToString()
+                        runValue = if ($null -ne $runValues) { $runValues.GetValue('Fylura', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } else { $null }
+                        startupApprovedPresent = if ($null -ne $approvedValues) { $approvedValues.GetValueNames() -contains 'Fylura' } else { $false }
+                    }
+                } finally {
+                    if ($null -ne $runValues) { $runValues.Dispose() }
+                    if ($null -ne $approvedValues) { $approvedValues.Dispose() }
+                }
+            } finally {
+                $registryRoot.Dispose()
+            }
+        }
+        $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall: $($r.Fylura). Registry views: $viewDetails"
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'

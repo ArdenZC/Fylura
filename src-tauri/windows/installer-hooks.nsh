@@ -1987,11 +1987,8 @@ FunctionEnd
 
 Function un.DeleteZenCanvasIndexService
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
-  LogText "Fylura service cleanup: entered."
   Call un.ValidateZenCanvasIndexServiceOwnership
-  LogText "Fylura service cleanup: ownership=$ZC_INDEX_SERVICE_OWNERSHIP."
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
-    LogText "Fylura service cleanup: service was already absent."
     Return
   ${EndIf}
   ; Re-check immediately before deletion. A foreign or empty ImagePath is
@@ -2004,12 +2001,12 @@ Function un.DeleteZenCanvasIndexService
   nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'
   Pop $0
   Pop $1
-  LogText "Fylura service cleanup: sc.exe delete exit=$0 output=$1."
   ${If} $0 != 0
     ${If} $0 != 1060
       StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
       MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but the Fylura Global Index service could not be removed.$\r$\n$\r$\n$1" /SD IDOK
       DetailPrint "Uninstall is incomplete; the Fylura Global Index service was not removed."
+      SetErrorLevel 2
       Abort
     ${EndIf}
   ${EndIf}
@@ -2023,14 +2020,10 @@ un_delete_wait_loop:
     ; Keep polling until both views confirm removal, rather than treating that
     ; short transition as either success or a false cleanup failure.
     !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
-    LogText "Fylura service cleanup: SCM state=$ZC_INDEX_SERVICE_RUNTIME_STATE; registry key state=$ZC_REG_KEY_STATE."
     ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
       StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
-      LogText "Fylura service cleanup: removal verified."
       Return
     ${EndIf}
-  ${Else}
-    LogText "Fylura service cleanup: SCM state=$ZC_INDEX_SERVICE_RUNTIME_STATE; waiting for removal."
   ${EndIf}
   Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
   IntOp $2 $2 + 1
@@ -2038,8 +2031,8 @@ un_delete_wait_loop:
 
 un_delete_wait_timeout:
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-  LogText "Fylura service cleanup: verification timed out."
   MessageBox MB_ICONSTOP|MB_OK "The Preview Handler registration was finalized as withdrawn, but removal of the Fylura Global Index service was not verified. Restart Windows to finish cleanup.$\r$\n$\r$\nUninstall is incomplete." /SD IDOK
+  SetErrorLevel 2
   Abort
 FunctionEnd
 

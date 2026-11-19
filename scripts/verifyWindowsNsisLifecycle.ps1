@@ -330,7 +330,12 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
 
     Seed-Autostart
     $deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')
-    Assert-Condition ($deleteOnly -eq 0) "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly."
+    if ($deleteOnly -ne 0) {
+        $scm = Invoke-Sc @('query', $service)
+        $configuration = Invoke-Sc @('qc', $service)
+        $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
+        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; NSIS log path=$script:lastUninstallerLog"
+    }
     Assert-Uninstalled
     foreach ($entry in $files.GetEnumerator()) {
         Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Delete-only request removed Fylura application data: $($entry.Key)."

@@ -460,7 +460,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
 
     expect(source).toContain(
-      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails"',
+      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics"',
     );
     expect(source).not.toContain("$($r.Fylura)");
   });

@@ -484,6 +484,14 @@ Function un.ZCPostUninstallLifecycleFinal
   StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0
   SetErrorLevel 2
   Call un.ZCMarkUninstallPostGeneratedIntegration
+  ReadEnvStr $R3 "FYLURA_NSIS_QA_DIAGNOSTIC"
+  ${If} $R3 != ""
+    FileOpen $R4 "$R3" a
+    ${If} $R4 != ""
+      FileWrite $R4 "FINAL UPDATE=$ZC_UNINSTALL_IS_UPDATE STARTUP_CLEAN=$ZC_UNINSTALL_STARTUP_CLEAN$\r$\n"
+      FileClose $R4
+    ${EndIf}
+  ${EndIf}
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation
   ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1

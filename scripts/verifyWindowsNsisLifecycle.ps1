@@ -60,11 +60,22 @@ function Install {
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $script:uninstallerLogIndex++
     $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
+    $diagnosticPath = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex)-diagnostic.txt"
+    $script:lastUninstallerDiagnostics = ''
     $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
-    $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
-    if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
-    $p.Refresh()
-    return [int]$p.ExitCode
+    $previousDiagnostic = [Environment]::GetEnvironmentVariable('FYLURA_NSIS_QA_DIAGNOSTIC', 'Process')
+    [Environment]::SetEnvironmentVariable('FYLURA_NSIS_QA_DIAGNOSTIC', $diagnosticPath, 'Process')
+    try {
+        $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
+        if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
+        $p.Refresh()
+        return [int]$p.ExitCode
+    } finally {
+        [Environment]::SetEnvironmentVariable('FYLURA_NSIS_QA_DIAGNOSTIC', $previousDiagnostic, 'Process')
+        if (Test-Path -LiteralPath $diagnosticPath -PathType Leaf) {
+            $script:lastUninstallerDiagnostics = [IO.File]::ReadAllText($diagnosticPath)
+        }
+    }
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }
@@ -223,7 +234,7 @@ function Assert-Autostart([bool]$FyluraPresent) {
             }
         }
         $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails"
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics"
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'
@@ -400,7 +411,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         $scm = Invoke-Sc @('query', $service)
         $configuration = Invoke-Sc @('qc', $service)
         $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
-        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; NSIS log path=$script:lastUninstallerLog"
+        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; NSIS log path=$script:lastUninstallerLog; NSIS diagnostic=$script:lastUninstallerDiagnostics"
     }
     Assert-Uninstalled 'ordinary'
     foreach ($entry in $files.GetEnumerator()) {

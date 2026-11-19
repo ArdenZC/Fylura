@@ -228,12 +228,10 @@ export function hardenWindowsNsisGeneratedMetadata(source) {
     ),
     lines(
       "  ; Remove registry information for add/remove programs",
-      "  ; Use the exact-owned 64-bit helper for this per-machine package.",
-      "  Call un.RemoveFyluraUninstallRegistration",
-      "  ${If} $ZC_UNINSTALL_REGISTRATION_CLEAN != 1",
-      "    Call un.ZCFailUninstallPartial",
-      "    Abort",
-      "  ${EndIf}",
+      "  ; Pre-delete lifecycle evidence already proved this exact per-machine entry.",
+      "  ; Use the upstream NSIS deletion and verify it in the final lifecycle hook.",
+      "  SetRegView 64",
+      '  DeleteRegKey HKLM "${UNINSTKEY}"',
     ),
     "uninstall ARP metadata",
   );

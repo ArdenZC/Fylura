@@ -2018,11 +2018,11 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(serviceStatusCheck).toBeGreaterThan(serviceCleanupCall);
     expect(remainingFiles).toBeGreaterThan(serviceStatusCheck);
 
-    const registrationCleanupCall = uninstall.indexOf("Call un.RemoveFyluraUninstallRegistration");
-    expect(registrationCleanupCall).toBeGreaterThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
-    expect(registrationCleanupCall).toBeLessThan(uninstall.indexOf("Goto zc_uninstall_generated_success"));
-    expect(uninstall).toContain("$ZC_UNINSTALL_REGISTRATION_CLEAN != 1");
-    expect(uninstall).not.toContain('DeleteRegKey HKLM "${UNINSTKEY}"');
+    const registrationDelete = uninstall.indexOf('DeleteRegKey HKLM "${UNINSTKEY}"');
+    expect(registrationDelete).toBeGreaterThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
+    expect(registrationDelete).toBeLessThan(uninstall.indexOf("Goto zc_uninstall_generated_success"));
+    expect(uninstall).toContain("SetRegView 64");
+    expect(uninstall).not.toContain("Call un.RemoveFyluraUninstallRegistration");
 
     const final = functionBody(
       fs.readFileSync(finalPath, "utf8"),
@@ -2033,6 +2033,14 @@ describe("W4-04 package NSIS lifecycle", () => {
       "un.ZCInitializeUninstallLifecycle",
     );
     expect(initialize).toContain("StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0");
+    expect(initialize).toContain("Call un.CheckZenCanvasPreDeleteProductEvidence");
+    const preDeleteEvidence = functionBody(
+      installerHooksSource(),
+      "un.CheckZenCanvasPreDeleteProductEvidence",
+    );
+    expect(preDeleteEvidence).toContain('"DisplayName" "$ZC_PRODUCT_NAME"');
+    expect(preDeleteEvidence).toContain('"InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"');
+    expect(preDeleteEvidence).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
     const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
     const successExitCode = final.lastIndexOf("SetErrorLevel 0");
     expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");

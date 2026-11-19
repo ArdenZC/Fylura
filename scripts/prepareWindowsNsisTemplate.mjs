@@ -128,7 +128,7 @@ export function buildFyluraNsisTemplate(upstream) {
     lines(
       '  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"',
       "",
-      "  ${If} $UpdateMode <> 1",
+      "  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1",
       "  ${AndIf} $DeleteAppDataCheckboxState == 1",
       "    ClearErrors",
       "    ExecWait '\"$INSTDIR\\${MAINBINARYNAME}.exe\" --fylura-uninstall-clean-user-data' $R0",

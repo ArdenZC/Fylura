@@ -505,6 +505,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).not.toContain("MB_DEFBUTTON2");
     expect(generated).toContain('  ${If} $DeleteAppDataCheckboxState == 1');
     expect(generated).toContain('  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1');
+    expect(generated).toContain('  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1\n  ${AndIf} $DeleteAppDataCheckboxState == 1');
     expect(generated).not.toContain("System::Call 'kernel32::ExitProcess(i 2)'");
     expect(generated).toContain('  ${GetParameters} $R0');
     expect(generated).toContain('  ${GetOptions} $R0 "/DELETE_APP_DATA" $R1');

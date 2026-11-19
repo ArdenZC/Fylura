@@ -2075,11 +2075,11 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(preDeleteEvidence).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
     expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0");
     expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
-    expect(registryAuthority).toContain("advapi32::RegDeleteValueW");
-    expect(registryAuthority).toContain("ZC_REG_KEY_SET_VALUE_WOW64_64KEY 0x0102");
-    expect(registryAuthority).toContain("ZC_REG_KEY_SET_VALUE_WOW64_32KEY 0x0202");
-    expect(startupCleanup.match(/ZC_REG_DELETE_VALUE_VIEW/g)).toHaveLength(4);
-    expect(startupCleanup).toContain("ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU}");
+    expect(registryAuthority).toContain("ZC_REG_KEY_READ_32 0x0209");
+    expect(startupCleanup.match(/DeleteRegValue HKCU/g)).toHaveLength(4);
+    expect(startupCleanup).toContain("SetRegView 64");
+    expect(startupCleanup).toContain("SetRegView 32");
+    expect(startupCleanup.match(/ZC_REG_QUERY_STRING_STATE_VIEW/g)).toHaveLength(4);
     expect(final).toContain("$ZC_UNINSTALL_IS_UPDATE <> 1");
     expect(final).toContain("$ZC_UNINSTALL_STARTUP_CLEAN != 1");
     const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");

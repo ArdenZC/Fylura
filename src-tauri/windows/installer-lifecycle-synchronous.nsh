@@ -697,37 +697,47 @@ FunctionEnd
 Function un.ZCRemoveFyluraStartup
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
 
-  ; Fylura may have left the exact named startup values in either view. Delete
-  ; them through Win32 with explicit view flags, then verify the 64-bit product
-  ; view before allowing uninstall to finish.
-  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_64KEY}
-  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
-    Return
-  ${EndIf}
-  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_32KEY}
-  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
-    Return
-  ${EndIf}
-  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_64KEY}
-  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
-    Return
-  ${EndIf}
-  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_32KEY}
-  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
-    Return
-  ${EndIf}
-
   SetRegView 64
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
+  SetRegView 32
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
+  SetRegView 64
+  ClearErrors
 
-  ; Treat any remaining value, including a wrong type or unreadable value, as
-  ; incomplete. The query helper explicitly inspects the 64-bit product view.
-  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY}
+  ; Confirm both values are absent in both registry views before reporting a
+  ; complete uninstall. These exact Fylura names are the only values touched.
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_64}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-    Return
+    Goto fylura_startup_cleanup_done
   ${EndIf}
-  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY}
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_64}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
-    Return
+    Goto fylura_startup_cleanup_done
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_32}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Goto fylura_startup_cleanup_done
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_32}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Goto fylura_startup_cleanup_done
   ${EndIf}
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 1
+fylura_startup_cleanup_done:
+  Push $R0
+  Push $R1
+  ReadEnvStr $R0 "FYLURA_NSIS_DIAGNOSTICS_FILE"
+  ${If} $R0 != ""
+    ClearErrors
+    FileOpen $R1 "$R0" a
+    IfErrors fylura_startup_diagnostics_done
+    FileWrite $R1 "startupClean=$ZC_UNINSTALL_STARTUP_CLEAN; update=$ZC_UNINSTALL_IS_UPDATE; valueState=$ZC_REG_VALUE_STATE; cmdline=$CMDLINE$\r$\n"
+    FileClose $R1
+fylura_startup_diagnostics_done:
+    ClearErrors
+  ${EndIf}
+  Pop $R1
+  Pop $R0
 FunctionEnd

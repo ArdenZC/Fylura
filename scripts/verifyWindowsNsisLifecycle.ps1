@@ -40,7 +40,15 @@ function Has-Credential([string]$Target) { return (Credential-Targets).Contains(
 function Add-Credential([string]$Target) {
     $script:credentialFixtures.Add($Target)
     $secret = "fylura-596-qa-$([guid]::NewGuid().ToString('N'))"
-    $null = & "$env:WINDIR\System32\cmdkey.exe" "/generic:$Target" "/user:$Target" "/pass:$secret" 2>&1
+    $namespace = if ($Target.EndsWith('.com.startlan.fylura.ai-profile', [StringComparison]::OrdinalIgnoreCase)) {
+        '.com.startlan.fylura.ai-profile'
+    } elseif ($Target.EndsWith('.com.startlan.fylura', [StringComparison]::OrdinalIgnoreCase)) {
+        '.com.startlan.fylura'
+    } else {
+        throw "Refusing to seed a credential outside the Fylura fixture namespaces: $Target"
+    }
+    $username = $Target.Substring(0, $Target.Length - $namespace.Length)
+    $null = & "$env:WINDIR\System32\cmdkey.exe" "/generic:$Target" "/user:$username" "/pass:$secret" 2>&1
     Assert-Condition ($LASTEXITCODE -eq 0 -and (Has-Credential $Target)) "Could not seed credential fixture: $Target"
 }
 function Remove-Credentials {

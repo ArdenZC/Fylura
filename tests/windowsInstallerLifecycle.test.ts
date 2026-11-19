@@ -586,6 +586,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("Refusing to alter existing application data");
     expect(verifier).toContain("ai-api-key-qa_orphan.com.startlan.fylura.ai-profile");
     expect(verifier).toContain("fylura-cleanup-fixture.com.example.editor");
+    expect(verifier).toContain("$username = $Target.Substring(0, $Target.Length - $namespace.Length)");
+    expect(verifier).toContain('"/user:$username"');
     expect(verifier).toContain("/DELETE_APP_DATA");
     expect(verifier).toContain("/CONFIRM_DELETE_APP_DATA");
     expect(verifier).toContain("delete-only-request-falls-back-to-ordinary");

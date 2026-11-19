@@ -4,7 +4,6 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$script:lastUninstallLog = $null
 
 function Assert-Condition([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -75,9 +74,7 @@ function Install {
     return Invoke-CurrentUserProcess $installer @('/S', "/D=$installDir")
 }
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
-    $script:lastUninstallLog = Join-Path $taskRoot "uninstall-$([guid]::NewGuid().ToString('N')).log"
-    $loggedArgs = @($UninstallArgs) + @("/LOG=$script:lastUninstallLog")
-    return Invoke-CurrentUserProcess $uninstaller $loggedArgs
+    return Invoke-CurrentUserProcess $uninstaller $UninstallArgs
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }
@@ -189,11 +186,7 @@ function Assert-Uninstalled([string]$phase) {
     }
     $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
     $manufacturerKeyExists = Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Startlan\Fylura'
-    $nsisLogExcerpt = '<no uninstaller log>'
-    if ($null -ne $script:lastUninstallLog -and (Test-Path -LiteralPath $script:lastUninstallLog)) {
-        $nsisLogExcerpt = (Get-Content -LiteralPath $script:lastUninstallLog -Tail 60 | Where-Object { $_ -match 'Fylura manufacturer|error|Error' } | Select-Object -Last 20) -join ' | '
-    }
-    Assert-Condition ($null -eq $manufacturerMarker) "Fylura manufacturer marker remained after $phase uninstall. Value=$manufacturerMarker; keyExists=$manufacturerKeyExists; NSIS=$nsisLogExcerpt"
+    Assert-Condition ($null -eq $manufacturerMarker) "Fylura manufacturer marker remained after $phase uninstall. Value=$manufacturerMarker; keyExists=$manufacturerKeyExists"
     Assert-Preview $false
 }
 function Seed-Autostart {
@@ -406,7 +399,9 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         $scm = Invoke-Sc @('query', $service)
         $configuration = Invoke-Sc @('qc', $service)
         $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
-        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath"
+        $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+        $manufacturerKeyExists = Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Startlan\Fylura'
+        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. Manufacturer marker=$manufacturerMarker; markerKeyExists=$manufacturerKeyExists; SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath"
     }
     Assert-Uninstalled 'ordinary'
     foreach ($entry in $files.GetEnumerator()) {

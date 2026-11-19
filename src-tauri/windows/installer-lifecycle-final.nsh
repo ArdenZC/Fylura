@@ -504,9 +504,8 @@ Function un.ZCPostUninstallLifecycleFinal
     SetErrorLevel 2
     Abort
   ${EndIf}
-  Call un.RemoveZenCanvasManufacturerProductMarker
   ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1
-    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker was not verified as removed before deleting the uninstaller." /SD IDOK
     Abort
   ${EndIf}
   ${If} $ZC_PREVIEW_ARTIFACT_REMOVED != 1

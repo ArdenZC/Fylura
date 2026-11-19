@@ -2019,9 +2019,12 @@ describe("W4-04 package NSIS lifecycle", () => {
       "un.ZCPostUninstallLifecycleFinal",
     );
     expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
-    expect(final).toContain("Call un.RemoveZenCanvasManufacturerProductMarker");
+    expect(final).not.toContain("Call un.RemoveZenCanvasManufacturerProductMarker");
     expect(final).toContain("$ZC_UNINSTALL_MANUFACTURER_CLEAN != 1");
     expect(final).toContain("Abort");
+    expect(buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"))).toContain(
+      "Call un.RemoveZenCanvasManufacturerProductMarker",
+    );
   });
 
   it("does not report uninstall success until SCM and the service registry key are both clear", () => {
@@ -2088,9 +2091,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
     const successExitCode = final.lastIndexOf("SetErrorLevel 0");
     expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
-    expect(final.indexOf("Call un.RemoveFyluraUninstallRegistration")).toBeLessThan(
-      final.indexOf("Call un.RemoveZenCanvasManufacturerProductMarker"),
-    );
+    const markerCleanup = uninstall.indexOf("Call un.RemoveZenCanvasManufacturerProductMarker");
+    expect(markerCleanup).toBeGreaterThan(registrationDelete);
+    expect(markerCleanup).toBeLessThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
+    expect(final).not.toContain("Call un.RemoveZenCanvasManufacturerProductMarker");
     expect(serviceStatusCheckFinal).toBeGreaterThanOrEqual(0);
     expect(successExitCode).toBeGreaterThan(serviceStatusCheckFinal);
     expect(final.slice(serviceStatusCheckFinal, successExitCode)).toContain("Abort");

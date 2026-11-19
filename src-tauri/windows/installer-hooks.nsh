@@ -1852,9 +1852,7 @@ FunctionEnd
 Function un.RemoveZenCanvasManufacturerProductMarker
   StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 0
   SetRegView 64
-  DetailPrint "Fylura manufacturer cleanup checking '$ZC_MANUFACTURER_PRODUCT_KEY' for install path '$INSTDIR'."
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
-  DetailPrint "Fylura manufacturer cleanup ownership state is $ZC_REG_VALUE_STATE (value='$ZC_REG_VALUE_DATA')."
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
     ; Use the same explicit 64-bit registry view as the ownership query. The
     ; marker is only the default value, so deleting it through a writable key
@@ -1867,7 +1865,6 @@ Function un.RemoveZenCanvasManufacturerProductMarker
     ${EndIf}
     System::Call 'advapi32::RegDeleteValueW(p r8, p 0) i.r9'
     StrCpy $ZC_REG_RESULT $9
-    DetailPrint "Fylura manufacturer marker delete returned Windows status $ZC_REG_RESULT."
     System::Call 'advapi32::RegCloseKey(p r8) i.r9'
     ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
       StrCpy $R9 $ZC_REG_RESULT
@@ -1878,7 +1875,6 @@ Function un.RemoveZenCanvasManufacturerProductMarker
       ${EndIf}
     ${EndIf}
     !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
-    DetailPrint "Fylura manufacturer cleanup post-delete value state is $ZC_REG_VALUE_STATE."
     ${If} ${Errors}
     ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
       DetailPrint "The Fylura manufacturer install-location marker could not be removed after the delete attempt."
@@ -1909,7 +1905,6 @@ Function un.RemoveZenCanvasManufacturerProductMarker
   ; manufacturer parent is intentionally not touched.
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY"
-  DetailPrint "Fylura manufacturer cleanup final state: value=$ZC_REG_VALUE_STATE; key=$ZC_REG_KEY_STATE."
   ${If} ${Errors}
   ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
   ${OrIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}

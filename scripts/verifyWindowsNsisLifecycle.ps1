@@ -71,16 +71,44 @@ function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments) {
     }
 }
 function Get-LifecycleProbe {
-    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Default)
-    try {
-        $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
-        if ($null -eq $key) { return 'probe key absent' }
+    $snapshots = foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
         try {
-            $values = [ordered]@{}
-            foreach ($name in $key.GetValueNames()) { $values[$name] = $key.GetValue($name) }
-            return ($values | ConvertTo-Json -Compress)
-        } finally { $key.Dispose() }
-    } finally { $base.Dispose() }
+            $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
+            if ($null -eq $key) {
+                [pscustomobject]@{ view = $view.ToString(); values = $null }
+                continue
+            }
+            try {
+                $values = [ordered]@{}
+                foreach ($name in $key.GetValueNames()) { $values[$name] = $key.GetValue($name) }
+                [pscustomobject]@{ view = $view.ToString(); values = $values }
+            } finally { $key.Dispose() }
+        } finally { $base.Dispose() }
+    }
+    return ($snapshots | ConvertTo-Json -Compress -Depth 4)
+}
+function Test-LifecycleProbePresent {
+    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+        try {
+            $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
+            if ($null -ne $key) { $key.Dispose(); return $true }
+        } finally { $base.Dispose() }
+    }
+    return $false
+}
+function Remove-LifecycleProbe {
+    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+        try {
+            $parent = $base.OpenSubKey('Software\Fylura', $true)
+            if ($null -ne $parent) {
+                try { $parent.DeleteSubKeyTree('CodexUninstallLifecycleProbe', $false) }
+                finally { $parent.Dispose() }
+            }
+        } finally { $base.Dispose() }
+    }
 }
 function Install {
     return Invoke-CurrentUserProcess $installer @('/S', "/D=$installDir")
@@ -284,8 +312,7 @@ function Cleanup-Autostart {
 }
 
 $installer = [IO.Path]::GetFullPath($InstallerPath)
-$probeKeyPath = 'HKCU:\Software\Fylura\CodexUninstallLifecycleProbe'
-Assert-Condition (-not (Test-Path -LiteralPath $probeKeyPath)) 'The temporary NSIS lifecycle probe key already exists; refusing to overwrite it.'
+Assert-Condition (-not (Test-LifecycleProbePresent)) 'The temporary NSIS lifecycle probe key already exists; refusing to overwrite it.'
 $script:evidence = [System.Collections.Generic.List[object]]::new()
 $script:status = 'IN_PROGRESS'
 $script:lastUninstallerProbe = 'not run'
@@ -507,7 +534,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         Cleanup-Autostart
         Remove-Credentials
         Remove-LegacyServiceFixture
-        if (Test-Path -LiteralPath $probeKeyPath) { Remove-Item -LiteralPath $probeKeyPath -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-LifecycleProbe
         if ($script:appDataFixtureCreated) { Remove-Item -LiteralPath $data, $cache, $legacyData -Recurse -Force -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $taskRoot) {
             $resolved = [IO.Path]::GetFullPath($taskRoot)

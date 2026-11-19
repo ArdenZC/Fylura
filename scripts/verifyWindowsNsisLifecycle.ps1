@@ -433,6 +433,20 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
 
     Seed-Autostart
     $full = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA', '/CONFIRM_DELETE_APP_DATA')
+    $fullServiceState = Invoke-Sc @('query', $service)
+    $fullArpEntries = @(Get-FyluraUninstallEntries)
+    Record-Phase 'full-uninstall-returned' @{
+        exitCode = $full
+        installDirExists = (Test-Path -LiteralPath $installDir)
+        mainExists = (Test-Path -LiteralPath $main)
+        uninstallerExists = (Test-Path -LiteralPath $uninstaller)
+        dataRootExists = (Test-Path -LiteralPath $data)
+        databaseExists = (Test-Path -LiteralPath $files.database)
+        cacheExists = (Test-Path -LiteralPath $cache)
+        serviceQueryExitCode = $fullServiceState.code
+        arpEntryCount = $fullArpEntries.Count
+        manufacturerMarker = (Registry-Value 'SOFTWARE\Startlan\Fylura')
+    }
     Assert-Condition ($full -eq 0) "Confirmed full uninstall returned $full."
     Assert-Uninstalled 'full-cleanup'
     Assert-Condition (-not (Test-Path $cache)) 'Full cleanup left Fylura cache or logs.'

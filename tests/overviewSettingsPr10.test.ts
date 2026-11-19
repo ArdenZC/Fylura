@@ -189,11 +189,17 @@ describe("V4.3 PR10 status language and section contracts", () => {
   });
 
   it("projects real coverage into Overview and keeps Settings orchestration sectioned", () => {
+    const zh = makeTranslator("zh");
+    const en = makeTranslator("en");
     const overviewSections = read("src/views/overview/OverviewSections.tsx");
     const scanner = read("src/views/scanner/ScannerView.tsx");
     const settings = read("src/views/settings/SettingsView.tsx");
 
     expect(overviewSections).toContain("OverviewSystemCoverage");
+    expect(scanner).toContain("data-overview-technical-details");
+    expect(scanner).toContain('t("overviewTechnicalDetails")');
+    expect(zh("overviewTechnicalDetails")).toBe("技术状态与诊断");
+    expect(en("overviewTechnicalDetails")).toBe("Technical status and diagnostics");
     // Coverage is a fact panel in the v3.40 page grammar, not a metric strip.
     expect(overviewSections).toContain("v340-fact-list");
     expect(scanner).toContain("getGlobalIndexStatus");

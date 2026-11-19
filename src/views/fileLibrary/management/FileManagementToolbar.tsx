@@ -1,6 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { readSystemClipboardForPaste, writeSystemClipboardForCopy } from "./systemClipboardTransfer";
-import { usePane } from "../workbench/PaneContext";
+import { usePane, type PaneContextValue } from "../workbench/PaneContext";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, Brush, Copy, Scissors, ClipboardPaste, FolderInput, PackagePlus, Sparkles, Star, X, FolderOpen, MoreHorizontal, Package, File, FilePlus2, Check, AlertTriangle, ChevronRight, FolderPlus, Pencil, Trash2, ListOrdered } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -20,7 +20,8 @@ import { playExitGhost, playOverlayEnter, playOverlayExit, prefersReducedMotion 
 import { CountBadge } from "../../../components/motion/CountBadge";
 import { useFileLibraryExperience } from "../FileLibraryExperienceProvider";
 import { isFileLibraryShortcutExcludedTarget } from "../fileLibraryInteraction";
-import { usePreviewExperience } from "../preview/PreviewExperienceProvider";
+import { useOptionalPreviewExperience } from "../preview/PreviewExperienceProvider";
+import type { FileLibraryExperienceController } from "../fileLibraryExperience";
 import { transferDestinationContextKey, transferSourceContextKey, useFileManagementStore, type ManagementSurface, type ManagementTransferIntent } from "./fileManagementStore";
 import { releaseTransferTickets } from "./transferTicketOwnership";
 import { orchestrateTransfer } from "./transferOrchestrator";
@@ -30,6 +31,7 @@ import "./fileManagement.css";
 
 const PAGE_SIZE = 40;
 const TRANSFER_BATCH_SIZE = 1000;
+type FileManagementPane = Pick<PaneContextValue, "id" | "focused" | "visible" | "targetPaneId" | "activateTarget" | "beforeMutation" | "afterMutation">;
 type TransferOrigin = "selection" | "clipboard" | "basket" | "external";
 type ZipExtractTarget = "here" | "same_name_folder" | "chosen_directory";
 interface DirectoryBulkTransfer {
@@ -101,11 +103,23 @@ function formatTransferEta(seconds: number) {
   if (total < 3600) return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
   return `${Math.floor(total / 3600)}:${String(Math.floor(total / 60) % 60).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
-export function FileManagementToolbar() {
+export function FileManagementToolbar({
+  paneOverride,
+  controllerOverride,
+  closePreviewOverride,
+}: {
+  paneOverride?: FileManagementPane | null;
+  controllerOverride?: FileLibraryExperienceController;
+  closePreviewOverride?: () => void;
+} = {}) {
   const { t } = useI18nContext(); const { platform } = useChromeContext(); const { setView } = useNavigationContext();
   const { settings } = useSettingsContext();
-  const { controller } = useFileLibraryExperience(); const { controller: previewController } = usePreviewExperience();
-  const pane = usePane();
+  const { controller: contextController } = useFileLibraryExperience();
+  const controller = controllerOverride ?? contextController;
+  const previewController = useOptionalPreviewExperience()?.controller;
+  const contextPane = usePane();
+  const pane = paneOverride === undefined ? contextPane : paneOverride;
+  const closePreview = closePreviewOverride ?? (() => previewController?.close("escape"));
   const state = useFileManagementStore();
   const currentSurface = () => pane ? useFileManagementStore.getState().surfaces[pane.id]?.read() : useFileManagementStore.getState().surface?.();
   const surface = pane ? state.surfaces[pane.id]?.read() : state.surface?.();
@@ -180,7 +194,7 @@ export function FileManagementToolbar() {
     const element = panelRef.current;
     element?.querySelector<HTMLElement>("button:not(:disabled), input")?.focus();
     playOverlayEnter(element, "menu", { origin: "top right" });
-    const workspace = element?.closest(".file-library-workspace");
+    const workspace = element?.closest(".wb-workbench, .file-library-workspace");
     const fitPanel = () => {
       if (element && workspace) element.style.maxHeight = `${Math.max(80, Math.min(480, workspace.getBoundingClientRect().bottom - element.getBoundingClientRect().top - 8))}px`;
     };
@@ -790,7 +804,7 @@ export function FileManagementToolbar() {
         isCurrent: () => transferContextIsCurrent(intent),
         beforeExecute: async () => {
           if (pane) await pane.beforeMutation();
-          else await previewController.closeForFileOperation();
+          else if (previewController) await previewController.closeForFileOperation();
           useFileManagementStore.setState((current) => ({ activeTransferTask: current.activeTransferTask?.id === intent.id ? { ...current.activeTransferTask, phase: "execute" } : current.activeTransferTask }));
         },
         execute: async (acceptedPlan) => {
@@ -944,7 +958,7 @@ export function FileManagementToolbar() {
       setNotice(needsReview ? t("fmTaskNeedsReview")
         : transferCancelRequested() && result.logs.some((log) => log.status !== "success") ? t("fmCancelled")
           : batch && batch.failed > 0 ? taskBatchStatus(batch, false, t) : t("fmFinished"));
-      previewController.close("escape");
+      closePreview();
       const affectedSurface = intent.sourcePaneId ? useFileManagementStore.getState().surfaces[intent.sourcePaneId]?.read() : currentSurface();
       if (!directoryBulk && !basketBulk && intent.tickets.length > 0 && (!intent.sourceContextKey || transferSourceContextKey(affectedSurface) === intent.sourceContextKey)) affectedSurface?.clear();
       clearTransferState(intent);
@@ -1464,7 +1478,7 @@ export function FileManagementToolbar() {
   async function go(path: string) {
     await run(async () => {
       if (platform !== "win32" && platform !== "darwin") throw Error("workspace_platform_not_supported");
-      previewController.close("escape");
+      closePreview();
       const admitted = await controller.openBrowse({ platform: platform === "win32" ? "windows" : "macos", routingHint: path, displayHint: path });
       if (!admitted) throw Error("browse_admission_superseded"); closePanel();
     });

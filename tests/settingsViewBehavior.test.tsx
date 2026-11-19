@@ -447,14 +447,14 @@ describe("settings view behavior", () => {
 
   it("keeps direct and pending Spotlight section requests active and focuses the requested heading", async () => {
     await act(async () => requestSettingsSection("settings-ai"));
-    expect(container.querySelector('[data-settings-section="settings-ai"]')?.getAttribute("aria-current")).toBe("location");
+    expect(container.querySelector('[data-settings-section="settings-ai-automation"]')?.getAttribute("aria-current")).toBe("location");
     expect(document.activeElement).toBe(container.querySelector("#settings-ai-heading"));
 
     await act(async () => root.render(null));
     requestSettingsSection("settings-privacy");
     await act(async () => root.render(<SettingsView />));
     await flushEffects();
-    expect(container.querySelector('[data-settings-section="settings-privacy"]')?.getAttribute("aria-current")).toBe("location");
+    expect(container.querySelector('[data-settings-section="settings-advanced"]')?.getAttribute("aria-current")).toBe("location");
     expect(document.activeElement).toBe(container.querySelector("#settings-privacy-heading"));
   });
 
@@ -665,14 +665,14 @@ describe("settings view behavior", () => {
     expect(keyType()).toBe("password");
 
     await act(async () => reveal());
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-privacy"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-advanced"]')?.click());
     expect(keyType()).toBe("password");
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-ai"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-ai-automation"]')?.click());
 
     await act(async () => reveal());
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-privacy"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-advanced"]')?.click());
     expect(keyType()).toBe("password");
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-ai"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-ai-automation"]')?.click());
 
     await act(async () => reveal());
     await chooseAIMode("AI is off");

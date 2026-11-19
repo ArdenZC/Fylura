@@ -1,10 +1,8 @@
 import { FolderPlus, Play, Trash2 } from "lucide-react";
-import type { WatcherReconciliationStatus } from "../../../api/tauriApi";
 import type { FolderNamingLanguage, OrganizeRootMode, ScanRootSetting } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { buttonIconDanger, buttonSecondary, cn } from "../../../utils/tw";
-import { compactPath, normalizePathLike } from "../../../utils/viewHelpers";
-import { deriveWatcherPresentation } from "../../../utils/watcherPresentation";
+import { compactPath } from "../../../utils/viewHelpers";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
 import { SettingsControlGroup, SettingsEmptyState, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitchControl, settingsField } from "../components/SettingsPrimitives";
 import type { FolderDeleteConfirmState } from "./settingsSectionTypes";
@@ -12,7 +10,6 @@ import type { FolderDeleteConfirmState } from "./settingsSectionTypes";
 export interface FileSourcesSettingsSectionProps {
   t: Translator;
   defaultScanFolders: ScanRootSetting[];
-  watcherRootStatuses: Record<string, WatcherReconciliationStatus>;
   organizeRootMode: OrganizeRootMode;
   organizeRootPath: string | null;
   onAddScanFolder: () => void;
@@ -24,17 +21,9 @@ export interface FileSourcesSettingsSectionProps {
   onChooseOrganizeRootPath: () => void;
 }
 
-function watcherStatusForSetting(root: ScanRootSetting, statuses: Record<string, WatcherReconciliationStatus>) {
-  const exact = statuses[root.id];
-  if (exact) return exact;
-  const targetPath = normalizePathLike(root.path);
-  return Object.values(statuses).find((status) => normalizePathLike(status.path) === targetPath);
-}
-
 export function FileSourcesSettingsSection({
   t,
   defaultScanFolders,
-  watcherRootStatuses,
   organizeRootMode,
   organizeRootPath,
   onAddScanFolder,
@@ -59,17 +48,12 @@ export function FileSourcesSettingsSection({
         ) : null}
         <div className="grid gap-2">
           {defaultScanFolders.length ? defaultScanFolders.map((root) => {
-            const watcherStatus = watcherStatusForSetting(root, watcherRootStatuses);
-            const watcherPresentation = deriveWatcherPresentation(watcherStatus);
             return (
               <div key={root.id} data-settings-item className={cn(compactInteractiveRow(), "px-3 py-2")}>
                 <div className="grid min-w-0 gap-3 min-[841px]:grid-cols-[minmax(0,1fr)_auto] min-[841px]:items-center">
                   <div className="min-w-0 text-left">
                     <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
-                    <div className="mt-1 flex items-center gap-2 text-xs">
-                      <span className="rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">{t(watcherPresentation.labelKey)}</span>
-                    </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-start gap-2 min-[841px]:justify-end">
                     <SettingsSwitchControl id={`scan-root-${root.id}`} checked={root.enabled} label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")} onChange={(next) => onSetScanRootEnabled(root, next)} />

@@ -22,12 +22,13 @@ describe("history refinement UI contracts", () => {
     expect(batchList).not.toContain("break-all");
     expect(batchList).toContain("line-clamp-2");
     expect(batchList).toContain("compactPath");
-    expect(batchList).toContain("title={first?.path_after || first?.target_path}");
+    expect(batchList).toContain("formatDisplayPath(sourcePath)} → ${formatDisplayPath(destinationPath)");
     expect(batchList).toContain("historyOperationSource");
     expect(inspector).not.toContain("break-all");
     expect(inspector).toContain("break-words font-mono");
     expect(inspector).toContain("title={title ?? value}");
-    expect(inspector).toContain('t("historyRestoreDestination")');
+    expect(inspector).toContain('t("historyPathChange")');
+    expect(batchList).toContain('t("historyViewDetails")');
     expect(inspector).toContain('t("historyRestoreOriginalUnavailable")');
   });
 
@@ -46,6 +47,7 @@ describe("history refinement UI contracts", () => {
     expect(model).toContain("reconcileRestorableOperationSelection");
     expect(restore).toContain("reconcileRestorableOperationSelection");
     expect(inspector).toContain("disabled={!eligible}");
+    expect(inspector).toContain("operationItemStatusLabel(log, t)");
     expect(batchList).toContain("batch.logs.filter(isRestorableLog)");
   });
 });

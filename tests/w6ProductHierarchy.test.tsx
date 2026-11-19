@@ -14,7 +14,7 @@ import {
   scrollSettingsSectionIntoView,
   type SettingsSectionOption
 } from "../src/views/settings/components/SettingsPrimitives";
-import { settingsNavigationSectionId } from "../src/views/settings/settingsSectionModel";
+import { SETTINGS_NAV_SECTION_IDS, settingsNavigationSectionId, settingsSectionRequestTarget } from "../src/views/settings/settingsSectionModel";
 
 const t = makeTranslator("zh");
 
@@ -92,13 +92,26 @@ describe("W6-03 product hierarchy", () => {
       "settings-privacy",
       "settings-about"
     ]);
-    expect(settingsNavigationSectionId("settings-global-index")).toBe("settings-global-index");
-    expect(settingsNavigationSectionId("settings-platform-diagnostics")).toBe("settings-platform-diagnostics");
-    expect(settingsNavigationSectionId("settings-managed-scopes")).toBe("settings-managed-scopes");
+    expect(SETTINGS_NAV_SECTION_IDS).toEqual([
+      "settings-general",
+      "settings-file-management",
+      "settings-search",
+      "settings-ai-automation",
+      "settings-advanced",
+      "settings-about"
+    ]);
+    expect(settingsNavigationSectionId("settings-global-index")).toBe("settings-advanced");
+    expect(settingsNavigationSectionId("settings-platform-diagnostics")).toBe("settings-advanced");
+    expect(settingsNavigationSectionId("settings-managed-scopes")).toBe("settings-file-management");
     expect(settingsNavigationSectionId("settings-search-scope")).toBe("settings-search");
-    expect(settingsNavigationSectionId("settings-ai-provider")).toBe("settings-ai");
-    expect(settingsNavigationSectionId("settings-ai-api-key")).toBe("settings-ai");
+    expect(settingsNavigationSectionId("settings-ai-provider")).toBe("settings-ai-automation");
+    expect(settingsNavigationSectionId("settings-ai-api-key")).toBe("settings-ai-automation");
+    expect(settingsNavigationSectionId("settings-automation-schedule")).toBe("settings-ai-automation");
+    expect(settingsNavigationSectionId("settings-log-retention")).toBe("settings-advanced");
     expect(settingsNavigationSectionId("settings-general")).toBe("settings-general");
+    expect(settingsSectionRequestTarget("settings-file-management")).toBe("settings-files-scan");
+    expect(settingsSectionRequestTarget("settings-ai-automation")).toBe("settings-automation");
+    expect(settingsSectionRequestTarget("settings-log-retention")).toBe("settings-log-retention");
   });
 
   it("reveals a progressively disclosed technical section when a compatibility deep link targets it", () => {

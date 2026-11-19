@@ -410,6 +410,9 @@ html.dark [data-settings-v340] .settings-v340-scroll::-webkit-scrollbar-thumb,
 }
 
 [data-settings-v340] .settings-v340-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: max-content;
   min-width: 136px;
   max-width: 236px;

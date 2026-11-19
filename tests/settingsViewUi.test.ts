@@ -33,6 +33,7 @@ describe("settings view UI", () => {
     const sharedUi = read("src/views/shared/ui.ts");
     const appShell = read("src/components/AppShell.tsx");
     const t = makeTranslator("zh");
+    const tEnglish = makeTranslator("en");
 
     expect(t("settingsAppearanceLanguage")).toBe("外观与语言");
     expect(t("settingsScanRoots")).toBe("扫描目录");
@@ -42,6 +43,8 @@ describe("settings view UI", () => {
     expect(t("organizeRootZenCanvasFolder")).toBe("集中放入专用整理文件夹");
     expect(t("organizeRootCustomRoot")).toBe("自定义整理目录");
     expect(t("settingsSafetyRestore")).toBe("安全与恢复");
+    expect(t("settingsSafetyRestoreDesc")).toBe("选择操作恢复日志保留的时长。");
+    expect(tEnglish("settingsSafetyRestoreDesc")).toBe("Choose how long operation history is retained for recovery.");
     expect(t("settingsWindowBehavior")).toBe("窗口行为");
     expect(t("settingsStartup")).toBe("启动项");
     expect(t("settingsDeveloperRelease")).toBe("开发检查");
@@ -76,7 +79,9 @@ describe("settings view UI", () => {
     expect(settingsModel).toContain('"settings-platform-diagnostics"');
     expect(settingsModel).toContain('"settings-managed-scopes"');
     expect(settingsModel).toContain('.find((id) => target === id || target.startsWith(`${id}-`))');
-    expect(settingsModel).toContain('export const SETTINGS_NAV_SECTION_IDS = SETTINGS_SECTION_IDS;');
+    for (const id of ["settings-general", "settings-file-management", "settings-search", "settings-ai-automation", "settings-advanced", "settings-about"]) {
+      expect(settingsModel).toContain(`"${id}"`);
+    }
     expect(settingsPrimitives).toContain('progressiveDisclosure');
     expect(settingsSurface).toContain('t("settingsAppearanceLanguage")');
     expect(settingsSurface).toContain('t("settingsScanRoots")');
@@ -87,6 +92,7 @@ describe("settings view UI", () => {
     expect(settingsSurface).toContain("setOrganizeRootPath");
     expect(settingsSurface).toContain('t("organizePreviewStillRequired")');
     expect(settingsSurface).toContain('t("settingsPrivacy")');
+    expect(settingsSurface).toContain('t("settingsSafetyRestoreDesc")');
     expect(settingsSurface).toContain('t("settingsWindowBehavior")');
     expect(settingsSurface).toContain('t("settingsStartup")');
     expect(settingsSurface).toContain('t("developerMode")');

@@ -80,7 +80,7 @@ function sidebarWindowAction(action: "close" | "minimize" | "maximize") {
 
 type NavItemId = View | "global-search";
 type NavItem = { id: NavItemId; label: string; icon: typeof Radar; action?: "open_search" };
-type NavGroup = { id: "primary" | "workflow" | "advanced"; label: string; items: NavItem[] };
+type NavGroup = { id: "primary" | "maintenance" | "utility"; label: string; items: NavItem[] };
 
 /**
  * Three-state sidebar: expanded (216), icon rail (64) and hidden.
@@ -343,7 +343,18 @@ function CommandLauncher({
   const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
   const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
+  const { controller: fileLibraryController } = useFileLibraryExperience();
   const openGlobalEntry = useOpenSearchParent();
+  const openBrowsePlace = useCallback(async (path: string, displayName: string) => {
+    if (platform !== "win32" && platform !== "darwin" && platform !== "browser") return false;
+    await fileLibraryController.resume();
+    const response = await fileLibraryController.openBrowse({
+      platform: platform === "darwin" ? "macos" : "windows",
+      routingHint: path,
+      displayHint: displayName
+    });
+    return response !== null;
+  }, [fileLibraryController, platform]);
   const activateFileLibraryFile = useCallback(
     (fileId: string) => projectAcceptedFileLibraryActivation(fileId, {
       setExplicitSelection: useFileLibrarySelectionStore.getState().setExplicit,
@@ -376,6 +387,7 @@ function CommandLauncher({
       setView={setView}
       setSelectedFileId={setSelectedFileId}
       openGlobalEntry={openGlobalEntry}
+      openBrowsePlace={openBrowsePlace}
       activateFileLibraryFile={activateFileLibraryFile}
       onClose={closeCommand}
       platform={platform}
@@ -475,7 +487,7 @@ export const Sidebar = memo(function Sidebar({
       </div>
       <nav className="zc-sidebar-nav" aria-label={t("mainNavigationLabel")}>
         {groups.map((group) => (
-          <section className="zc-nav-group" key={group.id}>
+          <section className={`zc-nav-group${group.id === "utility" ? " zc-nav-group-utility" : ""}`} key={group.id} data-nav-group={group.id}>
             {group.label ? <span className="zc-nav-group-label">{group.label}</span> : null}
             {group.items.map((item) => (
               <button
@@ -502,7 +514,9 @@ export const Sidebar = memo(function Sidebar({
       </nav>
       <div className="zc-sidebar-footer">
         <div className="zc-sidebar-account">
-          <span className="zc-sidebar-avatar" aria-hidden="true">ZS</span>
+          <span className="zc-sidebar-workspace-mark" aria-hidden="true">
+            <BrandMark size="micro" decorative />
+          </span>
           <div className="zc-sidebar-account-text">
             <strong>{t("localWorkspace")}</strong>
             {/* The subtitle states the mode the app actually reports, so it can
@@ -730,24 +744,22 @@ export function navGroups(t: Translator): NavGroup[] {
         // Global search deliberately has no rail entry: its only entry point is
         // the titlebar field plus Ctrl/⌘ K (DESIGN-SPEC §4.3).
         { id: "library", label: t("filesWorkspace"), icon: Library },
-        { id: "organize", label: t("organizeFiles"), icon: Sparkles },
-        { id: "cleanup", label: t("storageCleanup"), icon: Brush }
+        { id: "scanner", label: t("overview"), icon: House }
       ]
     },
     {
-      id: "workflow",
-      label: t("navWorkflow"),
+      id: "maintenance",
+      label: t("navOrganizeMaintain"),
       items: [
+        { id: "organize", label: t("organizeFiles"), icon: Sparkles },
+        { id: "cleanup", label: t("storageCleanup"), icon: Brush },
         { id: "restore", label: t("history"), icon: Clock3 }
       ]
     },
     {
-      id: "advanced",
-      label: t("navSystem"),
+      id: "utility",
+      label: "",
       items: [
-        // Managed Library setup stays available, but it is no longer the entry
-        // point to the ordinary file manager.
-        { id: "scanner", label: t("overview"), icon: House },
         { id: "settings", label: t("settingsPageTitle"), icon: Settings }
       ]
     }

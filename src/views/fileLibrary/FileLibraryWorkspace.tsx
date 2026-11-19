@@ -21,7 +21,6 @@ import {
   type FileLibraryCommandBarSurface,
   type FileLibraryCommandBarSurfaceOwner
 } from "./fileLibraryCommandBarSurface";
-import { FileManagementToolbar } from "./management/FileManagementToolbar";
 import "./fileLibraryWorkspace.css";
 import "./fileLibraryV340.css";
 import "./macFinderV340.css";
@@ -244,7 +243,6 @@ function FileLibraryPane() {
             />
             </div>
 
-            <FileManagementToolbar />
             <ContextPanelPresentationProvider
               layout={layout}
               paneOverlay={pane?.wideMultiPane === true}

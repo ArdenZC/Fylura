@@ -3,6 +3,7 @@ import { act, type RefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandModal } from "../src/components/CommandModal";
+import { fileManagementApi } from "../src/api/fileManagementApi";
 import { searchRuntimeApi as tauriApi } from "../src/api/searchRuntimeApi";
 import type { GlobalSearchRequest, GlobalSearchResponse } from "../src/types/domain";
 import { globalSearchFeedback } from "../src/components/spotlight/globalSearchFeedback";
@@ -243,6 +244,59 @@ describe("mounted CommandModal IME behavior", () => {
     expect(input.readOnly).toBe(false);
     expect(Object.keys(tauriApi)).not.toContain("rebuildGlobalIndexSource");
     expect(Object.keys(tauriApi)).not.toContain("setGlobalIndexSourceEnabled");
+  });
+
+  it("shows real recent and known locations in idle search and opens the arrow-selected place", async () => {
+    const listKnown = vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([
+      { id: "downloads", kind: "folder", displayName: "Downloads", path: "/users/example/Downloads", available: true }
+    ]);
+    const listPlaces = vi.spyOn(fileManagementApi, "fileLibraryPlaces").mockResolvedValue([
+      { id: "favorite-id", name: "Project folder", routingHint: "/users/example/Project", favorite: true, visitedAt: 2, unavailable: false },
+      { id: "recent-id", name: "Invoices", routingHint: "/users/example/Invoices", favorite: false, visitedAt: 1, unavailable: false }
+    ]);
+    const setView = vi.fn();
+    const onClose = vi.fn();
+    const openBrowsePlace = vi.fn().mockResolvedValue(true);
+    const inputRef = { current: null } as RefObject<HTMLInputElement | null>;
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<CommandModal inputRef={inputRef} setView={setView} setSelectedFileId={vi.fn()} openBrowsePlace={openBrowsePlace} onClose={onClose} platform="browser" t={t} />);
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    const input = document.body.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.textContent).toContain("Project folder");
+    expect(document.body.textContent).toContain("Invoices");
+    expect(document.body.textContent).toContain("Downloads");
+    expect(listKnown).toHaveBeenCalledOnce();
+    expect(listPlaces).toHaveBeenCalledOnce();
+
+    for (let index = 0; index < 5; index += 1) {
+      await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })); });
+    }
+    expect(input.getAttribute("aria-activedescendant")).toBe("command-idle-item-5");
+    expect(document.body.querySelector("#command-idle-item-5")?.getAttribute("aria-selected")).toBe("true");
+    await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+    expect(openBrowsePlace).toHaveBeenCalledWith("/users/example/Invoices", "Invoices");
+    expect(setView).toHaveBeenCalledWith("library");
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain(t("commandNavigateHint"));
+    expect(document.body.textContent).toContain(t("commandSelectHint"));
+    expect(document.body.textContent).toContain(t("commandCloseHint"));
+  });
+
+  it("shows a real empty state when no saved places or known locations exist", async () => {
+    vi.spyOn(fileManagementApi, "fileLibraryKnownLocations").mockResolvedValue([]);
+    vi.spyOn(fileManagementApi, "fileLibraryPlaces").mockResolvedValue([]);
+    const inputRef = { current: null } as RefObject<HTMLInputElement | null>;
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<CommandModal inputRef={inputRef} setView={vi.fn()} setSelectedFileId={vi.fn()} onClose={vi.fn()} platform="browser" t={t} />);
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(document.body.textContent).toContain(t("browsePlacesEmpty"));
+    expect(document.body.textContent).not.toContain("C:/Users/Example");
   });
 
 });

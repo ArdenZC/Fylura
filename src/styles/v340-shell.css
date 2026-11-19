@@ -444,6 +444,10 @@
   gap: 1px;
 }
 
+.zc-nav-group-utility {
+  margin-top: auto;
+}
+
 .zc-nav-group-label {
   padding: 0 8px 4px;
   color: var(--zc-text-tertiary);
@@ -553,7 +557,7 @@
   background: var(--zc-surface-hover);
 }
 
-.zc-sidebar-avatar {
+.zc-sidebar-workspace-mark {
   display: grid;
   width: 24px;
   height: 24px;

@@ -1,6 +1,7 @@
 import { WorkbenchLayout } from "./WorkbenchLayout";
 import { isTauri } from "@tauri-apps/api/core";
 import { FolderComparison } from "../compare/FolderComparison";
+import { FileManagementToolbar } from "../management/FileManagementToolbar";
 import { ArrowLeft, Copy, FolderInput, Plus, X } from "lucide-react";
 import {
   useCallback,
@@ -9,6 +10,7 @@ import {
   useRef,
   useState,
   memo,
+  useMemo,
   useSyncExternalStore,
   type ComponentType,
   type MouseEvent as ReactMouseEvent,
@@ -113,6 +115,7 @@ export function FileLibraryWorkbench({
   workspaceReadyRef.current = workspaceReady;
   const pendingDispose = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = state.tabs.find((tab) => tab.id === state.activeTabId)!;
+  const activePane = active.panes.find((pane) => pane.id === active.activePaneId) ?? active.panes[0];
   const grid = active.paneCount === 4 && active.layout === "grid";
   const wide = bounds.width >= (grid ? 1000 : active.paneCount * 500) && (!grid || bounds.height >= 640);
   const visiblePanes = active.panes.slice(0, active.paneCount);
@@ -474,6 +477,20 @@ export function FileLibraryWorkbench({
     },
     [model],
   );
+  const toolbarPane = useMemo(() => activePane ? {
+    id: activePane.id,
+    focused: workspaceReady && workspaceActive,
+    visible: workspaceReady && workspaceActive,
+    targetPaneId: destinationPane?.id,
+    beforeMutation,
+    afterMutation,
+    activateTarget: () => {
+      if (destinationPane) focus(active.id, destinationPane.id);
+    },
+  } : null, [active.id, activePane, afterMutation, beforeMutation, destinationPane, focus, workspaceActive, workspaceReady]);
+  const closeActivePreview = useCallback(() => {
+    if (activePane) previews.current.get(activePane.id)?.close("escape");
+  }, [activePane?.id]);
   const focusedSurface = management.surfaces[active.activePaneId]?.read();
   const canTransfer = !!destinationPane?.path && !!focusedSurface && focusedSurface.count !== 0 && !transferLocked;
   const {
@@ -838,6 +855,11 @@ export function FileLibraryWorkbench({
         </div>
         {active.paneCount === 2 ? <FolderComparison key={active.id} compact={!wide} paneIds={visiblePanes.map((pane) => pane.id)} activate={(id) => focus(active.id, id)} /> : null}
       </header>
+      {toolbarPane && activePane ? <FileManagementToolbar
+        paneOverride={toolbarPane}
+        controllerOverride={activePane.controller}
+        closePreviewOverride={closeActivePreview}
+      /> : null}
       {state.tabs.map((tab) => (
         <div
           key={tab.id}

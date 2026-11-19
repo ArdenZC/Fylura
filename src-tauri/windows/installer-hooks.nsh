@@ -90,6 +90,7 @@ Var ZC_PREVIEW_ARTIFACT_REMOVED
 Var ZC_UNINSTALL_SERVICE_CLEAN
 Var ZC_UNINSTALL_MANUFACTURER_CLEAN
 Var ZC_UNINSTALL_REGISTRATION_CLEAN
+Var ZC_UNINSTALL_REGISTRATION_ERROR
 Var ZC_INDEX_SERVICE_CREATE_SUCCEEDED
 Var ZC_INDEX_SERVICE_CREATE_OWNERSHIP_VERIFIED
 Var ZC_UNINSTALL_LIFECYCLE_STAGE
@@ -1777,6 +1778,7 @@ FunctionEnd
 ; install-owned paths still match this exact per-machine Fylura installation.
 Function un.RemoveFyluraUninstallRegistration
   StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 0
+  StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "could not verify Fylura registration ownership"
   SetRegView 64
   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
   ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
@@ -1784,36 +1786,54 @@ Function un.RemoveFyluraUninstallRegistration
     Return
   ${EndIf}
   ${If} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_PRESENT}
-    DetailPrint "Uninstall is incomplete; the Fylura uninstall registration could not be inspected."
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the uninstall registration could not be inspected"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
     SetErrorLevel 2
     Return
   ${EndIf}
 
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName" "$ZC_PRODUCT_NAME" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
-    DetailPrint "Uninstall is incomplete; the uninstall registration DisplayName is not the exact Fylura value."
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the DisplayName does not match Fylura"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
     SetErrorLevel 2
     Return
   ${EndIf}
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
-    DetailPrint "Uninstall is incomplete; the uninstall registration InstallLocation does not match this installation."
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the InstallLocation does not match this installation"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
     SetErrorLevel 2
     Return
   ${EndIf}
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
-    DetailPrint "Uninstall is incomplete; the uninstall registration UninstallString does not match this installation."
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the UninstallString does not match this installation"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
     SetErrorLevel 2
     Return
   ${EndIf}
 
   ClearErrors
-  DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"
+  System::Call 'advapi32::RegDeleteKeyExW(p ${ZC_REG_ROOT_HKLM}, w "$ZC_UNINSTALLER_REGISTRY_KEY", i ${ZC_REG_KEY_WOW64_64KEY}, i 0) i.r9'
+  StrCpy $ZC_REG_RESULT $9
+  ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
+    !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+    ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+      StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1
+      Return
+    ${EndIf}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "RegDeleteKeyExW failed with Windows error $ZC_REG_RESULT"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+
   !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
   ${If} ${Errors}
   ${OrIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}
-    DetailPrint "Uninstall is incomplete; the owned Fylura uninstall registration remains."
+    StrCpy $ZC_UNINSTALL_REGISTRATION_ERROR "the product uninstall registration remains after deletion"
+    DetailPrint "Uninstall is incomplete; $ZC_UNINSTALL_REGISTRATION_ERROR."
     SetErrorLevel 2
     Return
   ${EndIf}

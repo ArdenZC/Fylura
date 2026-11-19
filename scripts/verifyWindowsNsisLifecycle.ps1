@@ -132,12 +132,20 @@ function Assert-Uninstalled {
         $scm = Invoke-Sc @('query', $service)
         $configuration = Invoke-Sc @('qc', $service)
         $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
+        $expectedImagePath = '"' + $main + '" --index-service'
+        $deleteProbe = [pscustomobject]@{ code = 'not-run'; output = 'ImagePath did not match the isolated Fylura fixture.' }
+        if ([string]$imagePath -ceq $expectedImagePath) {
+            # This test owns the exact service path in a disposable hosted VM.
+            # Probe SCM once after failure to distinguish a skipped delete from
+            # a service that was marked for deletion but remains open.
+            $deleteProbe = Invoke-Sc @('delete', $service)
+        }
         $serviceLog = @()
         $serviceLogExists = Test-Path -LiteralPath $script:lastUninstallerLog
         if ($serviceLogExists) {
             $serviceLog = @(Get-Content -LiteralPath $script:lastUninstallerLog | Where-Object { $_ -match 'Fylura (Global Index|service cleanup|uninstall)|service registration|incomplete|sc\.exe delete' } | Select-Object -Last 40)
         }
-        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; NSIS log exists=$serviceLogExists, path=$script:lastUninstallerLog, service log=$($serviceLog -join ' | ')"
+        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; controlled delete probe exit=$($deleteProbe.code), output=$($deleteProbe.output); NSIS log exists=$serviceLogExists, path=$script:lastUninstallerLog, service log=$($serviceLog -join ' | ')"
     }
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Fylura remained in Add/Remove Programs.'
     Assert-Preview $false

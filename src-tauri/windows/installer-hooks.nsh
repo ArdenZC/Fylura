@@ -89,6 +89,7 @@ Var ZC_INSTALL_LIFECYCLE_ACTIVE
 Var ZC_PREVIEW_ARTIFACT_REMOVED
 Var ZC_UNINSTALL_SERVICE_CLEAN
 Var ZC_UNINSTALL_MANUFACTURER_CLEAN
+Var ZC_UNINSTALL_REGISTRATION_CLEAN
 Var ZC_INDEX_SERVICE_CREATE_SUCCEEDED
 Var ZC_INDEX_SERVICE_CREATE_OWNERSHIP_VERIFIED
 Var ZC_UNINSTALL_LIFECYCLE_STAGE
@@ -1770,6 +1771,53 @@ Function un.FinalizeZenCanvasPreviewUninstall
   ${EndIf}
 un_preview_artifact_removed:
   Call un.CommitZenCanvasPreviewQuiesce
+FunctionEnd
+
+; Remove the uninstall registration only when its display name and both
+; install-owned paths still match this exact per-machine Fylura installation.
+Function un.RemoveFyluraUninstallRegistration
+  StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 0
+  SetRegView 64
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+    StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1
+    Return
+  ${EndIf}
+  ${If} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_PRESENT}
+    DetailPrint "Uninstall is incomplete; the Fylura uninstall registration could not be inspected."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "DisplayName" "$ZC_PRODUCT_NAME" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    DetailPrint "Uninstall is incomplete; the uninstall registration DisplayName is not the exact Fylura value."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    DetailPrint "Uninstall is incomplete; the uninstall registration InstallLocation does not match this installation."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
+    DetailPrint "Uninstall is incomplete; the uninstall registration UninstallString does not match this installation."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+
+  ClearErrors
+  DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"
+  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"
+  ${If} ${Errors}
+  ${OrIf} $ZC_REG_KEY_STATE != ${ZC_REG_KEY_ABSENT}
+    DetailPrint "Uninstall is incomplete; the owned Fylura uninstall registration remains."
+    SetErrorLevel 2
+    Return
+  ${EndIf}
+  StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1
 FunctionEnd
 
 ; Tauri writes the manufacturer product default as an install-location marker.

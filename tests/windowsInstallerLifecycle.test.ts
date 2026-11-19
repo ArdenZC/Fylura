@@ -2021,9 +2021,22 @@ describe("W4-04 package NSIS lifecycle", () => {
     const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
     const successExitCode = final.lastIndexOf("SetErrorLevel 0");
     expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
+    expect(final.indexOf("Call un.RemoveFyluraUninstallRegistration")).toBeLessThan(
+      final.indexOf("Call un.RemoveZenCanvasManufacturerProductMarker"),
+    );
     expect(serviceStatusCheckFinal).toBeGreaterThanOrEqual(0);
     expect(successExitCode).toBeGreaterThan(serviceStatusCheckFinal);
     expect(final.slice(serviceStatusCheckFinal, successExitCode)).toContain("Abort");
+
+    const registrationCleanup = functionBody(
+      installerHooksSource(),
+      "un.RemoveFyluraUninstallRegistration",
+    );
+    expect(registrationCleanup).toContain('"DisplayName" "$ZC_PRODUCT_NAME"');
+    expect(registrationCleanup).toContain('"InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"');
+    expect(registrationCleanup).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
+    expect(registrationCleanup).toContain('DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(registrationCleanup).toContain("StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1");
   });
 
   it("T129: marker cleanup never recursively deletes the manufacturer parent", () => {

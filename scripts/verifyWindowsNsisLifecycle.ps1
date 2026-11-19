@@ -147,7 +147,16 @@ function Assert-Uninstalled {
         }
         Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; controlled delete probe exit=$($deleteProbe.code), output=$($deleteProbe.output); NSIS log exists=$serviceLogExists, path=$script:lastUninstallerLog, service log=$($serviceLog -join ' | ')"
     }
-    Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Fylura remained in Add/Remove Programs.'
+    $entries = @(Get-FyluraUninstallEntries)
+    if ($entries.Count -ne 0) {
+        $remainingInstallFiles = @()
+        if (Test-Path -LiteralPath $installDir) {
+            $remainingInstallFiles = @(Get-ChildItem -LiteralPath $installDir -Force | ForEach-Object { $_.Name })
+        }
+        $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+        $previewRegistration = Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}'
+        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($entries | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration"
+    }
     Assert-Preview $false
 }
 function Seed-Autostart {

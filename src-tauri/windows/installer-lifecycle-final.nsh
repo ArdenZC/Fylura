@@ -490,6 +490,12 @@ Function un.ZCPostUninstallLifecycleFinal
     SetErrorLevel 2
     Abort
   ${EndIf}
+  Call un.RemoveFyluraUninstallRegistration
+  ${If} $ZC_UNINSTALL_REGISTRATION_CLEAN != 1
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Add/Remove Programs registration could not be verified as removed." /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
   Call un.RemoveZenCanvasManufacturerProductMarker
   ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1
     MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK

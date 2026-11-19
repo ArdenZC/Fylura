@@ -576,6 +576,7 @@ Function un.ZCInitializeUninstallLifecycle
   ; The generated uninstall section must prove service cleanup after the main
   ; binary reaches the irreversible boundary before any remaining files go.
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+  StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 0
   StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 0
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0

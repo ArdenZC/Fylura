@@ -478,25 +478,53 @@ Function ZCFailPostInstallLifecycleFinal
   Abort
 FunctionEnd
 
+; Test diagnostics are opt-in and write only when the isolated lifecycle
+; verifier supplies a run-scoped path. No trace file is created for users.
+Function un.ZCWriteUninstallTestTrace
+  Exch $0
+  Push $1
+  Push $2
+  ReadEnvStr $1 "FYLURA_NSIS_TEST_TRACE_PATH"
+  ${If} $1 != ""
+    ClearErrors
+    FileOpen $2 "$1" a
+    ${IfNot} ${Errors}
+      FileWrite $2 "$0$\r$\n"
+      FileClose $2
+    ${EndIf}
+  ${EndIf}
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
 Function un.ZCPostUninstallLifecycleFinal
   ; Keep non-zero until all exact-owned finalization succeeds. If any helper
   ; aborts, silent uninstall returns failure instead of a false success.
+  Push "post-finalization-entered"
+  Call un.ZCWriteUninstallTestTrace
   SetErrorLevel 2
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation
+  Push "preview-removed=$ZC_PREVIEW_ARTIFACT_REMOVED; service-clean=$ZC_UNINSTALL_SERVICE_CLEAN"
+  Call un.ZCWriteUninstallTestTrace
   ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1
     MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Global Index service was not verified as removed before the remaining program files were deleted." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
   Call un.RemoveFyluraUninstallRegistration
+  Push "registration-clean=$ZC_UNINSTALL_REGISTRATION_CLEAN; registration-error=$ZC_UNINSTALL_REGISTRATION_ERROR"
+  Call un.ZCWriteUninstallTestTrace
   ${If} $ZC_UNINSTALL_REGISTRATION_CLEAN != 1
     MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Add/Remove Programs registration could not be verified as removed: $ZC_UNINSTALL_REGISTRATION_ERROR." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}
   Call un.RemoveZenCanvasManufacturerProductMarker
+  Push "manufacturer-clean=$ZC_UNINSTALL_MANUFACTURER_CLEAN"
+  Call un.ZCWriteUninstallTestTrace
   ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1
     MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK
     Abort
@@ -510,4 +538,6 @@ Function un.ZCPostUninstallLifecycleFinal
     Abort
   ${EndIf}
   SetErrorLevel 0
+  Push "post-finalization-success"
+  Call un.ZCWriteUninstallTestTrace
 FunctionEnd

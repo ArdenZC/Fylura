@@ -61,10 +61,17 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $script:uninstallerLogIndex++
     $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
     $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
-    $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
-    if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
-    $p.Refresh()
-    return [int]$p.ExitCode
+    $previousTracePath = $env:FYLURA_NSIS_TEST_TRACE_PATH
+    $env:FYLURA_NSIS_TEST_TRACE_PATH = $script:uninstallTracePath
+    try {
+        $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
+        if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
+        $p.Refresh()
+        return [int]$p.ExitCode
+    } finally {
+        if ($null -eq $previousTracePath) { Remove-Item Env:FYLURA_NSIS_TEST_TRACE_PATH -ErrorAction SilentlyContinue }
+        else { $env:FYLURA_NSIS_TEST_TRACE_PATH = $previousTracePath }
+    }
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }
@@ -181,7 +188,11 @@ function Assert-Uninstalled([string]$phase) {
             $uninstallLogLength = (Get-Item -LiteralPath $script:lastUninstallerLog).Length
             $uninstallLogTail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 120)
         }
-        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration; NSISLogExists=$uninstallLogExists; NSISLogBytes=$uninstallLogLength; NSISLogTail=$($uninstallLogTail -join ' | ')"
+        $traceTail = @()
+        if (Test-Path -LiteralPath $script:uninstallTracePath) {
+            $traceTail = @(Get-Content -LiteralPath $script:uninstallTracePath | Select-Object -Last 40)
+        }
+        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration; NSISLogExists=$uninstallLogExists; NSISLogBytes=$uninstallLogLength; NSISLogTail=$($uninstallLogTail -join ' | '); uninstallTrace=$($traceTail -join ' | ')"
     }
     Assert-Preview $false
 }
@@ -234,6 +245,7 @@ $data = Join-Path $appDataRoot 'com.startlan.fylura'
 $cache = Join-Path $localAppDataRoot 'com.startlan.fylura'
 $legacyData = Join-Path $appDataRoot 'com.startlan.zencanvas'
 $taskRoot = Join-Path $runnerTemp "fylura-nsis-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+$script:uninstallTracePath = Join-Path $taskRoot 'uninstall-lifecycle.trace'
 $installDir = Join-Path $taskRoot 'install'
 $main = Join-Path $installDir 'fylura.exe'
 $uninstaller = Join-Path $installDir 'uninstall.exe'

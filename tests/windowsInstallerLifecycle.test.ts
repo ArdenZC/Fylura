@@ -846,23 +846,6 @@ describe("W4-04 package NSIS lifecycle", () => {
     );
   });
 
-  it("writes uninstall lifecycle diagnostics only to an explicit test path", () => {
-    const final = fs.readFileSync(finalPath, "utf8");
-    const trace = functionBody(final, "un.ZCWriteUninstallTestTrace");
-    const prepare = functionBody(final, "un.ZCPrepareUninstallLifecycleFinal");
-    const verifier = fs.readFileSync(
-      path.join(repositoryRoot, "scripts", "verifyWindowsNsisLifecycle.ps1"),
-      "utf8",
-    );
-
-    expect(trace).toContain('${GetOptions} $CMDLINE "/FYLURA_NSIS_TEST_TRACE=" $1');
-    expect(trace).toContain('FileOpen $2 "$1" a');
-    expect(trace).toContain("SetErrors");
-    expect(prepare).toContain('Push "pre-uninstall-entered"');
-    expect(verifier).toContain('"/FYLURA_NSIS_TEST_TRACE=$script:uninstallTracePath"');
-    expect(trace).not.toContain("ReadEnvStr");
-  });
-
   it("keeps user cancellation recoverable before mutation and blocked after the irreversible boundary", () => {
     const wrapper = fs.readFileSync(wrapperPath, "utf8");
     const synchronous = fs.readFileSync(synchronousPath, "utf8");

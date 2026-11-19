@@ -125,9 +125,17 @@ function Assert-Service {
         if ($null -ne $s) { $s.Dispose() }
     }
 }
-function Assert-Uninstalled {
+function Assert-Uninstalled([string]$phase) {
     for ($i = 0; $i -lt 120 -and (Test-Path -LiteralPath $main); $i++) { Start-Sleep -Milliseconds 500 }
-    Assert-Condition (-not (Test-Path -LiteralPath $main) -and -not (Test-Path -LiteralPath $uninstaller)) 'Program files remained after uninstall.'
+    $mainExists = Test-Path -LiteralPath $main
+    $uninstallerExists = Test-Path -LiteralPath $uninstaller
+    if ($mainExists -or $uninstallerExists) {
+        $remainingInstallFiles = @()
+        if (Test-Path -LiteralPath $installDir) {
+            $remainingInstallFiles = @(Get-ChildItem -LiteralPath $installDir -Force | ForEach-Object { $_.Name })
+        }
+        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|')"
+    }
     if (Test-Path -LiteralPath $serviceKey) {
         $scm = Invoke-Sc @('query', $service)
         $configuration = Invoke-Sc @('qc', $service)
@@ -371,7 +379,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
         throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; NSIS log path=$script:lastUninstallerLog"
     }
-    Assert-Uninstalled
+    Assert-Uninstalled 'ordinary'
     foreach ($entry in $files.GetEnumerator()) {
         Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Delete-only request removed Fylura application data: $($entry.Key)."
         Assert-Condition ([IO.File]::ReadAllText($entry.Value) -eq "test-owned $($entry.Key)") "Delete-only request changed Fylura application data: $($entry.Key)."
@@ -396,7 +404,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
     Seed-Autostart
     $full = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA', '/CONFIRM_DELETE_APP_DATA')
     Assert-Condition ($full -eq 0) "Confirmed full uninstall returned $full."
-    Assert-Uninstalled
+    Assert-Uninstalled 'full-cleanup'
     Assert-Condition (-not (Test-Path $cache)) 'Full cleanup left Fylura cache or logs.'
     Assert-Condition (Test-Path $data -PathType Container) 'Full cleanup did not retain Safe Trash roots.'
     $remaining = @(Get-ChildItem -LiteralPath $data -Force | ForEach-Object { $_.Name } | Sort-Object)

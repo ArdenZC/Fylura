@@ -51,14 +51,12 @@ function Invoke-Sc([string[]]$ScArgs) {
     $output = & "$env:WINDIR\System32\sc.exe" @ScArgs 2>&1
     return [pscustomobject]@{ code = $LASTEXITCODE; output = ($output | Out-String).Trim() }
 }
-function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments, [string]$DiagnosticsPath = '') {
+function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments) {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
-    if ($DiagnosticsPath) { $startInfo.Environment['FYLURA_NSIS_DIAGNOSTICS_FILE'] = $DiagnosticsPath }
-
     $process = [System.Diagnostics.Process]::Start($startInfo)
     if ($null -eq $process) { throw "Could not start $FilePath." }
     try {
@@ -79,8 +77,8 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $script:uninstallerLogIndex++
     $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
     $script:lastUninstallerDiagnostics = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).diagnostics"
-    $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
-    $exitCode = Invoke-CurrentUserProcess $uninstaller $arguments $script:lastUninstallerDiagnostics
+    $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog", "/FYLURA_DIAGNOSTICS=$script:lastUninstallerDiagnostics")
+    $exitCode = Invoke-CurrentUserProcess $uninstaller $arguments
     if (Test-Path -LiteralPath $script:lastUninstallerDiagnostics) {
         $script:lastUninstallerDiagnostics = (Get-Content -LiteralPath $script:lastUninstallerDiagnostics -Raw).Trim()
     } else {

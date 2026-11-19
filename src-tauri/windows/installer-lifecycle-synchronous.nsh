@@ -728,8 +728,9 @@ Function un.ZCRemoveFyluraStartup
 fylura_startup_cleanup_done:
   Push $R0
   Push $R1
-  ReadEnvStr $R0 "FYLURA_NSIS_DIAGNOSTICS_FILE"
-  ${If} $R0 != ""
+  ClearErrors
+  ${GetOptions} $CMDLINE "/FYLURA_DIAGNOSTICS=" $R0
+  ${IfNot} ${Errors}
     ClearErrors
     FileOpen $R1 "$R0" a
     IfErrors fylura_startup_diagnostics_done
@@ -738,6 +739,7 @@ fylura_startup_cleanup_done:
 fylura_startup_diagnostics_done:
     ClearErrors
   ${EndIf}
+  ClearErrors
   Pop $R1
   Pop $R0
 FunctionEnd

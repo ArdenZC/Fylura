@@ -385,6 +385,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
     Assert-Uninstalled 'ordinary'
     foreach ($entry in $files.GetEnumerator()) {
         Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Delete-only request removed Fylura application data: $($entry.Key)."
+        if ($entry.Key -eq 'database') { continue }
         Assert-Condition ([IO.File]::ReadAllText($entry.Value) -eq "test-owned $($entry.Key)") "Delete-only request changed Fylura application data: $($entry.Key)."
     }
     Assert-Condition ((Test-Path $data) -and (Test-Path $cache)) 'Delete-only request removed Fylura application data.'

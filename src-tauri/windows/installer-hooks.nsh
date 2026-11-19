@@ -1986,16 +1986,19 @@ un_stop_wait_timeout:
 FunctionEnd
 
 Function un.DeleteZenCanvasIndexService
-  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
-  Call un.ValidateZenCanvasIndexServiceOwnership
+  ; Failure is the default. The caller may continue only after this function
+  ; proves the service absent or removes the exact current Fylura registration.
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+  Call un.ReadZenCanvasIndexServiceOwnership
   ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
+    StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
     Return
   ${EndIf}
-  ; Re-check immediately before deletion. A foreign or empty ImagePath is
-  ; never deleted, even if the service name is the expected one.
-  Call un.ValidateZenCanvasIndexServiceOwnership
-  ${If} $ZC_INDEX_SERVICE_OWNERSHIP == 0
-    Return
+  ${If} $ZC_INDEX_SERVICE_OWNERSHIP != 1
+    MessageBox MB_ICONSTOP|MB_OK "The Fylura Global Index service exists but its ImagePath is foreign or could not be verified. Uninstall is incomplete; the service was preserved." /SD IDOK
+    DetailPrint "Uninstall is incomplete; the Global Index service was preserved because ownership could not be verified."
+    SetErrorLevel 2
+    Abort
   ${EndIf}
   DetailPrint "Removing Fylura Global Index service registration..."
   nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "${ZC_INDEX_SERVICE_NAME}"'

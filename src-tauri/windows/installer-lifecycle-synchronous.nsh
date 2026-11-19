@@ -573,7 +573,9 @@ Function un.ZCInitializeUninstallLifecycle
   IntOp $0 $0 + ${ESTIMATEDSIZE}
   StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
   StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 0
-  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+  ; The generated uninstall section must prove service cleanup after the main
+  ; binary reaches the irreversible boundary before any remaining files go.
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
   StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 0
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
@@ -680,8 +682,7 @@ Function un.ZCFailUninstallPartial
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call un.CommitZenCanvasPreviewQuiesce
   ${EndIf}
-  Call un.DeleteZenCanvasIndexService
-  MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall is incomplete after generated deletion began. Preview remains withdrawn and the exact-owned Global Index service was removed where verifiable; product files or metadata may remain." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall is incomplete after generated deletion began. Preview remains withdrawn; product files or metadata may remain." /SD IDOK
   Abort
 FunctionEnd
 

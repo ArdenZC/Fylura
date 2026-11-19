@@ -417,8 +417,13 @@ export function buildFyluraNsisTemplate(upstream) {
       "  IfErrors zc_uninstall_reversible_failure",
       "  Call un.ZCMarkUninstallIrreversible",
       "  Call un.ZCMarkUninstallGeneratedMutation",
+      "  Call un.DeleteZenCanvasIndexService",
+      "  ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1",
+      "    Call un.ZCFailUninstallPartial",
+      "    Abort",
+      "  ${EndIf}",
     ),
-    "uninstall main delete",
+    "uninstall main delete and exact-owned service cleanup",
   );
 
   output = replaceExactly(

@@ -485,9 +485,8 @@ Function un.ZCPostUninstallLifecycleFinal
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation
-  Call un.DeleteZenCanvasIndexService
   ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1
-    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Global Index service could not be verified as removed." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Global Index service was not verified as removed before the remaining program files were deleted." /SD IDOK
     SetErrorLevel 2
     Abort
   ${EndIf}

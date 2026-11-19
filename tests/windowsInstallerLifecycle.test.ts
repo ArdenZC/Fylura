@@ -864,7 +864,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
     const uninstallPartial = functionBody(synchronous, "un.ZCFailUninstallPartial");
     expect(uninstallPartial).toContain("Call un.CommitZenCanvasPreviewQuiesce");
-    expect(uninstallPartial).toContain("Call un.DeleteZenCanvasIndexService");
+    expect(uninstallPartial).not.toContain("Call un.DeleteZenCanvasIndexService");
     expect(uninstallPartial).not.toContain("RollbackZenCanvasPreviewQuiesce");
     expect(uninstallPartial).not.toContain("RestoreZenCanvasOriginalService");
   });
@@ -1985,30 +1985,45 @@ describe("W4-04 package NSIS lifecycle", () => {
       fs.readFileSync(finalPath, "utf8"),
       "un.ZCPostUninstallLifecycleFinal",
     );
-    expect(final.indexOf("Call un.RemoveZenCanvasManufacturerProductMarker")).toBeGreaterThan(
-      final.indexOf("Call un.DeleteZenCanvasIndexService"),
-    );
+    expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
+    expect(final).toContain("Call un.RemoveZenCanvasManufacturerProductMarker");
     expect(final).toContain("$ZC_UNINSTALL_MANUFACTURER_CLEAN != 1");
     expect(final).toContain("Abort");
   });
 
   it("does not report uninstall success until SCM and the service registry key are both clear", () => {
     const serviceCleanup = functionBody(installerHooksSource(), "un.DeleteZenCanvasIndexService");
+    expect(serviceCleanup).toContain("StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0");
     expect(serviceCleanup).toContain("Call un.ReadZenCanvasIndexServiceRuntimeState");
     expect(serviceCleanup).toContain("$ZC_INDEX_SERVICE_RUNTIME_STATE == 4");
     expect(serviceCleanup).toContain("ZC_REG_QUERY_KEY_STATE");
     expect(serviceCleanup).toContain("$ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}");
 
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const mainDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+    const serviceCleanupCall = generated.indexOf("Call un.DeleteZenCanvasIndexService", mainDelete);
+    const serviceStatusCheck = generated.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1", serviceCleanupCall);
+    const remainingFiles = generated.indexOf("ZC_UNINSTALL_RESOURCE", serviceStatusCheck);
+    expect(mainDelete).toBeGreaterThanOrEqual(0);
+    expect(serviceCleanupCall).toBeGreaterThan(mainDelete);
+    expect(serviceStatusCheck).toBeGreaterThan(serviceCleanupCall);
+    expect(remainingFiles).toBeGreaterThan(serviceStatusCheck);
+
     const final = functionBody(
       fs.readFileSync(finalPath, "utf8"),
       "un.ZCPostUninstallLifecycleFinal",
     );
-    const serviceCleanupCall = final.indexOf("Call un.DeleteZenCanvasIndexService");
-    const serviceStatusCheck = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
+    const initialize = functionBody(
+      fs.readFileSync(synchronousPath, "utf8"),
+      "un.ZCInitializeUninstallLifecycle",
+    );
+    expect(initialize).toContain("StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0");
+    const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
     const successExitCode = final.lastIndexOf("SetErrorLevel 0");
-    expect(serviceStatusCheck).toBeGreaterThan(serviceCleanupCall);
-    expect(successExitCode).toBeGreaterThan(serviceStatusCheck);
-    expect(final.slice(serviceStatusCheck, successExitCode)).toContain("Abort");
+    expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
+    expect(serviceStatusCheckFinal).toBeGreaterThanOrEqual(0);
+    expect(successExitCode).toBeGreaterThan(serviceStatusCheckFinal);
+    expect(final.slice(serviceStatusCheckFinal, successExitCode)).toContain("Abort");
   });
 
   it("T129: marker cleanup never recursively deletes the manufacturer parent", () => {
@@ -2212,9 +2227,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     const final = fs.readFileSync(finalPath, "utf8");
     const post = functionBody(final, "un.ZCPostUninstallLifecycleFinal");
     expect(post).toContain("Call un.ZCFinalizePreviewDllMutation");
-    expect(post.indexOf("Call un.ZCFinalizePreviewDllMutation")).toBeLessThan(
-      post.indexOf("Call un.DeleteZenCanvasIndexService"),
-    );
+    expect(post).not.toContain("Call un.DeleteZenCanvasIndexService");
   });
 
   it("T143: retirement cleanup is best-effort and can defer only the exact file", () => {

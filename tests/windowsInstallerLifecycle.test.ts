@@ -596,7 +596,7 @@ describe("W4-04 package NSIS lifecycle", () => {
       verifier.indexOf("$deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')"),
     );
     expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
-    expect(verifier).toContain("Fylura manufacturer marker remained after uninstall.");
+    expect(verifier).toContain("Fylura manufacturer marker remained after $phase uninstall.");
     expect(verifier).toContain("(Test-Path -LiteralPath $main) -or (Test-Path -LiteralPath $uninstaller) -or (Test-Path -LiteralPath $installDir)");
     expect(verifier).toContain("$mainExists -or $uninstallerExists -or $installDirExists");
     expect(verifier).toContain("if ($null -ne $s) { $s.Dispose() }");
@@ -1955,7 +1955,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(cleanup).toContain(
       'ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}',
     );
-    expect(cleanup).toContain('DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""');
+    expect(cleanup).toContain(
+      'RegOpenKeyExW(p ${ZC_REG_ROOT_HKLM}, w "$ZC_MANUFACTURER_PRODUCT_KEY", i 0, i 0x0102',
+    );
+    expect(cleanup).toContain("RegDeleteValueW(p r8, p 0)");
     expect(cleanup).toContain("ZC_UNINSTALL_MANUFACTURER_CLEAN");
     expect(manufacturerMarkerCleanupDecision({ type: "REG_SZ", value: manufacturerInstallLocation })).toEqual({
       deleteAttempted: true,

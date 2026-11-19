@@ -184,7 +184,9 @@ function Assert-Uninstalled([string]$phase) {
         $previewRegistration = Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}'
         Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration"
     }
-    Assert-Condition ($null -eq (Registry-Value 'SOFTWARE\Startlan\Fylura')) 'Fylura manufacturer marker remained after uninstall.'
+    $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+    $manufacturerKeyExists = Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Startlan\Fylura'
+    Assert-Condition ($null -eq $manufacturerMarker) "Fylura manufacturer marker remained after $phase uninstall. Value=$manufacturerMarker; keyExists=$manufacturerKeyExists"
     Assert-Preview $false
 }
 function Seed-Autostart {

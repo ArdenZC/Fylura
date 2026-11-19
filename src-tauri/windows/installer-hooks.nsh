@@ -1854,8 +1854,26 @@ Function un.RemoveZenCanvasManufacturerProductMarker
   SetRegView 64
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
-    ClearErrors
-    DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""
+    ; Use the same explicit 64-bit registry view as the ownership query. The
+    ; marker is only the default value, so deleting it through a writable key
+    ; handle avoids NSIS' implicit registry-view handling in the uninstaller.
+    System::Call 'advapi32::RegOpenKeyExW(p ${ZC_REG_ROOT_HKLM}, w "$ZC_MANUFACTURER_PRODUCT_KEY", i 0, i 0x0102, *p .r8) i.r9'
+    StrCpy $ZC_REG_RESULT $9
+    ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
+      DetailPrint "The Fylura manufacturer install-location marker could not be opened for cleanup (Windows error $ZC_REG_RESULT)."
+      Return
+    ${EndIf}
+    System::Call 'advapi32::RegDeleteValueW(p r8, p 0) i.r9'
+    StrCpy $ZC_REG_RESULT $9
+    System::Call 'advapi32::RegCloseKey(p r8) i.r9'
+    ${If} $ZC_REG_RESULT != ${ZC_REG_ERROR_SUCCESS}
+      StrCpy $R9 $ZC_REG_RESULT
+      !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
+      ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+        DetailPrint "The Fylura manufacturer install-location marker could not be deleted (Windows error $R9)."
+        Return
+      ${EndIf}
+    ${EndIf}
     !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}
     ${If} ${Errors}
     ${OrIf} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}

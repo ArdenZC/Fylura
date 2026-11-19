@@ -491,7 +491,7 @@ Function un.ZCPostUninstallLifecycleFinal
     SetErrorLevel 2
     Abort
   ${EndIf}
-  ${If} $UpdateMode <> 1
+  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1
     ${If} $ZC_UNINSTALL_STARTUP_CLEAN != 1
       MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. Fylura current-user startup entries could not be verified as removed." /SD IDOK
       SetErrorLevel 2

@@ -513,6 +513,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).toContain('    StrCpy $FyluraDeleteAppDataConfirmationFlag 1');
     const uninstallInit = functionBody(generated, "un.onInit");
     expect(uninstallInit).toContain("StrCpy $UpdateMode 0");
+    expect(uninstallInit).toContain("StrCpy $ZC_UNINSTALL_IS_UPDATE 0");
     const updateParameters = uninstallInit.indexOf('${GetParameters} $R0');
     const updateSwitch = uninstallInit.indexOf('StrCpy $R2 $R0 7');
     const updateSwitchCheck = uninstallInit.indexOf('${If} $R2 == "/UPDATE"');
@@ -522,6 +523,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(updateParameters).toBeGreaterThanOrEqual(0);
     expect(updateSwitch).toBeGreaterThan(updateParameters);
     expect(updateSwitchCheck).toBeGreaterThan(updateSwitch);
+    expect(uninstallInit).toContain("StrCpy $ZC_UNINSTALL_IS_UPDATE 1");
     expect(deleteRequest).toBeGreaterThanOrEqual(0);
     expect(deleteRequest).toBeGreaterThan(updateSwitchCheck);
     expect(confirmationRequest).toBeGreaterThan(deleteRequest);
@@ -2060,6 +2062,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
     expect(startupCleanup).toContain("DeleteRegValue HKCU");
     expect(startupCleanup).toContain("ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU}");
+    expect(final).toContain("$ZC_UNINSTALL_IS_UPDATE <> 1");
     expect(final).toContain("$ZC_UNINSTALL_STARTUP_CLEAN != 1");
     const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
     const successExitCode = final.lastIndexOf("SetErrorLevel 0");

@@ -116,7 +116,11 @@ function Assert-Preview([bool]$Present) {
 }
 function Assert-Service {
     $s = Get-Service -Name $service -ErrorAction SilentlyContinue
-    Assert-Condition ($null -ne $s -and $s.Status -eq 'Running') 'FyluraGlobalIndex did not reach RUNNING.'
+    try {
+        Assert-Condition ($null -ne $s -and $s.Status -eq 'Running') 'FyluraGlobalIndex did not reach RUNNING.'
+    } finally {
+        if ($null -ne $s) { $s.Dispose() }
+    }
 }
 function Assert-Uninstalled {
     for ($i = 0; $i -lt 120 -and (Test-Path -LiteralPath $main); $i++) { Start-Sleep -Milliseconds 500 }

@@ -571,6 +571,7 @@ describe("W4-04 package NSIS lifecycle", () => {
       verifier.indexOf("$deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')"),
     );
     expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
+    expect(verifier).toContain("if ($null -ne $s) { $s.Dispose() }");
     expect(verifier).toContain("Assert-Preview $false");
     expect(verifier).toContain("Assert-Preview $true");
     expect(verifier).toContain("phase = 'cleanup-failed'");

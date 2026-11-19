@@ -503,9 +503,13 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).toContain('    fylura_confirm_full_cleanup:');
     expect(generated).not.toContain("MB_ICONWARNING");
     expect(generated).not.toContain("MB_DEFBUTTON2");
-    expect(generated).toContain('  ${If} ${Silent}');
-    expect(generated).toContain('  ${If} $PassiveMode == 1');
+    expect(generated).toContain('  ${If} $DeleteAppDataCheckboxState == 1');
+    expect(generated).toContain('  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1');
+    expect(generated).toContain('SetErrorLevel 2');
+    expect(generated).toContain('    Quit');
     expect(generated).not.toContain('GetOptions $CMDLINE "/S"');
+    expect(generated).not.toContain('Silent full cleanup requires both');
+    expect(generated).not.toContain('Passive full cleanup requires both');
     expect(generated).toContain("Fylura data cleanup is INCOMPLETE");
     expect(generated).toContain("Call un.ZCRecoverUninstallReversible");
     expect(generated).toContain("Call un.ZCMarkUninstallIrreversible");

@@ -700,9 +700,7 @@ Function un.ZCRemoveFyluraStartup
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
   Push $R0
   Push $R1
-  ReadEnvStr $R0 "RUNNER_TEMP"
-  StrCmp $R0 "" fylura_startup_probe_done
-  StrCpy $R0 "$R0\fylura-uninstall-lifecycle-probe.log"
+  StrCpy $R0 "$INSTDIR\..\fylura-uninstall-lifecycle-probe.log"
   ClearErrors
   FileOpen $R1 "$R0" a
   IfErrors fylura_startup_probe_done
@@ -743,6 +741,18 @@ fylura_startup_probe_done:
   ${EndIf}
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 1
 fylura_startup_cleanup_done:
+  Push $R0
+  Push $R1
+  StrCpy $R0 "$INSTDIR\..\fylura-uninstall-lifecycle-probe.log"
+  ClearErrors
+  FileOpen $R1 "$R0" a
+  IfErrors fylura_startup_result_probe_done
+  FileWrite $R1 "startup.result; clean=$ZC_UNINSTALL_STARTUP_CLEAN; valueState=$ZC_REG_VALUE_STATE$\r$\n"
+  FileClose $R1
+fylura_startup_result_probe_done:
+  ClearErrors
+  Pop $R1
+  Pop $R0
   Push $R0
   Push $R1
   ClearErrors

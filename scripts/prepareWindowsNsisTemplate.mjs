@@ -319,9 +319,7 @@ export function buildFyluraNsisTemplate(upstream) {
     ),
     lines(
       '  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1',
-      '    ReadEnvStr $R0 "RUNNER_TEMP"',
-      '    StrCmp $R0 "" zc_uninstall_startup_site_probe_done',
-      '    StrCpy $R0 "$R0\\fylura-uninstall-lifecycle-probe.log"',
+      '    StrCpy $R0 "$INSTDIR\\..\\fylura-uninstall-lifecycle-probe.log"',
       "    ClearErrors",
       '    FileOpen $R1 "$R0" a',
       "    IfErrors zc_uninstall_startup_site_probe_done",
@@ -371,9 +369,7 @@ export function buildFyluraNsisTemplate(upstream) {
     lines(
       "  ; Resolve cleanup mode in the section that performs the uninstall.",
       "  StrCpy $ZC_UNINSTALL_IS_UPDATE 0",
-      '  ReadEnvStr $R0 "RUNNER_TEMP"',
-      '  StrCmp $R0 "" zc_uninstall_section_probe_done',
-      '  StrCpy $R0 "$R0\\fylura-uninstall-lifecycle-probe.log"',
+      '  StrCpy $R0 "$INSTDIR\\..\\fylura-uninstall-lifecycle-probe.log"',
       "  ClearErrors",
       '  FileOpen $R1 "$R0" a',
       "  IfErrors zc_uninstall_section_probe_done",

@@ -486,6 +486,18 @@ Function un.ZCPostUninstallLifecycleFinal
   WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.entered" "1"
   WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.update" "$ZC_UNINSTALL_IS_UPDATE"
   WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.startupClean" "$ZC_UNINSTALL_STARTUP_CLEAN"
+  Push $R0
+  Push $R1
+  StrCpy $R0 "$INSTDIR\..\fylura-uninstall-lifecycle-probe.log"
+  ClearErrors
+  FileOpen $R1 "$R0" a
+  IfErrors fylura_final_entry_probe_done
+  FileWrite $R1 "final.entered; update=$ZC_UNINSTALL_IS_UPDATE; startupClean=$ZC_UNINSTALL_STARTUP_CLEAN$\r$\n"
+  FileClose $R1
+fylura_final_entry_probe_done:
+  ClearErrors
+  Pop $R1
+  Pop $R0
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Push $R0
   Push $R1

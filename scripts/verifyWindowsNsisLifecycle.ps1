@@ -70,73 +70,11 @@ function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments) {
         $process.Dispose()
     }
 }
-function Get-LifecycleProbe {
-    $snapshots = foreach ($hive in @([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryHive]::LocalMachine)) {
-        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
-            try {
-                $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
-                if ($null -eq $key) {
-                    [pscustomobject]@{ hive = $hive.ToString(); view = $view.ToString(); values = $null }
-                    continue
-                }
-                try {
-                    $values = [ordered]@{}
-                    foreach ($name in $key.GetValueNames()) { $values[$name] = $key.GetValue($name) }
-                    [pscustomobject]@{ hive = $hive.ToString(); view = $view.ToString(); values = $values }
-                } finally { $key.Dispose() }
-            } finally { $base.Dispose() }
-        }
-    }
-    return ($snapshots | ConvertTo-Json -Compress -Depth 4)
-}
-function Test-LifecycleProbePresent {
-    foreach ($hive in @([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryHive]::LocalMachine)) {
-        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
-            try {
-                $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
-                if ($null -ne $key) { $key.Dispose(); return $true }
-            } finally { $base.Dispose() }
-        }
-    }
-    return $false
-}
-function Remove-LifecycleProbe {
-    foreach ($hive in @([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryHive]::LocalMachine)) {
-        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
-            try {
-                $parent = $base.OpenSubKey('Software\Fylura', $true)
-                if ($null -ne $parent) {
-                    try { $parent.DeleteSubKeyTree('CodexUninstallLifecycleProbe', $false) }
-                    finally { $parent.Dispose() }
-                }
-            } finally { $base.Dispose() }
-        }
-    }
-}
 function Install {
     return Invoke-CurrentUserProcess $installer @('/S', "/D=$installDir")
 }
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
-    $script:uninstallerLogIndex++
-    $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
-    $script:lastUninstallerDiagnostics = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).diagnostics"
-    $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog", "/FYLURA_DIAGNOSTICS=$script:lastUninstallerDiagnostics")
-    $exitCode = Invoke-CurrentUserProcess $uninstaller $arguments
-    if (Test-Path -LiteralPath $script:lastUninstallerDiagnostics) {
-        $script:lastUninstallerDiagnostics = (Get-Content -LiteralPath $script:lastUninstallerDiagnostics -Raw).Trim()
-    } else {
-        $script:lastUninstallerDiagnostics = 'diagnostics file was not created'
-    }
-    $script:lastUninstallerProbe = Get-LifecycleProbe
-    if (Test-Path -LiteralPath $script:lifecycleProbeFile) {
-        $script:lastUninstallerFileProbe = (Get-Content -LiteralPath $script:lifecycleProbeFile -Raw).Trim()
-    } else {
-        $script:lastUninstallerFileProbe = 'probe file was not created'
-    }
-    return $exitCode
+    return Invoke-CurrentUserProcess $uninstaller $UninstallArgs
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }
@@ -209,11 +147,7 @@ function Assert-Uninstalled([string]$phase) {
         if ($installDirExists) {
             $remainingInstallFiles = @(Get-ChildItem -LiteralPath $installDir -Force | ForEach-Object { $_.Name })
         }
-        $uninstallLogTail = @()
-        if ($script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)) {
-            $uninstallLogTail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 80)
-        }
-        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|'); NSIS diagnostic=$script:lastUninstallerDiagnostics; lifecycle registry probe=$script:lastUninstallerProbe; lifecycle file probe=$script:lastUninstallerFileProbe; NSIS log tail=$($uninstallLogTail -join ' | ')"
+        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|')"
     }
     if (Test-Path -LiteralPath $serviceKey) {
         $scm = Invoke-Sc @('query', $service)
@@ -227,12 +161,7 @@ function Assert-Uninstalled([string]$phase) {
             # a service that was marked for deletion but remains open.
             $deleteProbe = Invoke-Sc @('delete', $service)
         }
-        $serviceLog = @()
-        $serviceLogExists = Test-Path -LiteralPath $script:lastUninstallerLog
-        if ($serviceLogExists) {
-            $serviceLog = @(Get-Content -LiteralPath $script:lastUninstallerLog | Where-Object { $_ -match 'Fylura (Global Index|service cleanup|uninstall)|service registration|incomplete|sc\.exe delete' } | Select-Object -Last 40)
-        }
-        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; controlled delete probe exit=$($deleteProbe.code), output=$($deleteProbe.output); NSIS log exists=$serviceLogExists, path=$script:lastUninstallerLog, service log=$($serviceLog -join ' | ')"
+        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; controlled delete probe exit=$($deleteProbe.code), output=$($deleteProbe.output)"
     }
     $entries = @(Get-FyluraUninstallEntries)
     if ($entries.Count -ne 0) {
@@ -253,14 +182,7 @@ function Assert-Uninstalled([string]$phase) {
         )
         $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
         $previewRegistration = Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}'
-        $uninstallLogExists = $script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)
-        $uninstallLogLength = 0
-        $uninstallLogTail = @()
-        if ($uninstallLogExists) {
-            $uninstallLogLength = (Get-Item -LiteralPath $script:lastUninstallerLog).Length
-            $uninstallLogTail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 120)
-        }
-        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration; NSISLogExists=$uninstallLogExists; NSISLogBytes=$uninstallLogLength; NSISLogTail=$($uninstallLogTail -join ' | ')"
+        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration"
     }
     Assert-Preview $false
 }
@@ -299,9 +221,7 @@ function Assert-Autostart([bool]$FyluraPresent) {
             }
         }
         $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
-        $uninstallLogExists = $script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)
-        $uninstallLogTail = if ($uninstallLogExists) { @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 40) } else { @() }
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics; lifecycle probe=$script:lastUninstallerProbe; lifecycle file probe=$script:lastUninstallerFileProbe; logExists=$uninstallLogExists; logTail=$($uninstallLogTail -join ' | ')"
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails"
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'
@@ -323,15 +243,9 @@ function Cleanup-Autostart {
 }
 
 $installer = [IO.Path]::GetFullPath($InstallerPath)
-Assert-Condition (-not (Test-LifecycleProbePresent)) 'The temporary NSIS lifecycle probe key already exists; refusing to overwrite it.'
 $script:evidence = [System.Collections.Generic.List[object]]::new()
 $script:status = 'IN_PROGRESS'
-$script:lastUninstallerProbe = 'not run'
-$script:lastUninstallerFileProbe = 'not run'
 $script:credentialFixtures = [System.Collections.Generic.List[string]]::new()
-$script:uninstallerLogIndex = 0
-$script:lastUninstallerLog = $null
-$script:lastUninstallerDiagnostics = $null
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $appDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
 $localAppDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
@@ -339,7 +253,6 @@ $data = Join-Path $appDataRoot 'com.startlan.fylura'
 $cache = Join-Path $localAppDataRoot 'com.startlan.fylura'
 $legacyData = Join-Path $appDataRoot 'com.startlan.zencanvas'
 $taskRoot = Join-Path $runnerTemp "fylura-nsis-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-$script:lifecycleProbeFile = Join-Path $taskRoot 'fylura-uninstall-lifecycle-probe.log'
 $installDir = Join-Path $taskRoot 'install'
 $main = Join-Path $installDir 'fylura.exe'
 $uninstaller = Join-Path $installDir 'uninstall.exe'
@@ -380,7 +293,6 @@ try {
     Assert-Condition ([Security.Principal.WindowsPrincipal]::new($id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Lifecycle verification requires an elevated hosted runner.'
     Assert-Condition (Test-Path -LiteralPath $installer -PathType Leaf) 'NSIS installer is missing.'
     Assert-Condition (-not (Test-Path -LiteralPath $taskRoot)) 'Refusing a pre-existing lifecycle fixture directory.'
-    Assert-Condition (-not (Test-Path -LiteralPath $script:lifecycleProbeFile)) 'Refusing a pre-existing NSIS lifecycle probe file.'
     Assert-Condition (-not (Test-Path -LiteralPath $serviceKey) -and -not (Test-Path -LiteralPath $legacyServiceKey)) 'Refusing a pre-existing Fylura or legacy service.'
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Refusing to run over an existing Fylura installation.'
     Assert-Condition (-not (Test-Path -LiteralPath $data) -and -not (Test-Path -LiteralPath $cache) -and -not (Test-Path -LiteralPath $legacyData)) 'Refusing to alter existing application data.'
@@ -484,7 +396,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         $scm = Invoke-Sc @('query', $service)
         $configuration = Invoke-Sc @('qc', $service)
         $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
-        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; NSIS log path=$script:lastUninstallerLog; NSIS diagnostic=$script:lastUninstallerDiagnostics"
+        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath"
     }
     Assert-Uninstalled 'ordinary'
     foreach ($entry in $files.GetEnumerator()) {
@@ -533,12 +445,6 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
 } catch {
     $script:status = 'FAIL'
     $errorDetails = $_.Exception.Message
-    if ($script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)) {
-        $tail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 80)
-        if ($tail.Count -gt 0) { $errorDetails += "; NSIS log tail=$($tail -join ' | ')" }
-    }
-    if ($script:lastUninstallerDiagnostics) { $errorDetails += "; NSIS diagnostic=$script:lastUninstallerDiagnostics" }
-    if ($script:lastUninstallerFileProbe) { $errorDetails += "; lifecycle file probe=$script:lastUninstallerFileProbe" }
     $script:evidence.Add([ordered]@{ phase = 'failed'; at = [DateTime]::UtcNow.ToString('o'); error = $errorDetails; script = 'verifyWindowsNsisLifecycle.ps1'; scriptLine = $_.InvocationInfo.ScriptLineNumber })
     $parent = Split-Path -Parent $EvidencePath
     if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
@@ -549,8 +455,6 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         Cleanup-Autostart
         Remove-Credentials
         Remove-LegacyServiceFixture
-        Remove-LifecycleProbe
-        if (Test-Path -LiteralPath $script:lifecycleProbeFile) { Remove-Item -LiteralPath $script:lifecycleProbeFile -Force }
         if ($script:appDataFixtureCreated) { Remove-Item -LiteralPath $data, $cache, $legacyData -Recurse -Force -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $taskRoot) {
             $resolved = [IO.Path]::GetFullPath($taskRoot)

@@ -460,9 +460,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
 
     expect(source).toContain(
-      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics;',
+      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails"',
     );
-    expect(source).toContain("$uninstallLogTail -join ' | '");
     expect(source).not.toContain("NSIS-QA");
     expect(source).not.toContain("$($r.Fylura)");
   });
@@ -538,6 +537,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(confirmationRequest).toBeGreaterThan(deleteRequest);
     expect(fullCleanupEnabled).toBeGreaterThan(confirmationRequest);
     expect(uninstallSection.indexOf("Call un.ZCPrepareUninstallLifecycle")).toBeGreaterThan(fullCleanupEnabled);
+    const startupCleanup = uninstallSection.indexOf("Call un.ZCRemoveFyluraStartup");
+    const mainDelete = uninstallSection.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+    expect(startupCleanup).toBeGreaterThan(uninstallSection.indexOf("Call un.ZCPrepareUninstallLifecycle"));
+    expect(startupCleanup).toBeLessThan(mainDelete);
     expect(generated).not.toContain("NSIS-QA");
     expect(generated).not.toContain('GetOptions $CMDLINE "/S"');
     expect(generated).not.toContain('Silent full cleanup requires both');
@@ -596,13 +599,9 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("(Test-Path -LiteralPath $main) -or (Test-Path -LiteralPath $uninstaller) -or (Test-Path -LiteralPath $installDir)");
     expect(verifier).toContain("$mainExists -or $uninstallerExists -or $installDirExists");
     expect(verifier).toContain("if ($null -ne $s) { $s.Dispose() }");
-    expect(verifier).toContain('"/LOG=$script:lastUninstallerLog"');
     expect(verifier).toContain("registrationDetails");
     expect(verifier).toContain("displayName = Registry-Value $key 'DisplayName'");
     expect(verifier).toContain("uninstallString = Registry-Value $key 'UninstallString'");
-    expect(verifier).toContain("NSISLogExists=$uninstallLogExists");
-    expect(verifier).toContain("NSISLogBytes=$uninstallLogLength");
-    expect(verifier).toContain("NSISLogTail=$($uninstallLogTail -join ' | ')");
     expect(verifier).toContain("SCM query exit=");
     expect(verifier).toContain("if ([string]$imagePath -ceq $expectedImagePath)");
     expect(verifier).toContain("$deleteProbe = Invoke-Sc @('delete', $service)");

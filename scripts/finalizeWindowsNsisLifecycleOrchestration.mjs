@@ -53,7 +53,6 @@ export function finalizeWindowsNsisLifecycleOrchestration(source) {
     ),
     lines(
       "zc_uninstall_generated_success:",
-      '  WriteRegStr HKCU "Software\\Fylura\\CodexUninstallLifecycleProbe" "post.site" "1"',
       "  Call un.ZCPostUninstallLifecycleFinal",
       "  ${If} $ZC_UNINSTALL_FINAL_CLEAN != 1",
       "    SetErrorLevel 2",

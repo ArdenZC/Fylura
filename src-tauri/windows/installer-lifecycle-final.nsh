@@ -483,38 +483,7 @@ Function un.ZCPostUninstallLifecycleFinal
   ; can return to the NSIS section. A partial cleanup must never look successful.
   StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0
   SetErrorLevel 2
-  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.entered" "1"
-  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.update" "$ZC_UNINSTALL_IS_UPDATE"
-  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "final.startupClean" "$ZC_UNINSTALL_STARTUP_CLEAN"
-  Push $R0
-  Push $R1
-  StrCpy $R0 "$INSTDIR\..\fylura-uninstall-lifecycle-probe.log"
-  ClearErrors
-  FileOpen $R1 "$R0" a
-  IfErrors fylura_final_entry_probe_done
-  FileWrite $R1 "final.entered; update=$ZC_UNINSTALL_IS_UPDATE; startupClean=$ZC_UNINSTALL_STARTUP_CLEAN$\r$\n"
-  FileClose $R1
-fylura_final_entry_probe_done:
-  ClearErrors
-  Pop $R1
-  Pop $R0
   Call un.ZCMarkUninstallPostGeneratedIntegration
-  Push $R0
-  Push $R1
-  ClearErrors
-  ${GetOptions} $CMDLINE "/FYLURA_DIAGNOSTICS=" $R0
-  ${IfNot} ${Errors}
-    ClearErrors
-    FileOpen $R1 "$R0" a
-    IfErrors fylura_nsis_diagnostics_done
-    FileWrite $R1 "cmdline=$CMDLINE; update=$ZC_UNINSTALL_IS_UPDATE; updateMode=$UpdateMode; deleteData=$DeleteAppDataCheckboxState; startupClean=$ZC_UNINSTALL_STARTUP_CLEAN$\r$\n"
-    FileClose $R1
-fylura_nsis_diagnostics_done:
-    ClearErrors
-  ${EndIf}
-  ClearErrors
-  Pop $R1
-  Pop $R0
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation
   ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1

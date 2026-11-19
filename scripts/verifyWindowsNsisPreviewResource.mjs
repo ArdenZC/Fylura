@@ -72,13 +72,13 @@ export function assertGeneratedPreviewResourcePath(
     );
   }
 
-  for (const call of [
-    "Call un.ZCRemoveFyluraStartup",
-    "Call un.ZCPostUninstallLifecycleFinal",
-  ]) {
-    if (!generated.includes(call)) {
-      throw new Error(`Generated installer is missing required uninstall lifecycle call: ${call}`);
-    }
+  if (!generated.includes("Call un.ZCPostUninstallLifecycleFinal")) {
+    throw new Error("Generated installer is missing required uninstall lifecycle call");
+  }
+  const startupCleanupCall = generated.indexOf("Call un.ZCRemoveFyluraStartup");
+  const mainExecutableDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+  if (startupCleanupCall < 0 || mainExecutableDelete < 0 || startupCleanupCall > mainExecutableDelete) {
+    throw new Error("Generated installer must remove Fylura startup entries before deleting application files");
   }
 
   const installPreview = previewMacroBody(servicing, "ZC_INSTALL_PREVIEW_RESOURCE");

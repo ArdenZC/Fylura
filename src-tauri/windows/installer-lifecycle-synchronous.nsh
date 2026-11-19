@@ -695,22 +695,7 @@ Function un.ZCFinishUninstallLifecycle
 FunctionEnd
 
 Function un.ZCRemoveFyluraStartup
-  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.entered" "1"
-  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.update" "$ZC_UNINSTALL_IS_UPDATE"
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
-  Push $R0
-  Push $R1
-  StrCpy $R0 "$INSTDIR\..\fylura-uninstall-lifecycle-probe.log"
-  ClearErrors
-  FileOpen $R1 "$R0" a
-  IfErrors fylura_startup_probe_done
-  FileWrite $R1 "startup.function; update=$ZC_UNINSTALL_IS_UPDATE$\r$\n"
-  FileClose $R1
-fylura_startup_probe_done:
-  ClearErrors
-  Pop $R1
-  Pop $R0
-
   SetRegView 64
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
@@ -718,7 +703,6 @@ fylura_startup_probe_done:
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
   SetRegView 64
-  WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.deleteComplete" "1"
   ClearErrors
 
   ; Confirm both values are absent in both registry views before reporting a
@@ -741,32 +725,4 @@ fylura_startup_probe_done:
   ${EndIf}
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 1
 fylura_startup_cleanup_done:
-  Push $R0
-  Push $R1
-  StrCpy $R0 "$INSTDIR\..\fylura-uninstall-lifecycle-probe.log"
-  ClearErrors
-  FileOpen $R1 "$R0" a
-  IfErrors fylura_startup_result_probe_done
-  FileWrite $R1 "startup.result; clean=$ZC_UNINSTALL_STARTUP_CLEAN; valueState=$ZC_REG_VALUE_STATE$\r$\n"
-  FileClose $R1
-fylura_startup_result_probe_done:
-  ClearErrors
-  Pop $R1
-  Pop $R0
-  Push $R0
-  Push $R1
-  ClearErrors
-  ${GetOptions} $CMDLINE "/FYLURA_DIAGNOSTICS=" $R0
-  ${IfNot} ${Errors}
-    ClearErrors
-    FileOpen $R1 "$R0" a
-    IfErrors fylura_startup_diagnostics_done
-    FileWrite $R1 "startupClean=$ZC_UNINSTALL_STARTUP_CLEAN; update=$ZC_UNINSTALL_IS_UPDATE; valueState=$ZC_REG_VALUE_STATE; cmdline=$CMDLINE$\r$\n"
-    FileClose $R1
-fylura_startup_diagnostics_done:
-    ClearErrors
-  ${EndIf}
-  ClearErrors
-  Pop $R1
-  Pop $R0
 FunctionEnd

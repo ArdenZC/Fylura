@@ -460,9 +460,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
 
     expect(source).toContain(
-      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics;',
+      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; logExists=$uninstallLogExists;',
     );
     expect(source).toContain("$uninstallLogTail -join ' | '");
+    expect(source).not.toContain("NSIS-QA");
     expect(source).not.toContain("$($r.Fylura)");
   });
 
@@ -522,15 +523,13 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).toContain('  ${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1');
     expect(generated).toContain('    StrCpy $DeleteAppDataCheckboxState 1');
     expect(generated).toContain('    StrCpy $FyluraDeleteAppDataConfirmationFlag 1');
-    const uninstallInit = functionBody(generated, "un.onInit");
-    expect(uninstallInit).toContain("StrCpy $UpdateMode 0");
-    expect(uninstallInit).toContain("StrCpy $ZC_UNINSTALL_IS_UPDATE 0");
-    const updateOptions = uninstallInit.indexOf('${GetOptions} $CMDLINE "/UPDATE" $UpdateMode');
-    const updateSwitchCheck = uninstallInit.indexOf('${IfNot} ${Errors}', updateOptions);
-    const updateSwitchMark = uninstallInit.indexOf('StrCpy $ZC_UNINSTALL_IS_UPDATE 1');
-    const deleteRequest = uninstallInit.indexOf('${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R1');
-    const confirmationRequest = uninstallInit.indexOf('${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1');
-    const fullCleanupEnabled = uninstallInit.indexOf('StrCpy $DeleteAppDataCheckboxState 1');
+    const uninstallSection = sectionBody(generated, "Uninstall");
+    const updateOptions = uninstallSection.indexOf('${GetOptions} $CMDLINE "/UPDATE" $R1');
+    const updateSwitchCheck = uninstallSection.indexOf('${IfNot} ${Errors}', updateOptions);
+    const updateSwitchMark = uninstallSection.indexOf('StrCpy $ZC_UNINSTALL_IS_UPDATE 1');
+    const deleteRequest = uninstallSection.indexOf('${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R1');
+    const confirmationRequest = uninstallSection.indexOf('${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1');
+    const fullCleanupEnabled = uninstallSection.indexOf('StrCpy $DeleteAppDataCheckboxState 1');
     expect(updateOptions).toBeGreaterThanOrEqual(0);
     expect(updateSwitchCheck).toBeGreaterThan(updateOptions);
     expect(updateSwitchMark).toBeGreaterThan(updateSwitchCheck);
@@ -538,6 +537,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(deleteRequest).toBeGreaterThan(updateSwitchMark);
     expect(confirmationRequest).toBeGreaterThan(deleteRequest);
     expect(fullCleanupEnabled).toBeGreaterThan(confirmationRequest);
+    expect(uninstallSection.indexOf("Call un.ZCPrepareUninstallLifecycle")).toBeGreaterThan(fullCleanupEnabled);
+    expect(generated).not.toContain("NSIS-QA");
     expect(generated).not.toContain('GetOptions $CMDLINE "/S"');
     expect(generated).not.toContain('Silent full cleanup requires both');
     expect(generated).not.toContain('Passive full cleanup requires both');

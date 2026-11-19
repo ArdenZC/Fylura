@@ -456,6 +456,15 @@ function freshDetectionSeesProduct(
 }
 
 describe("W4-04 package NSIS lifecycle", () => {
+  it("reports startup cleanup failures without dereferencing an absent Run value", () => {
+    const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
+
+    expect(source).toContain(
+      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails"',
+    );
+    expect(source).not.toContain("$($r.Fylura)");
+  });
+
   it("does not assume unrelated Add/Remove Programs keys contain Fylura metadata", () => {
     const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
     const start = source.indexOf("function Get-FyluraUninstallEntries");

@@ -596,6 +596,7 @@ describe("W4-04 package NSIS lifecycle", () => {
       verifier.indexOf("$deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')"),
     );
     expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
+    expect(verifier).toContain("Fylura manufacturer marker remained after uninstall.");
     expect(verifier).toContain("(Test-Path -LiteralPath $main) -or (Test-Path -LiteralPath $uninstaller) -or (Test-Path -LiteralPath $installDir)");
     expect(verifier).toContain("$mainExists -or $uninstallerExists -or $installDirExists");
     expect(verifier).toContain("if ($null -ne $s) { $s.Dispose() }");

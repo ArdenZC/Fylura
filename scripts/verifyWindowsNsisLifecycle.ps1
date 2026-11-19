@@ -184,6 +184,7 @@ function Assert-Uninstalled([string]$phase) {
         $previewRegistration = Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}'
         Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration"
     }
+    Assert-Condition ($null -eq (Registry-Value 'SOFTWARE\Startlan\Fylura')) 'Fylura manufacturer marker remained after uninstall.'
     Assert-Preview $false
 }
 function Seed-Autostart {
@@ -413,7 +414,12 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
     Record-Phase 'delete-only-request-falls-back-to-ordinary' @{ exitCode = $deleteOnly; appDataCredentialsAndSafeTrashPreserved = $true; servicePreviewAndOwnStartupRemoved = $true; unrelatedStartupPreserved = $true }
 
     $reinstall = Install
-    Assert-Condition ($reinstall -eq 0) "Reinstall failed with exit code $reinstall."
+    if ($reinstall -ne 0) {
+        $serviceImagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
+        $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+        $uninstallEntries = @(Get-FyluraUninstallEntries | ForEach-Object { $_.key })
+        throw "Reinstall failed with exit code $reinstall. Service ImagePath=$serviceImagePath; manufacturer marker=$manufacturerMarker; Fylura uninstall entries=$($uninstallEntries -join '|'); Preview CLSID=$(Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}')"
+    }
     Assert-Service
     Assert-Preview $true
     $dbOutput = @(& $python $verify $files.database 2>&1)

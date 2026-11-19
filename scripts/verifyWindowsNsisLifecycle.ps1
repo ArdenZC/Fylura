@@ -66,6 +66,8 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $env:FYLURA_NSIS_DIAGNOSTICS_FILE = $script:lastUninstallerDiagnostics
     try {
         $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
+        if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
+        $p.Refresh()
     } finally {
         if ($null -eq $previousDiagnosticsPath) {
             Remove-Item Env:FYLURA_NSIS_DIAGNOSTICS_FILE -ErrorAction SilentlyContinue
@@ -73,8 +75,6 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
             $env:FYLURA_NSIS_DIAGNOSTICS_FILE = $previousDiagnosticsPath
         }
     }
-    if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
-    $p.Refresh()
     if (Test-Path -LiteralPath $script:lastUninstallerDiagnostics) {
         $script:lastUninstallerDiagnostics = (Get-Content -LiteralPath $script:lastUninstallerDiagnostics -Raw).Trim()
     } else {

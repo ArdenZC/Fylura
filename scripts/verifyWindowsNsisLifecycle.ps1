@@ -60,15 +60,16 @@ function Install {
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $script:uninstallerLogIndex++
     $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
-    $diagnosticPath = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex)-diagnostic.txt"
     $script:lastUninstallerDiagnostics = ''
     $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
-    $arguments += "/FYLURA_NSIS_QA_DIAGNOSTIC=$diagnosticPath"
     $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
     if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
     $p.Refresh()
-    if (Test-Path -LiteralPath $diagnosticPath -PathType Leaf) {
-        $script:lastUninstallerDiagnostics = [IO.File]::ReadAllText($diagnosticPath)
+    $diagnosticKey = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Fylura\NSIS-QA'
+    if (Test-Path -LiteralPath $diagnosticKey) {
+        $diagnostic = Get-ItemProperty -LiteralPath $diagnosticKey
+        $script:lastUninstallerDiagnostics = "CMDLINE=$($diagnostic.CommandLine); PARAMETERS=$($diagnostic.Parameters); INIT_UPDATE=$($diagnostic.UpdateAtInit); FINAL_UPDATE=$($diagnostic.UpdateAtFinal); STARTUP_CLEAN=$($diagnostic.StartupClean)"
+        Remove-Item -LiteralPath $diagnosticKey -Recurse -Force
     }
     return [int]$p.ExitCode
 }
@@ -461,6 +462,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
     throw
 } finally {
     try {
+        Remove-Item -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Fylura\NSIS-QA' -Recurse -Force -ErrorAction SilentlyContinue
         Cleanup-Autostart
         Remove-Credentials
         Remove-LegacyServiceFixture

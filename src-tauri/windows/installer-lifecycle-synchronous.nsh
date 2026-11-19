@@ -696,6 +696,7 @@ FunctionEnd
 
 Function un.ZCRemoveFyluraStartup
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
+  DetailPrint "Fylura startup cleanup is running in the current user context."
   SetRegView 64
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"

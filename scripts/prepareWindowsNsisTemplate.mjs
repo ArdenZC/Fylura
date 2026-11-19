@@ -178,6 +178,8 @@ export function buildFyluraNsisTemplate(upstream) {
       "  ${EndIf}",
       "  ${EndIf}",
       "  ClearErrors",
+      "  LogSet on",
+      '  DetailPrint "Fylura uninstaller update mode: $UpdateMode"',
       "FunctionEnd",
     ),
     "make automated full cleanup require both explicit flags",

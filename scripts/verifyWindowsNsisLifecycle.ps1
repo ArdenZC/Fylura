@@ -223,7 +223,9 @@ function Assert-Autostart([bool]$FyluraPresent) {
             }
         }
         $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall: $($r.Fylura). Registry views: $viewDetails"
+        $logExists = Test-Path -LiteralPath $script:lastUninstallerLog
+        $logTail = if ($logExists) { @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 40) } else { @() }
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall: $($r.Fylura). Registry views: $viewDetails. NSISLogExists=$logExists; NSISLogTail=$($logTail -join ' | ')"
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'

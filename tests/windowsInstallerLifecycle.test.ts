@@ -516,20 +516,23 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).toContain('  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1');
     expect(generated).toContain('  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1\n  ${AndIf} $DeleteAppDataCheckboxState == 1');
     expect(generated).not.toContain("System::Call 'kernel32::ExitProcess(i 2)'");
-    expect(generated).toContain('  ${GetOptions} $CMDLINE "/UPDATE" $R1');
-    expect(generated).toContain('  ${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R0');
-    expect(generated).toContain('  ${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1');
+    expect(generated).toContain('  ${GetParameters} $R0');
+    expect(generated).toContain('  ${GetOptions} $R0 "/UPDATE" $R1');
+    expect(generated).toContain('  ${GetOptions} $R0 "/DELETE_APP_DATA" $R1');
+    expect(generated).toContain('  ${GetOptions} $R0 "/CONFIRM_DELETE_APP_DATA" $R1');
     expect(generated).toContain('    StrCpy $DeleteAppDataCheckboxState 1');
     expect(generated).toContain('    StrCpy $FyluraDeleteAppDataConfirmationFlag 1');
     const uninstallInit = functionBody(generated, "un.onInit");
     expect(uninstallInit).toContain("StrCpy $UpdateMode 0");
     expect(uninstallInit).toContain("StrCpy $ZC_UNINSTALL_IS_UPDATE 0");
-    const updateSwitch = uninstallInit.indexOf('${GetOptions} $CMDLINE "/UPDATE" $R1');
+    const updateParameters = uninstallInit.indexOf('${GetParameters} $R0');
+    const updateSwitch = uninstallInit.indexOf('${GetOptions} $R0 "/UPDATE" $R1');
     const updateSwitchCheck = uninstallInit.indexOf('StrCpy $ZC_UNINSTALL_IS_UPDATE 1');
-    const deleteRequest = uninstallInit.indexOf('${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R0');
-    const confirmationRequest = uninstallInit.indexOf('${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1');
+    const deleteRequest = uninstallInit.indexOf('${GetOptions} $R0 "/DELETE_APP_DATA" $R1');
+    const confirmationRequest = uninstallInit.indexOf('${GetOptions} $R0 "/CONFIRM_DELETE_APP_DATA" $R1');
     const fullCleanupEnabled = uninstallInit.indexOf('StrCpy $DeleteAppDataCheckboxState 1');
-    expect(updateSwitch).toBeGreaterThanOrEqual(0);
+    expect(updateParameters).toBeGreaterThanOrEqual(0);
+    expect(updateSwitch).toBeGreaterThan(updateParameters);
     expect(updateSwitchCheck).toBeGreaterThan(updateSwitch);
     expect(uninstallInit).toContain("StrCpy $ZC_UNINSTALL_IS_UPDATE 1");
     expect(deleteRequest).toBeGreaterThanOrEqual(0);
@@ -2053,6 +2056,10 @@ describe("W4-04 package NSIS lifecycle", () => {
       fs.readFileSync(synchronousPath, "utf8"),
       "un.ZCRemoveFyluraStartup",
     );
+    const registryAuthority = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "windows", "registry-authority.nsh"),
+      "utf8",
+    );
     const initialize = functionBody(
       fs.readFileSync(synchronousPath, "utf8"),
       "un.ZCInitializeUninstallLifecycle",
@@ -2068,7 +2075,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(preDeleteEvidence).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
     expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0");
     expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
-    expect(startupCleanup).toContain("DeleteRegValue HKCU");
+    expect(registryAuthority).toContain("advapi32::RegDeleteValueW");
+    expect(registryAuthority).toContain("ZC_REG_KEY_SET_VALUE_WOW64_64KEY 0x0102");
+    expect(registryAuthority).toContain("ZC_REG_KEY_SET_VALUE_WOW64_32KEY 0x0202");
+    expect(startupCleanup.match(/ZC_REG_DELETE_VALUE_VIEW/g)).toHaveLength(4);
     expect(startupCleanup).toContain("ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU}");
     expect(final).toContain("$ZC_UNINSTALL_IS_UPDATE <> 1");
     expect(final).toContain("$ZC_UNINSTALL_STARTUP_CLEAN != 1");

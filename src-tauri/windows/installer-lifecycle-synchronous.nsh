@@ -696,13 +696,31 @@ FunctionEnd
 
 Function un.ZCRemoveFyluraStartup
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
+
+  ; Fylura may have left the exact named startup values in either view. Delete
+  ; them through Win32 with explicit view flags, then verify the 64-bit product
+  ; view before allowing uninstall to finish.
+  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_64KEY}
+  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_32KEY}
+  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_64KEY}
+  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_DELETE_VALUE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" ${ZC_REG_KEY_SET_VALUE_WOW64_32KEY}
+  ${If} $ZC_REG_DELETE_VALUE_CLEAN != 1
+    Return
+  ${EndIf}
+
   SetRegView 64
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
 
   ; Treat any remaining value, including a wrong type or unreadable value, as
-  ; incomplete. The string query helper reports ABSENT only after an explicit
-  ; 64-bit registry query proves the named value is gone.
+  ; incomplete. The query helper explicitly inspects the 64-bit product view.
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
     Return

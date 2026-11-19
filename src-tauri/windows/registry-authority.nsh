@@ -18,6 +18,8 @@
 !define ZC_REG_ERROR_NO_MORE_ITEMS 259
 
 !define ZC_REG_KEY_QUERY_VALUE 0x0001
+!define ZC_REG_KEY_SET_VALUE_WOW64_64KEY 0x0102
+!define ZC_REG_KEY_SET_VALUE_WOW64_32KEY 0x0202
 !define ZC_REG_KEY_ENUMERATE_SUB_KEYS 0x0008
 !define ZC_REG_KEY_WOW64_64KEY 0x0100
 !define ZC_REG_KEY_READ_64 0x0109
@@ -55,6 +57,33 @@ Var ZC_REG_HANDLE
 Var ZC_REG_RESULT
 Var ZC_REG_CLOSE_RESULT
 Var ZC_REG_ENUM_NAME_LENGTH
+Var ZC_REG_DELETE_VALUE_CLEAN
+
+; Delete one exact value in an explicit registry view. This avoids depending on
+; NSIS's mutable SetRegView state for user startup entries.
+!macro ZC_REG_DELETE_VALUE_VIEW ROOT PATH NAME ACCESS
+  StrCpy $ZC_REG_DELETE_VALUE_CLEAN 0
+  StrCpy $ZC_REG_HANDLE 0
+  System::Call 'advapi32::RegOpenKeyExW(p ${ROOT}, w "${PATH}", i 0, i ${ACCESS}, *p .r8) i.r9'
+  StrCpy $ZC_REG_RESULT $9
+  ${If} $ZC_REG_RESULT == ${ZC_REG_ERROR_SUCCESS}
+    StrCpy $ZC_REG_HANDLE $8
+    System::Call 'advapi32::RegDeleteValueW(p r8, w "${NAME}") i.r9'
+    StrCpy $ZC_REG_RESULT $9
+    ${If} $ZC_REG_RESULT == ${ZC_REG_ERROR_SUCCESS}
+    ${OrIf} $ZC_REG_RESULT == ${ZC_REG_ERROR_FILE_NOT_FOUND}
+      StrCpy $ZC_REG_DELETE_VALUE_CLEAN 1
+    ${EndIf}
+    System::Call 'advapi32::RegCloseKey(p r8) i.r9'
+    StrCpy $ZC_REG_CLOSE_RESULT $9
+    ${If} $ZC_REG_CLOSE_RESULT != ${ZC_REG_ERROR_SUCCESS}
+      StrCpy $ZC_REG_DELETE_VALUE_CLEAN 0
+    ${EndIf}
+  ${ElseIf} $ZC_REG_RESULT == ${ZC_REG_ERROR_FILE_NOT_FOUND}
+  ${OrIf} $ZC_REG_RESULT == ${ZC_REG_ERROR_PATH_NOT_FOUND}
+    StrCpy $ZC_REG_DELETE_VALUE_CLEAN 1
+  ${EndIf}
+!macroend
 
 ; ROOT is a predefined HKEY constant and PATH is the exact subkey path.
 !macro ZC_REG_QUERY_KEY_STATE ROOT PATH

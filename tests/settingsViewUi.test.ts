@@ -256,7 +256,8 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain("aria-checked={selected}");
     expect(settingsView).toContain("AI_CLASSIFICATION_PRESET_IDS");
     expect(settingsView.match(/id="settings-ai-provider"/g)).toHaveLength(1);
-    expect(settingsView).toContain("apiKey: settings.apiKey");
+    expect(settingsView).toContain("apiKey: \"\"");
+    expect(settingsView).toContain("apiKeyAction: \"preserve\"");
     expect(settingsView).not.toContain("batchSize: preset.providerKind");
     expect(settingsNavigation).toContain("scrollSettingsSectionIntoView(container, targetId, {");
     expect(settingsNavigation).toContain("setActiveSettingsSection(navigationId)");

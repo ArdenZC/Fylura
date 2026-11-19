@@ -71,43 +71,49 @@ function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments) {
     }
 }
 function Get-LifecycleProbe {
-    $snapshots = foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
-        try {
-            $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
-            if ($null -eq $key) {
-                [pscustomobject]@{ view = $view.ToString(); values = $null }
-                continue
-            }
+    $snapshots = foreach ($hive in @([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryHive]::LocalMachine)) {
+        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
             try {
-                $values = [ordered]@{}
-                foreach ($name in $key.GetValueNames()) { $values[$name] = $key.GetValue($name) }
-                [pscustomobject]@{ view = $view.ToString(); values = $values }
-            } finally { $key.Dispose() }
-        } finally { $base.Dispose() }
+                $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
+                if ($null -eq $key) {
+                    [pscustomobject]@{ hive = $hive.ToString(); view = $view.ToString(); values = $null }
+                    continue
+                }
+                try {
+                    $values = [ordered]@{}
+                    foreach ($name in $key.GetValueNames()) { $values[$name] = $key.GetValue($name) }
+                    [pscustomobject]@{ hive = $hive.ToString(); view = $view.ToString(); values = $values }
+                } finally { $key.Dispose() }
+            } finally { $base.Dispose() }
+        }
     }
     return ($snapshots | ConvertTo-Json -Compress -Depth 4)
 }
 function Test-LifecycleProbePresent {
-    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
-        try {
-            $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
-            if ($null -ne $key) { $key.Dispose(); return $true }
-        } finally { $base.Dispose() }
+    foreach ($hive in @([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryHive]::LocalMachine)) {
+        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+            try {
+                $key = $base.OpenSubKey('Software\Fylura\CodexUninstallLifecycleProbe')
+                if ($null -ne $key) { $key.Dispose(); return $true }
+            } finally { $base.Dispose() }
+        }
     }
     return $false
 }
 function Remove-LifecycleProbe {
-    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
-        try {
-            $parent = $base.OpenSubKey('Software\Fylura', $true)
-            if ($null -ne $parent) {
-                try { $parent.DeleteSubKeyTree('CodexUninstallLifecycleProbe', $false) }
-                finally { $parent.Dispose() }
-            }
-        } finally { $base.Dispose() }
+    foreach ($hive in @([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryHive]::LocalMachine)) {
+        foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+            try {
+                $parent = $base.OpenSubKey('Software\Fylura', $true)
+                if ($null -ne $parent) {
+                    try { $parent.DeleteSubKeyTree('CodexUninstallLifecycleProbe', $false) }
+                    finally { $parent.Dispose() }
+                }
+            } finally { $base.Dispose() }
+        }
     }
 }
 function Install {

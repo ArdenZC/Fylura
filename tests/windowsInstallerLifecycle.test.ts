@@ -2395,6 +2395,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(proof.canonicalFileInstruction).toBe(
       'File /a "/oname=native\\fylura_windows_preview_handler.dll" "${SOURCE}"',
     );
+    expect(generated).toContain("Call un.ZCRemoveFyluraStartup");
+    expect(generated).toContain("Call un.ZCPostUninstallLifecycleFinal");
   });
 
   it("T149: generated Preview servicing never emits a forward-slash oname", () => {

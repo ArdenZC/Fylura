@@ -72,6 +72,15 @@ export function assertGeneratedPreviewResourcePath(
     );
   }
 
+  for (const call of [
+    "Call un.ZCRemoveFyluraStartup",
+    "Call un.ZCPostUninstallLifecycleFinal",
+  ]) {
+    if (!generated.includes(call)) {
+      throw new Error(`Generated installer is missing required uninstall lifecycle call: ${call}`);
+    }
+  }
+
   const installPreview = previewMacroBody(servicing, "ZC_INSTALL_PREVIEW_RESOURCE");
   if (!installPreview.includes(canonicalFileInstruction)) {
     throw new Error(

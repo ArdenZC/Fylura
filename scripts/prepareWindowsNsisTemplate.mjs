@@ -319,6 +319,7 @@ export function buildFyluraNsisTemplate(upstream) {
     ),
     lines(
       '  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1',
+      '    WriteRegStr HKCU "Software\\Fylura\\CodexUninstallLifecycleProbe" "startup.site" "1"',
       '    Call un.ZCRemoveFyluraStartup',
       '  ${EndIf}',
     ),
@@ -362,6 +363,8 @@ export function buildFyluraNsisTemplate(upstream) {
     lines(
       "  ; Resolve cleanup mode in the section that performs the uninstall.",
       "  StrCpy $ZC_UNINSTALL_IS_UPDATE 0",
+      '  WriteRegStr HKCU "Software\\Fylura\\CodexUninstallLifecycleProbe" "section.entered" "1"',
+      '  WriteRegStr HKLM "Software\\Fylura\\CodexUninstallLifecycleProbe" "section.entered" "1"',
       "  ClearErrors",
       '  ${GetOptions} $CMDLINE "/UPDATE" $R1',
       "  ${IfNot} ${Errors}",

@@ -573,6 +573,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
     expect(verifier).toContain("if ($null -ne $s) { $s.Dispose() }");
     expect(verifier).toContain('"/LOG=$script:lastUninstallerLog"');
+    expect(verifier).toContain("registrationDetails");
+    expect(verifier).toContain("displayName = Registry-Value $key 'DisplayName'");
+    expect(verifier).toContain("uninstallString = Registry-Value $key 'UninstallString'");
+    expect(verifier).toContain("NSISLog=$($uninstallLog -join ' | ')");
     expect(verifier).toContain("SCM query exit=");
     expect(verifier).toContain("if ([string]$imagePath -ceq $expectedImagePath)");
     expect(verifier).toContain("$deleteProbe = Invoke-Sc @('delete', $service)");

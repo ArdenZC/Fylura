@@ -194,6 +194,37 @@ fn ai_api_key_actions_are_explicit_and_sqlite_never_stores_plaintext() {
     let credentials = InMemoryCredentialStore::default();
     credentials.set("existing-secret").expect("seed key");
 
+    let orphan_key = save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key: "ignored-value".to_string(),
+            api_key_action: ApiKeyAction::Preserve,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect_err("a Keyring key without a saved source must not be preserved");
+    assert!(orphan_key
+        .to_string()
+        .contains("ai_api_key_source_changed_replace_or_clear"));
+    assert_eq!(
+        credentials.get().unwrap().as_deref(),
+        Some("existing-secret")
+    );
+
+    save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key_action: ApiKeyAction::Clear,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect("persist a provider source before preserving its key");
+    credentials
+        .set("existing-secret")
+        .expect("seed key for the saved source");
+
     let preserved = save_ai_settings_with_store(
         &db,
         &AISettings {

@@ -310,30 +310,20 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
     Record-Phase 'application-fixtures' @{ sqliteProfiles = @('qa_alpha','qa_beta'); orphanProfileCredential = $true; safeTrashAndUnrelatedFiles = $true; credentialValuesRecorded = $false }
 
     Seed-Autostart
-    $unconfirmed = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')
-    Assert-Condition ((Test-Path -LiteralPath $main -PathType Leaf) -and (Test-Path -LiteralPath $files.database -PathType Leaf)) 'Unconfirmed cleanup changed the installation or settings database.'
-    Assert-Condition (Test-Path -LiteralPath $cache -PathType Container) 'Unconfirmed cleanup changed Fylura cache or logs.'
-    foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Unconfirmed cleanup changed credential $target." }
-    Assert-Service
-    Assert-Preview $true
-    Assert-Autostart $true
-    Assert-Condition ($unconfirmed -ne 0) 'Silent full cleanup was accepted without the explicit confirmation flag.'
-    Record-Phase 'unconfirmed-full-cleanup-refused' @{ exitCode = $unconfirmed; dataUntouched = $true }
-
-    $ordinary = Invoke-Uninstaller @('/S')
-    Assert-Condition ($ordinary -eq 0) "Ordinary uninstall returned $ordinary."
+    $deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')
+    Assert-Condition ($deleteOnly -eq 0) "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly."
     Assert-Uninstalled
     foreach ($entry in $files.GetEnumerator()) {
-        Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Ordinary uninstall removed $($entry.Key)."
-        Assert-Condition ([IO.File]::ReadAllText($entry.Value) -eq "test-owned $($entry.Key)") "Ordinary uninstall changed $($entry.Key)."
+        Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Delete-only request removed Fylura application data: $($entry.Key)."
+        Assert-Condition ([IO.File]::ReadAllText($entry.Value) -eq "test-owned $($entry.Key)") "Delete-only request changed Fylura application data: $($entry.Key)."
     }
-    Assert-Condition ((Test-Path $data) -and (Test-Path $cache)) 'Ordinary uninstall removed application data or cache.'
+    Assert-Condition ((Test-Path $data) -and (Test-Path $cache)) 'Delete-only request removed Fylura application data.'
     $dbOutput = @(& $python $verify $files.database 2>&1)
-    Assert-Condition ($LASTEXITCODE -eq 0) "Ordinary uninstall left unreadable settings: $(($dbOutput | Out-String).Trim())"
-    foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Ordinary uninstall removed credential $target." }
-    Assert-Condition (Has-Credential $foreignCredential) 'Ordinary uninstall changed unrelated credential.'
+    Assert-Condition ($LASTEXITCODE -eq 0) "Delete-only request left unreadable settings: $(($dbOutput | Out-String).Trim())"
+    foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Delete-only request removed credential $target." }
+    Assert-Condition (Has-Credential $foreignCredential) 'Delete-only request changed unrelated credential.'
     Assert-Autostart $false
-    Record-Phase 'ordinary-uninstall' @{ appDataCredentialsAndSafeTrashPreserved = $true; servicePreviewAndOwnStartupRemoved = $true; unrelatedStartupPreserved = $true }
+    Record-Phase 'delete-only-request-falls-back-to-ordinary' @{ exitCode = $deleteOnly; appDataCredentialsAndSafeTrashPreserved = $true; servicePreviewAndOwnStartupRemoved = $true; unrelatedStartupPreserved = $true }
 
     $reinstall = Install
     Assert-Condition ($reinstall -eq 0) "Reinstall failed with exit code $reinstall."

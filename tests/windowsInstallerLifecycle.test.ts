@@ -505,11 +505,19 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).not.toContain("MB_DEFBUTTON2");
     expect(generated).toContain('  ${If} $DeleteAppDataCheckboxState == 1');
     expect(generated).toContain('  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1');
-    expect(generated).toContain('SetErrorLevel 2');
-    expect(generated).toContain("    System::Call 'kernel32::ExitProcess(i 2)'");
+    expect(generated).not.toContain("System::Call 'kernel32::ExitProcess(i 2)'");
     expect(generated).toContain('  ${GetParameters} $R0');
     expect(generated).toContain('  ${GetOptions} $R0 "/DELETE_APP_DATA" $R1');
     expect(generated).toContain('  ${GetOptions} $R0 "/CONFIRM_DELETE_APP_DATA" $R1');
+    expect(generated).toContain('    StrCpy $DeleteAppDataCheckboxState 1');
+    expect(generated).toContain('    StrCpy $FyluraDeleteAppDataConfirmationFlag 1');
+    const uninstallInit = functionBody(generated, "un.onInit");
+    const deleteRequest = uninstallInit.indexOf('${GetOptions} $R0 "/DELETE_APP_DATA" $R1');
+    const confirmationRequest = uninstallInit.indexOf('${GetOptions} $R0 "/CONFIRM_DELETE_APP_DATA" $R1');
+    const fullCleanupEnabled = uninstallInit.indexOf('StrCpy $DeleteAppDataCheckboxState 1');
+    expect(deleteRequest).toBeGreaterThanOrEqual(0);
+    expect(confirmationRequest).toBeGreaterThan(deleteRequest);
+    expect(fullCleanupEnabled).toBeGreaterThan(confirmationRequest);
     expect(generated).not.toContain('GetOptions $CMDLINE "/S"');
     expect(generated).not.toContain('Silent full cleanup requires both');
     expect(generated).not.toContain('Passive full cleanup requires both');
@@ -555,15 +563,12 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("fylura-cleanup-fixture.com.example.editor");
     expect(verifier).toContain("/DELETE_APP_DATA");
     expect(verifier).toContain("/CONFIRM_DELETE_APP_DATA");
-    expect(verifier).toContain("unconfirmed-full-cleanup-refused");
+    expect(verifier).toContain("delete-only-request-falls-back-to-ordinary");
     expect(verifier).toContain("safe-trash");
     expect(verifier).toContain("organized-files");
-    expect(verifier).toContain('foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Unconfirmed cleanup changed credential $target." }');
-    expect(verifier.indexOf("Unconfirmed cleanup changed the installation or settings database.")).toBeGreaterThan(
-      verifier.indexOf("$unconfirmed = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')"),
-    );
-    expect(verifier.indexOf("Silent full cleanup was accepted without the explicit confirmation flag.")).toBeGreaterThan(
-      verifier.indexOf("Unconfirmed cleanup changed the installation or settings database."),
+    expect(verifier).toContain("Delete-only request removed Fylura application data.");
+    expect(verifier.indexOf("Delete-only request removed Fylura application data.")).toBeGreaterThan(
+      verifier.indexOf("$deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')"),
     );
     expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
     expect(verifier).toContain("Assert-Preview $false");

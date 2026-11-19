@@ -329,6 +329,8 @@ export function committedLifecycleRecoveryFailure(error: unknown): string | null
 
 export function localizedStableError(error: unknown, t: Translator): string {
   const message = readableError(error);
+  if (message.includes("ai_api_key_source_changed_replace_or_clear")) return t("aiApiKeySourceChanged");
+  if (message.includes("ai_profile_api_key_source_changed_select_profile")) return t("aiProfileApiKeySourceChanged");
   if (message.startsWith("transfer_conflict_type_mismatch")) return t("fmConflictTypeMismatch");
   if (message.startsWith("transfer_overwrite_conflict_persisted") || message.startsWith("transfer_target_changed")) return t("fmOverwriteConflictChanged");
   if (message.startsWith("transfer_operation_limit_1000")) return t("fmTransferOperationLimit");

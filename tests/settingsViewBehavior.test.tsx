@@ -6,7 +6,7 @@ import { GlobalSearchSettingsSection, type GlobalSearchSettingsSectionProps } fr
 import { makeTranslator } from "../src/i18n";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AIProviderPreset, AISettings, FileLibraryDetail } from "../src/types/domain";
+import type { AICustomProviderProfile, AIProviderPreset, AISettings, FileLibraryDetail } from "../src/types/domain";
 import { requestSettingsSection } from "../src/components/spotlight/commandRegistry";
 import { AI_SETTINGS_MODE_REQUEST_KEY } from "../src/views/settings/settingsNavigation";
 import { useFileLibraryInspectorStore, useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
@@ -575,14 +575,76 @@ describe("settings view behavior", () => {
     expect(model.value).toBe("preserved-model");
   });
 
-  it("keeps the API key when the provider changes", async () => {
-    const provider = container.querySelector<HTMLSelectElement>("#settings-ai-provider")!;
+  it("drops unsaved API key input when the provider changes and marks the new source as needing setup", async () => {
     const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
     expect(apiKey.value).toBe("");
-    provider.value = "custom";
-    await act(async () => provider.dispatchEvent(new Event("change", { bubbles: true })));
+    await changeInput(apiKey, secret);
+    expect(apiKey.value).toBe(secret);
+    await chooseSettingSelect("settings-ai-provider", "Custom provider");
     expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.placeholder).toBe("Never shown in plain text on this page");
+    expect(container.textContent).toContain("Cloud AI still needs an API key.");
     expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Clear saved API key")).toBe(true);
+  });
+
+  it("switches to a saved custom profile without carrying the previous profile key", async () => {
+    const profile = (id: string, baseUrl: string): AICustomProviderProfile => ({
+      id,
+      name: `Profile ${id.slice(-1).toUpperCase()}`,
+      baseUrl,
+      chatPath: "/chat/completions",
+      modelsPath: "/models",
+      model: "custom-model",
+      supportsResponseFormat: true,
+      supportsThinking: false,
+      thinkingParameter: "thinking",
+      tokenParameter: "max_tokens",
+      contentPath: "choices[0].message.content",
+      reasoningPath: "choices[0].message.reasoning_content",
+      temperatureMin: 0,
+      temperatureMax: 2,
+      maxOutputTokens: 2048,
+      extraBodyJson: null,
+      apiKeyConfigured: true
+    });
+    const saved: AISettings = {
+      ...initialAISettings(),
+      preset: "custom_openai_compatible",
+      customProfiles: [profile("profile-a", "https://a.provider.example/v1"), profile("profile-b", "https://b.provider.example/v1")],
+      activeCustomProfileId: "profile-a",
+      baseUrl: "https://a.provider.example/v1"
+    };
+    mocks.getAISettings.mockResolvedValue(saved);
+    await act(async () => root.render(null));
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    await chooseSettingSelect("settings-ai-custom-profile", "Profile B");
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.placeholder).toContain("Stored securely in the system credential vault");
+    expect(container.querySelector('[data-ai-settings-state="error"]')).toBeNull();
+  });
+
+  it("keeps an unsaved clear action on test requests until the user saves it", async () => {
+    const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
+    await changeInput(apiKey, secret);
+    const clear = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Clear saved API key");
+    expect(clear).toBeDefined();
+    await act(async () => clear?.click());
+
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    mocks.testAIProviderConnection.mockRejectedValueOnce(new Error("fixture connection failure"));
+    const testConnection = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Test connection")!;
+    await act(async () => testConnection.click());
+    await flushEffects();
+
+    expect(mocks.testAIProviderConnection).toHaveBeenCalledWith(expect.objectContaining({
+      apiKey: "",
+      apiKeyAction: "clear"
+    }));
+    expect(JSON.stringify(mocks.testAIProviderConnection.mock.calls)).not.toContain(secret);
   });
 
   it("uses explicit key actions, clears the visible secret, and rejects failed read-back", async () => {

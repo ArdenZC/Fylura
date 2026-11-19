@@ -23,7 +23,7 @@ use crate::{
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const AI_CREDENTIAL_SERVICE: &str = "com.startlan.fylura";
-#[cfg(any(test, target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const AI_PROFILE_CREDENTIAL_SERVICE: &str = "com.startlan.fylura.ai-profile";
 #[cfg(any(test, target_os = "windows", target_os = "macos"))]
 const AI_PROFILE_CREDENTIAL_PREFIX: &str = "ai-api-key-";
@@ -221,9 +221,20 @@ pub fn save_ai_settings_with_store(
     let _transaction_guard = AI_SETTINGS_SAVE_LOCK
         .lock()
         .map_err(|_| DbError::Validation("credential_transaction_lock_poisoned".to_string()))?;
-    let previous_profile_ids = stored_custom_profile_ids(db)?;
+    let previous_settings = stored_ai_settings(db)?;
+    let previous_profile_ids = previous_settings
+        .as_ref()
+        .map(|settings| {
+            settings
+                .custom_profiles
+                .iter()
+                .map(|profile| profile.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
     let mut normalized = normalize_ai_settings(settings.clone());
     validate_ai_settings(&normalized, !cfg!(debug_assertions)).map_err(DbError::Validation)?;
+    validate_preserved_credential_sources(previous_settings.as_ref(), &normalized, credentials)?;
     let next_profile_ids = normalized
         .custom_profiles
         .iter()
@@ -526,7 +537,13 @@ fn migrate_legacy_profile_credentials(
     Ok(())
 }
 
-#[cfg_attr(feature = "native-qa", allow(dead_code))]
+#[cfg_attr(
+    any(
+        feature = "native-qa",
+        not(any(target_os = "windows", target_os = "macos"))
+    ),
+    allow(dead_code)
+)]
 pub(crate) fn clear_current_ai_credentials(
     credentials: &impl CredentialStore,
 ) -> Result<(), String> {
@@ -585,6 +602,7 @@ pub(crate) fn clear_current_ai_credentials(
     Ok(())
 }
 
+#[cfg(any(test, target_os = "windows", target_os = "macos"))]
 fn profile_id_from_keyring_account(account: &str) -> Result<String, String> {
     let profile_id = account
         .strip_prefix(AI_PROFILE_CREDENTIAL_PREFIX)
@@ -609,12 +627,14 @@ fn profile_id_from_windows_target(target: &str, username: &str) -> Result<Option
     profile_id_from_keyring_account(account).map(Some)
 }
 
+#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 fn credential_cleanup_checkpoint(phase: &str) {
     if std::env::var_os("FYLURA_CLEANUP_DIAGNOSTICS").is_some() {
         eprintln!("Fylura credential cleanup phase: {phase}");
     }
 }
 
+#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 fn credential_cleanup_error(phase: &str, error: &str) {
     if std::env::var_os("FYLURA_CLEANUP_DIAGNOSTICS").is_some() {
         eprintln!("Fylura credential cleanup backend error: phase={phase}; {error}");
@@ -683,7 +703,20 @@ fn persist_ai_settings_in_transaction(
     Ok(())
 }
 
+#[cfg(test)]
 fn stored_custom_profile_ids(db: &Database) -> Result<std::collections::HashSet<String>, DbError> {
+    Ok(stored_ai_settings(db)?
+        .map(|settings| {
+            settings
+                .custom_profiles
+                .into_iter()
+                .map(|profile| profile.id)
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn stored_ai_settings(db: &Database) -> Result<Option<AISettings>, DbError> {
     let conn = db.conn()?;
     let value = conn
         .query_row(
@@ -693,14 +726,76 @@ fn stored_custom_profile_ids(db: &Database) -> Result<std::collections::HashSet<
         )
         .optional()?;
     let Some(value) = value else {
-        return Ok(std::collections::HashSet::new());
+        return Ok(None);
     };
     let settings = serde_json::from_str::<AISettings>(&value)?;
-    Ok(settings
+    Ok(Some(settings))
+}
+
+fn validate_preserved_credential_sources(
+    previous: Option<&AISettings>,
+    requested: &AISettings,
+    credentials: &impl CredentialStore,
+) -> Result<(), DbError> {
+    let active_profile = active_profile_id(requested);
+    let action = requested.api_key_action;
+
+    if action == ApiKeyAction::Preserve {
+        if let Some(profile_id) = active_profile {
+            if credential_get(credentials, Some(profile_id))?.is_some()
+                && !previous
+                    .and_then(|settings| saved_profile(settings, profile_id))
+                    .is_some_and(|profile| {
+                        same_provider_origin(&profile.base_url, &requested.base_url)
+                    })
+            {
+                return Err(DbError::Validation(
+                    "ai_profile_api_key_source_changed_select_profile".to_string(),
+                ));
+            }
+        } else if credential_get(credentials, None)?.is_some()
+            && !previous.is_some_and(|saved| ai_key_source_matches(saved, requested))
+        {
+            return Err(DbError::Validation(
+                "ai_api_key_source_changed_replace_or_clear".to_string(),
+            ));
+        }
+    }
+
+    for profile in &requested.custom_profiles {
+        if Some(profile.id.as_str()) == active_profile && action != ApiKeyAction::Preserve {
+            continue;
+        }
+        if credential_get(credentials, Some(&profile.id))?.is_none() {
+            continue;
+        }
+        let unchanged_source = previous
+            .and_then(|settings| saved_profile(settings, &profile.id))
+            .is_some_and(|saved| same_provider_origin(&saved.base_url, &profile.base_url));
+        if !unchanged_source {
+            return Err(DbError::Validation(
+                "ai_profile_api_key_source_changed_select_profile".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn saved_profile<'a>(
+    settings: &'a AISettings,
+    profile_id: &str,
+) -> Option<&'a AICustomProviderProfile> {
+    settings
         .custom_profiles
-        .into_iter()
-        .map(|profile| profile.id)
-        .collect())
+        .iter()
+        .find(|profile| profile.id == profile_id)
+}
+
+fn same_provider_origin(left: &str, right: &str) -> bool {
+    normalized_provider_origin(left)
+        .zip(normalized_provider_origin(right))
+        .is_some_and(|(left, right)| left == right)
 }
 
 pub trait CredentialStore {
@@ -1752,18 +1847,70 @@ fn get_ai_settings_for_request(
     db: &Database,
     request_settings: Option<AISettings>,
 ) -> Result<AISettings, String> {
-    if let Some(settings) = request_settings.as_ref() {
-        if !settings.api_key.trim().is_empty() {
-            return Ok(normalize_ai_settings(settings.clone()));
-        }
-    }
-    let saved_settings = get_ai_settings_for_db(db).map_err(|error| error.to_string())?;
-    Ok(resolve_ai_settings_for_request(
-        saved_settings,
-        request_settings,
-    ))
+    get_ai_settings_for_request_with_store(db, request_settings, &SystemCredentialStore)
 }
 
+fn get_ai_settings_for_request_with_store(
+    db: &Database,
+    request_settings: Option<AISettings>,
+    credentials: &impl CredentialStore,
+) -> Result<AISettings, String> {
+    if let Some(settings) = request_settings.as_ref() {
+        let mut settings = normalize_ai_settings(settings.clone());
+        match settings.api_key_action {
+            ApiKeyAction::Clear => {
+                settings.api_key.clear();
+                settings.api_key_configured = false;
+                return Ok(settings);
+            }
+            ApiKeyAction::Replace => return Ok(settings),
+            ApiKeyAction::Preserve if !settings.api_key.trim().is_empty() => return Ok(settings),
+            ApiKeyAction::Preserve => {}
+        }
+    }
+    let saved_settings =
+        get_ai_settings_with_store(db, credentials).map_err(|error| error.to_string())?;
+    resolve_ai_settings_for_request_with_store(saved_settings, request_settings, credentials)
+}
+
+fn resolve_ai_settings_for_request_with_store(
+    saved_settings: AISettings,
+    request_settings: Option<AISettings>,
+    credentials: &impl CredentialStore,
+) -> Result<AISettings, String> {
+    let Some(request_settings) = request_settings else {
+        return Ok(normalize_ai_settings(saved_settings));
+    };
+    let mut requested = normalize_ai_settings(request_settings);
+    if requested.api_key_action != ApiKeyAction::Preserve || !requested.api_key.is_empty() {
+        return Ok(requested);
+    }
+
+    if let Some(profile_id) = active_profile_id(&requested) {
+        let source_matches = saved_profile(&saved_settings, profile_id)
+            .zip(saved_profile(&requested, profile_id))
+            .is_some_and(|(saved, requested)| {
+                same_provider_origin(&saved.base_url, &requested.base_url)
+            });
+        if source_matches {
+            if let Some(api_key) = credentials
+                .get_profile(profile_id)
+                .map_err(|error| error.to_string())?
+            {
+                requested.api_key = api_key;
+                requested.api_key_configured = true;
+                return Ok(requested);
+            }
+        }
+    }
+
+    if ai_key_source_matches(&saved_settings, &requested) {
+        requested.api_key = saved_settings.api_key;
+    }
+    Ok(requested)
+}
+
+#[cfg(test)]
 fn resolve_ai_settings_for_request(
     saved_settings: AISettings,
     request_settings: Option<AISettings>,
@@ -1775,7 +1922,13 @@ fn resolve_ai_settings_for_request(
 
     let has_explicit_key = !request_settings.api_key.trim().is_empty();
     let mut request_settings = normalize_ai_settings(request_settings);
-    if !has_explicit_key && ai_key_source_matches(&saved_settings, &request_settings) {
+    if request_settings.api_key_action == ApiKeyAction::Clear {
+        request_settings.api_key.clear();
+        request_settings.api_key_configured = false;
+    } else if request_settings.api_key_action == ApiKeyAction::Preserve
+        && !has_explicit_key
+        && ai_key_source_matches(&saved_settings, &request_settings)
+    {
         request_settings.api_key = saved_settings.api_key;
     }
     request_settings
@@ -1785,9 +1938,7 @@ fn ai_key_source_matches(saved: &AISettings, requested: &AISettings) -> bool {
     saved.provider == requested.provider
         && saved.preset == requested.preset
         && saved.active_custom_profile_id == requested.active_custom_profile_id
-        && normalized_provider_origin(&saved.base_url)
-            .zip(normalized_provider_origin(&requested.base_url))
-            .is_some_and(|(saved_origin, requested_origin)| saved_origin == requested_origin)
+        && same_provider_origin(&saved.base_url, &requested.base_url)
 }
 
 fn normalized_provider_origin(base_url: &str) -> Option<url::Origin> {
@@ -2032,6 +2183,437 @@ mod validation_tests {
     }
 
     #[test]
+    fn unsaved_clear_never_inherits_a_saved_key_for_test_or_model_requests() {
+        const STORED_KEY: &str = "stored-clear-route-test-key";
+        let database_path = concurrency_test_db_path("clear-request-route");
+        let db = Database::open(&database_path).expect("clear route database");
+        let credentials = InMemoryCredentialStore::default();
+        let saved = AISettings {
+            base_url: "http://127.0.0.1:1/saved".to_string(),
+            api_key_configured: true,
+            ..AISettings::default()
+        };
+        persist_ai_settings_without_secret(&db, &saved).expect("persist saved configuration");
+        credentials.set(STORED_KEY).expect("seed saved credential");
+
+        let (test_url, test_request, test_server) =
+            provider_http_fixture(r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#);
+        let test_settings = get_ai_settings_for_request_with_store(
+            &db,
+            Some(AISettings {
+                base_url: test_url,
+                api_key: STORED_KEY.to_string(),
+                api_key_action: ApiKeyAction::Clear,
+                timeout_seconds: 2,
+                ..AISettings::default()
+            }),
+            &credentials,
+        )
+        .expect("clear draft is used directly for the test route");
+        assert!(test_settings.api_key.is_empty());
+        test_ai_provider_connection_for_settings(test_settings).expect("connection test");
+        let test_request = test_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("connection test request");
+        test_server.join().expect("connection test fixture");
+        assert_eq!(authorization_header(&test_request), None);
+        assert_eq!(credentials.get().unwrap().as_deref(), Some(STORED_KEY));
+
+        let (models_url, models_request, models_server) =
+            provider_http_fixture(r#"{"data":[{"id":"fixture-model"}]}"#);
+        let models_settings = get_ai_settings_for_request_with_store(
+            &db,
+            Some(AISettings {
+                base_url: models_url,
+                api_key: STORED_KEY.to_string(),
+                api_key_action: ApiKeyAction::Clear,
+                timeout_seconds: 2,
+                ..AISettings::default()
+            }),
+            &credentials,
+        )
+        .expect("clear draft is used directly for model discovery");
+        assert!(models_settings.api_key.is_empty());
+        list_ai_models_for_settings(models_settings).expect("model discovery");
+        let models_request = models_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("model discovery request");
+        models_server.join().expect("model discovery fixture");
+        assert_eq!(authorization_header(&models_request), None);
+        assert_eq!(credentials.get().unwrap().as_deref(), Some(STORED_KEY));
+
+        let mut saved_clear = saved;
+        saved_clear.base_url = "https://new-source.example/v1".to_string();
+        saved_clear.api_key_action = ApiKeyAction::Clear;
+        save_ai_settings_with_store(&db, &saved_clear, &credentials)
+            .expect("save clear action after both test routes");
+        assert_eq!(credentials.get().unwrap(), None);
+
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn same_origin_request_routes_keep_key_and_local_ollama_sends_no_authorization() {
+        const STORED_KEY: &str = "stored-self-hosted-route-test-key";
+        let database_path = concurrency_test_db_path("same-origin-request-route");
+        let db = Database::open(&database_path).expect("same-origin route database");
+        let credentials = InMemoryCredentialStore::default();
+        credentials.set(STORED_KEY).expect("seed saved credential");
+
+        let (base_url, test_request, test_server) =
+            provider_http_fixture(r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#);
+        let saved = AISettings {
+            base_url: format!("{base_url}/saved-path"),
+            api_key_configured: true,
+            ..AISettings::default()
+        };
+        persist_ai_settings_without_secret(&db, &saved).expect("persist self-hosted source");
+        let requested = get_ai_settings_for_request_with_store(
+            &db,
+            Some(AISettings {
+                base_url: format!("{base_url}/v1"),
+                timeout_seconds: 2,
+                ..AISettings::default()
+            }),
+            &credentials,
+        )
+        .expect("same self-hosted origin can reuse its credential");
+        assert_eq!(requested.api_key, STORED_KEY);
+        test_ai_provider_connection_for_settings(requested).expect("self-hosted connection test");
+        let test_request = test_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("self-hosted test request");
+        test_server.join().expect("self-hosted test fixture");
+        assert_eq!(
+            authorization_header(&test_request),
+            Some(format!("Bearer {STORED_KEY}"))
+        );
+
+        let (ollama_url, ollama_request, ollama_server) =
+            provider_http_fixture(r#"{"models":[{"name":"qwen3:latest"}]}"#);
+        let ollama_saved = AISettings {
+            provider: AIProviderKind::Ollama,
+            preset: AIProviderPresetId::Ollama,
+            base_url: format!("{ollama_url}/saved"),
+            api_key: STORED_KEY.to_string(),
+            ..AISettings::default()
+        };
+        persist_ai_settings_without_secret(&db, &ollama_saved)
+            .expect("persist local Ollama config");
+        let ollama_settings = get_ai_settings_for_request_with_store(
+            &db,
+            Some(AISettings {
+                provider: AIProviderKind::Ollama,
+                preset: AIProviderPresetId::Ollama,
+                base_url: format!("{ollama_url}/request"),
+                timeout_seconds: 2,
+                ..AISettings::default()
+            }),
+            &credentials,
+        )
+        .expect("same local Ollama origin remains usable");
+        assert_eq!(ollama_settings.api_key, STORED_KEY);
+        list_ai_models_for_settings(ollama_settings).expect("local Ollama model discovery");
+        let ollama_request = ollama_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Ollama request");
+        ollama_server.join().expect("Ollama fixture");
+        assert_eq!(authorization_header(&ollama_request), None);
+        assert_eq!(credentials.get().unwrap().as_deref(), Some(STORED_KEY));
+
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn saving_preserve_requires_the_existing_global_key_source_to_match() {
+        const ORIGINAL_KEY: &str = "saved-provider-source-test-key";
+        let database_path = concurrency_test_db_path("saved-provider-source");
+        let db = Database::open(&database_path).expect("source binding database");
+        let credentials = InMemoryCredentialStore::default();
+        let original = AISettings {
+            base_url: "https://API.Example.com:443/v1".to_string(),
+            api_key: ORIGINAL_KEY.to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        };
+        save_ai_settings_with_store(&db, &original, &credentials).expect("save initial source");
+
+        let mut same_source = original.clone();
+        same_source.base_url = "https://api.example.com/other-path".to_string();
+        same_source.api_key.clear();
+        same_source.api_key_action = ApiKeyAction::Preserve;
+        let preserved = save_ai_settings_with_store(&db, &same_source, &credentials)
+            .expect("same provider and normalized origin preserve the credential");
+        assert_eq!(preserved.api_key, ORIGINAL_KEY);
+
+        let mut changed_origin = same_source.clone();
+        changed_origin.base_url = "https://different.example.com/v1".to_string();
+        let error = save_ai_settings_with_store(&db, &changed_origin, &credentials)
+            .expect_err("changed origin must not retain the old key");
+        assert!(error
+            .to_string()
+            .contains("ai_api_key_source_changed_replace_or_clear"));
+        assert_eq!(credentials.get().unwrap().as_deref(), Some(ORIGINAL_KEY));
+
+        let mut changed_preset = same_source.clone();
+        changed_preset.preset = AIProviderPresetId::Kimi;
+        changed_preset.base_url = "https://api.example.com/v1".to_string();
+        let error = save_ai_settings_with_store(&db, &changed_preset, &credentials)
+            .expect_err("changed preset must not retain the old key");
+        assert!(error
+            .to_string()
+            .contains("ai_api_key_source_changed_replace_or_clear"));
+
+        let mut replaced = changed_origin.clone();
+        replaced.preset = AIProviderPresetId::Kimi;
+        replaced.api_key = "replacement-provider-key".to_string();
+        replaced.api_key_action = ApiKeyAction::Replace;
+        let replaced = save_ai_settings_with_store(&db, &replaced, &credentials)
+            .expect("explicit replacement permits a source change");
+        assert_eq!(replaced.api_key, "replacement-provider-key");
+        assert_eq!(
+            credentials.get().unwrap().as_deref(),
+            Some("replacement-provider-key")
+        );
+
+        let mut cleared = replaced;
+        cleared.base_url = "https://another.example.com/v1".to_string();
+        cleared.api_key.clear();
+        cleared.api_key_action = ApiKeyAction::Clear;
+        cleared.enabled = false;
+        let cleared = save_ai_settings_with_store(&db, &cleared, &credentials)
+            .expect("explicit clear permits a source change");
+        assert!(cleared.api_key.is_empty());
+        assert_eq!(credentials.get().unwrap(), None);
+
+        let mut credentialless = cleared;
+        credentialless.base_url = "http://127.0.0.1:11434".to_string();
+        credentialless.provider = AIProviderKind::Ollama;
+        credentialless.preset = AIProviderPresetId::Ollama;
+        credentialless.api_key_action = ApiKeyAction::Preserve;
+        let local = save_ai_settings_with_store(&db, &credentialless, &credentials)
+            .expect("credential-less local configuration can change source");
+        assert!(local.api_key.is_empty());
+
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn changed_source_save_is_rejected_and_saved_ai_requests_keep_the_original_key_binding() {
+        const ORIGINAL_KEY: &str = "persisted-source-http-test-key";
+        let database_path = concurrency_test_db_path("persisted-source-http-binding");
+        let db = Database::open(&database_path).expect("source binding database");
+        let credentials = InMemoryCredentialStore::default();
+
+        let (original_url, original_request, original_server) =
+            provider_http_fixture(r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#);
+        let original = AISettings {
+            base_url: original_url,
+            api_key: ORIGINAL_KEY.to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            timeout_seconds: 2,
+            ..AISettings::default()
+        };
+        save_ai_settings_with_store(&db, &original, &credentials)
+            .expect("save the original provider source and key");
+
+        let (changed_url, changed_request, changed_server) =
+            provider_http_fixture(r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#);
+        let mut changed_source = original.clone();
+        changed_source.base_url = changed_url;
+        changed_source.api_key.clear();
+        changed_source.api_key_action = ApiKeyAction::Preserve;
+        let error = save_ai_settings_with_store(&db, &changed_source, &credentials)
+            .expect_err("Preserve must not bind the existing key to a new origin");
+        assert!(error
+            .to_string()
+            .contains("ai_api_key_source_changed_replace_or_clear"));
+
+        let saved = get_ai_settings_with_store(&db, &credentials)
+            .expect("read the persisted settings used by background AI work");
+        assert_eq!(saved.base_url, original.base_url);
+        assert_eq!(saved.api_key, ORIGINAL_KEY);
+        test_ai_provider_connection_for_settings(saved)
+            .expect("the saved provider remains usable after rejecting the changed source");
+        let original_request = original_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("saved provider request");
+        original_server.join().expect("original provider fixture");
+        assert_eq!(
+            authorization_header(&original_request),
+            Some(format!("Bearer {ORIGINAL_KEY}"))
+        );
+
+        let changed_request_settings =
+            get_ai_settings_for_request_with_store(&db, Some(changed_source), &credentials)
+                .expect("a changed-source test request remains usable without the saved key");
+        assert!(changed_request_settings.api_key.is_empty());
+        test_ai_provider_connection_for_settings(changed_request_settings)
+            .expect("test the changed provider without inheriting the key");
+        let changed_request = changed_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("changed-source provider request");
+        changed_server.join().expect("changed-source fixture");
+        assert_eq!(authorization_header(&changed_request), None);
+        assert!(!changed_request.contains(ORIGINAL_KEY));
+        assert_eq!(credentials.get().unwrap().as_deref(), Some(ORIGINAL_KEY));
+
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn saved_custom_profiles_keep_independent_keys_and_bind_each_origin() {
+        let database_path = concurrency_test_db_path("profile-source-binding");
+        let db = Database::open(&database_path).expect("profile source database");
+        let credentials = InMemoryCredentialStore::default();
+        let mut profile_a = profile_settings("profile-a", ApiKeyAction::Replace);
+        profile_a.api_key = "profile-a-key".to_string();
+        profile_a.custom_profiles[0].base_url = "https://a.provider.example/v1".to_string();
+        save_ai_settings_with_store(&db, &profile_a, &credentials).expect("save profile A");
+
+        let mut profile_b = profile_a.clone();
+        profile_b.custom_profiles.push(custom_profile("profile-b"));
+        profile_b.custom_profiles[1].base_url = "https://b.provider.example/v1".to_string();
+        profile_b.active_custom_profile_id = Some("profile-b".to_string());
+        profile_b.api_key = "profile-b-key".to_string();
+        profile_b.api_key_action = ApiKeyAction::Replace;
+        save_ai_settings_with_store(&db, &profile_b, &credentials).expect("save profile B");
+
+        let mut back_to_a = profile_b.clone();
+        back_to_a.active_custom_profile_id = Some("profile-a".to_string());
+        back_to_a.api_key.clear();
+        back_to_a.api_key_action = ApiKeyAction::Preserve;
+        let restored_a = save_ai_settings_with_store(&db, &back_to_a, &credentials)
+            .expect("switch to the previously saved profile and its own key");
+        assert_eq!(restored_a.api_key, "profile-a-key");
+        assert_eq!(
+            credentials.get_profile("profile-b").unwrap().as_deref(),
+            Some("profile-b-key")
+        );
+
+        let mut changed_active = back_to_a.clone();
+        changed_active.custom_profiles[0].base_url =
+            "https://new-a.provider.example/v1".to_string();
+        let error = save_ai_settings_with_store(&db, &changed_active, &credentials)
+            .expect_err("active profile origin change with Preserve must be rejected");
+        assert!(error
+            .to_string()
+            .contains("ai_profile_api_key_source_changed_select_profile"));
+
+        let mut replaced_active = changed_active.clone();
+        replaced_active.api_key = "profile-a-new-origin-key".to_string();
+        replaced_active.api_key_action = ApiKeyAction::Replace;
+        save_ai_settings_with_store(&db, &replaced_active, &credentials)
+            .expect("explicit replacement permits the active profile origin change");
+
+        let mut active_b = replaced_active.clone();
+        active_b.active_custom_profile_id = Some("profile-b".to_string());
+        active_b.api_key.clear();
+        active_b.api_key_action = ApiKeyAction::Preserve;
+        save_ai_settings_with_store(&db, &active_b, &credentials)
+            .expect("switch back to profile B");
+        let mut changed_inactive = active_b;
+        changed_inactive.custom_profiles[0].base_url =
+            "https://private-a.provider.example/v1".to_string();
+        let error = save_ai_settings_with_store(&db, &changed_inactive, &credentials)
+            .expect_err("inactive profile origin change must not strand its existing key");
+        assert!(error
+            .to_string()
+            .contains("ai_profile_api_key_source_changed_select_profile"));
+        assert_eq!(
+            credentials.get_profile("profile-a").unwrap().as_deref(),
+            Some("profile-a-new-origin-key")
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn request_for_saved_inactive_profile_uses_only_its_bound_key() {
+        const PROFILE_A_KEY: &str = "profile-a-request-route-key";
+        const PROFILE_B_KEY: &str = "profile-b-request-route-key";
+        let database_path = concurrency_test_db_path("saved-profile-request-route");
+        let db = Database::open(&database_path).expect("saved profile request database");
+        let credentials = InMemoryCredentialStore::default();
+
+        let (profile_b_url, profile_b_request, profile_b_server) =
+            provider_http_fixture(r#"{"data":[{"id":"profile-b-model"}]}"#);
+        let mut saved = profile_settings("profile-a", ApiKeyAction::Preserve);
+        saved.api_key.clear();
+        saved.custom_profiles[0].base_url = "http://127.0.0.1:1/profile-a".to_string();
+        saved.custom_profiles.push(custom_profile("profile-b"));
+        saved.custom_profiles[1].base_url = format!("{profile_b_url}/saved-profile-b");
+        saved.active_custom_profile_id = Some("profile-a".to_string());
+        persist_ai_settings_without_secret(&db, &saved).expect("persist saved profiles");
+        credentials
+            .set_profile("profile-a", PROFILE_A_KEY)
+            .expect("seed Profile A key");
+        credentials
+            .set_profile("profile-b", PROFILE_B_KEY)
+            .expect("seed Profile B key");
+
+        let mut request = saved.clone();
+        request.active_custom_profile_id = Some("profile-b".to_string());
+        request.api_key.clear();
+        request.api_key_action = ApiKeyAction::Preserve;
+        request.timeout_seconds = 2;
+        let resolved = get_ai_settings_for_request_with_store(&db, Some(request), &credentials)
+            .expect("switching to a saved profile can resolve its own key");
+        assert_eq!(resolved.api_key, PROFILE_B_KEY);
+        list_ai_models_for_settings(resolved).expect("saved Profile B model discovery");
+        let profile_b_request = profile_b_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Profile B model request");
+        profile_b_server.join().expect("Profile B fixture server");
+        assert_eq!(
+            authorization_header(&profile_b_request),
+            Some(format!("Bearer {PROFILE_B_KEY}"))
+        );
+        assert!(!profile_b_request.contains(PROFILE_A_KEY));
+
+        let (changed_origin_url, changed_origin_request, changed_origin_server) =
+            provider_http_fixture(r#"{"data":[{"id":"changed-origin-model"}]}"#);
+        let mut changed_inactive_profile = saved.clone();
+        changed_inactive_profile.custom_profiles[1].base_url =
+            format!("{changed_origin_url}/changed");
+        let error = save_ai_settings_with_store(&db, &changed_inactive_profile, &credentials)
+            .expect_err("a changed inactive Profile source with a stored key must be rejected");
+        assert!(error
+            .to_string()
+            .contains("ai_profile_api_key_source_changed_select_profile"));
+
+        let mut changed_request = changed_inactive_profile;
+        changed_request.active_custom_profile_id = Some("profile-b".to_string());
+        changed_request.api_key.clear();
+        changed_request.api_key_action = ApiKeyAction::Preserve;
+        changed_request.timeout_seconds = 2;
+        let resolved =
+            get_ai_settings_for_request_with_store(&db, Some(changed_request), &credentials)
+                .expect("changed Profile B origin is still testable without a stored key");
+        assert!(resolved.api_key.is_empty());
+        list_ai_models_for_settings(resolved).expect("changed-origin model discovery");
+        let changed_origin_request = changed_origin_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("changed-origin model request");
+        changed_origin_server
+            .join()
+            .expect("changed-origin fixture server");
+        assert_eq!(authorization_header(&changed_origin_request), None);
+        assert_eq!(
+            credentials.get_profile("profile-b").unwrap().as_deref(),
+            Some(PROFILE_B_KEY)
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[test]
     fn provider_requests_do_not_send_stored_key_to_a_changed_origin() {
         const STORED_KEY: &str = "stored-cross-origin-test-key";
         let saved_settings = AISettings {
@@ -2154,6 +2736,14 @@ mod validation_tests {
             let _ = stream.write_all(response.as_bytes());
         });
         (format!("http://{address}"), receiver, worker)
+    }
+
+    fn authorization_header(request: &str) -> Option<String> {
+        request.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("authorization")
+                .then(|| value.trim().to_string())
+        })
     }
 
     #[test]

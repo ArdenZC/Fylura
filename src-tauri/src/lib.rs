@@ -34,7 +34,13 @@ pub mod settings;
 pub mod storage_analyzer;
 // native-qa binaries use disposable profile roots and intentionally do not
 // expose the production data-cleanup entrypoint.
-#[cfg_attr(feature = "native-qa", allow(dead_code))]
+#[cfg_attr(
+    any(
+        feature = "native-qa",
+        not(any(target_os = "windows", target_os = "macos"))
+    ),
+    allow(dead_code)
+)]
 pub mod uninstall;
 pub mod watcher;
 pub mod window_auth;

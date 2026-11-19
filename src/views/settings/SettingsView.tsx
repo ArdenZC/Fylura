@@ -106,18 +106,74 @@ function userProviderValue(settings: AISettings): AIProviderPresetId | "openai_c
   return "openai_compatible";
 }
 
-function applyProviderPreset(settings: AISettings, preset: AIProviderPreset): AISettings {
-  return {
+function normalizedAIOrigin(baseUrl: string): string | null {
+  try {
+    const url = new URL(baseUrl.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function providerKeySourceMatches(saved: AISettings | null, requested: AISettings): boolean {
+  return Boolean(saved
+    && saved.provider === requested.provider
+    && saved.preset === requested.preset
+    && (saved.activeCustomProfileId ?? null) === (requested.activeCustomProfileId ?? null)
+    && normalizedAIOrigin(saved.baseUrl) !== null
+    && normalizedAIOrigin(saved.baseUrl) === normalizedAIOrigin(requested.baseUrl));
+}
+
+function profileKeySourceMatches(saved: AISettings | null, requested: AISettings, profileId: string): boolean {
+  const savedProfile = saved?.customProfiles?.find((profile) => profile.id === profileId);
+  const requestedProfile = requested.customProfiles?.find((profile) => profile.id === profileId);
+  return Boolean(savedProfile && requestedProfile
+    && normalizedAIOrigin(savedProfile.baseUrl) !== null
+    && normalizedAIOrigin(savedProfile.baseUrl) === normalizedAIOrigin(requestedProfile.baseUrl));
+}
+
+function aiCredentialConfiguredForDraft(draft: AISettings, saved: AISettings | null): boolean {
+  if (draft.apiKeyAction === "clear") return false;
+  if (draft.apiKeyAction === "replace") return Boolean(draft.apiKey.trim());
+  if (draft.preset === "custom_openai_compatible") {
+    const profileId = draft.activeCustomProfileId;
+    const profile = draft.customProfiles?.find((item) => item.id === profileId);
+    return Boolean(profileId && profile?.apiKeyConfigured && profileKeySourceMatches(saved, draft, profileId));
+  }
+  return Boolean(draft.apiKeyConfigured && providerKeySourceMatches(saved, draft));
+}
+
+function aiProfileCredentialConfiguredForDraft(draft: AISettings, saved: AISettings | null, profileId: string): boolean {
+  const profile = draft.customProfiles?.find((item) => item.id === profileId);
+  return Boolean(profile?.apiKeyConfigured && profileKeySourceMatches(saved, draft, profileId));
+}
+
+function hasSavedCredentialToClear(draft: AISettings, saved: AISettings | null): boolean {
+  if (draft.preset === "custom_openai_compatible") {
+    const profile = draft.customProfiles?.find((item) => item.id === draft.activeCustomProfileId);
+    if (draft.activeCustomProfileId) return Boolean(profile?.apiKeyConfigured);
+    return Boolean(saved && saved.preset !== "custom_openai_compatible" && saved.apiKeyConfigured);
+  }
+  return Boolean(saved && saved.preset !== "custom_openai_compatible" && saved.apiKeyConfigured);
+}
+
+function applyProviderPreset(settings: AISettings, preset: AIProviderPreset, saved: AISettings | null): AISettings {
+  const next = {
     ...settings,
     enabled: settings.enabled,
     provider: preset.providerKind,
     preset: preset.id,
+    activeCustomProfileId: null,
     baseUrl: preset.defaultBaseUrl,
     chatPath: preset.defaultChatPath,
     modelsPath: preset.modelsPath ?? null,
     model: preset.defaultModel,
-    apiKey: settings.apiKey
+    apiKey: "",
+    apiKeyAction: "preserve" as const,
+    apiKeyConfigured: false
   };
+  next.apiKeyConfigured = Boolean(saved?.apiKeyConfigured && providerKeySourceMatches(saved, next));
+  return next;
 }
 
 function readDeveloperMode() {
@@ -344,6 +400,8 @@ export function SettingsView() {
   } = useSettingsGlobalIndexController({ t, showStatus });
 
   const aiSettingsDirty = Boolean(aiSettings && persistedAISettings && !aiSettingsEqual(aiSettings, persistedAISettings));
+  const aiDraftCredentialConfigured = Boolean(aiSettings && aiCredentialConfiguredForDraft(aiSettings, persistedAISettings));
+  const aiDraftHasSavedCredentialToClear = Boolean(aiSettings && hasSavedCredentialToClear(aiSettings, persistedAISettings));
   const activeAIClassificationPreset = aiSettings ? resolveAIClassificationPreset(aiSettings) : "custom";
   const aiDependentControlsDisabled = !aiSettings?.enabled;
   const runtimeAIUserMode = runtimeAISettings ? aiUserMode(runtimeAISettings) : persistedAISettings ? aiUserMode(persistedAISettings) : "off";
@@ -670,9 +728,9 @@ export function SettingsView() {
         : aiPresets.find((preset) => preset.providerKind !== "ollama" && preset.id === current.preset)
           ?? aiPresets.find((preset) => preset.providerKind !== "ollama" && preset.id === "deepseek")
           ?? aiPresets.find((preset) => preset.providerKind !== "ollama");
-      return targetPreset ? applyProviderPreset({ ...current, enabled: true }, targetPreset) : { ...current, enabled: true };
+      return targetPreset ? applyProviderPreset({ ...current, enabled: true }, targetPreset, persistedAISettings) : { ...current, enabled: true };
     });
-  }, [aiPresets]);
+  }, [aiPresets, persistedAISettings]);
 
   useEffect(() => {
     if (!aiSettings || !aiPresets.length) return;
@@ -699,10 +757,11 @@ export function SettingsView() {
     setAiConnectionStatus(null);
     setAiDebugStatus(null);
     setAiSettings((current) => {
+      if (current?.preset === presetId) return current;
       if (!preset) return current ? { ...current, preset: presetId } : current;
       const fallback = current ?? defaultAISettingsFromPreset(preset);
       if (!fallback) return fallback;
-      return applyProviderPreset(fallback, preset);
+      return applyProviderPreset(fallback, preset, persistedAISettings);
     });
   }
 
@@ -723,7 +782,7 @@ export function SettingsView() {
       temperature: Math.min(profile.temperatureMax, Math.max(profile.temperatureMin, aiSettings?.temperature ?? 0)),
       extraBodyJson: profile.extraBodyJson ?? null,
       apiKey: "",
-      apiKeyConfigured: profile.apiKeyConfigured ?? false,
+      apiKeyConfigured: Boolean(profile.apiKeyConfigured && aiSettings && aiProfileCredentialConfiguredForDraft(aiSettings, persistedAISettings, profile.id)),
       apiKeyAction: "preserve"
     });
   }
@@ -1196,8 +1255,8 @@ export function SettingsView() {
                 disabled={aiDependentControlsDisabled}
                 onChange={(presetId) => { if (presetId !== "custom") applyClassificationPreset(presetId); }}
               />
-              <SettingsInlineMessage tone={aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured ? "warning" : "info"}>
-                {aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured
+              <SettingsInlineMessage tone={aiSettings.enabled && aiSettings.provider !== "ollama" && !aiDraftCredentialConfigured ? "warning" : "info"}>
+                {aiSettings.enabled && aiSettings.provider !== "ollama" && !aiDraftCredentialConfigured
                   ? t("aiConfigurationIncomplete")
                   : aiSettings.enabled
                     ? t(aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")
@@ -1214,7 +1273,14 @@ export function SettingsView() {
                       <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} maxLength={2048} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
                       <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} maxLength={512} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
                       {aiSettings.provider === "ollama" ? (
-                        <span className={quietText}>{t("aiLocalApiKeyHint")}</span>
+                        <div className="grid min-w-0 gap-2">
+                          <span className={quietText}>{t("aiLocalApiKeyHint")}</span>
+                          {aiDraftHasSavedCredentialToClear && aiSettings.apiKeyAction !== "clear" ? (
+                            <button className={buttonSecondary} type="button" disabled={aiDependentControlsDisabled} onClick={() => updateAISettings({ apiKey: "", apiKeyAction: "clear" })}>
+                              {t("aiClearApiKey")}
+                            </button>
+                          ) : null}
+                        </div>
                       ) : (
                         <div className="grid min-w-0 gap-2">
                           <SettingsSecretField
@@ -1225,10 +1291,10 @@ export function SettingsView() {
                             showLabel={t("showApiKey")}
                             hideLabel={t("hideApiKey")}
                             onChange={(value) => updateAISettings({ apiKey: value, apiKeyAction: value ? "replace" : "preserve" })}
-                            placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
+                            placeholder={aiDraftCredentialConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
                             resetKey={`${activeSettingsSection}:${draftAIUserMode}:${developerMode}:${aiAdvancedOpen}:${aiSettings.provider}:${aiSettings.preset}:${secretRevealResetVersion}`}
                           />
-                          {aiSettings.apiKeyConfigured ? (
+                          {aiDraftHasSavedCredentialToClear && aiSettings.apiKeyAction !== "clear" ? (
                             <button className={buttonSecondary} type="button" disabled={aiDependentControlsDisabled} onClick={() => updateAISettings({ apiKey: "", apiKeyAction: "clear" })}>
                               {t("aiClearApiKey")}
                             </button>
@@ -1244,7 +1310,7 @@ export function SettingsView() {
                             description={t("aiCustomProfileDesc")}
                             value={aiSettings.activeCustomProfileId ?? ""}
                             options={[
-                              ...(aiSettings.customProfiles ?? []).map((profile) => ({ value: profile.id, label: `${profile.name}${profile.apiKeyConfigured ? " · ✓" : ""}` })),
+                              ...(aiSettings.customProfiles ?? []).map((profile) => ({ value: profile.id, label: `${profile.name}${aiProfileCredentialConfiguredForDraft(aiSettings, persistedAISettings, profile.id) ? " · ✓" : ""}` })),
                               { value: "", label: t("aiCustomProfileNone") }
                             ]}
                             onChange={(value) => { if (value) selectCustomProfile(value); }}

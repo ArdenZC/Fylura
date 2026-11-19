@@ -696,11 +696,6 @@ FunctionEnd
 
 Function un.ZCRemoveFyluraStartup
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
-  ${If} $UpdateMode == 1
-    StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 1
-    Return
-  ${EndIf}
-
   SetRegView 64
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"

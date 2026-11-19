@@ -126,7 +126,6 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
     "Win32_System_Power",
-    "Win32_System_RemoteDesktop",
     "Win32_System_Services",
     "Win32_System_SystemServices",
     "Win32_System_SystemInformation",

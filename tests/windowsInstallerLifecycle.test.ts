@@ -490,24 +490,29 @@ describe("W4-04 package NSIS lifecycle", () => {
     );
   });
 
-  it("runs user data consent and cleanup in the initiating user before machine elevation", () => {
+  it("keeps full cleanup opt-in, direct, and checked before NSIS removes application files", () => {
     const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
 
-    expect(generated).toContain('WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\${MAINBINARYNAME}.exe$\\\" --fylura-uninstall-launcher"');
-    expect(generated).toContain("Per-user cleanup runs in the initiating user's account before UAC");
-    expect(generated).toContain("Current-user autostart cleanup runs in the initiating user's account.");
-    expect(generated).not.toContain('DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run"');
-    expect(generated).not.toContain('"/DELETE_APP_DATA"');
-    expect(generated).not.toContain('"/CONFIRM_DELETE_APP_DATA"');
-    expect(generated).not.toContain("--fylura-uninstall-clean-user-data");
-    expect(generated).not.toContain("DeleteAppDataCheckbox");
+    expect(generated).toContain('WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\uninstall.exe$\\\""');
+    expect(generated).toContain('"/DELETE_APP_DATA"');
+    expect(generated).toContain('"/CONFIRM_DELETE_APP_DATA"');
+    expect(generated).toContain("--fylura-uninstall-clean-user-data");
+    expect(generated).toContain("DeleteAppDataCheckbox");
+    expect(generated).toContain("FyluraFullCleanupWarning");
+    expect(generated).toContain("Fylura data cleanup is INCOMPLETE");
+    expect(generated).toContain("Call un.ZCRecoverUninstallReversible");
     expect(generated).toContain("Call un.ZCMarkUninstallIrreversible");
+    expect(generated).toContain('DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"');
+    expect(generated).not.toContain("--fylura-uninstall-launcher");
+    expect(generated).not.toContain("--fylura-uninstall-worker");
     expect(generated).not.toContain('RmDir /r "$APPDATA\\${BUNDLEID}"');
     expect(generated).not.toContain('RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"');
     expect(generated).toContain("Call un.ZCFailUninstallPartial");
 
+    const cleanup = generated.indexOf("--fylura-uninstall-clean-user-data");
     const executableDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
-    expect(executableDelete).toBeGreaterThanOrEqual(0);
+    expect(cleanup).toBeGreaterThanOrEqual(0);
+    expect(executableDelete).toBeGreaterThan(cleanup);
   });
 
   it("admits only the exact previous Fylura uninstall string during in-place updates", () => {
@@ -515,7 +520,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     const detection = functionBody(hooks, "DetectZenCanvasPreexistingProduct");
     const admission = macroBody(hooks, "ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
 
-    expect(detection).toContain('$ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\\\"$INSTDIR\\uninstall.exe$\\\""');
+    expect(detection).toContain('$ZC_EXPECTED_UNINSTALL_STRING "$\\\"$INSTDIR\\uninstall.exe$\\\""');
+    expect(detection).toContain('$ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\\\"$INSTDIR\\fylura.exe$\\\" --fylura-uninstall-launcher');
     expect(detection).toContain("ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
     expect(admission).toContain("$ZC_EXPECTED_UNINSTALL_STRING");
     expect(admission).toContain("$ZC_EXPECTED_LEGACY_UNINSTALL_STRING");
@@ -523,88 +529,31 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(admission).toContain('StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0');
   });
 
-  it("runs destructive uninstall verification only on the disposable hosted Windows VM", () => {
-    const verifier = fs.readFileSync(
-      nsisLifecycleRuntimeScriptPath,
-      "utf8",
-    );
+  it("runs focused destructive uninstall coverage directly in the disposable hosted VM", () => {
+    const verifier = fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8");
+    const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
 
     expect(verifier).toContain("$env:GITHUB_ACTIONS -eq 'true'");
     expect(verifier).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
-    expect(verifier).toContain("isolatedRunnerVm = $true");
-    expect(verifier).toContain("New-LocalUser -Name $secondaryUserName");
-    expect(verifier).toContain("Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $true");
-    expect(verifier).toContain("Set-TaskOwnedBatchLogonRight $secondaryUserSidValue $false");
-    expect(verifier).toContain("SeBatchLogonRight");
-    expect(verifier).toContain("Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings");
-    expect(verifier).toContain("-User $account -Password $passwordText -RunLevel Limited");
-    expect(verifier).toContain("lastTaskResult=$lastResult");
+    expect(verifier).toContain("WindowsPrincipal]::new($id).IsInRole");
+    expect(verifier).toContain("Refusing to alter existing application data");
+    expect(verifier).toContain("ai-api-key-qa_orphan.com.startlan.fylura.ai-profile");
+    expect(verifier).toContain("fylura-cleanup-fixture.com.example.editor");
+    expect(verifier).toContain("/DELETE_APP_DATA");
+    expect(verifier).toContain("/CONFIRM_DELETE_APP_DATA");
+    expect(verifier).toContain("unconfirmed-full-cleanup-refused");
+    expect(verifier).toContain("safe-trash");
+    expect(verifier).toContain("organized-files");
+    expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
+    expect(verifier).toContain("Assert-Preview $false");
+    expect(verifier).toContain("Assert-Preview $true");
     expect(verifier).toContain("phase = 'cleanup-failed'");
-    expect(verifier).toContain("secondary-user-profile-retained-until-vm-teardown");
-    expect(verifier).toContain("The disposable standard-user test account remained after cleanup.");
-    expect(verifier).toContain("standardUserContextTaskCompleted = $true");
-    expect(verifier).toContain("--fylura-uninstall-worker-cleanup");
-    expect(verifier).toContain("administratorAttemptedAnotherUsersSid = $true");
-    expect(verifier).toContain("uacAlternateAdministratorPromptExercised = $false");
-    expect(verifier).not.toContain("Start-Process -FilePath $powershell -Credential $secondaryCredential");
-    expect(verifier).toContain("Stop-ScheduledTask -TaskName $taskName");
-    expect(verifier).toContain("The isolated standard-user context task remained after cleanup.");
-    expect(verifier).toContain("Assert-SecondaryProfileDataPreserved");
-    expect(verifier).not.toContain("IsolatedUserChild");
-    expect(verifier).toContain("$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");
-    expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)");
-    expect(verifier).toContain("[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)");
-    expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura application data.");
-    expect(verifier).toContain("Refusing to alter pre-existing current-user Fylura cache or logs.");
-    expect(verifier).toContain("$seedOutput = @(& $python $seedDbScript $sentinels.currentDatabase 2>&1)");
-    expect(verifier).toContain("$seedError = ($seedOutput | Out-String).Trim()");
-    const sentinelSeedStart = verifier.indexOf("foreach ($entry in $sentinels.GetEnumerator()) {");
-    const sentinelSeedEnd = verifier.indexOf("$python =", sentinelSeedStart);
-    expect(verifier.slice(sentinelSeedStart, sentinelSeedEnd)).toContain(
-      "if ($entry.Key -eq 'currentDatabase') { continue }",
-    );
-  });
-
-  it("runs the NSIS lifecycle worker in a disposable elevated Windows profile", () => {
-    const runner = fs.readFileSync(nsisLifecycleRunnerScriptPath, "utf8");
-    const verifier = fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8");
-    const workflow = fs.readFileSync(
-      path.join(repositoryRoot, ".github", "workflows", "ci.yml"),
-      "utf8",
-    );
-
-    expect(workflow).toContain("verifyWindowsNsisLifecycleRunner.ps1");
-    expect(runner).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
-    expect(runner).toContain("New-LocalUser -Name $userName");
-    expect(runner).toContain("-Group 'Administrators'");
-    expect(runner).toContain("Register-ScheduledTask");
-    expect(runner).toContain("-RunLevel Highest");
-    expect(runner).toContain("-Password $passwordText");
-    expect(runner).toContain('$sharedRoot = Join-Path $env:ProgramData');
-    expect(runner).toContain("Refusing pre-existing isolated lifecycle staging path");
-    expect(runner).toContain("FileSystemAccessRule]::new");
-    expect(runner).toContain("worker-error.log");
-    expect(runner).toContain("runner-observed-worker-failure");
-    expect(runner).toContain("$document.status = 'FAIL'");
-    expect(runner).toContain("The isolated lifecycle task returned");
-    expect(runner).toContain("The isolated lifecycle worker ended without writing evidence or an error log.");
-    expect(runner).toContain("-TaskWorker -RunnerTemp $literalRunnerTemp -RunId $literalRunId -SourceSha $literalSourceSha -PythonPath $literalPythonPath");
-    expect(runner).toContain("Unregister-ScheduledTask");
-    expect(runner).toContain("Remove-LocalUser -Name $userName");
-    expect(runner).toContain("GitHub-hosted VM kept its task-owned profile hive loaded until VM teardown");
-    expect(runner).toContain("Could not remove the disposable lifecycle user profile record");
-    expect(verifier).toContain("[switch]$TaskWorker");
-    expect(verifier).toContain("[Environment]::UserName -notlike 'Fylura596_*'");
-    expect(verifier).toContain("Refusing to overwrite a pre-existing Windows credential target");
-    expect(verifier).toContain('cmdkey.exe" /list 2>&1');
-    expect(verifier).toContain("LegacyGeneric:target=");
-    expect(verifier).toContain("candidate.Equals($Target, [StringComparison]::OrdinalIgnoreCase)");
-    expect(verifier.indexOf("$mainBinaryAcl = Get-Acl -LiteralPath $mainBinary")).toBeGreaterThan(
-      verifier.indexOf("$freshExitCode = Invoke-Installer $installer"),
-    );
-    expect(verifier).toContain("scriptLine = $errorRecord.InvocationInfo.ScriptLineNumber");
-    expect(runner).toContain("after phase '$($previous[0].phase)'");
-    expect(runner).toContain(" at $($failure[0].script):$($failure[0].scriptLine)");
+    expect(verifier).not.toContain("TaskWorker");
+    expect(verifier).not.toContain("secondary-user");
+    expect(verifier).not.toContain("cross-account");
+    expect(verifier).not.toContain("ScheduledTask");
+    expect(workflow).toContain("verifyWindowsNsisLifecycle.ps1");
+    expect(workflow).not.toContain("verifyWindowsNsisLifecycleRunner.ps1");
   });
 
   it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {

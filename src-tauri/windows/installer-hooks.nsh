@@ -398,9 +398,8 @@ FunctionEnd
   ${EndIf}
 !macroend
 
-; The previous Fylura package registered uninstall.exe directly. Accept that
-; exact same-install-path value only while admitting an existing installation
-; for update; new packages always register the current-user Fylura launcher.
+; Accept the current direct NSIS uninstaller and the exact same-install-path
+; launcher value used by the earlier PR build while admitting an update.
 !macro ZC_REQUIRE_PRODUCT_UNINSTALL_STRING PATH
   !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "${PATH}" "UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_EXACT}
@@ -438,8 +437,8 @@ Function DetectZenCanvasPreexistingProduct
   StrCpy $ZC_UNINSTALLER_KEY_PRESENT 0
   StrCpy $ZC_MANUFACTURER_KEY_PRESENT 0
   StrCpy $ZC_EXPECTED_INSTALL_LOCATION "$\"$INSTDIR$\""
-  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\fylura.exe$\" --fylura-uninstall-launcher"
-  StrCpy $ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
+  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
+  StrCpy $ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\"$INSTDIR\fylura.exe$\" --fylura-uninstall-launcher"
   StrCpy $ZC_EXPECTED_DISPLAY_ICON "$\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME$\""
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"
@@ -2274,7 +2273,7 @@ FunctionEnd
   StrCpy $ZC_PRODUCT_NAME "${PRODUCTNAME}"
   StrCpy $ZC_MANUFACTURER_NAME "${MANUFACTURER}"
   StrCpy $ZC_EXPECTED_INSTALL_LOCATION "$\"$INSTDIR$\""
-  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\fylura.exe$\" --fylura-uninstall-launcher"
+  StrCpy $ZC_EXPECTED_UNINSTALL_STRING "$\"$INSTDIR\uninstall.exe$\""
   StrCpy $ZC_EXPECTED_DISPLAY_ICON "$\"$INSTDIR\$ZC_MAIN_BINARY_FILENAME$\""
   StrCpy $ZC_EXPECTED_DISPLAY_VERSION "${VERSION}"
   StrCpy $ZC_EXPECTED_PUBLISHER "$ZC_MANUFACTURER_NAME"

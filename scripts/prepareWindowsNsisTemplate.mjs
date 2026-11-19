@@ -61,57 +61,13 @@ export function buildFyluraNsisTemplate(upstream) {
 
   output = replaceExactly(
     output,
-    "!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow",
-    lines(
-      "!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.FyluraUserDataChoiceHandledBeforeUac",
-      "Function un.FyluraUserDataChoiceHandledBeforeUac",
-      "FunctionEnd",
-    ),
-    "route uninstall data choice through current user before UAC",
-  );
-
-  output = replaceExactly(
-    output,
-    lines(
-      "Function un.ConfirmShow ; Add add a `Delete app data` check box",
-      "  ; $1 inner dialog HWND",
-      "  ; $2 window DPI",
-      "  ; $3 style",
-      "  ; $4 x",
-      "  ; $5 y",
-      "  ; $6 width",
-      "  ; $7 height",
-      '  FindWindow $1 "#32770" "" $HWNDPARENT ; Find inner dialog',
-      '  System::Call "user32::GetDpiForWindow(p r1) i .r2"',
-      '  ${If} $(^RTL) = 1',
-      '    StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | ${WS_EX_LAYOUTRTL}"',
-      '    IntOp $4 50 * $2',
-      '  ${Else}',
-      '    StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"',
-      '    IntOp $4 0 * $2',
-      '  ${EndIf}',
-      '  IntOp $5 100 * $2',
-      '  IntOp $6 400 * $2',
-      '  IntOp $7 25 * $2',
-      '  IntOp $4 $4 / 96',
-      '  IntOp $5 $5 / 96',
-      '  IntOp $6 $6 / 96',
-      '  IntOp $7 $7 / 96',
-      '  System::Call \'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "$(deleteAppData)", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s\'',
-      '  Pop $DeleteAppDataCheckbox',
-      '  SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1',
-      '  SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1',
-      "FunctionEnd",
-    ),
-    lines("Function un.ConfirmShow", "FunctionEnd"),
-    "remove elevated data checkbox implementation",
-  );
-
-  output = replaceExactly(
-    output,
     lines("Var DeleteAppDataCheckbox", "Var DeleteAppDataCheckboxState"),
-    "",
-    "remove elevated data checkbox state",
+    lines(
+      "Var DeleteAppDataCheckbox",
+      "Var DeleteAppDataCheckboxState",
+      "Var FyluraDeleteAppDataConfirmationFlag",
+    ),
+    "record explicit full-cleanup confirmation",
   );
 
   output = replaceExactly(
@@ -127,9 +83,26 @@ export function buildFyluraNsisTemplate(upstream) {
       "FunctionEnd",
       "!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave",
       "Function un.ConfirmLeave",
+      "  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState",
+      "  ${If} $DeleteAppDataCheckboxState == 1",
+      "  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1",
+      '    MessageBox MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2 "$(FyluraFullCleanupWarning)" IDYES +2',
+      "    Abort",
+      "  ${EndIf}",
       "FunctionEnd",
     ),
-    "remove elevated uninstall data choice",
+    "confirm full cleanup and warn about Restore metadata",
+  );
+
+  output = replaceExactly(
+    output,
+    "!insertmacro MUI_RESERVEFILE_LANGDLL",
+    lines(
+      'LangString FyluraFullCleanupWarning ${LANG_ENGLISH} "Full cleanup deletes Fylura settings, database, History, Journal, Restore records, cache, and AI credentials. Safe Trash files and organized files stay in place, but remaining Safe Trash files may lose their restore records. Continue?"',
+      'LangString FyluraFullCleanupWarning ${LANG_SIMPCHINESE} "彻底清理会删除 Fylura 设置、数据库、History、Journal、Restore 记录、缓存和 AI 凭据。Safe Trash 中的文件和已整理文件会保留，但 Safe Trash 文件可能失去恢复记录。是否继续？"',
+      "!insertmacro MUI_RESERVEFILE_LANGDLL",
+    ),
+    "localize full-cleanup consequence confirmation",
   );
 
   output = replaceExactly(
@@ -139,54 +112,40 @@ export function buildFyluraNsisTemplate(upstream) {
       '    RmDir /r "$APPDATA\\${BUNDLEID}"',
       '    RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"',
     ),
-    lines(
-      '    SetShellVarContext current',
-      '    ; The Fylura helper already verified app ownership and preserves Safe Trash.',
-      '    ; Do not recursively remove either root here: it can contain real user files.',
-    ),
-    "prevent upstream recursive app-data deletion",
+    "    ; Fylura data was cleaned and verified by the app helper before file removal.",
+    "replace upstream recursive app-data deletion with verified Fylura cleanup",
   );
 
   output = replaceExactly(
     output,
     lines(
-      "  ; Delete app data if the checkbox is selected",
-      "  ; and if not updating",
-      "  ${If} $DeleteAppDataCheckboxState = 1",
-      "  ${AndIf} $UpdateMode <> 1",
-      "    ; Clear the install location $INSTDIR from registry",
-      '    DeleteRegKey SHCTX "${MANUPRODUCTKEY}"',
-      '    DeleteRegKey /ifempty SHCTX "${MANUKEY}"',
+      '  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"',
       "",
-      "    ; Clear the install language from registry",
-      '    DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"',
-      '    DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"',
-      '    DeleteRegKey /ifempty HKCU "${MANUKEY}"',
+      "  ; Delete the app directory and its content from disk",
+      "  ; Copy main executable",
+    ),
+    lines(
+      '  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"',
       "",
-      "    SetShellVarContext current",
-      "    ; The Fylura helper already verified app ownership and preserves Safe Trash.",
-      "    ; Do not recursively remove either root here: it can contain real user files.",
+      "  ${If} $UpdateMode <> 1",
+      "  ${AndIf} $DeleteAppDataCheckboxState == 1",
+      "    ClearErrors",
+      "    ExecWait '\"$INSTDIR\\${MAINBINARYNAME}.exe\" --fylura-uninstall-clean-user-data' $R0",
+      "    ${If} ${Errors}",
+      '      StrCpy $R0 "could not start the cleanup helper"',
+      "    ${EndIf}",
+      "    ${If} $R0 != 0",
+      "      Call un.ZCRecoverUninstallReversible",
+      '      MessageBox MB_ICONSTOP|MB_OK "Fylura data cleanup is INCOMPLETE (result $R0). Uninstall stopped before removing the program. Some personal data may already have been removed; run the full uninstall again to retry." /SD IDOK',
+      "      SetErrorLevel 2",
+      "      Abort",
+      "    ${EndIf}",
       "  ${EndIf}",
+      "",
+      "  ; Delete the app directory and its content from disk",
+      "  ; Copy main executable",
     ),
-    "  ; Per-user cleanup runs in the initiating user's account before UAC.",
-    "remove elevated per-user cleanup branch",
-  );
-
-  output = replaceExactly(
-    output,
-    lines(
-      "!insertmacro MUI_RESERVEFILE_LANGDLL",
-      "{{#each language_files}}",
-      '  !include "{{this}}"',
-      "{{/each}}",
-    ),
-    lines(
-      "!insertmacro MUI_RESERVEFILE_LANGDLL",
-      "{{#each language_files}}",
-      '  !include "{{this}}"',
-      "{{/each}}",
-    ),
-    "remove elevated uninstall data confirmation translations",
+    "run checked full cleanup before removing application files",
   );
 
   output = replaceExactly(
@@ -203,35 +162,37 @@ export function buildFyluraNsisTemplate(upstream) {
       "  ${IfNot} ${Errors}",
       "    StrCpy $UpdateMode 1",
       "  ${EndIf}",
+      "  StrCpy $DeleteAppDataCheckboxState 0",
+      "  StrCpy $FyluraDeleteAppDataConfirmationFlag 0",
+      '  ${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R0',
+      "  ${IfNot} ${Errors}",
+      "    StrCpy $DeleteAppDataCheckboxState 1",
+      "  ${EndIf}",
+      '  ${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R0',
+      "  ${IfNot} ${Errors}",
+      "    StrCpy $FyluraDeleteAppDataConfirmationFlag 1",
+      "  ${EndIf}",
+      '  ${GetOptions} $CMDLINE "/S" $R0',
+      "  ${IfNot} ${Errors}",
+      '    ${If} $DeleteAppDataCheckboxState == 1',
+      '    ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1',
+      '      MessageBox MB_ICONSTOP|MB_OK "Silent full cleanup requires both /DELETE_APP_DATA and /CONFIRM_DELETE_APP_DATA. No data was changed." /SD IDOK',
+      "      SetErrorLevel 2",
+      "      Abort",
+      "    ${EndIf}",
+      "  ${EndIf}",
+      '  ${GetOptions} $CMDLINE "/P" $R0',
+      "  ${IfNot} ${Errors}",
+      '    ${If} $DeleteAppDataCheckboxState == 1',
+      '    ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1',
+      '      MessageBox MB_ICONSTOP|MB_OK "Passive full cleanup requires both /DELETE_APP_DATA and /CONFIRM_DELETE_APP_DATA. No data was changed." /SD IDOK',
+      "      SetErrorLevel 2",
+      "      Abort",
+      "    ${EndIf}",
+      "  ${EndIf}",
       "FunctionEnd",
     ),
-    "explicit silent uninstall data flags",
-  );
-
-  output = replaceExactly(
-    output,
-    lines(
-      '      ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
-      '      ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"',
-      '      ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE',
-    ),
-    lines(
-      '      ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
-      '      StrCpy $R1 "$\\\"$4\\uninstall.exe$\\\""',
-      '      ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE',
-    ),
-    "keep installer updates on the direct machine uninstaller",
-  );
-
-  output = replaceExactly(
-    output,
-    lines(
-      '  ${If} $UpdateMode <> 1',
-      '    DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "${PRODUCTNAME}"',
-      '  ${EndIf}',
-    ),
-    "  ; Current-user autostart cleanup runs in the initiating user's account.",
-    "move per-user autostart cleanup out of elevated NSIS",
+    "make silent cleanup require explicit choice and confirmation",
   );
 
   output = replaceExactly(
@@ -387,12 +348,28 @@ export function buildFyluraNsisTemplate(upstream) {
       '  WriteRegStr SHCTX "${UNINSTKEY}" "DisplayVersion" "${VERSION}"',
       '  WriteRegStr SHCTX "${UNINSTKEY}" "Publisher" "${MANUFACTURER}"',
       '  WriteRegStr SHCTX "${UNINSTKEY}" "InstallLocation" "$\\\"$INSTDIR$\\\""',
-      '  WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\${MAINBINARYNAME}.exe$\\\" --fylura-uninstall-launcher"',
+      '  WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\uninstall.exe$\\\""',
       '  WriteRegDWORD SHCTX "${UNINSTKEY}" "NoModify" "1"',
       '  WriteRegDWORD SHCTX "${UNINSTKEY}" "NoRepair" "1"',
       "  IfErrors zc_install_partial_failure",
     ),
     "install ARP metadata",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      '  ${If} $UpdateMode <> 1',
+      '    DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "${PRODUCTNAME}"',
+      '  ${EndIf}',
+    ),
+    lines(
+      '  ${If} $UpdateMode <> 1',
+      '    DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "${PRODUCTNAME}"',
+      '    DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"',
+      '  ${EndIf}',
+    ),
+    "remove owned Windows startup approval",
   );
 
   output = replaceExactly(
@@ -545,14 +522,26 @@ export function buildFyluraNsisTemplate(upstream) {
     "IfErrors zc_install_partial_failure",
     "Call un.ZCPrepareUninstallLifecycle",
     "IfErrors zc_uninstall_reversible_failure",
-    "--fylura-uninstall-launcher",
-    "Per-user cleanup runs in the initiating user's account before UAC",
-    "Current-user autostart cleanup runs in the initiating user's account",
+    "--fylura-uninstall-clean-user-data",
+    '"/DELETE_APP_DATA"',
+    '"/CONFIRM_DELETE_APP_DATA"',
+    'WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\uninstall.exe$\\\""',
+    'DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"',
+    'MessageBox MB_ICONSTOP|MB_OK "Fylura data cleanup is INCOMPLETE',
+    'MessageBox MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2 "$(FyluraFullCleanupWarning)"',
     "IfErrors zc_uninstall_partial_failure",
   ]) {
     if (!output.includes(required)) {
       throw new Error(`Generated Zen NSIS template is missing ${required}`);
     }
+  }
+  if (
+    output.includes("--fylura-uninstall-launcher") ||
+    output.includes("--fylura-uninstall-worker") ||
+    output.includes('RmDir /r "$APPDATA\\${BUNDLEID}"') ||
+    output.includes('RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"')
+  ) {
+    throw new Error("Generated Zen NSIS template still contains legacy launcher or recursive app-data cleanup");
   }
 
   return output;

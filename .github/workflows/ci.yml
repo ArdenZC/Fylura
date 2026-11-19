@@ -1940,12 +1940,12 @@ jobs:
           cache-on-failure: true
       - name: Build NSIS package
         run: npm run build
-      - name: Run isolated Windows install / uninstall lifecycle
+      - name: Run Windows install / uninstall lifecycle in isolated hosted VM
         shell: pwsh
         run: |
           $installers = @(Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -File)
           if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
-          ./scripts/verifyWindowsNsisLifecycleRunner.ps1 `
+          ./scripts/verifyWindowsNsisLifecycle.ps1 `
             -InstallerPath $installers[0].FullName `
             -EvidencePath "$env:RUNNER_TEMP/fylura-nsis-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
       - name: Upload Windows install / uninstall evidence

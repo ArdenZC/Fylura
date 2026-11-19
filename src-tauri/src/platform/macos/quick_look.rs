@@ -1124,11 +1124,13 @@ mod tests {
         contents: &[u8],
         modified: SystemTime,
     ) -> PathBuf {
-        use std::fs::{File, FileTimes};
+        use std::fs::{FileTimes, OpenOptions};
 
         let path = root.join(name);
         std::fs::write(&path, contents).expect("cache entry");
-        File::open(&path)
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
             .expect("open cache entry")
             .set_times(FileTimes::new().set_modified(modified))
             .expect("set cache entry modification time");

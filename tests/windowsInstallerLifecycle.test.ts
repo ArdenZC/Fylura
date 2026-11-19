@@ -1990,6 +1990,25 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(final).toContain("Abort");
   });
 
+  it("does not report uninstall success until SCM and the service registry key are both clear", () => {
+    const serviceCleanup = functionBody(installerHooksSource(), "un.DeleteZenCanvasIndexService");
+    expect(serviceCleanup).toContain("Call un.ReadZenCanvasIndexServiceRuntimeState");
+    expect(serviceCleanup).toContain("$ZC_INDEX_SERVICE_RUNTIME_STATE == 4");
+    expect(serviceCleanup).toContain("ZC_REG_QUERY_KEY_STATE");
+    expect(serviceCleanup).toContain("$ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}");
+
+    const final = functionBody(
+      fs.readFileSync(finalPath, "utf8"),
+      "un.ZCPostUninstallLifecycleFinal",
+    );
+    const serviceCleanupCall = final.indexOf("Call un.DeleteZenCanvasIndexService");
+    const serviceStatusCheck = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
+    const successExitCode = final.lastIndexOf("SetErrorLevel 0");
+    expect(serviceStatusCheck).toBeGreaterThan(serviceCleanupCall);
+    expect(successExitCode).toBeGreaterThan(serviceStatusCheck);
+    expect(final.slice(serviceStatusCheck, successExitCode)).toContain("Abort");
+  });
+
   it("T129: marker cleanup never recursively deletes the manufacturer parent", () => {
     const cleanup = functionBody(
       installerHooksSource(),

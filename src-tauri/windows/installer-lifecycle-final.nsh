@@ -486,6 +486,11 @@ Function un.ZCPostUninstallLifecycleFinal
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation
   Call un.DeleteZenCanvasIndexService
+  ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1
+    MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Global Index service could not be verified as removed." /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
   Call un.RemoveZenCanvasManufacturerProductMarker
   ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1
     MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura manufacturer install-location marker could not be removed with exact current ownership; it was preserved." /SD IDOK

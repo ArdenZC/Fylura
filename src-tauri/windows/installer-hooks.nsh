@@ -2015,21 +2015,18 @@ un_delete_wait_loop:
   IntCmp $2 ${ZC_INDEX_SERVICE_CLEANUP_ATTEMPTS} un_delete_wait_timeout 0 0
   Call un.ReadZenCanvasIndexServiceRuntimeState
   ${If} $ZC_INDEX_SERVICE_RUNTIME_STATE == 4
-    Goto un_delete_registry_absence_verify
+    ; SCM can stop reporting a service just before its registry key disappears.
+    ; Keep polling until both views confirm removal, rather than treating that
+    ; short transition as either success or a false cleanup failure.
+    !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
+    ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
+      StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+      Return
+    ${EndIf}
   ${EndIf}
   Sleep ${ZC_INDEX_SERVICE_CLEANUP_DELAY_MS}
   IntOp $2 $2 + 1
   Goto un_delete_wait_loop
-
-un_delete_registry_absence_verify:
-  !insertmacro ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "${ZC_INDEX_SERVICE_KEY}"
-  ${If} $ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}
-    StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
-    Return
-  ${EndIf}
-  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
-  MessageBox MB_ICONSTOP|MB_OK "The service control manager no longer reports Fylura Global Index, but registry-key absence was not verified. Uninstall is incomplete." /SD IDOK
-  Abort
 
 un_delete_wait_timeout:
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0

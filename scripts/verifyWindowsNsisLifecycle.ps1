@@ -135,7 +135,7 @@ function Assert-Uninstalled {
         if (Test-Path -LiteralPath $script:lastUninstallerLog) {
             $serviceLog = @(Get-Content -LiteralPath $script:lastUninstallerLog | Where-Object { $_ -match 'Fylura Global Index|service registration|incomplete|uninstall' } | Select-Object -Last 20)
         }
-        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code); ImagePath=$imagePath; NSIS service log=$($serviceLog -join ' | ')"
+        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); ImagePath=$imagePath; NSIS service log=$($serviceLog -join ' | ')"
     }
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Fylura remained in Add/Remove Programs.'
     Assert-Preview $false

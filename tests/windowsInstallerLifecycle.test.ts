@@ -506,7 +506,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).toContain('  ${If} $DeleteAppDataCheckboxState == 1');
     expect(generated).toContain('  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1');
     expect(generated).toContain('SetErrorLevel 2');
-    expect(generated).toContain('    Quit');
+    expect(generated).toContain('    Abort');
     expect(generated).toContain('  ${GetParameters} $R0');
     expect(generated).toContain('  ${GetOptions} $R0 "/DELETE_APP_DATA" $R1');
     expect(generated).toContain('  ${GetOptions} $R0 "/CONFIRM_DELETE_APP_DATA" $R1');

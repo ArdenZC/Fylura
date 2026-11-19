@@ -484,10 +484,10 @@ Function un.ZCPostUninstallLifecycleFinal
   StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0
   SetErrorLevel 2
   Call un.ZCMarkUninstallPostGeneratedIntegration
-  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "Software\Fylura\NSIS-QA" "CommandLine" "$CMDLINE" ${ZC_REG_STRING_SZ_ONLY}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU} "Software\Fylura\NSIS-QA" "CommandLine" "$CMDLINE" ${ZC_REG_STRING_SZ_ONLY}
   ${If} $ZC_REG_VALUE_STATE == ${ZC_REG_VALUE_EXACT}
-    WriteRegStr HKLM "Software\Fylura\NSIS-QA" "UpdateAtFinal" "$ZC_UNINSTALL_IS_UPDATE"
-    WriteRegStr HKLM "Software\Fylura\NSIS-QA" "StartupClean" "$ZC_UNINSTALL_STARTUP_CLEAN"
+    WriteRegStr HKCU "Software\Fylura\NSIS-QA" "UpdateAtFinal" "$ZC_UNINSTALL_IS_UPDATE"
+    WriteRegStr HKCU "Software\Fylura\NSIS-QA" "StartupClean" "$ZC_UNINSTALL_STARTUP_CLEAN"
   ${EndIf}
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation

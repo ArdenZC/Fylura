@@ -66,7 +66,7 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
     if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
     $p.Refresh()
     foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
         try {
             $diagnostic = $base.OpenSubKey('Software\Fylura\NSIS-QA')
             if ($null -ne $diagnostic) {
@@ -243,7 +243,9 @@ function Assert-Autostart([bool]$FyluraPresent) {
             }
         }
         $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics"
+        $uninstallLogExists = $script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)
+        $uninstallLogTail = if ($uninstallLogExists) { @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 40) } else { @() }
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics; logExists=$uninstallLogExists; logTail=$($uninstallLogTail -join ' | ')"
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'
@@ -320,6 +322,18 @@ try {
     Assert-Condition (-not (Test-Path -LiteralPath $serviceKey) -and -not (Test-Path -LiteralPath $legacyServiceKey)) 'Refusing a pre-existing Fylura or legacy service.'
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Refusing to run over an existing Fylura installation.'
     Assert-Condition (-not (Test-Path -LiteralPath $data) -and -not (Test-Path -LiteralPath $cache) -and -not (Test-Path -LiteralPath $legacyData)) 'Refusing to alter existing application data.'
+    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+        try {
+            $diagnostic = $base.OpenSubKey('Software\Fylura\NSIS-QA')
+            if ($null -ne $diagnostic) {
+                $diagnostic.Dispose()
+                throw "Refusing to overwrite existing NSIS diagnostic key in $view."
+            }
+        } finally {
+            $base.Dispose()
+        }
+    }
     Assert-Condition ($env:GITHUB_RUN_ID -and $env:GITHUB_RUN_ATTEMPT -and $env:GITHUB_SHA) 'GitHub run identity is unavailable.'
     foreach ($target in @($targets.Values) + @($foreignCredential)) { Assert-Condition (-not (Has-Credential $target)) "Refusing to overwrite existing credential $target" }
     $r = Get-ItemProperty -LiteralPath $runKey -ErrorAction SilentlyContinue
@@ -476,7 +490,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
 } finally {
     try {
         foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
-            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
             try {
                 $writable = $base.OpenSubKey('Software\Fylura', $true)
                 if ($null -ne $writable) {

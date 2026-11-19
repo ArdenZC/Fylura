@@ -166,15 +166,14 @@ function Assert-Uninstalled {
         )
         $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
         $previewRegistration = Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}'
-        $uninstallLog = @()
-        if ($script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)) {
-            $uninstallLog = @(
-                Get-Content -LiteralPath $script:lastUninstallerLog |
-                    Where-Object { $_ -match 'Fylura|registry|registration|service|Preview|incomplete|cleanup' } |
-                    Select-Object -Last 80
-            )
+        $uninstallLogExists = $script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)
+        $uninstallLogLength = 0
+        $uninstallLogTail = @()
+        if ($uninstallLogExists) {
+            $uninstallLogLength = (Get-Item -LiteralPath $script:lastUninstallerLog).Length
+            $uninstallLogTail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 120)
         }
-        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration; NSISLog=$($uninstallLog -join ' | ')"
+        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration; NSISLogExists=$uninstallLogExists; NSISLogBytes=$uninstallLogLength; NSISLogTail=$($uninstallLogTail -join ' | ')"
     }
     Assert-Preview $false
 }

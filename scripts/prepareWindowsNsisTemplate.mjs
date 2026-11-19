@@ -161,9 +161,8 @@ export function buildFyluraNsisTemplate(upstream) {
     lines(
       "  StrCpy $UpdateMode 0",
       '  ${GetParameters} $R0',
-      "  ClearErrors",
-      '  ${GetOptions} $R0 "/UPDATE" $R2',
-      "  ${IfNot} ${Errors}",
+      '  StrCpy $R2 $R0 7',
+      '  ${If} $R2 == "/UPDATE"',
       "    StrCpy $UpdateMode 1",
       "  ${EndIf}",
       "  StrCpy $DeleteAppDataCheckboxState 0",

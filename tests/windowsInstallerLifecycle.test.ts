@@ -514,14 +514,16 @@ describe("W4-04 package NSIS lifecycle", () => {
     const uninstallInit = functionBody(generated, "un.onInit");
     expect(uninstallInit).toContain("StrCpy $UpdateMode 0");
     const updateParameters = uninstallInit.indexOf('${GetParameters} $R0');
-    const updateSwitch = uninstallInit.indexOf('${GetOptions} $R0 "/UPDATE" $R2');
+    const updateSwitch = uninstallInit.indexOf('StrCpy $R2 $R0 7');
+    const updateSwitchCheck = uninstallInit.indexOf('${If} $R2 == "/UPDATE"');
     const deleteRequest = uninstallInit.indexOf('${GetOptions} $R0 "/DELETE_APP_DATA" $R1');
     const confirmationRequest = uninstallInit.indexOf('${GetOptions} $R0 "/CONFIRM_DELETE_APP_DATA" $R1');
     const fullCleanupEnabled = uninstallInit.indexOf('StrCpy $DeleteAppDataCheckboxState 1');
     expect(updateParameters).toBeGreaterThanOrEqual(0);
     expect(updateSwitch).toBeGreaterThan(updateParameters);
+    expect(updateSwitchCheck).toBeGreaterThan(updateSwitch);
     expect(deleteRequest).toBeGreaterThanOrEqual(0);
-    expect(deleteRequest).toBeGreaterThan(updateSwitch);
+    expect(deleteRequest).toBeGreaterThan(updateSwitchCheck);
     expect(confirmationRequest).toBeGreaterThan(deleteRequest);
     expect(fullCleanupEnabled).toBeGreaterThan(confirmationRequest);
     expect(generated).not.toContain('GetOptions $CMDLINE "/S"');

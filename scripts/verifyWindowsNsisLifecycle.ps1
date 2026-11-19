@@ -213,7 +213,7 @@ function Assert-Uninstalled([string]$phase) {
         if ($script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)) {
             $uninstallLogTail = @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 80)
         }
-        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|'); NSIS diagnostic=$script:lastUninstallerDiagnostics; NSIS log tail=$($uninstallLogTail -join ' | ')"
+        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|'); NSIS diagnostic=$script:lastUninstallerDiagnostics; lifecycle registry probe=$script:lastUninstallerProbe; lifecycle file probe=$script:lastUninstallerFileProbe; NSIS log tail=$($uninstallLogTail -join ' | ')"
     }
     if (Test-Path -LiteralPath $serviceKey) {
         $scm = Invoke-Sc @('query', $service)
@@ -538,6 +538,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         if ($tail.Count -gt 0) { $errorDetails += "; NSIS log tail=$($tail -join ' | ')" }
     }
     if ($script:lastUninstallerDiagnostics) { $errorDetails += "; NSIS diagnostic=$script:lastUninstallerDiagnostics" }
+    if ($script:lastUninstallerFileProbe) { $errorDetails += "; lifecycle file probe=$script:lastUninstallerFileProbe" }
     $script:evidence.Add([ordered]@{ phase = 'failed'; at = [DateTime]::UtcNow.ToString('o'); error = $errorDetails; script = 'verifyWindowsNsisLifecycle.ps1'; scriptLine = $_.InvocationInfo.ScriptLineNumber })
     $parent = Split-Path -Parent $EvidencePath
     if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }

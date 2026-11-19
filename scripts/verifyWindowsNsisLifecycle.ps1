@@ -51,36 +51,42 @@ function Invoke-Sc([string[]]$ScArgs) {
     $output = & "$env:WINDIR\System32\sc.exe" @ScArgs 2>&1
     return [pscustomobject]@{ code = $LASTEXITCODE; output = ($output | Out-String).Trim() }
 }
+function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments, [string]$DiagnosticsPath = '') {
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+    if ($DiagnosticsPath) { $startInfo.Environment['FYLURA_NSIS_DIAGNOSTICS_FILE'] = $DiagnosticsPath }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) { throw "Could not start $FilePath." }
+    try {
+        if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'NSIS process timed out.'
+        }
+        $process.Refresh()
+        return [int]$process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+}
 function Install {
-    $p = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$installDir") -PassThru -NoNewWindow
-    if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Installer timed out.' }
-    $p.Refresh()
-    return [int]$p.ExitCode
+    return Invoke-CurrentUserProcess $installer @('/S', "/D=$installDir")
 }
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $script:uninstallerLogIndex++
     $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
     $script:lastUninstallerDiagnostics = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).diagnostics"
     $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
-    $previousDiagnosticsPath = $env:FYLURA_NSIS_DIAGNOSTICS_FILE
-    $env:FYLURA_NSIS_DIAGNOSTICS_FILE = $script:lastUninstallerDiagnostics
-    try {
-        $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
-        if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
-        $p.Refresh()
-    } finally {
-        if ($null -eq $previousDiagnosticsPath) {
-            Remove-Item Env:FYLURA_NSIS_DIAGNOSTICS_FILE -ErrorAction SilentlyContinue
-        } else {
-            $env:FYLURA_NSIS_DIAGNOSTICS_FILE = $previousDiagnosticsPath
-        }
-    }
+    $exitCode = Invoke-CurrentUserProcess $uninstaller $arguments $script:lastUninstallerDiagnostics
     if (Test-Path -LiteralPath $script:lastUninstallerDiagnostics) {
         $script:lastUninstallerDiagnostics = (Get-Content -LiteralPath $script:lastUninstallerDiagnostics -Raw).Trim()
     } else {
         $script:lastUninstallerDiagnostics = 'diagnostics file was not created'
     }
-    return [int]$p.ExitCode
+    return $exitCode
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }

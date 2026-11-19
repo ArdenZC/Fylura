@@ -512,6 +512,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).toContain('    StrCpy $DeleteAppDataCheckboxState 1');
     expect(generated).toContain('    StrCpy $FyluraDeleteAppDataConfirmationFlag 1');
     const uninstallInit = functionBody(generated, "un.onInit");
+    expect(uninstallInit).toContain("StrCpy $UpdateMode 0");
+    expect(uninstallInit).toContain('${GetOptions} $CMDLINE "/UPDATE" $R2');
     const deleteRequest = uninstallInit.indexOf('${GetOptions} $R0 "/DELETE_APP_DATA" $R1');
     const confirmationRequest = uninstallInit.indexOf('${GetOptions} $R0 "/CONFIRM_DELETE_APP_DATA" $R1');
     const fullCleanupEnabled = uninstallInit.indexOf('StrCpy $DeleteAppDataCheckboxState 1');

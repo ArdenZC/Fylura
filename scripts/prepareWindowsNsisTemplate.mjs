@@ -159,7 +159,9 @@ export function buildFyluraNsisTemplate(upstream) {
       "FunctionEnd",
     ),
     lines(
-      '  ${GetOptions} $CMDLINE "/UPDATE" $UpdateMode',
+      "  StrCpy $UpdateMode 0",
+      "  ClearErrors",
+      '  ${GetOptions} $CMDLINE "/UPDATE" $R2',
       "  ${IfNot} ${Errors}",
       "    StrCpy $UpdateMode 1",
       "  ${EndIf}",

@@ -479,8 +479,9 @@ Function ZCFailPostInstallLifecycleFinal
 FunctionEnd
 
 Function un.ZCPostUninstallLifecycleFinal
-  ; Keep non-zero until all exact-owned finalization succeeds. If any helper
-  ; aborts, silent uninstall returns failure instead of a false success.
+  ; The generated caller checks this result because Abort inside a function
+  ; can return to the NSIS section. A partial cleanup must never look successful.
+  StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0
   SetErrorLevel 2
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Call un.FinalizeZenCanvasPreviewUninstall
@@ -510,4 +511,5 @@ Function un.ZCPostUninstallLifecycleFinal
     Abort
   ${EndIf}
   SetErrorLevel 0
+  StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1
 FunctionEnd

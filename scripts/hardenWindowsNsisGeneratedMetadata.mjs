@@ -228,10 +228,7 @@ export function hardenWindowsNsisGeneratedMetadata(source) {
     ),
     lines(
       "  ; Remove registry information for add/remove programs",
-      "  ; Pre-delete lifecycle evidence already proved this exact per-machine entry.",
-      "  ; Use the upstream NSIS deletion and verify it in the final lifecycle hook.",
-      "  SetRegView 64",
-      '  DeleteRegKey HKLM "${UNINSTKEY}"',
+      "  ; The exact-owned entry was removed before deleting uninstall.exe.",
     ),
     "uninstall ARP metadata",
   );

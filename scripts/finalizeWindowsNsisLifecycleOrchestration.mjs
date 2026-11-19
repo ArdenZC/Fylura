@@ -54,6 +54,10 @@ export function finalizeWindowsNsisLifecycleOrchestration(source) {
     lines(
       "zc_uninstall_generated_success:",
       "  Call un.ZCPostUninstallLifecycleFinal",
+      "  ${If} $ZC_UNINSTALL_FINAL_CLEAN != 1",
+      "    SetErrorLevel 2",
+      "    Quit",
+      "  ${EndIf}",
       "  Call un.ZCFinishUninstallLifecycle",
     ),
     "final uninstall post owner",

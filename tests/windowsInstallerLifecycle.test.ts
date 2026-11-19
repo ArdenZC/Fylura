@@ -522,6 +522,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).not.toContain('Silent full cleanup requires both');
     expect(generated).not.toContain('Passive full cleanup requires both');
     expect(generated).toContain("Fylura data cleanup is INCOMPLETE");
+    expect(generated).toContain("SetErrorLevel 2\n      Quit");
     expect(generated).toContain("Call un.ZCRecoverUninstallReversible");
     expect(generated).toContain("Call un.ZCMarkUninstallIrreversible");
     expect(generated).toContain('DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"');
@@ -2009,20 +2010,22 @@ describe("W4-04 package NSIS lifecycle", () => {
 
     const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
     const uninstall = sectionBody(generated, "Uninstall");
-    const mainDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
-    const serviceCleanupCall = generated.indexOf("Call un.DeleteZenCanvasIndexService", mainDelete);
-    const serviceStatusCheck = generated.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1", serviceCleanupCall);
-    const remainingFiles = generated.indexOf("ZC_UNINSTALL_RESOURCE", serviceStatusCheck);
+    const mainDelete = uninstall.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+    const serviceCleanupCall = uninstall.indexOf("Call un.DeleteZenCanvasIndexService", mainDelete);
+    const serviceStatusCheck = uninstall.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1", serviceCleanupCall);
+    const remainingFiles = uninstall.indexOf("ZC_UNINSTALL_RESOURCE", serviceStatusCheck);
     expect(mainDelete).toBeGreaterThanOrEqual(0);
     expect(serviceCleanupCall).toBeGreaterThan(mainDelete);
     expect(serviceStatusCheck).toBeGreaterThan(serviceCleanupCall);
     expect(remainingFiles).toBeGreaterThan(serviceStatusCheck);
 
-    const registrationDelete = uninstall.indexOf('DeleteRegKey HKLM "${UNINSTKEY}"');
-    expect(registrationDelete).toBeGreaterThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
-    expect(registrationDelete).toBeLessThan(uninstall.indexOf("Goto zc_uninstall_generated_success"));
-    expect(uninstall).toContain("SetRegView 64");
-    expect(uninstall).not.toContain("Call un.RemoveFyluraUninstallRegistration");
+    const registrationDelete = uninstall.indexOf("Call un.RemoveFyluraUninstallRegistration");
+    expect(registrationDelete).toBeGreaterThan(mainDelete);
+    expect(registrationDelete).toBeLessThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
+    expect(uninstall).toContain("$ZC_UNINSTALL_REGISTRATION_CLEAN != 1");
+    expect(uninstall).toContain("SetErrorLevel 2");
+    expect(uninstall).toContain("Quit");
+    expect(uninstall).not.toContain('DeleteRegKey HKLM "${UNINSTKEY}"');
 
     const final = functionBody(
       fs.readFileSync(finalPath, "utf8"),
@@ -2041,6 +2044,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(preDeleteEvidence).toContain('"DisplayName" "$ZC_PRODUCT_NAME"');
     expect(preDeleteEvidence).toContain('"InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"');
     expect(preDeleteEvidence).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0");
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
     const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
     const successExitCode = final.lastIndexOf("SetErrorLevel 0");
     expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
@@ -2050,6 +2055,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(serviceStatusCheckFinal).toBeGreaterThanOrEqual(0);
     expect(successExitCode).toBeGreaterThan(serviceStatusCheckFinal);
     expect(final.slice(serviceStatusCheckFinal, successExitCode)).toContain("Abort");
+    const finalCall = uninstall.indexOf("Call un.ZCPostUninstallLifecycleFinal");
+    const finalResultCheck = uninstall.indexOf("$ZC_UNINSTALL_FINAL_CLEAN != 1", finalCall);
+    expect(finalResultCheck).toBeGreaterThan(finalCall);
+    expect(uninstall.indexOf("Quit", finalResultCheck)).toBeGreaterThan(finalResultCheck);
 
     const registrationCleanup = functionBody(
       installerHooksSource(),
@@ -2058,12 +2067,15 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(registrationCleanup).toContain('"DisplayName" "$ZC_PRODUCT_NAME"');
     expect(registrationCleanup).toContain('"InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"');
     expect(registrationCleanup).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
-    expect(registrationCleanup).toContain("SetRegView 64");
-    expect(registrationCleanup).toContain('DeleteRegKey HKLM "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(registrationCleanup).toContain("RegDeleteKeyExW");
+    expect(registrationCleanup).toContain("${ZC_REG_KEY_WOW64_64KEY}");
+    expect(registrationCleanup).toContain("RegDeleteKeyExW failed with Windows error $ZC_REG_RESULT");
     expect(registrationCleanup).toContain('ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"');
     expect(registrationCleanup).toContain("the product uninstall registration remains after deletion");
     expect(registrationCleanup).toContain("StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1");
     expect(final).toContain("$ZC_UNINSTALL_REGISTRATION_ERROR");
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0");
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
   });
 
   it("T129: marker cleanup never recursively deletes the manufacturer parent", () => {

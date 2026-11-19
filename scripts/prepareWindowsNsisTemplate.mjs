@@ -352,11 +352,10 @@ export function buildFyluraNsisTemplate(upstream) {
     ),
     lines(
       '  ${If} $UpdateMode <> 1',
-      '    DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "${PRODUCTNAME}"',
-      '    DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"',
+      '    Call un.ZCRemoveFyluraStartup',
       '  ${EndIf}',
     ),
-    "remove owned Windows startup approval",
+    "remove and verify current-user Windows startup entries",
   );
 
   output = replaceExactly(
@@ -529,7 +528,7 @@ export function buildFyluraNsisTemplate(upstream) {
     '"/DELETE_APP_DATA"',
     '"/CONFIRM_DELETE_APP_DATA"',
     'WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\uninstall.exe$\\\""',
-    'DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"',
+    "Call un.ZCRemoveFyluraStartup",
     'MessageBox MB_ICONSTOP|MB_OK "Fylura data cleanup is INCOMPLETE',
     'MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(FyluraFullCleanupWarning)" IDYES fylura_confirm_full_cleanup',
     "IfErrors zc_uninstall_partial_failure",

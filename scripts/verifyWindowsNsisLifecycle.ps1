@@ -203,7 +203,7 @@ function Assert-Autostart([bool]$FyluraPresent) {
         Assert-Condition ($r.Fylura -eq "$main --background") 'Fylura startup command changed.'
         Assert-Condition ($null -ne $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry is missing.'
     } else {
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) 'Fylura Run entry remained after uninstall.'
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall: $($r.Fylura)."
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'

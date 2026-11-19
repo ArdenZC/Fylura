@@ -525,7 +525,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(generated).toContain("SetErrorLevel 2\n      Quit");
     expect(generated).toContain("Call un.ZCRecoverUninstallReversible");
     expect(generated).toContain("Call un.ZCMarkUninstallIrreversible");
-    expect(generated).toContain('DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"');
+    expect(generated).toContain("Call un.ZCRemoveFyluraStartup");
     expect(generated).not.toContain("--fylura-uninstall-launcher");
     expect(generated).not.toContain("--fylura-uninstall-worker");
     expect(generated).not.toContain('RmDir /r "$APPDATA\\${BUNDLEID}"');
@@ -2031,6 +2031,10 @@ describe("W4-04 package NSIS lifecycle", () => {
       fs.readFileSync(finalPath, "utf8"),
       "un.ZCPostUninstallLifecycleFinal",
     );
+    const startupCleanup = functionBody(
+      fs.readFileSync(synchronousPath, "utf8"),
+      "un.ZCRemoveFyluraStartup",
+    );
     const initialize = functionBody(
       fs.readFileSync(synchronousPath, "utf8"),
       "un.ZCInitializeUninstallLifecycle",
@@ -2046,6 +2050,9 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(preDeleteEvidence).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
     expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0");
     expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
+    expect(startupCleanup).toContain("DeleteRegValue HKCU");
+    expect(startupCleanup).toContain("ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU}");
+    expect(final).toContain("$ZC_UNINSTALL_STARTUP_CLEAN != 1");
     const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
     const successExitCode = final.lastIndexOf("SetErrorLevel 0");
     expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");

@@ -578,6 +578,7 @@ Function un.ZCInitializeUninstallLifecycle
   StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
   StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 0
   StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 0
+  StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
   StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
@@ -691,4 +692,29 @@ Function un.ZCFinishUninstallLifecycle
   StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_COMPLETE}
   StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_COMPLETE}
   StrCpy $ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE 1
+FunctionEnd
+
+Function un.ZCRemoveFyluraStartup
+  StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
+  ${If} $UpdateMode == 1
+    StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 1
+    Return
+  ${EndIf}
+
+  SetRegView 64
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
+
+  ; Treat any remaining value, including a wrong type or unreadable value, as
+  ; incomplete. The string query helper reports ABSENT only after an explicit
+  ; 64-bit registry query proves the named value is gone.
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Return
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Return
+  ${EndIf}
+  StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 1
 FunctionEnd

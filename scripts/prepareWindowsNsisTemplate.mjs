@@ -86,7 +86,7 @@ export function buildFyluraNsisTemplate(upstream) {
       "  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState",
       "  ${If} $DeleteAppDataCheckboxState == 1",
       "  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1",
-      '    MessageBox MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2 "$(FyluraFullCleanupWarning)" IDYES fylura_confirm_full_cleanup',
+      '    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(FyluraFullCleanupWarning)" IDYES fylura_confirm_full_cleanup',
       "    Abort",
       "    fylura_confirm_full_cleanup:",
       "  ${EndIf}",
@@ -529,7 +529,7 @@ export function buildFyluraNsisTemplate(upstream) {
     'WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\uninstall.exe$\\\""',
     'DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "${PRODUCTNAME}"',
     'MessageBox MB_ICONSTOP|MB_OK "Fylura data cleanup is INCOMPLETE',
-    'MessageBox MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2 "$(FyluraFullCleanupWarning)"',
+    'MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(FyluraFullCleanupWarning)" IDYES fylura_confirm_full_cleanup',
     "IfErrors zc_uninstall_partial_failure",
   ]) {
     if (!output.includes(required)) {

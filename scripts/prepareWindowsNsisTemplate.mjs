@@ -178,7 +178,7 @@ export function buildFyluraNsisTemplate(upstream) {
       '  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1',
       '    MessageBox MB_ICONSTOP|MB_OK "Full cleanup command requires both /DELETE_APP_DATA and /CONFIRM_DELETE_APP_DATA. No data was changed." /SD IDOK',
       "    SetErrorLevel 2",
-      "    Abort",
+      "    System::Call 'kernel32::ExitProcess(i 2)'",
       "  ${EndIf}",
       "FunctionEnd",
     ),

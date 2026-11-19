@@ -130,12 +130,14 @@ function Assert-Uninstalled {
     Assert-Condition (-not (Test-Path -LiteralPath $main) -and -not (Test-Path -LiteralPath $uninstaller)) 'Program files remained after uninstall.'
     if (Test-Path -LiteralPath $serviceKey) {
         $scm = Invoke-Sc @('query', $service)
+        $configuration = Invoke-Sc @('qc', $service)
         $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
         $serviceLog = @()
-        if (Test-Path -LiteralPath $script:lastUninstallerLog) {
-            $serviceLog = @(Get-Content -LiteralPath $script:lastUninstallerLog | Where-Object { $_ -match 'Fylura Global Index|service registration|incomplete|uninstall' } | Select-Object -Last 20)
+        $serviceLogExists = Test-Path -LiteralPath $script:lastUninstallerLog
+        if ($serviceLogExists) {
+            $serviceLog = @(Get-Content -LiteralPath $script:lastUninstallerLog | Where-Object { $_ -match 'Fylura (Global Index|service cleanup|uninstall)|service registration|incomplete|sc\.exe delete' } | Select-Object -Last 40)
         }
-        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); ImagePath=$imagePath; NSIS service log=$($serviceLog -join ' | ')"
+        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; NSIS log exists=$serviceLogExists, path=$script:lastUninstallerLog, service log=$($serviceLog -join ' | ')"
     }
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Fylura remained in Add/Remove Programs.'
     Assert-Preview $false

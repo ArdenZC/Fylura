@@ -482,10 +482,12 @@ Function un.ZCPostUninstallLifecycleFinal
   ; Keep non-zero until all exact-owned finalization succeeds. If any helper
   ; aborts, silent uninstall returns failure instead of a false success.
   SetErrorLevel 2
+  LogText "Fylura uninstall finalization: entered."
   Call un.ZCMarkUninstallPostGeneratedIntegration
   Call un.FinalizeZenCanvasPreviewUninstall
   Call un.ZCFinalizePreviewDllMutation
   Call un.DeleteZenCanvasIndexService
+  LogText "Fylura uninstall finalization: service clean=$ZC_UNINSTALL_SERVICE_CLEAN."
   ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1
     MessageBox MB_ICONSTOP|MB_OK "Uninstall is incomplete. The Fylura Global Index service could not be verified as removed." /SD IDOK
     SetErrorLevel 2

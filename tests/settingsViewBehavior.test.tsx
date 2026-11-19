@@ -625,6 +625,28 @@ describe("settings view behavior", () => {
     expect(container.querySelector('[data-ai-settings-state="error"]')).toBeNull();
   });
 
+  it("keeps an unsaved clear action on test requests until the user saves it", async () => {
+    const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
+    await changeInput(apiKey, secret);
+    const clear = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Clear saved API key");
+    expect(clear).toBeDefined();
+    await act(async () => clear?.click());
+
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    mocks.testAIProviderConnection.mockRejectedValueOnce(new Error("fixture connection failure"));
+    const testConnection = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Test connection")!;
+    await act(async () => testConnection.click());
+    await flushEffects();
+
+    expect(mocks.testAIProviderConnection).toHaveBeenCalledWith(expect.objectContaining({
+      apiKey: "",
+      apiKeyAction: "clear"
+    }));
+    expect(JSON.stringify(mocks.testAIProviderConnection.mock.calls)).not.toContain(secret);
+  });
+
   it("uses explicit key actions, clears the visible secret, and rejects failed read-back", async () => {
     const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
     await changeInput(apiKey, secret);

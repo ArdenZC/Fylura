@@ -2402,6 +2402,70 @@ mod validation_tests {
     }
 
     #[test]
+    fn changed_source_save_is_rejected_and_saved_ai_requests_keep_the_original_key_binding() {
+        const ORIGINAL_KEY: &str = "persisted-source-http-test-key";
+        let database_path = concurrency_test_db_path("persisted-source-http-binding");
+        let db = Database::open(&database_path).expect("source binding database");
+        let credentials = InMemoryCredentialStore::default();
+
+        let (original_url, original_request, original_server) =
+            provider_http_fixture(r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#);
+        let original = AISettings {
+            base_url: original_url,
+            api_key: ORIGINAL_KEY.to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            timeout_seconds: 2,
+            ..AISettings::default()
+        };
+        save_ai_settings_with_store(&db, &original, &credentials)
+            .expect("save the original provider source and key");
+
+        let (changed_url, changed_request, changed_server) =
+            provider_http_fixture(r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#);
+        let mut changed_source = original.clone();
+        changed_source.base_url = changed_url;
+        changed_source.api_key.clear();
+        changed_source.api_key_action = ApiKeyAction::Preserve;
+        let error = save_ai_settings_with_store(&db, &changed_source, &credentials)
+            .expect_err("Preserve must not bind the existing key to a new origin");
+        assert!(error
+            .to_string()
+            .contains("ai_api_key_source_changed_replace_or_clear"));
+
+        let saved = get_ai_settings_with_store(&db, &credentials)
+            .expect("read the persisted settings used by background AI work");
+        assert_eq!(saved.base_url, original.base_url);
+        assert_eq!(saved.api_key, ORIGINAL_KEY);
+        test_ai_provider_connection_for_settings(saved)
+            .expect("the saved provider remains usable after rejecting the changed source");
+        let original_request = original_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("saved provider request");
+        original_server.join().expect("original provider fixture");
+        assert_eq!(
+            authorization_header(&original_request),
+            Some(format!("Bearer {ORIGINAL_KEY}"))
+        );
+
+        let changed_request_settings =
+            get_ai_settings_for_request_with_store(&db, Some(changed_source), &credentials)
+                .expect("a changed-source test request remains usable without the saved key");
+        assert!(changed_request_settings.api_key.is_empty());
+        test_ai_provider_connection_for_settings(changed_request_settings)
+            .expect("test the changed provider without inheriting the key");
+        let changed_request = changed_request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("changed-source provider request");
+        changed_server.join().expect("changed-source fixture");
+        assert_eq!(authorization_header(&changed_request), None);
+        assert!(!changed_request.contains(ORIGINAL_KEY));
+        assert_eq!(credentials.get().unwrap().as_deref(), Some(ORIGINAL_KEY));
+
+        drop(db);
+        let _ = std::fs::remove_file(database_path);
+    }
+
+    #[test]
     fn saved_custom_profiles_keep_independent_keys_and_bind_each_origin() {
         let database_path = concurrency_test_db_path("profile-source-binding");
         let db = Database::open(&database_path).expect("profile source database");
@@ -2514,9 +2578,17 @@ mod validation_tests {
 
         let (changed_origin_url, changed_origin_request, changed_origin_server) =
             provider_http_fixture(r#"{"data":[{"id":"changed-origin-model"}]}"#);
-        let mut changed_request = saved;
+        let mut changed_inactive_profile = saved.clone();
+        changed_inactive_profile.custom_profiles[1].base_url =
+            format!("{changed_origin_url}/changed");
+        let error = save_ai_settings_with_store(&db, &changed_inactive_profile, &credentials)
+            .expect_err("a changed inactive Profile source with a stored key must be rejected");
+        assert!(error
+            .to_string()
+            .contains("ai_profile_api_key_source_changed_select_profile"));
+
+        let mut changed_request = changed_inactive_profile;
         changed_request.active_custom_profile_id = Some("profile-b".to_string());
-        changed_request.custom_profiles[1].base_url = format!("{changed_origin_url}/changed");
         changed_request.api_key.clear();
         changed_request.api_key_action = ApiKeyAction::Preserve;
         changed_request.timeout_seconds = 2;

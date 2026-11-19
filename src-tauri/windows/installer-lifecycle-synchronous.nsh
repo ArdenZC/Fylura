@@ -698,6 +698,20 @@ Function un.ZCRemoveFyluraStartup
   WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.entered" "1"
   WriteRegStr HKCU "Software\Fylura\CodexUninstallLifecycleProbe" "startup.update" "$ZC_UNINSTALL_IS_UPDATE"
   StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
+  Push $R0
+  Push $R1
+  ReadEnvStr $R0 "RUNNER_TEMP"
+  StrCmp $R0 "" fylura_startup_probe_done
+  StrCpy $R0 "$R0\fylura-uninstall-lifecycle-probe.log"
+  ClearErrors
+  FileOpen $R1 "$R0" a
+  IfErrors fylura_startup_probe_done
+  FileWrite $R1 "startup.function; update=$ZC_UNINSTALL_IS_UPDATE$\r$\n"
+  FileClose $R1
+fylura_startup_probe_done:
+  ClearErrors
+  Pop $R1
+  Pop $R0
 
   SetRegView 64
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"

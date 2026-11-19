@@ -131,6 +131,11 @@ function Invoke-Uninstaller([string[]]$UninstallArgs) {
         $script:lastUninstallerDiagnostics = 'diagnostics file was not created'
     }
     $script:lastUninstallerProbe = Get-LifecycleProbe
+    if (Test-Path -LiteralPath $script:lifecycleProbeFile) {
+        $script:lastUninstallerFileProbe = (Get-Content -LiteralPath $script:lifecycleProbeFile -Raw).Trim()
+    } else {
+        $script:lastUninstallerFileProbe = 'probe file was not created'
+    }
     return $exitCode
 }
 function Get-FyluraUninstallEntries {
@@ -296,7 +301,7 @@ function Assert-Autostart([bool]$FyluraPresent) {
         $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
         $uninstallLogExists = $script:lastUninstallerLog -and (Test-Path -LiteralPath $script:lastUninstallerLog)
         $uninstallLogTail = if ($uninstallLogExists) { @(Get-Content -LiteralPath $script:lastUninstallerLog | Select-Object -Last 40) } else { @() }
-        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics; lifecycle probe=$script:lastUninstallerProbe; logExists=$uninstallLogExists; logTail=$($uninstallLogTail -join ' | ')"
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails; NSIS diagnostic=$script:lastUninstallerDiagnostics; lifecycle probe=$script:lastUninstallerProbe; lifecycle file probe=$script:lastUninstallerFileProbe; logExists=$uninstallLogExists; logTail=$($uninstallLogTail -join ' | ')"
         Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
     }
     Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'
@@ -322,11 +327,13 @@ Assert-Condition (-not (Test-LifecycleProbePresent)) 'The temporary NSIS lifecyc
 $script:evidence = [System.Collections.Generic.List[object]]::new()
 $script:status = 'IN_PROGRESS'
 $script:lastUninstallerProbe = 'not run'
+$script:lastUninstallerFileProbe = 'not run'
 $script:credentialFixtures = [System.Collections.Generic.List[string]]::new()
 $script:uninstallerLogIndex = 0
 $script:lastUninstallerLog = $null
 $script:lastUninstallerDiagnostics = $null
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+$script:lifecycleProbeFile = Join-Path $runnerTemp 'fylura-uninstall-lifecycle-probe.log'
 $appDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
 $localAppDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
 $data = Join-Path $appDataRoot 'com.startlan.fylura'
@@ -373,6 +380,7 @@ try {
     Assert-Condition ([Security.Principal.WindowsPrincipal]::new($id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Lifecycle verification requires an elevated hosted runner.'
     Assert-Condition (Test-Path -LiteralPath $installer -PathType Leaf) 'NSIS installer is missing.'
     Assert-Condition (-not (Test-Path -LiteralPath $taskRoot)) 'Refusing a pre-existing lifecycle fixture directory.'
+    Assert-Condition (-not (Test-Path -LiteralPath $script:lifecycleProbeFile)) 'Refusing a pre-existing NSIS lifecycle probe file.'
     Assert-Condition (-not (Test-Path -LiteralPath $serviceKey) -and -not (Test-Path -LiteralPath $legacyServiceKey)) 'Refusing a pre-existing Fylura or legacy service.'
     Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Refusing to run over an existing Fylura installation.'
     Assert-Condition (-not (Test-Path -LiteralPath $data) -and -not (Test-Path -LiteralPath $cache) -and -not (Test-Path -LiteralPath $legacyData)) 'Refusing to alter existing application data.'
@@ -541,6 +549,7 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
         Remove-Credentials
         Remove-LegacyServiceFixture
         Remove-LifecycleProbe
+        if (Test-Path -LiteralPath $script:lifecycleProbeFile) { Remove-Item -LiteralPath $script:lifecycleProbeFile -Force }
         if ($script:appDataFixtureCreated) { Remove-Item -LiteralPath $data, $cache, $legacyData -Recurse -Force -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $taskRoot) {
             $resolved = [IO.Path]::GetFullPath($taskRoot)

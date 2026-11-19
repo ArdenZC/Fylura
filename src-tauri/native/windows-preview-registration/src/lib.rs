@@ -1120,10 +1120,11 @@ mod tests {
         let un_delete = function_body(hooks, "un.DeleteZenCanvasIndexService");
         assert!(
             un_delete
-                .find("Call un.ValidateZenCanvasIndexServiceOwnership")
+                .find("Call un.ReadZenCanvasIndexServiceOwnership")
                 .unwrap()
                 < un_delete.find("sc.exe\" delete").unwrap()
         );
+        assert!(un_delete.contains("$ZC_INDEX_SERVICE_OWNERSHIP != 1"));
         assert!(!un_delete.contains("Call un.RollbackZenCanvasPreviewQuiesce"));
 
         let un_finalize = function_body(hooks, "un.FinalizeZenCanvasPreviewUninstall");
@@ -1407,10 +1408,11 @@ mod tests {
         let un_delete = function_body(hooks, "un.DeleteZenCanvasIndexService");
         assert!(
             un_delete
-                .find("Call un.ValidateZenCanvasIndexServiceOwnership")
+                .find("Call un.ReadZenCanvasIndexServiceOwnership")
                 .unwrap()
                 < un_delete.find("sc.exe\" delete").unwrap()
         );
+        assert!(un_delete.contains("$ZC_INDEX_SERVICE_OWNERSHIP != 1"));
     }
 
     #[test]

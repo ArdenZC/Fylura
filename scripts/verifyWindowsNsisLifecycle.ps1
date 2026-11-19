@@ -126,15 +126,18 @@ function Assert-Service {
     }
 }
 function Assert-Uninstalled([string]$phase) {
-    for ($i = 0; $i -lt 120 -and (Test-Path -LiteralPath $main); $i++) { Start-Sleep -Milliseconds 500 }
+    for ($i = 0; $i -lt 120 -and ((Test-Path -LiteralPath $main) -or (Test-Path -LiteralPath $uninstaller) -or (Test-Path -LiteralPath $installDir)); $i++) {
+        Start-Sleep -Milliseconds 500
+    }
     $mainExists = Test-Path -LiteralPath $main
     $uninstallerExists = Test-Path -LiteralPath $uninstaller
-    if ($mainExists -or $uninstallerExists) {
+    $installDirExists = Test-Path -LiteralPath $installDir
+    if ($mainExists -or $uninstallerExists -or $installDirExists) {
         $remainingInstallFiles = @()
-        if (Test-Path -LiteralPath $installDir) {
+        if ($installDirExists) {
             $remainingInstallFiles = @(Get-ChildItem -LiteralPath $installDir -Force | ForEach-Object { $_.Name })
         }
-        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|')"
+        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|')"
     }
     if (Test-Path -LiteralPath $serviceKey) {
         $scm = Invoke-Sc @('query', $service)

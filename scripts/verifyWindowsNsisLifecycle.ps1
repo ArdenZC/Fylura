@@ -60,18 +60,11 @@ function Install {
 function Invoke-Uninstaller([string[]]$UninstallArgs) {
     $script:uninstallerLogIndex++
     $script:lastUninstallerLog = Join-Path $taskRoot "uninstall-$($script:uninstallerLogIndex).log"
-    $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog")
-    $previousTracePath = $env:FYLURA_NSIS_TEST_TRACE_PATH
-    $env:FYLURA_NSIS_TEST_TRACE_PATH = $script:uninstallTracePath
-    try {
-        $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
-        if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
-        $p.Refresh()
-        return [int]$p.ExitCode
-    } finally {
-        if ($null -eq $previousTracePath) { Remove-Item Env:FYLURA_NSIS_TEST_TRACE_PATH -ErrorAction SilentlyContinue }
-        else { $env:FYLURA_NSIS_TEST_TRACE_PATH = $previousTracePath }
-    }
+    $arguments = @($UninstallArgs) + @("/LOG=$script:lastUninstallerLog", "/FYLURA_NSIS_TEST_TRACE=$script:uninstallTracePath")
+    $p = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -NoNewWindow
+    if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Uninstaller timed out.' }
+    $p.Refresh()
+    return [int]$p.ExitCode
 }
 function Get-FyluraUninstallEntries {
     if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }

@@ -132,6 +132,8 @@ Function ZCPrepareInstallLifecycleFinal
 FunctionEnd
 
 Function un.ZCPrepareUninstallLifecycleFinal
+  Push "pre-uninstall-entered"
+  Call un.ZCWriteUninstallTestTrace
   Call un.ZCInitializeUninstallLifecycle
 
   Call un.ZCStopCapturedServiceForLifecycle
@@ -484,15 +486,30 @@ Function un.ZCWriteUninstallTestTrace
   Exch $0
   Push $1
   Push $2
-  ReadEnvStr $1 "FYLURA_NSIS_TEST_TRACE_PATH"
+  Push $3
+  StrCpy $3 0
+  ${If} ${Errors}
+    StrCpy $3 1
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $CMDLINE "/FYLURA_NSIS_TEST_TRACE=" $1
+  ${If} ${Errors}
+    StrCpy $1 ""
+  ${EndIf}
+  ClearErrors
   ${If} $1 != ""
-    ClearErrors
     FileOpen $2 "$1" a
     ${IfNot} ${Errors}
       FileWrite $2 "$0$\r$\n"
       FileClose $2
     ${EndIf}
   ${EndIf}
+  ${If} $3 == 1
+    SetErrors
+  ${Else}
+    ClearErrors
+  ${EndIf}
+  Pop $3
   Pop $2
   Pop $1
   Pop $0

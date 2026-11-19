@@ -311,12 +311,13 @@ if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise Sys
 
     Seed-Autostart
     $unconfirmed = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')
-    Assert-Condition ($unconfirmed -ne 0) 'Silent full cleanup was accepted without the explicit confirmation flag.'
     Assert-Condition ((Test-Path -LiteralPath $main -PathType Leaf) -and (Test-Path -LiteralPath $files.database -PathType Leaf)) 'Unconfirmed cleanup changed the installation or settings database.'
-    Assert-Condition ((Test-Path -LiteralPath $cache -PathType Container) -and (Has-Credential $targets.main)) 'Unconfirmed cleanup changed Fylura cache or credentials.'
+    Assert-Condition (Test-Path -LiteralPath $cache -PathType Container) 'Unconfirmed cleanup changed Fylura cache or logs.'
+    foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Unconfirmed cleanup changed credential $target." }
     Assert-Service
     Assert-Preview $true
     Assert-Autostart $true
+    Assert-Condition ($unconfirmed -ne 0) 'Silent full cleanup was accepted without the explicit confirmation flag.'
     Record-Phase 'unconfirmed-full-cleanup-refused' @{ exitCode = $unconfirmed; dataUntouched = $true }
 
     $ordinary = Invoke-Uninstaller @('/S')

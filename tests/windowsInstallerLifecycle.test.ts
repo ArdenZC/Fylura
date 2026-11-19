@@ -555,6 +555,13 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(verifier).toContain("unconfirmed-full-cleanup-refused");
     expect(verifier).toContain("safe-trash");
     expect(verifier).toContain("organized-files");
+    expect(verifier).toContain('foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Unconfirmed cleanup changed credential $target." }');
+    expect(verifier.indexOf("Unconfirmed cleanup changed the installation or settings database.")).toBeGreaterThan(
+      verifier.indexOf("$unconfirmed = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')"),
+    );
+    expect(verifier.indexOf("Silent full cleanup was accepted without the explicit confirmation flag.")).toBeGreaterThan(
+      verifier.indexOf("Unconfirmed cleanup changed the installation or settings database."),
+    );
     expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
     expect(verifier).toContain("Assert-Preview $false");
     expect(verifier).toContain("Assert-Preview $true");

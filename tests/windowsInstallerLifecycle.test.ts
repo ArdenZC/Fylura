@@ -337,7 +337,7 @@ const repairExpectedValues = {
   MainBinaryName: { type: "REG_SZ", value: "fylura.exe" },
   DisplayName: { type: "REG_SZ", value: "Zen Canvas" },
   DisplayIcon: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas\\fylura.exe"' },
-  DisplayVersion: { type: "REG_SZ", value: "0.1.40" },
+  DisplayVersion: { type: "REG_SZ", value: "1.0.0" },
   Publisher: { type: "REG_SZ", value: "startlan" },
   InstallLocation: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas"' },
   UninstallString: { type: "REG_SZ", value: '"C:\\Program Files\\Zen Canvas\\uninstall.exe"' },

@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "fylura-tauri"
-version = "0.1.40"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "block2",

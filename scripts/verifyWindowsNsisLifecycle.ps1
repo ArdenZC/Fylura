@@ -44,6 +44,8 @@ function Add-Credential([string]$Target) {
         '.com.startlan.fylura.ai-profile'
     } elseif ($Target.EndsWith('.com.startlan.fylura', [StringComparison]::OrdinalIgnoreCase)) {
         '.com.startlan.fylura'
+    } elseif ($Target -eq 'fylura-cleanup-fixture.com.example.editor') {
+        '.com.example.editor'
     } else {
         throw "Refusing to seed a credential outside the Fylura fixture namespaces: $Target"
     }

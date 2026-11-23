@@ -92,7 +92,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
-url = "2"
+url = "2.5.9"
 uuid = { version = "1", features = ["v4", "v7"] }
 fylura-native-host = { path = "native/host-provided" }
 fylura-preview-representation = { path = "native/preview-representation" }
@@ -110,11 +110,13 @@ windows-sys = { version = "0.61.2", features = [
     "Wdk_Foundation",
     "Wdk_Storage_FileSystem",
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Controls",
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Security_Authorization",
+    "Win32_Security_Credentials",
     "Win32_Storage_FileSystem",
     "Win32_Storage_CloudFilters", "Win32_System_CorrelationVector",
     "Win32_System_IO",
@@ -150,6 +152,7 @@ drag = "2.1.0"
 block2 = "0.6.2"
 fsevent-sys = "4.1.0"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
+security-framework = "3.7.0"
 trash = { version = "5.3.0", default-features = false, features = ["coinit_apartmentthreaded"] }
 objc2 = { version = "0.6.4", features = ["exception"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSView", "NSWorkspace", "NSPasteboard", "NSPasteboardItem", "NSAlert", "NSButton", "NSControl", "NSWindow"] }

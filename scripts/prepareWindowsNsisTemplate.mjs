@@ -61,6 +61,96 @@ export function buildFyluraNsisTemplate(upstream) {
 
   output = replaceExactly(
     output,
+    lines("Var DeleteAppDataCheckbox", "Var DeleteAppDataCheckboxState"),
+    lines(
+      "Var DeleteAppDataCheckbox",
+      "Var DeleteAppDataCheckboxState",
+      "Var FyluraDeleteAppDataConfirmationFlag",
+    ),
+    "record explicit full-cleanup confirmation",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      "FunctionEnd",
+      "!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave",
+      "Function un.ConfirmLeave",
+      "  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState",
+      "FunctionEnd",
+    ),
+    lines(
+      "FunctionEnd",
+      "!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave",
+      "Function un.ConfirmLeave",
+      "  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState",
+      "  ${If} $DeleteAppDataCheckboxState == 1",
+      "  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1",
+      '    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(FyluraFullCleanupWarning)" IDYES fylura_confirm_full_cleanup',
+      "    Abort",
+      "    fylura_confirm_full_cleanup:",
+      "  ${EndIf}",
+      "FunctionEnd",
+    ),
+    "confirm full cleanup and warn about Restore metadata",
+  );
+
+  output = replaceExactly(
+    output,
+    "!insertmacro MUI_RESERVEFILE_LANGDLL",
+    lines(
+      'LangString FyluraFullCleanupWarning ${LANG_ENGLISH} "Full cleanup deletes Fylura settings, database, History, Journal, Restore records, cache, and AI credentials. Safe Trash files and organized files stay in place, but remaining Safe Trash files may lose their restore records. Continue?"',
+      'LangString FyluraFullCleanupWarning ${LANG_SIMPCHINESE} "彻底清理会删除 Fylura 设置、数据库、History、Journal、Restore 记录、缓存和 AI 凭据。Safe Trash 中的文件和已整理文件会保留，但 Safe Trash 文件可能失去恢复记录。是否继续？"',
+      "!insertmacro MUI_RESERVEFILE_LANGDLL",
+    ),
+    "localize full-cleanup consequence confirmation",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      '    SetShellVarContext current',
+      '    RmDir /r "$APPDATA\\${BUNDLEID}"',
+      '    RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"',
+    ),
+    "    ; Fylura data was cleaned and verified by the app helper before file removal.",
+    "replace upstream recursive app-data deletion with verified Fylura cleanup",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
+      '  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"',
+      "",
+      "  ; Delete the app directory and its content from disk",
+      "  ; Copy main executable",
+    ),
+    lines(
+      '  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"',
+      "",
+      "  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1",
+      "  ${AndIf} $DeleteAppDataCheckboxState == 1",
+      "    ClearErrors",
+      "    ExecWait '\"$INSTDIR\\${MAINBINARYNAME}.exe\" --fylura-uninstall-clean-user-data' $R0",
+      "    ${If} ${Errors}",
+      '      StrCpy $R0 "could not start the cleanup helper"',
+      "    ${EndIf}",
+      "    ${If} $R0 != 0",
+      "      Call un.ZCRecoverUninstallReversible",
+      '      MessageBox MB_ICONSTOP|MB_OK "Fylura data cleanup is INCOMPLETE (result $R0). Uninstall stopped before removing the program. Some personal data may already have been removed; run the full uninstall again to retry." /SD IDOK',
+      "      SetErrorLevel 2",
+      "      Quit",
+      "    ${EndIf}",
+      "  ${EndIf}",
+      "",
+      "  ; Delete the app directory and its content from disk",
+      "  ; Copy main executable",
+    ),
+    "run checked full cleanup before removing application files",
+  );
+
+  output = replaceExactly(
+    output,
     lines(
       "  !ifmacrodef NSIS_HOOK_PREINSTALL",
       "    !insertmacro NSIS_HOOK_PREINSTALL",
@@ -223,6 +313,19 @@ export function buildFyluraNsisTemplate(upstream) {
   output = replaceExactly(
     output,
     lines(
+      '  ${If} $UpdateMode <> 1',
+      '    DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "${PRODUCTNAME}"',
+      '  ${EndIf}',
+    ),
+    lines(
+      "  ; Current-user startup entries are removed before generated files.",
+    ),
+    "remove and verify current-user Windows startup entries",
+  );
+
+  output = replaceExactly(
+    output,
+    lines(
       "  !ifmacrodef NSIS_HOOK_POSTINSTALL",
       "    !insertmacro NSIS_HOOK_POSTINSTALL",
       "  !endif",
@@ -255,9 +358,42 @@ export function buildFyluraNsisTemplate(upstream) {
       '  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"',
     ),
     lines(
+      "  ; Resolve cleanup mode in the section that performs the uninstall.",
+      "  StrCpy $ZC_UNINSTALL_IS_UPDATE 0",
+      "  ClearErrors",
+      '  ${GetOptions} $CMDLINE "/UPDATE" $R1',
+      "  ${IfNot} ${Errors}",
+      "    StrCpy $UpdateMode 1",
+      "    StrCpy $ZC_UNINSTALL_IS_UPDATE 1",
+      "  ${Else}",
+      "    StrCpy $UpdateMode 0",
+      "  ${EndIf}",
+      "  ${If} ${Silent}",
+      "    StrCpy $DeleteAppDataCheckboxState 0",
+      "    StrCpy $FyluraDeleteAppDataConfirmationFlag 0",
+      "    ClearErrors",
+      '    ${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R1',
+      "    ${IfNot} ${Errors}",
+      "      ClearErrors",
+      '      ${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1',
+      "      ${IfNot} ${Errors}",
+      "        StrCpy $DeleteAppDataCheckboxState 1",
+      "        StrCpy $FyluraDeleteAppDataConfirmationFlag 1",
+      "      ${EndIf}",
+      "    ${EndIf}",
+      "  ${EndIf}",
       "  ; Zen owns the reversible pre-delete lifecycle. The captured service is",
       "  ; stopped through SCM before the name-only desktop process gate.",
       "  Call un.ZCPrepareUninstallLifecycle",
+      "  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1",
+      "    Call un.ZCRemoveFyluraStartup",
+      "    ${If} $ZC_UNINSTALL_STARTUP_CLEAN != 1",
+      "      Call un.ZCRecoverUninstallReversible",
+      '      MessageBox MB_ICONSTOP|MB_OK "Fylura startup entries could not be verified as removed. The program files were preserved." /SD IDOK',
+      "      SetErrorLevel 2",
+      "      Quit",
+      "    ${EndIf}",
+      "  ${EndIf}",
     ),
     "uninstall pre-gate",
   );
@@ -278,8 +414,14 @@ export function buildFyluraNsisTemplate(upstream) {
       "  IfErrors zc_uninstall_reversible_failure",
       "  Call un.ZCMarkUninstallIrreversible",
       "  Call un.ZCMarkUninstallGeneratedMutation",
+      "  Call un.DeleteZenCanvasIndexService",
+      "  ${If} $ZC_UNINSTALL_SERVICE_CLEAN != 1",
+      "    Call un.ZCFailUninstallPartial",
+      "    SetErrorLevel 2",
+      "    Quit",
+      "  ${EndIf}",
     ),
-    "uninstall main delete",
+    "uninstall main delete and exact-owned service cleanup",
   );
 
   output = replaceExactly(
@@ -321,6 +463,20 @@ export function buildFyluraNsisTemplate(upstream) {
       '  Delete "$INSTDIR\\uninstall.exe"',
     ),
     lines(
+      "  ; Remove the exact-owned ARP entry while the uninstaller is still present.",
+      "  Call un.RemoveFyluraUninstallRegistration",
+      "  ${If} $ZC_UNINSTALL_REGISTRATION_CLEAN != 1",
+      '    MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall is INCOMPLETE: $ZC_UNINSTALL_REGISTRATION_ERROR. Program files may be partially removed; run the installer to repair, then retry." /SD IDOK',
+      "    SetErrorLevel 2",
+      "    Quit",
+      "  ${EndIf}",
+      "  Call un.RemoveZenCanvasManufacturerProductMarker",
+      "  ${If} $ZC_UNINSTALL_MANUFACTURER_CLEAN != 1",
+      '    MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall is INCOMPLETE: the install-location marker could not be removed safely (registry value state $ZC_REG_VALUE_STATE, Windows status $ZC_REG_RESULT). Program files may be partially removed; run the installer to repair, then retry." /SD IDOK',
+      "    SetErrorLevel 2",
+      "    Quit",
+      "  ${EndIf}",
+      "",
       "  ; Delete uninstaller",
       "  ClearErrors",
       '  Delete "$INSTDIR\\uninstall.exe"',
@@ -342,12 +498,18 @@ export function buildFyluraNsisTemplate(upstream) {
       "  Goto zc_uninstall_generated_success",
       "",
       "zc_uninstall_reversible_failure:",
-      "  Call un.ZCFailUninstallReversible",
-      "  Abort",
+      "  ${If} $ZC_LIFECYCLE_UNINSTALL_STAGE >= ${ZC_LIFECYCLE_STAGE_FILE_MUTATION}",
+      "    Call un.ZCFailUninstallPartial",
+      "  ${Else}",
+      "    Call un.ZCFailUninstallReversible",
+      "  ${EndIf}",
+      "  SetErrorLevel 2",
+      "  Quit",
       "",
       "zc_uninstall_partial_failure:",
       "  Call un.ZCFailUninstallPartial",
-      "  Abort",
+      "  SetErrorLevel 2",
+      "  Quit",
       "",
       "zc_uninstall_generated_success:",
       "  !ifmacrodef NSIS_HOOK_POSTUNINSTALL",
@@ -366,11 +528,26 @@ export function buildFyluraNsisTemplate(upstream) {
     "IfErrors zc_install_partial_failure",
     "Call un.ZCPrepareUninstallLifecycle",
     "IfErrors zc_uninstall_reversible_failure",
+    "--fylura-uninstall-clean-user-data",
+    '"/DELETE_APP_DATA"',
+    '"/CONFIRM_DELETE_APP_DATA"',
+    'WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\uninstall.exe$\\\""',
+    "Call un.ZCRemoveFyluraStartup",
+    'MessageBox MB_ICONSTOP|MB_OK "Fylura data cleanup is INCOMPLETE',
+    'MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(FyluraFullCleanupWarning)" IDYES fylura_confirm_full_cleanup',
     "IfErrors zc_uninstall_partial_failure",
   ]) {
     if (!output.includes(required)) {
       throw new Error(`Generated Zen NSIS template is missing ${required}`);
     }
+  }
+  if (
+    output.includes("--fylura-uninstall-launcher") ||
+    output.includes("--fylura-uninstall-worker") ||
+    output.includes('RmDir /r "$APPDATA\\${BUNDLEID}"') ||
+    output.includes('RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"')
+  ) {
+    throw new Error("Generated Zen NSIS template still contains legacy launcher or recursive app-data cleanup");
   }
 
   return output;

@@ -84,6 +84,16 @@ const nsisLifecycleRuntimeScriptPath = path.join(
   "scripts",
   "verifyWindowsNsisLifecycle.ps1",
 );
+const nsisLifecycleRunnerScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyWindowsNsisLifecycleRunner.ps1",
+);
+const macosDmgLifecycleRuntimeScriptPath = path.join(
+  repositoryRoot,
+  "scripts",
+  "verifyMacosDmgLifecycle.sh",
+);
 
 function sectionBody(source: string, sectionName: string) {
   const start = source.indexOf(`Section ${sectionName}`);
@@ -446,6 +456,16 @@ function freshDetectionSeesProduct(
 }
 
 describe("W4-04 package NSIS lifecycle", () => {
+  it("reports startup cleanup failures without dereferencing an absent Run value", () => {
+    const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
+
+    expect(source).toContain(
+      'Assert-Condition ($null -eq $r.PSObject.Properties[\'Fylura\']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails"',
+    );
+    expect(source).not.toContain("NSIS-QA");
+    expect(source).not.toContain("$($r.Fylura)");
+  });
+
   it("does not assume unrelated Add/Remove Programs keys contain Fylura metadata", () => {
     const source = normalizeNewlines(fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8"));
     const start = source.indexOf("function Get-FyluraUninstallEntries");
@@ -478,6 +498,171 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(packageConfig.bundle.windows.nsis.template).toBe(
       "windows/.generated/fylura-installer.nsi",
     );
+  });
+
+  it("keeps full cleanup opt-in, direct, and checked before NSIS removes application files", () => {
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+
+    expect(generated).toContain('WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\\"$INSTDIR\\uninstall.exe$\\\""');
+    expect(generated).toContain('"/DELETE_APP_DATA"');
+    expect(generated).toContain('"/CONFIRM_DELETE_APP_DATA"');
+    expect(generated).toContain("--fylura-uninstall-clean-user-data");
+    expect(generated).toContain("DeleteAppDataCheckbox");
+    expect(generated).toContain("FyluraFullCleanupWarning");
+    expect(generated).toContain('MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(FyluraFullCleanupWarning)" IDYES fylura_confirm_full_cleanup');
+    expect(generated).toContain('    fylura_confirm_full_cleanup:');
+    expect(generated).not.toContain("MB_ICONWARNING");
+    expect(generated).not.toContain("MB_DEFBUTTON2");
+    expect(generated).toContain('  ${If} $DeleteAppDataCheckboxState == 1');
+    expect(generated).toContain('  ${AndIf} $FyluraDeleteAppDataConfirmationFlag != 1');
+    expect(generated).toContain('  ${If} $ZC_UNINSTALL_IS_UPDATE <> 1\n  ${AndIf} $DeleteAppDataCheckboxState == 1');
+    expect(generated).not.toContain("System::Call 'kernel32::ExitProcess(i 2)'");
+    expect(generated).toContain('  ${GetOptions} $CMDLINE "/UPDATE" $UpdateMode');
+    expect(generated).toContain('  ${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R1');
+    expect(generated).toContain('  ${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1');
+    expect(generated).toContain('    StrCpy $DeleteAppDataCheckboxState 1');
+    expect(generated).toContain('    StrCpy $FyluraDeleteAppDataConfirmationFlag 1');
+    const uninstallSection = sectionBody(generated, "Uninstall");
+    const updateOptions = uninstallSection.indexOf('${GetOptions} $CMDLINE "/UPDATE" $R1');
+    const updateSwitchCheck = uninstallSection.indexOf('${IfNot} ${Errors}', updateOptions);
+    const updateSwitchMark = uninstallSection.indexOf('StrCpy $ZC_UNINSTALL_IS_UPDATE 1');
+    const deleteRequest = uninstallSection.indexOf('${GetOptions} $CMDLINE "/DELETE_APP_DATA" $R1');
+    const confirmationRequest = uninstallSection.indexOf('${GetOptions} $CMDLINE "/CONFIRM_DELETE_APP_DATA" $R1');
+    const fullCleanupEnabled = uninstallSection.indexOf('StrCpy $DeleteAppDataCheckboxState 1');
+    expect(updateOptions).toBeGreaterThanOrEqual(0);
+    expect(updateSwitchCheck).toBeGreaterThan(updateOptions);
+    expect(updateSwitchMark).toBeGreaterThan(updateSwitchCheck);
+    expect(deleteRequest).toBeGreaterThanOrEqual(0);
+    expect(deleteRequest).toBeGreaterThan(updateSwitchMark);
+    expect(confirmationRequest).toBeGreaterThan(deleteRequest);
+    expect(fullCleanupEnabled).toBeGreaterThan(confirmationRequest);
+    expect(uninstallSection.indexOf("Call un.ZCPrepareUninstallLifecycle")).toBeGreaterThan(fullCleanupEnabled);
+    const startupCleanup = uninstallSection.indexOf("Call un.ZCRemoveFyluraStartup");
+    const mainDelete = uninstallSection.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+    expect(startupCleanup).toBeGreaterThan(uninstallSection.indexOf("Call un.ZCPrepareUninstallLifecycle"));
+    expect(startupCleanup).toBeLessThan(mainDelete);
+    expect(generated).not.toContain("NSIS-QA");
+    expect(generated).not.toContain('GetOptions $CMDLINE "/S"');
+    expect(generated).not.toContain('Silent full cleanup requires both');
+    expect(generated).not.toContain('Passive full cleanup requires both');
+    expect(generated).toContain("Fylura data cleanup is INCOMPLETE");
+    expect(generated).toContain("SetErrorLevel 2\n      Quit");
+    expect(generated).toContain("Call un.ZCRecoverUninstallReversible");
+    expect(generated).toContain("Call un.ZCMarkUninstallIrreversible");
+    expect(generated).toContain("Call un.ZCRemoveFyluraStartup");
+    expect(generated).not.toContain("--fylura-uninstall-launcher");
+    expect(generated).not.toContain("--fylura-uninstall-worker");
+    expect(generated).not.toContain('RmDir /r "$APPDATA\\${BUNDLEID}"');
+    expect(generated).not.toContain('RmDir /r "$LOCALAPPDATA\\${BUNDLEID}"');
+    expect(generated).toContain("Call un.ZCFailUninstallPartial");
+
+    const cleanup = generated.indexOf("--fylura-uninstall-clean-user-data");
+    const executableDelete = generated.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+    expect(cleanup).toBeGreaterThanOrEqual(0);
+    expect(executableDelete).toBeGreaterThan(cleanup);
+  });
+
+  it("admits only the exact previous Fylura uninstall string during in-place updates", () => {
+    const hooks = installerHooksSource();
+    const detection = functionBody(hooks, "DetectZenCanvasPreexistingProduct");
+    const admission = macroBody(hooks, "ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
+
+    expect(detection).toContain('$ZC_EXPECTED_UNINSTALL_STRING "$\\\"$INSTDIR\\uninstall.exe$\\\""');
+    expect(detection).toContain('$ZC_EXPECTED_LEGACY_UNINSTALL_STRING "$\\\"$INSTDIR\\fylura.exe$\\\" --fylura-uninstall-launcher');
+    expect(detection).toContain("ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
+    expect(admission).toContain("$ZC_EXPECTED_UNINSTALL_STRING");
+    expect(admission).toContain("$ZC_EXPECTED_LEGACY_UNINSTALL_STRING");
+    expect(admission).toContain("${ZC_REG_VALUE_EXACT}");
+    expect(admission).toContain('StrCpy $ZC_PREEXISTING_PRODUCT_VALID 0');
+  });
+
+  it("runs focused destructive uninstall coverage directly in the disposable hosted VM", () => {
+    const verifier = fs.readFileSync(nsisLifecycleRuntimeScriptPath, "utf8");
+    const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
+
+    expect(verifier).toContain("$env:GITHUB_ACTIONS -eq 'true'");
+    expect(verifier).toContain("$env:RUNNER_ENVIRONMENT -eq 'github-hosted'");
+    expect(verifier).toContain("WindowsPrincipal]::new($id).IsInRole");
+    expect(verifier).toContain("Refusing to alter existing application data");
+    expect(verifier).toContain("ai-api-key-qa_orphan.com.startlan.fylura.ai-profile");
+    expect(verifier).toContain("fylura-cleanup-fixture.com.example.editor");
+    expect(verifier).toContain("$username = $Target.Substring(0, $Target.Length - $namespace.Length)");
+    expect(verifier).toContain('"/user:$username"');
+    expect(verifier).toContain("$Target -eq 'fylura-cleanup-fixture.com.example.editor'");
+    expect(verifier).toContain("/DELETE_APP_DATA");
+    expect(verifier).toContain("/CONFIRM_DELETE_APP_DATA");
+    expect(verifier).toContain("delete-only-request-falls-back-to-ordinary");
+    expect(verifier).toContain("safe-trash");
+    expect(verifier).toContain("organized-files");
+    expect(verifier).toContain("Delete-only request removed Fylura application data.");
+    expect(verifier.indexOf("Delete-only request removed Fylura application data.")).toBeGreaterThan(
+      verifier.indexOf("$deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')"),
+    );
+    expect(verifier).toContain("FyluraGlobalIndex did not reach RUNNING");
+    expect(verifier).toContain("Fylura manufacturer marker remained after $phase uninstall.");
+    expect(verifier).toContain("(Test-Path -LiteralPath $main) -or (Test-Path -LiteralPath $uninstaller) -or (Test-Path -LiteralPath $installDir)");
+    expect(verifier).toContain("$mainExists -or $uninstallerExists -or $installDirExists");
+    expect(verifier).toContain("if ($null -ne $s) { $s.Dispose() }");
+    expect(verifier).toContain("registrationDetails");
+    expect(verifier).toContain("displayName = Registry-Value $key 'DisplayName'");
+    expect(verifier).toContain("uninstallString = Registry-Value $key 'UninstallString'");
+    expect(verifier).toContain("SCM query exit=");
+    expect(verifier).toContain("if ([string]$imagePath -ceq $expectedImagePath)");
+    expect(verifier).toContain("$deleteProbe = Invoke-Sc @('delete', $service)");
+    expect(verifier).toContain("Assert-Preview $false");
+    expect(verifier).toContain("Assert-Preview $true");
+    expect(verifier).toContain("phase = 'cleanup-failed'");
+    expect(verifier).not.toContain("TaskWorker");
+    expect(verifier).not.toContain("secondary-user");
+    expect(verifier).not.toContain("cross-account");
+    expect(verifier).not.toContain("ScheduledTask");
+    expect(workflow).toContain("verifyWindowsNsisLifecycle.ps1");
+    expect(workflow).not.toContain("verifyWindowsNsisLifecycleRunner.ps1");
+  });
+
+  it("seeds macOS Safe Trash in run-scoped paths under the disposable runner home", () => {
+    const verifier = fs.readFileSync(macosDmgLifecycleRuntimeScriptPath, "utf8");
+    const preflight = fs.readFileSync(path.join(repositoryRoot, "scripts", "verifyMacosUserProfilePreflight.py"), "utf8");
+    const cleanupRunner = fs.readFileSync(path.join(repositoryRoot, "scripts", "runMacosExplicitCleanup.py"), "utf8");
+    const aiSettings = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "src", "ai", "settings.rs"),
+      "utf8",
+    );
+    const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
+
+    expect(verifier).toContain('Refusing destructive macOS lifecycle verification outside a disposable GitHub-hosted macOS VM.');
+    expect(workflow).toContain("Verify macOS lifecycle script parses with the runner Bash");
+    expect(workflow).toContain("bash --version | head -n 1");
+    expect(workflow).toContain("verifyMacosBashCompatibility.py scripts/verifyMacosDmgLifecycle.sh");
+    expect(workflow).toContain("bash -n scripts/verifyMacosDmgLifecycle.sh");
+    expect(verifier).toContain('PROFILE_ROOT="${HOME:?HOME must identify the disposable runner account}"');
+    expect(verifier).toContain("preflight_profile_paths");
+    expect(verifier).toContain("APP_PROFILE_ROOTS_OWNED=1");
+    expect(verifier).toContain('python3 "$SCRIPT_DIR/verifyMacosUserProfilePreflight.py"');
+    expect(verifier).toContain('python3 "$SCRIPT_DIR/runMacosExplicitCleanup.py"');
+    expect(preflight).toContain("os.path.commonpath((home, path)) != home");
+    expect(preflight).toContain("os.path.islink(current)");
+    expect(preflight).toContain("os.path.lexists(path)");
+    expect(verifier).toContain('DOCUMENTS_SAFE_TRASH="$PROFILE_ROOT/Documents/.fylura-trash/operations/task-owned-fixture-$RUN_ID"');
+    expect(verifier).toContain('FINDER_TRASH_FILE="$FINDER_TRASH/fylura-qa-$RUN_ID.txt"');
+    expect(verifier).toContain(">\"$external_new\"");
+    expect(verifier).toContain(" >\"$external_legacy\"");
+    expect(verifier).toContain('security list-keychains -d user -s "$TEST_KEYCHAIN"');
+    expect(verifier).toContain('security add-generic-password -U -A -T "$app_path"');
+    expect(verifier).not.toContain("HOME=sys.argv[2]");
+    expect(verifier).not.toContain('export CFFIXED_USER_HOME=');
+    expect(cleanupRunner).toContain('environment["TMPDIR"] = sys.argv[2]');
+    expect(cleanupRunner).toContain('environment["FYLURA_CLEANUP_DIAGNOSTICS"] = "1"');
+    expect(cleanupRunner).toContain("timeout=180");
+    expect(aiSettings).toContain('Command::new("/usr/bin/security")');
+    expect(aiSettings).toContain('"default-keychain", "-d", "user"');
+    expect(aiSettings).toContain('"delete-generic-password"');
+    expect(aiSettings).toContain("macos_keychain_has_credential");
+    expect(aiSettings).toContain("Duration::from_secs(15)");
+    expect(verifier).toContain('rmdir "$fixture_directory"');
+    expect(verifier).not.toContain("OWNED_FIXTURE_DIRECTORIES");
+    expect(verifier).not.toContain("$external_new/user-file.txt");
+    expect(verifier).not.toContain("$external_legacy/user-file.txt");
   });
 
   it("keeps the Windows COM identity stable and refuses to adopt the old preview registration", () => {
@@ -712,7 +897,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
     const uninstallPartial = functionBody(synchronous, "un.ZCFailUninstallPartial");
     expect(uninstallPartial).toContain("Call un.CommitZenCanvasPreviewQuiesce");
-    expect(uninstallPartial).toContain("Call un.DeleteZenCanvasIndexService");
+    expect(uninstallPartial).not.toContain("Call un.DeleteZenCanvasIndexService");
     expect(uninstallPartial).not.toContain("RollbackZenCanvasPreviewQuiesce");
     expect(uninstallPartial).not.toContain("RestoreZenCanvasOriginalService");
   });
@@ -1204,8 +1389,13 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(exactValueState("ERROR", "REG_SZ", "Zen Canvas")).toBe("unknown");
     const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
     for (const value of ["MainBinaryName", "DisplayName", "DisplayIcon", "DisplayVersion", "Publisher", "InstallLocation", "UninstallString", "NoModify", "NoRepair", "EstimatedSize"]) {
-      expect(detect).toContain(`"${value}"`);
+      if (value === "UninstallString") {
+        expect(detect).toContain("ZC_REQUIRE_PRODUCT_UNINSTALL_STRING");
+      } else {
+        expect(detect).toContain(`"${value}"`);
+      }
     }
+    expect(macroBody(installerHooksSource(), "ZC_REQUIRE_PRODUCT_UNINSTALL_STRING")).toContain('"UninstallString"');
     for (const value of repairOptionalUrlNames) expect(detect).toContain(`"${value}"`);
     expect(detect.match(/!insertmacro ZC_REQUIRE_OPTIONAL_PRODUCT_STRING/gu)).toHaveLength(3);
   });
@@ -1624,7 +1814,7 @@ describe("W4-04 package NSIS lifecycle", () => {
 
     const detect = functionBody(installerHooksSource(), "DetectZenCanvasPreexistingProduct");
     expect(detect.match(/!insertmacro ZC_REQUIRE_OPTIONAL_PRODUCT_STRING/gu)).toHaveLength(3);
-    expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_STRING/gu)).toHaveLength(8);
+    expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_STRING/gu)).toHaveLength(7);
     expect(detect.match(/!insertmacro ZC_REQUIRE_PRODUCT_DWORD/gu)).toHaveLength(3);
     expect(detect).toContain("StrCpy $ZC_PREEXISTING_PRODUCT 1");
     expect(detect).not.toContain("WriteReg");
@@ -1768,7 +1958,10 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(cleanup).toContain(
       'ZC_REG_QUERY_STRING_STATE ${ZC_REG_ROOT_HKLM} "$ZC_MANUFACTURER_PRODUCT_KEY" "" "$INSTDIR" ${ZC_REG_STRING_SZ_ONLY}',
     );
-    expect(cleanup).toContain('DeleteRegValue HKLM "$ZC_MANUFACTURER_PRODUCT_KEY" ""');
+    expect(cleanup).toContain(
+      'RegOpenKeyExW(p ${ZC_REG_ROOT_HKLM}, w "$ZC_MANUFACTURER_PRODUCT_KEY", i 0, i 0x0102',
+    );
+    expect(cleanup).toContain("RegDeleteValueW(p r8, p 0)");
     expect(cleanup).toContain("ZC_UNINSTALL_MANUFACTURER_CLEAN");
     expect(manufacturerMarkerCleanupDecision({ type: "REG_SZ", value: manufacturerInstallLocation })).toEqual({
       deleteAttempted: true,
@@ -1828,11 +2021,107 @@ describe("W4-04 package NSIS lifecycle", () => {
       fs.readFileSync(finalPath, "utf8"),
       "un.ZCPostUninstallLifecycleFinal",
     );
-    expect(final.indexOf("Call un.RemoveZenCanvasManufacturerProductMarker")).toBeGreaterThan(
-      final.indexOf("Call un.DeleteZenCanvasIndexService"),
-    );
+    expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
+    expect(final).not.toContain("Call un.RemoveZenCanvasManufacturerProductMarker");
     expect(final).toContain("$ZC_UNINSTALL_MANUFACTURER_CLEAN != 1");
     expect(final).toContain("Abort");
+    expect(buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"))).toContain(
+      "Call un.RemoveZenCanvasManufacturerProductMarker",
+    );
+  });
+
+  it("does not report uninstall success until SCM and the service registry key are both clear", () => {
+    const serviceCleanup = functionBody(installerHooksSource(), "un.DeleteZenCanvasIndexService");
+    expect(serviceCleanup).toContain("StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0");
+    expect(serviceCleanup).toContain("Call un.ReadZenCanvasIndexServiceRuntimeState");
+    expect(serviceCleanup).toContain("$ZC_INDEX_SERVICE_RUNTIME_STATE == 4");
+    expect(serviceCleanup).toContain("ZC_REG_QUERY_KEY_STATE");
+    expect(serviceCleanup).toContain("$ZC_REG_KEY_STATE == ${ZC_REG_KEY_ABSENT}");
+
+    const generated = buildFyluraNsisTemplate(fs.readFileSync(upstreamPath, "utf8"));
+    const uninstall = sectionBody(generated, "Uninstall");
+    const mainDelete = uninstall.indexOf('Delete "$INSTDIR\\${MAINBINARYNAME}.exe"');
+    const serviceCleanupCall = uninstall.indexOf("Call un.DeleteZenCanvasIndexService", mainDelete);
+    const serviceStatusCheck = uninstall.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1", serviceCleanupCall);
+    const remainingFiles = uninstall.indexOf("ZC_UNINSTALL_RESOURCE", serviceStatusCheck);
+    expect(mainDelete).toBeGreaterThanOrEqual(0);
+    expect(serviceCleanupCall).toBeGreaterThan(mainDelete);
+    expect(serviceStatusCheck).toBeGreaterThan(serviceCleanupCall);
+    expect(remainingFiles).toBeGreaterThan(serviceStatusCheck);
+
+    const registrationDelete = uninstall.indexOf("Call un.RemoveFyluraUninstallRegistration");
+    expect(registrationDelete).toBeGreaterThan(mainDelete);
+    expect(registrationDelete).toBeLessThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
+    expect(uninstall).toContain("$ZC_UNINSTALL_REGISTRATION_CLEAN != 1");
+    expect(uninstall).toContain("SetErrorLevel 2");
+    expect(uninstall).toContain("Quit");
+    expect(uninstall).not.toContain('DeleteRegKey HKLM "${UNINSTKEY}"');
+
+    const final = functionBody(
+      fs.readFileSync(finalPath, "utf8"),
+      "un.ZCPostUninstallLifecycleFinal",
+    );
+    const startupCleanup = functionBody(
+      fs.readFileSync(synchronousPath, "utf8"),
+      "un.ZCRemoveFyluraStartup",
+    );
+    const registryAuthority = fs.readFileSync(
+      path.join(repositoryRoot, "src-tauri", "windows", "registry-authority.nsh"),
+      "utf8",
+    );
+    const initialize = functionBody(
+      fs.readFileSync(synchronousPath, "utf8"),
+      "un.ZCInitializeUninstallLifecycle",
+    );
+    expect(initialize).toContain("StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0");
+    expect(initialize).toContain("Call un.CheckZenCanvasPreDeleteProductEvidence");
+    const preDeleteEvidence = functionBody(
+      installerHooksSource(),
+      "un.CheckZenCanvasPreDeleteProductEvidence",
+    );
+    expect(preDeleteEvidence).toContain('"DisplayName" "$ZC_PRODUCT_NAME"');
+    expect(preDeleteEvidence).toContain('"InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"');
+    expect(preDeleteEvidence).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0");
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
+    expect(registryAuthority).toContain("ZC_REG_KEY_READ_32 0x0209");
+    expect(startupCleanup.match(/DeleteRegValue HKCU/g)).toHaveLength(4);
+    expect(startupCleanup).toContain("SetRegView 64");
+    expect(startupCleanup).toContain("SetRegView 32");
+    expect(startupCleanup.match(/ZC_REG_QUERY_STRING_STATE_VIEW/g)).toHaveLength(4);
+    expect(final).toContain("$ZC_UNINSTALL_IS_UPDATE <> 1");
+    expect(final).toContain("$ZC_UNINSTALL_STARTUP_CLEAN != 1");
+    const serviceStatusCheckFinal = final.indexOf("$ZC_UNINSTALL_SERVICE_CLEAN != 1");
+    const successExitCode = final.lastIndexOf("SetErrorLevel 0");
+    expect(final).not.toContain("Call un.DeleteZenCanvasIndexService");
+    const markerCleanup = uninstall.indexOf("Call un.RemoveZenCanvasManufacturerProductMarker");
+    expect(markerCleanup).toBeGreaterThan(registrationDelete);
+    expect(markerCleanup).toBeLessThan(uninstall.indexOf('Delete "$INSTDIR\\uninstall.exe"'));
+    expect(final).not.toContain("Call un.RemoveZenCanvasManufacturerProductMarker");
+    expect(serviceStatusCheckFinal).toBeGreaterThanOrEqual(0);
+    expect(successExitCode).toBeGreaterThan(serviceStatusCheckFinal);
+    expect(final.slice(serviceStatusCheckFinal, successExitCode)).toContain("Abort");
+    const finalCall = uninstall.indexOf("Call un.ZCPostUninstallLifecycleFinal");
+    const finalResultCheck = uninstall.indexOf("$ZC_UNINSTALL_FINAL_CLEAN != 1", finalCall);
+    expect(finalResultCheck).toBeGreaterThan(finalCall);
+    expect(uninstall.indexOf("Quit", finalResultCheck)).toBeGreaterThan(finalResultCheck);
+
+    const registrationCleanup = functionBody(
+      installerHooksSource(),
+      "un.RemoveFyluraUninstallRegistration",
+    );
+    expect(registrationCleanup).toContain('"DisplayName" "$ZC_PRODUCT_NAME"');
+    expect(registrationCleanup).toContain('"InstallLocation" "$ZC_EXPECTED_INSTALL_LOCATION"');
+    expect(registrationCleanup).toContain('"UninstallString" "$ZC_EXPECTED_UNINSTALL_STRING"');
+    expect(registrationCleanup).toContain("RegDeleteKeyExW");
+    expect(registrationCleanup).toContain("${ZC_REG_KEY_WOW64_64KEY}");
+    expect(registrationCleanup).toContain("RegDeleteKeyExW failed with Windows error $ZC_REG_RESULT");
+    expect(registrationCleanup).toContain('ZC_REG_QUERY_KEY_STATE ${ZC_REG_ROOT_HKLM} "$ZC_UNINSTALLER_REGISTRY_KEY"');
+    expect(registrationCleanup).toContain("the product uninstall registration remains after deletion");
+    expect(registrationCleanup).toContain("StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 1");
+    expect(final).toContain("$ZC_UNINSTALL_REGISTRATION_ERROR");
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 0");
+    expect(final).toContain("StrCpy $ZC_UNINSTALL_FINAL_CLEAN 1");
   });
 
   it("T129: marker cleanup never recursively deletes the manufacturer parent", () => {
@@ -2036,9 +2325,7 @@ describe("W4-04 package NSIS lifecycle", () => {
     const final = fs.readFileSync(finalPath, "utf8");
     const post = functionBody(final, "un.ZCPostUninstallLifecycleFinal");
     expect(post).toContain("Call un.ZCFinalizePreviewDllMutation");
-    expect(post.indexOf("Call un.ZCFinalizePreviewDllMutation")).toBeLessThan(
-      post.indexOf("Call un.DeleteZenCanvasIndexService"),
-    );
+    expect(post).not.toContain("Call un.DeleteZenCanvasIndexService");
   });
 
   it("T143: retirement cleanup is best-effort and can defer only the exact file", () => {
@@ -2118,6 +2405,8 @@ describe("W4-04 package NSIS lifecycle", () => {
     expect(proof.canonicalFileInstruction).toBe(
       'File /a "/oname=native\\fylura_windows_preview_handler.dll" "${SOURCE}"',
     );
+    expect(generated).toContain("Call un.ZCRemoveFyluraStartup");
+    expect(generated).toContain("Call un.ZCPostUninstallLifecycleFinal");
   });
 
   it("T149: generated Preview servicing never emits a forward-slash oname", () => {

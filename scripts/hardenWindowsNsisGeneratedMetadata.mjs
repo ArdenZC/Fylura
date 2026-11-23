@@ -228,15 +228,7 @@ export function hardenWindowsNsisGeneratedMetadata(source) {
     ),
     lines(
       "  ; Remove registry information for add/remove programs",
-      "  ClearErrors",
-      '  !if "${INSTALLMODE}" == "both"',
-      '    DeleteRegKey SHCTX "${UNINSTKEY}"',
-      '  !else if "${INSTALLMODE}" == "perMachine"',
-      '    DeleteRegKey HKLM "${UNINSTKEY}"',
-      "  !else",
-      '    DeleteRegKey HKCU "${UNINSTKEY}"',
-      "  !endif",
-      "  IfErrors zc_uninstall_partial_failure",
+      "  ; The exact-owned entry was removed before deleting uninstall.exe.",
     ),
     "uninstall ARP metadata",
   );

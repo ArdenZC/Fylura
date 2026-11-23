@@ -498,7 +498,27 @@ impl SourceClaim {
 }
 
 #[cfg(target_os = "macos")]
-const MAC_RETIREMENT_ROOT_NAME: &str = ".zen-canvas-retirement";
+const MAC_RETIREMENT_ROOT_NAME: &str = ".fylura-retirement";
+#[cfg(target_os = "macos")]
+const LEGACY_MAC_RETIREMENT_ROOT_NAME: &str = ".zen-canvas-retirement";
+
+const CLAIM_NAME_PREFIX: &str = ".fylura-claim-";
+#[cfg(target_os = "macos")]
+const LEGACY_CLAIM_NAME_PREFIX: &str = ".zen-canvas-claim-";
+#[cfg(target_os = "macos")]
+const REPLACE_NAME_PREFIX: &str = ".fylura-replace-";
+#[cfg(target_os = "macos")]
+const LEGACY_REPLACE_NAME_PREFIX: &str = ".zen-canvas-replace-";
+
+#[cfg(target_os = "macos")]
+fn is_claim_name(name: &OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        name.starts_with(CLAIM_NAME_PREFIX)
+            || name.starts_with(LEGACY_CLAIM_NAME_PREFIX)
+            || name.starts_with(REPLACE_NAME_PREFIX)
+            || name.starts_with(LEGACY_REPLACE_NAME_PREFIX)
+    })
+}
 
 #[cfg(target_os = "macos")]
 fn macos_private_claim_path(parent: &Path, claim_name: &str) -> PathBuf {
@@ -525,7 +545,7 @@ pub fn planned_claim_path(source: &Path, _operation_id: &str) -> Result<PathBuf,
                 SourceClaimError::Io(error)
             }
         })?;
-    let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
+    let claim_name = format!("{CLAIM_NAME_PREFIX}{}", uuid::Uuid::new_v4());
     #[cfg(target_os = "macos")]
     {
         Ok(macos_private_claim_path(&parent, &claim_name))
@@ -579,7 +599,9 @@ pub fn rebind_claim_path(
                     "macOS claim path is missing its private retirement root".to_string(),
                 )
             })?;
-        if retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME) {
+        if retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME)
+            && retirement_root != std::ffi::OsStr::new(LEGACY_MAC_RETIREMENT_ROOT_NAME)
+        {
             return Err(SourceClaimError::ClaimFailed(
                 "macOS claim path is outside the private retirement namespace".to_string(),
             ));
@@ -635,15 +657,11 @@ fn private_claim_names(
         ));
     };
     if components.next().is_some()
-        || retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME)
+        || (retirement_root != std::ffi::OsStr::new(MAC_RETIREMENT_ROOT_NAME)
+            && retirement_root != std::ffi::OsStr::new(LEGACY_MAC_RETIREMENT_ROOT_NAME))
         || session_name.is_empty()
         || claim_name.is_empty()
-        || (!claim_name
-            .as_encoded_bytes()
-            .starts_with(b".zen-canvas-claim-")
-            && !claim_name
-                .as_encoded_bytes()
-                .starts_with(b".zen-canvas-replace-"))
+        || !is_claim_name(claim_name)
     {
         return Err(SourceClaimError::ClaimFailed(
             "macOS claim path is outside the private retirement namespace".to_string(),
@@ -1617,7 +1635,7 @@ pub(crate) fn probe_macos_namespace_retirement(
     use std::os::{fd::FromRawFd, unix::ffi::OsStrExt};
 
     let parent_directory = VerifiedDirectory::open_existing(parent).map_err(map_directory_error)?;
-    let retirement_root_name = OsString::from(".zen-canvas-retirement");
+    let retirement_root_name = OsString::from(MAC_RETIREMENT_ROOT_NAME);
     let retirement_root_path = parent_directory.path().join(&retirement_root_name);
     let retirement_root_name_c = std::ffi::CString::new(retirement_root_name.as_bytes())
         .map_err(|_| SourceClaimError::ClaimFailed("retirement root contains NUL".to_string()))?;
@@ -2110,7 +2128,7 @@ mod tests {
             .any(|entry| entry
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".zen-canvas-claim-")));
+                .starts_with(".fylura-claim-")));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2307,7 +2325,7 @@ mod mac_tests {
         assert!(!components[1].is_empty());
         assert!(components[2]
             .as_encoded_bytes()
-            .starts_with(b".zen-canvas-claim-"));
+            .starts_with(b".fylura-claim-"));
         assert!(!claim_path.exists());
 
         let expected = identity::capture_identity(&source, None).expect("identity");

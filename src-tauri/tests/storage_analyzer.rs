@@ -908,25 +908,26 @@ fn cleanup_preview_items_reject_system_paths_even_if_client_marks_them_safe() {
 }
 
 #[test]
-fn storage_analyzer_ignores_zen_canvas_safe_trash_paths() {
+fn storage_analyzer_ignores_current_and_legacy_safe_trash_paths() {
     let root = test_dir();
-    let safe_trash = root.join(".zen-canvas-trash").join("items");
-    write_file(
-        &safe_trash
-            .join("batch")
-            .join("item")
-            .join("node_modules")
-            .join("x.js"),
-        256,
-    );
+    for name in [".fylura-trash", ".zen-canvas-trash"] {
+        let safe_trash = root.join(name).join("items");
+        write_file(
+            &safe_trash
+                .join("batch")
+                .join("item")
+                .join("node_modules")
+                .join("x.js"),
+            256,
+        );
+    }
 
     let analysis =
         analyze_storage_roots_for_test(vec![root], Vec::new()).expect("analyze storage roots");
 
-    assert!(analysis
-        .candidates
-        .iter()
-        .all(|candidate| !candidate.path.contains(".zen-canvas-trash")));
+    assert!(analysis.candidates.iter().all(|candidate| {
+        !candidate.path.contains(".fylura-trash") && !candidate.path.contains(".zen-canvas-trash")
+    }));
 }
 
 #[test]
@@ -1048,7 +1049,7 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     assert!(item.source_platform_file_id.is_some());
     assert!(item.trash_platform_volume_id.is_some());
     assert!(item.trash_platform_file_id.is_some());
-    assert!(Path::new(&item.trash_path).starts_with(root.join(".zen-canvas-trash")));
+    assert!(Path::new(&item.trash_path).starts_with(root.join(".fylura-trash")));
     assert!(Path::new(&item.trash_path).exists());
 
     let restore =

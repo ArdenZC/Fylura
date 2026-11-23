@@ -19,13 +19,19 @@ const MAX_DEPTH = 12;
 const MAX_EXPANDED_NODES = 24;
 const MAX_AUTO_LOCATE_ENTRIES = PAGE_SIZE * 64;
 const MAX_AUTO_LOCATE_PAGES = 64;
-const ROOT_COLLAPSED_MARKER = "@zen-canvas/tree-root-collapsed:v1";
-const SAFE_TRASH_DIRECTORY_NAME = ".zen-canvas-trash";
+const ROOT_COLLAPSED_MARKER = "@fylura/tree-root-collapsed:v1";
+const LEGACY_ROOT_COLLAPSED_MARKER = "@zen-canvas/tree-root-collapsed:v1";
+const SAFE_TRASH_DIRECTORY_NAMES = new Set([".fylura-trash", ".zen-canvas-trash"]);
+const PRIVATE_TRANSACTION_DIRECTORY_NAMES = new Set([".fylura-retirement", ".zen-canvas-retirement"]);
 
 function isSafeTrashNamespacePath(path: string) {
   return path.split(/[\\/]+/).some(
-    (segment) => segment.toLocaleLowerCase() === SAFE_TRASH_DIRECTORY_NAME,
+    (segment) => SAFE_TRASH_DIRECTORY_NAMES.has(segment.toLowerCase()),
   );
+}
+
+function rootWasCollapsed(paths: string[]) {
+  return paths.includes(ROOT_COLLAPSED_MARKER) || paths.includes(LEGACY_ROOT_COLLAPSED_MARKER);
 }
 
 interface TreeNode {
@@ -255,7 +261,8 @@ export function DirectoryTree({
               if (
                 entry.kind !== "directory" ||
                 !entry.pathRef ||
-                entry.name.toLocaleLowerCase() === SAFE_TRASH_DIRECTORY_NAME ||
+                SAFE_TRASH_DIRECTORY_NAMES.has(entry.name.toLowerCase()) ||
+                PRIVATE_TRANSACTION_DIRECTORY_NAMES.has(entry.name.toLowerCase()) ||
                 isSafeTrashNamespacePath(entry.displayPath)
               ) continue;
               const childKey = childNodeKey(session.sessionId, entry.pathRef);
@@ -372,7 +379,7 @@ export function DirectoryTree({
         displayPath: rootPath ?? locationDisplayPath(response.location.displayName, currentPath, platform),
         depth: 0,
         childKeys: [],
-        expanded: !readExpandedTreePaths(paneId).includes(ROOT_COLLAPSED_MARKER),
+        expanded: !rootWasCollapsed(readExpandedTreePaths(paneId)),
         loading: false,
         loaded: false,
         scannedCount: 0,
@@ -431,7 +438,7 @@ export function DirectoryTree({
     const pathChangedSinceMount = initialPath === null
       || initialTargetKeyRef.current !== currentTargetKey
       || normalizePath(initialPath, platform) !== normalizedCurrentPath;
-    if (savedExpandedPaths.includes(ROOT_COLLAPSED_MARKER) && locateNonce === 0 && !pathChangedSinceMount) return;
+    if (rootWasCollapsed(savedExpandedPaths) && locateNonce === 0 && !pathChangedSinceMount) return;
     if (locateRequestRef.current === requestKey) return;
     locatingRef.current = true;
     locateRequestRef.current = requestKey;

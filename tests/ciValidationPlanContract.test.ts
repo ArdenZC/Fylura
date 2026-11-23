@@ -959,7 +959,7 @@ describe("workflow lane and governance wiring", () => {
       ["quality-macos", "performance-workspace-foundation", "needs.change-scope.outputs.perf_workspace_foundation"],
       ["quality-macos", "performance-preview-platform", "needs.change-scope.outputs.perf_preview_platform"],
       ["quality-macos", "build-macos", "needs.change-scope.outputs.release_sensitive"],
-      ["quality-macos", "package-macos", "needs.change-scope.outputs.full_validation"],
+      ["quality-macos", "package-macos", "needs.change-scope.outputs.full_validation == 'true' || needs.change-scope.outputs.package_sensitive == 'true'"],
       ["quality-macos", "package-smoke", "needs.change-scope.outputs.package_sensitive == 'true' && needs.change-scope.outputs.full_validation != 'true'"],
       ["quality-macos", "dependency-audit", "needs.change-scope.outputs.dependency_sensitive"],
     ] as const;

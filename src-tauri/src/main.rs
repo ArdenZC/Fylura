@@ -35,6 +35,25 @@ fn qualification_startup_checkpoint(name: &str) {
 fn main() {
     qualification_startup_checkpoint("process_main_entered");
     let launch_args = std::env::args().collect::<Vec<_>>();
+    #[cfg(all(
+        any(target_os = "windows", target_os = "macos"),
+        not(feature = "native-qa")
+    ))]
+    if launch_args
+        .get(1)
+        .is_some_and(|argument| argument == "--fylura-uninstall-clean-user-data")
+    {
+        match fylura_tauri::uninstall::clean_current_user_data() {
+            Ok(summary) => {
+                println!("{summary}");
+                std::process::exit(0);
+            }
+            Err(error) => {
+                println!("Fylura data cleanup incomplete: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
     #[cfg(windows)]
     if launch_args
         .iter()

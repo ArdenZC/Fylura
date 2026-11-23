@@ -26,7 +26,7 @@ use windows::{
 use crate::com::PreviewHandler;
 
 const COMPLETION_MESSAGE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 0x403;
-const COMPLETION_CLASS_NAME: PCWSTR = w!("ZenCanvas.W4_03.CompletionWindow");
+const COMPLETION_CLASS_NAME: PCWSTR = w!("Fylura.W4_03.CompletionWindow");
 static NEXT_NOTIFICATION_ID: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Default)]

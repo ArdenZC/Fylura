@@ -1,99 +1,95 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$InstallerPath,
-    [Parameter(Mandatory = $true)]
-    [string]$EvidencePath
+    [Parameter(Mandatory = $true)][string]$InstallerPath,
+    [Parameter(Mandatory = $true)][string]$EvidencePath
 )
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$installer = [System.IO.Path]::GetFullPath($InstallerPath)
-$runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')
-$taskRoot = [System.IO.Path]::GetFullPath((Join-Path $runnerTemp "fylura-nsis-runtime-$env:GITHUB_RUN_ID"))
-$installDir = Join-Path $taskRoot 'install'
-$mainBinary = Join-Path $installDir 'fylura.exe'
-$profileRoot = Join-Path $taskRoot 'profile'
-$legacyService = 'ZenCanvasGlobalIndex'
-$currentService = 'FyluraGlobalIndex'
-$legacyServiceKey = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$legacyService"
-$currentServiceKey = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$currentService"
-$uninstallRoot = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
-$evidence = [System.Collections.Generic.List[object]]::new()
-$legacyServiceCreated = $false
-$originalAppData = $env:APPDATA
-$script:overallStatus = 'IN_PROGRESS'
-
+function Assert-Condition([bool]$Condition, [string]$Message) {
+    if (-not $Condition) { throw $Message }
+}
 function Save-Evidence {
     $parent = Split-Path -Parent $EvidencePath
-    if ($parent) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
-    $document = [ordered]@{
-        product = 'Fylura'
-        sourceSha = $env:GITHUB_SHA
-        runId = $env:GITHUB_RUN_ID
-        status = $overallStatus
-        phases = @($evidence.ToArray())
-    }
-    $document | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $EvidencePath -Encoding utf8
+    if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    [ordered]@{ product = 'Fylura'; sourceSha = $env:GITHUB_SHA; runId = $env:GITHUB_RUN_ID; status = $script:status; phases = @($script:evidence.ToArray()) } |
+        ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $EvidencePath -Encoding utf8
 }
-
 function Record-Phase([string]$Phase, [hashtable]$Details = @{}) {
-    $evidence.Add([ordered]@{
-        phase = $Phase
-        at = [DateTime]::UtcNow.ToString('o')
-        details = $Details
-    })
+    $script:evidence.Add([ordered]@{ phase = $Phase; at = [DateTime]::UtcNow.ToString('o'); details = $Details })
     Save-Evidence
 }
-
-function Assert-Condition([bool]$Condition, [string]$Message) {
-    if (-not $Condition) {
-        throw $Message
-    }
-}
-
-function Invoke-Sc([string[]]$Arguments) {
-    $output = & "$env:WINDIR\System32\sc.exe" @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    return [pscustomobject]@{
-        exitCode = $exitCode
-        output = ($output | Out-String).Trim()
-    }
-}
-
-function Invoke-Installer([string]$Path) {
-    $process = Start-Process -FilePath $Path -ArgumentList @('/S', "/D=$installDir") -PassThru -NoNewWindow
-    if (-not $process.WaitForExit(120000)) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        throw "Timed out waiting for task-owned installer process $($process.Id)."
-    }
-    $process.Refresh()
-    return [int]$process.ExitCode
-}
-
-function Stop-TaskOwnedMainWindowProcess {
-    $expectedBinary = [System.IO.Path]::GetFullPath($mainBinary)
-    $ownedProcesses = @(
-        Get-CimInstance -ClassName Win32_Process -Filter "Name = 'fylura.exe'" | Where-Object {
-            $_.ExecutablePath -and
-            [System.IO.Path]::GetFullPath($_.ExecutablePath).Equals($expectedBinary, [StringComparison]::OrdinalIgnoreCase) -and
-            $_.CommandLine -notmatch '--index-service'
+function Credential-Targets {
+    $output = & "$env:WINDIR\System32\cmdkey.exe" /list 2>&1
+    Assert-Condition ($LASTEXITCODE -eq 0) 'Could not inspect Windows Credential Manager.'
+    $result = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in $output) {
+        if ($line -match '^\s*Target:\s*(.+?)\s*$') {
+            $target = $Matches[1].Trim()
+            foreach ($prefix in @('LegacyGeneric:target=', 'Generic:target=')) {
+                if ($target.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    $target = $target.Substring($prefix.Length)
+                    break
+                }
+            }
+            $null = $result.Add($target)
         }
-    )
-    foreach ($ownedProcess in $ownedProcesses) {
-        Stop-Process -Id $ownedProcess.ProcessId -Force -ErrorAction Stop
     }
-    return $ownedProcesses.Count
+    return ,$result
 }
-
-function Get-FyluraUninstallEntries {
-    if (-not (Test-Path -LiteralPath $uninstallRoot)) {
-        return @()
+function Has-Credential([string]$Target) { return (Credential-Targets).Contains($Target) }
+function Add-Credential([string]$Target) {
+    $script:credentialFixtures.Add($Target)
+    $secret = "fylura-596-qa-$([guid]::NewGuid().ToString('N'))"
+    $namespace = if ($Target.EndsWith('.com.startlan.fylura.ai-profile', [StringComparison]::OrdinalIgnoreCase)) {
+        '.com.startlan.fylura.ai-profile'
+    } elseif ($Target.EndsWith('.com.startlan.fylura', [StringComparison]::OrdinalIgnoreCase)) {
+        '.com.startlan.fylura'
+    } elseif ($Target -eq 'fylura-cleanup-fixture.com.example.editor') {
+        '.com.example.editor'
+    } else {
+        throw "Refusing to seed a credential outside the Fylura fixture namespaces: $Target"
     }
-    $matches = @(
-        Get-ChildItem -LiteralPath $uninstallRoot -ErrorAction Stop | ForEach-Object {
+    $username = $Target.Substring(0, $Target.Length - $namespace.Length)
+    $null = & "$env:WINDIR\System32\cmdkey.exe" "/generic:$Target" "/user:$username" "/pass:$secret" 2>&1
+    Assert-Condition ($LASTEXITCODE -eq 0 -and (Has-Credential $Target)) "Could not seed credential fixture: $Target"
+}
+function Remove-Credentials {
+    foreach ($target in $script:credentialFixtures) { $null = & "$env:WINDIR\System32\cmdkey.exe" "/delete:$target" 2>&1 }
+    $script:credentialFixtures.Clear()
+}
+function Invoke-Sc([string[]]$ScArgs) {
+    $output = & "$env:WINDIR\System32\sc.exe" @ScArgs 2>&1
+    return [pscustomobject]@{ code = $LASTEXITCODE; output = ($output | Out-String).Trim() }
+}
+function Invoke-CurrentUserProcess([string]$FilePath, [string[]]$Arguments) {
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) { throw "Could not start $FilePath." }
+    try {
+        if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'NSIS process timed out.'
+        }
+        $process.Refresh()
+        return [int]$process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+}
+function Install {
+    return Invoke-CurrentUserProcess $installer @('/S', "/D=$installDir")
+}
+function Invoke-Uninstaller([string[]]$UninstallArgs) {
+    return Invoke-CurrentUserProcess $uninstaller $UninstallArgs
+}
+function Get-FyluraUninstallEntries {
+    if (-not (Test-Path -LiteralPath $uninstallRoot)) { return @() }
+    $entries = @(
+        Get-ChildItem -LiteralPath $uninstallRoot | ForEach-Object {
             $properties = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
             $displayNameProperty = if ($null -ne $properties) { $properties.PSObject.Properties['DisplayName'] }
             if ($null -ne $displayNameProperty -and $displayNameProperty.Value -eq 'Fylura') {
@@ -105,156 +101,404 @@ function Get-FyluraUninstallEntries {
             }
         } | Where-Object { $_ }
     )
-    return $matches
+    return $entries
 }
-
-function Remove-TaskOwnedLegacyService {
-    if (-not $legacyServiceCreated) {
-        return
+function Registry-Value([string]$Subkey, [string]$Name = '') {
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $key = $base.OpenSubKey($Subkey)
+        if ($null -eq $key) { return $null }
+        try { return $key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
+        finally { $key.Dispose() }
+    } finally { $base.Dispose() }
+}
+function Assert-Preview([bool]$Present) {
+    $id = '{3D1A446C-162E-4313-A026-8ADC792C4862}'
+    $category = '{8895B1C6-B41F-4C1C-A562-0D564250836F}'
+    $root = "SOFTWARE\Classes\CLSID\$id"
+    $inproc = "$root\InprocServer32"
+    if ($Present) {
+        $dll = Join-Path $installDir 'native\fylura_windows_preview_handler.dll'
+        Assert-Condition ((Registry-Value $root) -eq 'Fylura Preview Handler') 'Preview Handler CLSID is missing.'
+        $actualDll = [string](Registry-Value $inproc)
+        Assert-Condition ([IO.Path]::GetFullPath($actualDll).Equals([IO.Path]::GetFullPath($dll), [StringComparison]::OrdinalIgnoreCase)) 'Preview Handler DLL path is unexpected.'
+        Assert-Condition ((Registry-Value $root 'AppID') -eq '{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}') 'Preview Handler AppID is unexpected.'
+        Assert-Condition ((Registry-Value $inproc 'ThreadingModel') -eq 'Apartment') 'Preview Handler threading model is unexpected.'
+        Assert-Condition ((Registry-Value 'SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers' $id) -eq 'Fylura Preview Handler') 'Preview Handler list registration is missing.'
+        foreach ($ext in @('.md','.markdown','.rs','.py','.js','.jsx','.ts','.tsx','.java','.c','.h','.cpp','.hpp','.ps1','.sh','.sql')) {
+            Assert-Condition ((Registry-Value "SOFTWARE\Classes\SystemFileAssociations\$ext\shellex\$category") -eq $id) "Preview Handler association missing for $ext."
+        }
+    } else {
+        Assert-Condition ($null -eq (Registry-Value $root)) 'Preview Handler CLSID remained after uninstall.'
+        Assert-Condition ($null -eq (Registry-Value $inproc)) 'Preview Handler DLL registration remained after uninstall.'
+        Assert-Condition ($null -eq (Registry-Value 'SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers' $id)) 'Preview Handler list registration remained.'
+        foreach ($ext in @('.md','.markdown','.rs','.py','.js','.jsx','.ts','.tsx','.java','.c','.h','.cpp','.hpp','.ps1','.sh','.sql')) {
+            Assert-Condition ($null -eq (Registry-Value "SOFTWARE\Classes\SystemFileAssociations\$ext\shellex\$category")) "Preview Handler association remained for $ext."
+        }
     }
-    $null = Invoke-Sc @('stop', $legacyService)
-    $result = Invoke-Sc @('delete', $legacyService)
-    Assert-Condition ($result.exitCode -eq 0) "Could not delete task-owned legacy service fixture: $($result.output)"
-    for ($attempt = 0; $attempt -lt 30 -and (Test-Path -LiteralPath $legacyServiceKey); $attempt++) {
+}
+function Assert-Service {
+    $s = Get-Service -Name $service -ErrorAction SilentlyContinue
+    try {
+        Assert-Condition ($null -ne $s -and $s.Status -eq 'Running') 'FyluraGlobalIndex did not reach RUNNING.'
+    } finally {
+        if ($null -ne $s) { $s.Dispose() }
+    }
+}
+function Assert-Uninstalled([string]$phase) {
+    for ($i = 0; $i -lt 120 -and ((Test-Path -LiteralPath $main) -or (Test-Path -LiteralPath $uninstaller) -or (Test-Path -LiteralPath $installDir)); $i++) {
         Start-Sleep -Milliseconds 500
     }
-    Assert-Condition (-not (Test-Path -LiteralPath $legacyServiceKey)) 'Task-owned legacy service fixture remained registered after deletion.'
+    $mainExists = Test-Path -LiteralPath $main
+    $uninstallerExists = Test-Path -LiteralPath $uninstaller
+    $installDirExists = Test-Path -LiteralPath $installDir
+    if ($mainExists -or $uninstallerExists -or $installDirExists) {
+        $remainingInstallFiles = @()
+        if ($installDirExists) {
+            $remainingInstallFiles = @(Get-ChildItem -LiteralPath $installDir -Force | ForEach-Object { $_.Name })
+        }
+        Assert-Condition $false "Program files remained after $phase uninstall. mainExists=$mainExists; uninstallerExists=$uninstallerExists; installDirExists=$installDirExists; installFiles=$($remainingInstallFiles -join '|')"
+    }
+    if (Test-Path -LiteralPath $serviceKey) {
+        $scm = Invoke-Sc @('query', $service)
+        $configuration = Invoke-Sc @('qc', $service)
+        $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
+        $expectedImagePath = '"' + $main + '" --index-service'
+        $deleteProbe = [pscustomobject]@{ code = 'not-run'; output = 'ImagePath did not match the isolated Fylura fixture.' }
+        if ([string]$imagePath -ceq $expectedImagePath) {
+            # This test owns the exact service path in a disposable hosted VM.
+            # Probe SCM once after failure to distinguish a skipped delete from
+            # a service that was marked for deletion but remains open.
+            $deleteProbe = Invoke-Sc @('delete', $service)
+        }
+        Assert-Condition $false "FyluraGlobalIndex remained after uninstall. SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath; controlled delete probe exit=$($deleteProbe.code), output=$($deleteProbe.output)"
+    }
+    $entries = @(Get-FyluraUninstallEntries)
+    if ($entries.Count -ne 0) {
+        $remainingInstallFiles = @()
+        if (Test-Path -LiteralPath $installDir) {
+            $remainingInstallFiles = @(Get-ChildItem -LiteralPath $installDir -Force | ForEach-Object { $_.Name })
+        }
+        $registrationDetails = @(
+            $entries | ForEach-Object {
+                $key = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($_.key)"
+                [pscustomobject]@{
+                    key = $_.key
+                    displayName = Registry-Value $key 'DisplayName'
+                    installLocation = Registry-Value $key 'InstallLocation'
+                    uninstallString = Registry-Value $key 'UninstallString'
+                }
+            }
+        )
+        $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+        $previewRegistration = Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}'
+        Assert-Condition $false "Fylura remained in Add/Remove Programs. Entries=$($registrationDetails | ConvertTo-Json -Compress); installDirExists=$(Test-Path -LiteralPath $installDir); installFiles=$($remainingInstallFiles -join '|'); manufacturerMarker=$manufacturerMarker; previewRegistration=$previewRegistration"
+    }
+    $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+    $manufacturerKeyExists = Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Startlan\Fylura'
+    Assert-Condition ($null -eq $manufacturerMarker) "Fylura manufacturer marker remained after $phase uninstall. Value=$manufacturerMarker; keyExists=$manufacturerKeyExists"
+    Assert-Preview $false
+}
+function Seed-Autostart {
+    New-Item -Path $runKey, $startupApproved -Force | Out-Null
+    New-ItemProperty -LiteralPath $runKey -Name 'Fylura' -PropertyType String -Value "$main --background" -Force | Out-Null
+    New-ItemProperty -LiteralPath $startupApproved -Name 'Fylura' -PropertyType Binary -Value ([byte[]](2,0,0,0,0,0,0,0,0,0,0,0)) -Force | Out-Null
+    New-ItemProperty -LiteralPath $runKey -Name $foreignStartup -PropertyType String -Value $foreignCommand -Force | Out-Null
+    New-ItemProperty -LiteralPath $startupApproved -Name $foreignStartup -PropertyType Binary -Value $foreignApproval -Force | Out-Null
+    $script:autostartSeeded = $true
+}
+function Assert-Autostart([bool]$FyluraPresent) {
+    $r = Get-ItemProperty -LiteralPath $runKey -ErrorAction SilentlyContinue
+    $a = Get-ItemProperty -LiteralPath $startupApproved -ErrorAction SilentlyContinue
+    if ($FyluraPresent) {
+        Assert-Condition ($r.Fylura -eq "$main --background") 'Fylura startup command changed.'
+        Assert-Condition ($null -ne $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry is missing.'
+    } else {
+        $viewSnapshot = foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+            $registryRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+            try {
+                $runValues = $registryRoot.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+                $approvedValues = $registryRoot.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run')
+                try {
+                    [pscustomobject]@{
+                        view = $view.ToString()
+                        runValue = if ($null -ne $runValues) { $runValues.GetValue('Fylura', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } else { $null }
+                        startupApprovedPresent = if ($null -ne $approvedValues) { $approvedValues.GetValueNames() -contains 'Fylura' } else { $false }
+                    }
+                } finally {
+                    if ($null -ne $runValues) { $runValues.Dispose() }
+                    if ($null -ne $approvedValues) { $approvedValues.Dispose() }
+                }
+            } finally {
+                $registryRoot.Dispose()
+            }
+        }
+        $viewDetails = $viewSnapshot | ConvertTo-Json -Compress
+        Assert-Condition ($null -eq $r.PSObject.Properties['Fylura']) "Fylura Run entry remained after uninstall. Registry views: $viewDetails"
+        Assert-Condition ($null -eq $a.PSObject.Properties['Fylura']) 'Fylura StartupApproved entry remained after uninstall.'
+    }
+    Assert-Condition ($r.($foreignStartup) -eq $foreignCommand) 'Uninstall changed unrelated startup.'
+    Assert-Condition ([Convert]::ToBase64String($a.($foreignStartup)) -eq [Convert]::ToBase64String($foreignApproval)) 'Uninstall changed unrelated StartupApproved data.'
+}
+function Cleanup-Autostart {
+    if (-not $script:autostartSeeded) { return }
+    foreach ($x in @(@{Path=$runKey;Name='Fylura';Value="$main --background"}, @{Path=$runKey;Name=$foreignStartup;Value=$foreignCommand})) {
+        $p = Get-ItemProperty -LiteralPath $x.Path -ErrorAction SilentlyContinue
+        $v = if ($null -ne $p) { $p.PSObject.Properties[$x.Name] } else { $null }
+        if ($null -ne $v -and [string]$v.Value -eq $x.Value) { Remove-ItemProperty -LiteralPath $x.Path -Name $x.Name -ErrorAction SilentlyContinue }
+    }
+    foreach ($x in @(@{Name='Fylura';Value=[Convert]::ToBase64String([byte[]](2,0,0,0,0,0,0,0,0,0,0,0))}, @{Name=$foreignStartup;Value=[Convert]::ToBase64String($foreignApproval)})) {
+        $p = Get-ItemProperty -LiteralPath $startupApproved -ErrorAction SilentlyContinue
+        $v = if ($null -ne $p) { $p.PSObject.Properties[$x.Name] } else { $null }
+        if ($null -ne $v -and $v.Value -is [byte[]] -and [Convert]::ToBase64String($v.Value) -eq $x.Value) { Remove-ItemProperty -LiteralPath $startupApproved -Name $x.Name -ErrorAction SilentlyContinue }
+    }
+    $script:autostartSeeded = $false
+}
+
+$installer = [IO.Path]::GetFullPath($InstallerPath)
+$script:evidence = [System.Collections.Generic.List[object]]::new()
+$script:status = 'IN_PROGRESS'
+$script:credentialFixtures = [System.Collections.Generic.List[string]]::new()
+$runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+$appDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+$localAppDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+$data = Join-Path $appDataRoot 'com.startlan.fylura'
+$cache = Join-Path $localAppDataRoot 'com.startlan.fylura'
+$legacyData = Join-Path $appDataRoot 'com.startlan.zencanvas'
+$taskRoot = Join-Path $runnerTemp "fylura-nsis-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+$installDir = Join-Path $taskRoot 'install'
+$main = Join-Path $installDir 'fylura.exe'
+$uninstaller = Join-Path $installDir 'uninstall.exe'
+$service = 'FyluraGlobalIndex'
+$serviceKey = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$service"
+$legacyService = 'ZenCanvasGlobalIndex'
+$legacyServiceKey = "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$legacyService"
+$uninstallRoot = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+$targets = [ordered]@{
+    main = 'ai-api-key.com.startlan.fylura'
+    alpha = 'ai-api-key-qa_alpha.com.startlan.fylura.ai-profile'
+    beta = 'ai-api-key-qa_beta.com.startlan.fylura.ai-profile'
+    orphan = 'ai-api-key-qa_orphan.com.startlan.fylura.ai-profile'
+}
+$foreignCredential = 'fylura-cleanup-fixture.com.example.editor'
+$runKey = 'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run'
+$startupApproved = 'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+$foreignStartup = 'Fylura596ForeignFixture'
+$foreignCommand = 'C:\Fylura596-test-owned\foreign-fixture.exe --keep'
+$foreignApproval = [byte[]](2,0,0,0,0,0,0,0,0,0,0,0)
+$script:autostartSeeded = $false
+$script:legacyServiceCreated = $false
+$script:appDataFixtureCreated = $false
+
+function Remove-LegacyServiceFixture {
+    if (-not $script:legacyServiceCreated) { return }
+    $null = Invoke-Sc @('stop', $legacyService)
+    $r = Invoke-Sc @('delete', $legacyService)
+    Assert-Condition ($r.code -eq 0) "Could not remove test service: $($r.output)"
+    for ($i = 0; $i -lt 30 -and (Test-Path -LiteralPath $legacyServiceKey); $i++) { Start-Sleep -Milliseconds 500 }
+    Assert-Condition (-not (Test-Path -LiteralPath $legacyServiceKey)) 'Test legacy service remained.'
     $script:legacyServiceCreated = $false
 }
 
 try {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    Assert-Condition $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) 'UNVERIFIED: NSIS lifecycle validation requires the disposable runner to be elevated.'
-    Assert-Condition (Test-Path -LiteralPath $installer -PathType Leaf) "NSIS installer was not found: $installer"
-    Assert-Condition (-not (Test-Path -LiteralPath $taskRoot)) "Refusing pre-existing task directory: $taskRoot"
-    Assert-Condition (-not (Test-Path -LiteralPath $legacyServiceKey)) "Refusing pre-existing legacy service: $legacyService"
-    Assert-Condition (-not (Test-Path -LiteralPath $currentServiceKey)) "Refusing pre-existing Fylura service: $currentService"
-    $existingProducts = @(Get-FyluraUninstallEntries)
-    Assert-Condition ($existingProducts.Count -eq 0) 'Refusing to run against a pre-existing Fylura installation.'
+    Assert-Condition ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') 'Lifecycle verification is restricted to a disposable GitHub-hosted Windows VM.'
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    Assert-Condition ([Security.Principal.WindowsPrincipal]::new($id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Lifecycle verification requires an elevated hosted runner.'
+    Assert-Condition (Test-Path -LiteralPath $installer -PathType Leaf) 'NSIS installer is missing.'
+    Assert-Condition (-not (Test-Path -LiteralPath $taskRoot)) 'Refusing a pre-existing lifecycle fixture directory.'
+    Assert-Condition (-not (Test-Path -LiteralPath $serviceKey) -and -not (Test-Path -LiteralPath $legacyServiceKey)) 'Refusing a pre-existing Fylura or legacy service.'
+    Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Refusing to run over an existing Fylura installation.'
+    Assert-Condition (-not (Test-Path -LiteralPath $data) -and -not (Test-Path -LiteralPath $cache) -and -not (Test-Path -LiteralPath $legacyData)) 'Refusing to alter existing application data.'
+    Assert-Condition ($env:GITHUB_RUN_ID -and $env:GITHUB_RUN_ATTEMPT -and $env:GITHUB_SHA) 'GitHub run identity is unavailable.'
+    foreach ($target in @($targets.Values) + @($foreignCredential)) { Assert-Condition (-not (Has-Credential $target)) "Refusing to overwrite existing credential $target" }
+    $r = Get-ItemProperty -LiteralPath $runKey -ErrorAction SilentlyContinue
+    $a = Get-ItemProperty -LiteralPath $startupApproved -ErrorAction SilentlyContinue
+    Assert-Condition ($null -eq $r -or ($null -eq $r.PSObject.Properties['Fylura'] -and $null -eq $r.PSObject.Properties[$foreignStartup])) 'Refusing to overwrite existing startup values.'
+    Assert-Condition ($null -eq $a -or ($null -eq $a.PSObject.Properties['Fylura'] -and $null -eq $a.PSObject.Properties[$foreignStartup])) 'Refusing to overwrite existing StartupApproved values.'
 
     New-Item -ItemType Directory -Path $taskRoot | Out-Null
-    New-Item -ItemType Directory -Path $profileRoot | Out-Null
-    $env:APPDATA = $profileRoot
-    Record-Phase 'preflight' @{
-        installer = $installer
-        taskRoot = $taskRoot
-        installDir = $installDir
-        appDataRoot = $profileRoot
-        administrator = $true
-        existingFyluraProducts = 0
-        existingLegacyService = $false
-        existingFyluraService = $false
-    }
+    Seed-Autostart
+    Record-Phase 'preflight' @{ disposableHostedVm = $true; elevated = $true; userDataAbsent = $true }
 
-    $legacyBinPath = "`"$env:WINDIR\System32\cmd.exe`" /c exit 0"
-    $createLegacy = Invoke-Sc @('create', $legacyService, 'binPath=', $legacyBinPath, 'start=', 'demand', 'DisplayName=', 'Fylura task-owned legacy conflict fixture')
-    Assert-Condition ($createLegacy.exitCode -eq 0) "Could not create task-owned legacy service fixture: $($createLegacy.output)"
-    $legacyServiceCreated = $true
-    $legacyImagePath = (Get-ItemProperty -LiteralPath $legacyServiceKey -Name ImagePath).ImagePath
-    Assert-Condition ($legacyImagePath -like '*cmd.exe* /c exit 0*') "Legacy service fixture has an unexpected ImagePath: $legacyImagePath"
-    $rollbackExitCode = Invoke-Installer $installer
-    $legacyImagePathAfter = (Get-ItemProperty -LiteralPath $legacyServiceKey -Name ImagePath).ImagePath
-    Assert-Condition (-not (Test-Path -LiteralPath (Join-Path $installDir 'fylura.exe'))) 'Legacy-service conflict did not abort before installing the Fylura executable.'
-    Assert-Condition (-not (Test-Path -LiteralPath $currentServiceKey)) 'Legacy-service conflict created the new Fylura service.'
-    Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Legacy-service conflict left a Fylura uninstall registration behind.'
-    Assert-Condition ($legacyImagePathAfter -eq $legacyImagePath) 'Installer rollback modified the task-owned legacy service registration.'
-    Record-Phase 'legacy-service-conflict-rollback' @{
-        installerExitCode = $rollbackExitCode
-        legacyServicePreserved = $true
-        fyluraExecutableAbsent = $true
-        fyluraServiceAbsent = $true
-        uninstallRegistrationAbsent = $true
-    }
-
-    Remove-TaskOwnedLegacyService
+    $legacyBin = '"' + $env:WINDIR + '\System32\cmd.exe" /c exit 0'
+    $created = Invoke-Sc @('create', $legacyService, 'binPath=', $legacyBin, 'start=', 'demand', 'DisplayName=', 'Fylura lifecycle conflict fixture')
+    Assert-Condition ($created.code -eq 0) "Could not create legacy service fixture: $($created.output)"
+    $script:legacyServiceCreated = $true
+    $before = (Get-ItemProperty -LiteralPath $legacyServiceKey -Name ImagePath).ImagePath
+    $failedInstall = Install
+    Assert-Condition ($failedInstall -ne 0) 'Installer did not reject a legacy-service conflict.'
+    Assert-Condition (-not (Test-Path -LiteralPath $main) -and -not (Test-Path -LiteralPath $serviceKey)) 'Conflict rollback left Fylura installed.'
+    Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'Conflict rollback left an uninstall entry.'
+    Assert-Condition ((Get-ItemProperty -LiteralPath $legacyServiceKey -Name ImagePath).ImagePath -eq $before) 'Conflict rollback changed the legacy service.'
+    Record-Phase 'legacy-service-conflict-rollback' @{ installerExitCode = $failedInstall; legacyServicePreserved = $true }
+    Remove-LegacyServiceFixture
     if (Test-Path -LiteralPath $installDir) {
-        $resolvedInstallDir = [System.IO.Path]::GetFullPath($installDir)
-        Assert-Condition $resolvedInstallDir.StartsWith($taskRoot, [StringComparison]::OrdinalIgnoreCase) 'Refusing to clear an install path outside the task-owned directory.'
+        $resolvedInstallDir = [IO.Path]::GetFullPath($installDir)
+        Assert-Condition ([IO.Path]::GetDirectoryName($resolvedInstallDir).Equals([IO.Path]::GetFullPath($taskRoot), [StringComparison]::OrdinalIgnoreCase)) 'Refusing to clear an install directory outside the task-owned fixture.'
         Remove-Item -LiteralPath $resolvedInstallDir -Recurse -Force
     }
 
-    $freshExitCode = Invoke-Installer $installer
-    Assert-Condition ($freshExitCode -eq 0) "Fresh NSIS install failed with exit code $freshExitCode."
-    $freshMainProcessCount = Stop-TaskOwnedMainWindowProcess
-    $uninstaller = Join-Path $installDir 'uninstall.exe'
-    Assert-Condition (Test-Path -LiteralPath $mainBinary -PathType Leaf) 'Fresh install did not publish fylura.exe.'
-    Assert-Condition (Test-Path -LiteralPath $uninstaller -PathType Leaf) 'Fresh install did not publish uninstall.exe.'
-    $freshEntries = @(Get-FyluraUninstallEntries)
-    Assert-Condition ($freshEntries.Count -eq 1) "Fresh install created $($freshEntries.Count) Fylura uninstall entries; expected exactly one."
-    Record-Phase 'fresh-install' @{
-        exitCode = $freshExitCode
-        mainBinary = $mainBinary
-        uninstaller = $uninstaller
-        stoppedOwnedMainWindowProcesses = $freshMainProcessCount
-        uninstallEntry = $freshEntries[0]
-    }
+    $fresh = Install
+    Assert-Condition ($fresh -eq 0) "Fresh install failed with exit code $fresh."
+    Assert-Condition ((Test-Path -LiteralPath $main -PathType Leaf) -and (Test-Path -LiteralPath $uninstaller -PathType Leaf)) 'Fresh install did not publish expected program files.'
+    $entries = @(Get-FyluraUninstallEntries)
+    Assert-Condition ($entries.Count -eq 1) 'Fresh install did not register exactly one uninstall entry.'
+    $regPath = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($entries[0].key)"
+    Assert-Condition ((Get-ItemProperty -LiteralPath $regPath -Name UninstallString).UninstallString -eq ('"' + $uninstaller + '"')) 'Uninstall registration is not the direct NSIS uninstaller.'
+    Assert-Service
+    Assert-Preview $true
+    Record-Phase 'fresh-install' @{ directUninstaller = $true; serviceRunning = $true; previewRegistered = $true }
 
-    $currentDataDir = Join-Path $profileRoot 'com.startlan.fylura'
-    $legacyDataDir = Join-Path $profileRoot 'com.startlan.zencanvas'
-    $safeTrashSource = Join-Path $taskRoot 'safe-trash-source'
-    $trashDir = Join-Path $safeTrashSource '.zen-canvas-trash\items\task-owned-fixture'
-    New-Item -ItemType Directory -Path $currentDataDir, $legacyDataDir, $trashDir -Force | Out-Null
-    $sentinels = [ordered]@{
-        currentDatabase = Join-Path $currentDataDir 'fylura.sqlite3'
-        currentWal = Join-Path $currentDataDir 'fylura.sqlite3-wal'
-        legacyDatabase = Join-Path $legacyDataDir 'zen-canvas.sqlite3'
-        safeTrash = Join-Path $trashDir 'user-data-sentinel.txt'
+    $outside = Join-Path $taskRoot 'safe-trash-source'
+    $organized = Join-Path $taskRoot 'organized-files'
+    $unrelated = Join-Path $taskRoot 'unrelated-folder'
+    $trash = @(
+        (Join-Path $data 'safe-trash\items\fixture'),
+        (Join-Path $data '.fylura-trash\items\fixture'),
+        (Join-Path $data '.zen-canvas-trash\items\fixture'),
+        (Join-Path $outside '.fylura-trash\items\fixture'),
+        (Join-Path $outside '.zen-canvas-trash\items\fixture')
+    )
+    $files = [ordered]@{
+        legacyDatabase = Join-Path $legacyData 'zen-canvas.sqlite3'
+        safeTrash = Join-Path $trash[0] 'real-file.txt'
+        newSafeTrash = Join-Path $trash[1] 'real-file.txt'
+        legacySafeTrash = Join-Path $trash[2] 'real-file.txt'
+        externalNewSafeTrash = Join-Path $trash[3] 'real-file.txt'
+        externalLegacySafeTrash = Join-Path $trash[4] 'real-file.txt'
+        organizedFile = Join-Path $organized 'organized.txt'
+        unrelatedFile = Join-Path $unrelated 'keep.txt'
+        database = Join-Path $data 'fylura.sqlite3'
+        log = Join-Path $cache 'logs\app.log'
     }
-    foreach ($entry in $sentinels.GetEnumerator()) {
-        [System.IO.File]::WriteAllText($entry.Value, "task-owned $($entry.Key) sentinel")
+    $script:appDataFixtureCreated = $true
+    New-Item -ItemType Directory -Path @($data, $cache, $legacyData, $organized, $unrelated) -Force | Out-Null
+    foreach ($dir in $trash) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $files.log) -Force | Out-Null
+    foreach ($entry in $files.GetEnumerator()) {
+        if ($entry.Key -eq 'database') { continue }
+        [IO.File]::WriteAllText($entry.Value, "test-owned $($entry.Key)")
     }
+    $python = (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $seed = Join-Path $taskRoot 'seed.py'
+    @'
+import json, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+db.execute("INSERT INTO app_settings VALUES (?, ?)", ("ai_settings_v1", json.dumps({"customProfiles": [{"id": "qa_alpha"}, {"id": "qa_beta"}]})))
+db.commit()
+db.close()
+'@ | Set-Content -LiteralPath $seed -Encoding ascii
+    $seedOutput = @(& $python $seed $files.database 2>&1)
+    Assert-Condition ($LASTEXITCODE -eq 0) "Could not seed settings database: $(($seedOutput | Out-String).Trim())"
+    $verify = Join-Path $taskRoot 'verify.py'
+    @'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+row = db.execute("SELECT value FROM app_settings WHERE key = ?", ("ai_settings_v1",)).fetchone()
+db.close()
+if row is None or "qa_alpha" not in row[0] or "qa_beta" not in row[0]: raise SystemExit("settings unreadable")
+'@ | Set-Content -LiteralPath $verify -Encoding ascii
+    foreach ($target in $targets.Values) { Add-Credential $target }
+    Add-Credential $foreignCredential
+    Record-Phase 'application-fixtures' @{ sqliteProfiles = @('qa_alpha','qa_beta'); orphanProfileCredential = $true; safeTrashAndUnrelatedFiles = $true; credentialValuesRecorded = $false }
 
-    $repeatExitCode = Invoke-Installer $installer
-    Assert-Condition ($repeatExitCode -eq 0) "Repeated NSIS install failed with exit code $repeatExitCode."
-    $repeatMainProcessCount = Stop-TaskOwnedMainWindowProcess
-    Assert-Condition (Test-Path -LiteralPath $mainBinary -PathType Leaf) 'Repeated install removed fylura.exe.'
-    Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 1) 'Repeated install duplicated or removed the Fylura uninstall registration.'
-    foreach ($entry in $sentinels.GetEnumerator()) {
-        Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Repeated install removed task-owned user data: $($entry.Key)."
+    Seed-Autostart
+    $deleteOnly = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA')
+    if ($deleteOnly -ne 0) {
+        $scm = Invoke-Sc @('query', $service)
+        $configuration = Invoke-Sc @('qc', $service)
+        $imagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
+        $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+        $manufacturerKeyExists = Test-Path -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Startlan\Fylura'
+        throw "Ordinary uninstall with an incomplete cleanup request returned $deleteOnly. Manufacturer marker=$manufacturerMarker; markerKeyExists=$manufacturerKeyExists; SCM query exit=$($scm.code), output=$($scm.output); service config exit=$($configuration.code), output=$($configuration.output); ImagePath=$imagePath"
     }
-    Record-Phase 'repeat-install' @{
-        exitCode = $repeatExitCode
-        stoppedOwnedMainWindowProcesses = $repeatMainProcessCount
-        mainBinaryPreserved = $true
-        uninstallRegistrationCount = 1
-        userDataPreserved = $true
+    Assert-Uninstalled 'ordinary'
+    foreach ($entry in $files.GetEnumerator()) {
+        Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "Delete-only request removed Fylura application data: $($entry.Key)."
+        if ($entry.Key -eq 'database') { continue }
+        Assert-Condition ([IO.File]::ReadAllText($entry.Value) -eq "test-owned $($entry.Key)") "Delete-only request changed Fylura application data: $($entry.Key)."
     }
+    Assert-Condition ((Test-Path $data) -and (Test-Path $cache)) 'Delete-only request removed Fylura application data.'
+    $dbOutput = @(& $python $verify $files.database 2>&1)
+    Assert-Condition ($LASTEXITCODE -eq 0) "Delete-only request left unreadable settings: $(($dbOutput | Out-String).Trim())"
+    foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Delete-only request removed credential $target." }
+    Assert-Condition (Has-Credential $foreignCredential) 'Delete-only request changed unrelated credential.'
+    Assert-Autostart $false
+    Record-Phase 'delete-only-request-falls-back-to-ordinary' @{ exitCode = $deleteOnly; appDataCredentialsAndSafeTrashPreserved = $true; servicePreviewAndOwnStartupRemoved = $true; unrelatedStartupPreserved = $true }
 
-    $uninstallExitCode = (Start-Process -FilePath $uninstaller -ArgumentList @('/S') -PassThru -NoNewWindow -Wait).ExitCode
-    Assert-Condition ($uninstallExitCode -eq 0) "NSIS uninstall failed with exit code $uninstallExitCode."
-    for ($attempt = 0; $attempt -lt 30 -and (Test-Path -LiteralPath $mainBinary); $attempt++) {
-        Start-Sleep -Milliseconds 500
+    $reinstall = Install
+    if ($reinstall -ne 0) {
+        $serviceImagePath = Registry-Value "SYSTEM\CurrentControlSet\Services\$service" 'ImagePath'
+        $manufacturerMarker = Registry-Value 'SOFTWARE\Startlan\Fylura'
+        $uninstallEntries = @(Get-FyluraUninstallEntries | ForEach-Object { $_.key })
+        throw "Reinstall failed with exit code $reinstall. Service ImagePath=$serviceImagePath; manufacturer marker=$manufacturerMarker; Fylura uninstall entries=$($uninstallEntries -join '|'); Preview CLSID=$(Registry-Value 'SOFTWARE\Classes\CLSID\{3D1A446C-162E-4313-A026-8ADC792C4862}')"
     }
-    Assert-Condition (-not (Test-Path -LiteralPath $mainBinary)) 'NSIS uninstall left the Fylura executable installed.'
-    Assert-Condition (-not (Test-Path -LiteralPath $currentServiceKey)) 'NSIS uninstall left FyluraGlobalIndex registered.'
-    Assert-Condition (@(Get-FyluraUninstallEntries).Count -eq 0) 'NSIS uninstall left Fylura in Add/Remove Programs.'
-    foreach ($entry in $sentinels.GetEnumerator()) {
-        Assert-Condition (Test-Path -LiteralPath $entry.Value -PathType Leaf) "NSIS uninstall deleted task-owned user data: $($entry.Key)."
-        $contents = [System.IO.File]::ReadAllText($entry.Value)
-        Assert-Condition ($contents -eq "task-owned $($entry.Key) sentinel") "NSIS uninstall changed task-owned user data: $($entry.Key)."
+    Assert-Service
+    Assert-Preview $true
+    $dbOutput = @(& $python $verify $files.database 2>&1)
+    Assert-Condition ($LASTEXITCODE -eq 0) "Reinstalled application could not read settings: $(($dbOutput | Out-String).Trim())"
+    foreach ($target in $targets.Values) { Assert-Condition (Has-Credential $target) "Reinstall lost credential $target." }
+    Record-Phase 'reinstall' @{ databaseReadable = $true; serviceRunning = $true; previewRegistered = $true }
+
+    Seed-Autostart
+    $full = Invoke-Uninstaller @('/S', '/DELETE_APP_DATA', '/CONFIRM_DELETE_APP_DATA')
+    $fullServiceState = Invoke-Sc @('query', $service)
+    $fullArpEntries = @(Get-FyluraUninstallEntries)
+    Record-Phase 'full-uninstall-returned' @{
+        exitCode = $full
+        installDirExists = (Test-Path -LiteralPath $installDir)
+        mainExists = (Test-Path -LiteralPath $main)
+        uninstallerExists = (Test-Path -LiteralPath $uninstaller)
+        dataRootExists = (Test-Path -LiteralPath $data)
+        databaseExists = (Test-Path -LiteralPath $files.database)
+        cacheExists = (Test-Path -LiteralPath $cache)
+        serviceQueryExitCode = $fullServiceState.code
+        arpEntryCount = $fullArpEntries.Count
+        manufacturerMarker = (Registry-Value 'SOFTWARE\Startlan\Fylura')
     }
-    Record-Phase 'uninstall' @{
-        exitCode = $uninstallExitCode
-        executableRemoved = $true
-        fyluraServiceRemoved = $true
-        uninstallRegistrationRemoved = $true
-        currentDatabaseWalLegacyDatabaseAndSafeTrashPreserved = $true
+    Assert-Condition ($full -eq 0) "Confirmed full uninstall returned $full."
+    Assert-Uninstalled 'full-cleanup'
+    Assert-Condition (-not (Test-Path $cache)) 'Full cleanup left Fylura cache or logs.'
+    Assert-Condition (Test-Path $data -PathType Container) 'Full cleanup did not retain Safe Trash roots.'
+    $remaining = @(Get-ChildItem -LiteralPath $data -Force | ForEach-Object { $_.Name } | Sort-Object)
+    Assert-Condition (($remaining -join '|') -eq ('.fylura-trash|.zen-canvas-trash|safe-trash')) 'Full cleanup left unexpected app data or removed Safe Trash.'
+    foreach ($target in $targets.Values) { Assert-Condition (-not (Has-Credential $target)) "Full cleanup left Fylura credential $target." }
+    Assert-Condition (Has-Credential $foreignCredential) 'Full cleanup removed unrelated credential.'
+    Assert-Autostart $false
+    foreach ($entry in $files.GetEnumerator()) {
+        if ($entry.Key -in @('database','log')) { continue }
+        Assert-Condition ((Test-Path -LiteralPath $entry.Value -PathType Leaf) -and ([IO.File]::ReadAllText($entry.Value) -eq "test-owned $($entry.Key)")) "Full cleanup changed $($entry.Key)."
     }
-    $script:overallStatus = 'PASS'
-    Save-Evidence
-}
-catch {
-    $script:overallStatus = 'FAIL'
-    $evidence.Add([ordered]@{
-        phase = 'failed'
-        at = [DateTime]::UtcNow.ToString('o')
-        error = $_.Exception.Message
-    })
+    Record-Phase 'confirmed-full-uninstall' @{ appDataCredentialsAndIntegrationRemoved = $true; safeTrashOrganizedFilesAndLegacyDataPreserved = $true; unrelatedCredentialAndStartupPreserved = $true; explicitConsentFlags = $true }
+    $script:status = 'PASS'
+    $parent = Split-Path -Parent $EvidencePath
+    if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    [ordered]@{ product = 'Fylura'; sourceSha = $env:GITHUB_SHA; runId = $env:GITHUB_RUN_ID; status = $script:status; phases = @($script:evidence.ToArray()) } |
+        ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $EvidencePath -Encoding utf8
+} catch {
+    $script:status = 'FAIL'
+    $errorDetails = $_.Exception.Message
+    $script:evidence.Add([ordered]@{ phase = 'failed'; at = [DateTime]::UtcNow.ToString('o'); error = $errorDetails; script = 'verifyWindowsNsisLifecycle.ps1'; scriptLine = $_.InvocationInfo.ScriptLineNumber })
+    $parent = Split-Path -Parent $EvidencePath
+    if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     Save-Evidence
     throw
-}
-finally {
-    $env:APPDATA = $originalAppData
-    Remove-TaskOwnedLegacyService
+} finally {
+    try {
+        Cleanup-Autostart
+        Remove-Credentials
+        Remove-LegacyServiceFixture
+        if ($script:appDataFixtureCreated) { Remove-Item -LiteralPath $data, $cache, $legacyData -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $taskRoot) {
+            $resolved = [IO.Path]::GetFullPath($taskRoot)
+            Assert-Condition ([IO.Path]::GetDirectoryName($resolved).Equals($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) 'Refusing to remove a fixture outside RUNNER_TEMP.'
+            Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        $script:status = 'FAIL'
+        $script:evidence.Add([ordered]@{ phase = 'cleanup-failed'; at = [DateTime]::UtcNow.ToString('o'); error = $_.Exception.Message })
+        Save-Evidence
+        throw
+    }
 }

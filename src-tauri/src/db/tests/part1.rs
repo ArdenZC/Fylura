@@ -164,10 +164,10 @@
     }
 
     #[test]
-    fn zen_canvas_organize_root_mode_preserves_legacy_wrapper() {
+    fn fylura_organize_root_mode_uses_fylura_folder() {
         let db = Database::open(test_db_path()).expect("open test database");
         let settings = AppSettings {
-            organize_root_mode: OrganizeRootMode::ZenCanvasFolder,
+            organize_root_mode: OrganizeRootMode::FyluraFolder,
             use_legacy_builtin_classification_rules: true,
             ..AppSettings::default()
         };
@@ -193,7 +193,7 @@
             .expect("classified file")
             .suggested_target_path;
 
-        assert_eq!(path, "/tmp/Desktop/ZenCanvas/Documents");
+        assert_eq!(path, "/tmp/Desktop/Fylura/Documents");
     }
 
     #[test]

@@ -59,7 +59,7 @@ pub fn start_reconcile_watcher(
     let stop_signal = Arc::new(NativeRunLoopStopSignal::default());
     let stop_signal_for_thread = stop_signal.clone();
     let thread = thread::Builder::new()
-        .name("zen-canvas-macos-fsevents".to_string())
+        .name("fylura-macos-fsevents".to_string())
         .spawn(move || {
             run_fsevents(
                 &root,

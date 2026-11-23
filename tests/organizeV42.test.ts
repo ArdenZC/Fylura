@@ -140,6 +140,15 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(realGroups[0].displayPath).toBe("D:\\Clients\\Real_Archive");
   });
 
+  it("recognizes the Fylura organization root when formatting new preview paths", () => {
+    const groups = groupOperationPreviews(
+      [preview("fylura-root", { target_path: "C:/Users/Zen/Fylura/20_Areas/Work/report.docx" })],
+      makeTranslator("zh"),
+    );
+    expect(groups[0].key).toBe("20_Areas");
+    expect(groups[0].displayPath).toBe("长期分类");
+  });
+
   it("does not expose internal directory keys in rendered Preview text, title, or labels", () => {
     const markup = renderToStaticMarkup(createElement(PreviewFileRow, {
       preview: preview("localized", { target_path: "C:/ZenCanvas/40_Archive/Archive/report.docx" }),

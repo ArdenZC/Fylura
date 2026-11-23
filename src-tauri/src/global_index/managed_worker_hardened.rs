@@ -681,7 +681,7 @@ impl ManagedAiWorker {
         let wake_for_thread = wake.clone();
         let scheduler_for_thread = Arc::clone(&scheduler);
         let handle = thread::Builder::new()
-            .name("zen-canvas-managed-ai-worker".to_string())
+            .name("fylura-managed-ai-worker".to_string())
             .spawn(move || {
                 run_worker(
                     db,
@@ -808,7 +808,7 @@ fn run_worker(
                 let wake_for_job = wake_tx.clone();
                 active.fetch_add(1, Ordering::AcqRel);
                 let handle = thread::Builder::new()
-                    .name(format!("zen-canvas-managed-ai-{}", job.id))
+                    .name(format!("fylura-managed-ai-{}", job.id))
                     .spawn(move || {
                         let _ = crate::resource_governor::apply_thread_qos(WorkClass::Background);
                         process_job(&db_for_job, &job_for_thread, &settings_for_job);

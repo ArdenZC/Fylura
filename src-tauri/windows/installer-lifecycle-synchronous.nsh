@@ -573,8 +573,12 @@ Function un.ZCInitializeUninstallLifecycle
   IntOp $0 $0 + ${ESTIMATEDSIZE}
   StrCpy $ZC_EXPECTED_ESTIMATED_SIZE $0
   StrCpy $ZC_PREVIEW_ARTIFACT_REMOVED 0
-  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 1
+  ; The generated uninstall section must prove service cleanup after the main
+  ; binary reaches the irreversible boundary before any remaining files go.
+  StrCpy $ZC_UNINSTALL_SERVICE_CLEAN 0
+  StrCpy $ZC_UNINSTALL_REGISTRATION_CLEAN 0
   StrCpy $ZC_UNINSTALL_MANUFACTURER_CLEAN 0
+  StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
   StrCpy $ZC_PREVIEW_QUIESCE_ACTIVE 0
   StrCpy $ZC_PREVIEW_TXN_COUNT 0
   StrCpy $ZC_PREVIEW_ROLLBACK_CLEAN 1
@@ -680,8 +684,7 @@ Function un.ZCFailUninstallPartial
   ${If} $ZC_PREVIEW_QUIESCE_ACTIVE == 1
     Call un.CommitZenCanvasPreviewQuiesce
   ${EndIf}
-  Call un.DeleteZenCanvasIndexService
-  MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall is incomplete after generated deletion began. Preview remains withdrawn and the exact-owned Global Index service was removed where verifiable; product files or metadata may remain." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Fylura uninstall is incomplete after generated deletion began. Preview remains withdrawn; product files or metadata may remain." /SD IDOK
   Abort
 FunctionEnd
 
@@ -689,4 +692,37 @@ Function un.ZCFinishUninstallLifecycle
   StrCpy $ZC_LIFECYCLE_UNINSTALL_STAGE ${ZC_LIFECYCLE_STAGE_COMPLETE}
   StrCpy $ZC_UNINSTALL_LIFECYCLE_STAGE ${ZC_LIFECYCLE_STAGE_COMPLETE}
   StrCpy $ZC_LIFECYCLE_UNINSTALL_RECOVERY_DONE 1
+FunctionEnd
+
+Function un.ZCRemoveFyluraStartup
+  StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 0
+  SetRegView 64
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
+  SetRegView 32
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
+  SetRegView 64
+  ClearErrors
+
+  ; Confirm both values are absent in both registry views before reporting a
+  ; complete uninstall. These exact Fylura names are the only values touched.
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_64}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Goto fylura_startup_cleanup_done
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_64}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Goto fylura_startup_cleanup_done
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_32}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Goto fylura_startup_cleanup_done
+  ${EndIf}
+  !insertmacro ZC_REG_QUERY_STRING_STATE_VIEW ${ZC_REG_ROOT_HKCU} "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}" "" ${ZC_REG_STRING_SZ_ONLY} ${ZC_REG_KEY_READ_32}
+  ${If} $ZC_REG_VALUE_STATE != ${ZC_REG_VALUE_ABSENT}
+    Goto fylura_startup_cleanup_done
+  ${EndIf}
+  StrCpy $ZC_UNINSTALL_STARTUP_CLEAN 1
+fylura_startup_cleanup_done:
 FunctionEnd

@@ -145,6 +145,10 @@ describe("U2 independent workspace instances", () => {
       setItem: (key: string, value: string) => { values.set(key, value); },
       removeItem: (key: string) => { values.delete(key); },
     } as unknown as Storage;
+    values.set("zen-canvas:file-library-workbench:v1", JSON.stringify(serialized));
+    expect(readPersistedWorkbench(storage)).toEqual(serialized);
+    expect(values.has("fylura:file-library-workbench:v1")).toBe(true);
+    expect(values.has("zen-canvas:file-library-workbench:v1")).toBe(false);
     expect(writePersistedWorkbench(serialized, storage)).toBe(true);
     expect(readPersistedWorkbench(storage)).toEqual(serialized);
     expect(parsePersistedWorkbench({ ...serialized!, staleTransferTicket: "forbidden" })).toBeNull();

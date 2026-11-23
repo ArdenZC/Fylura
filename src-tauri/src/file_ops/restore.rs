@@ -787,8 +787,14 @@ pub(crate) fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result
         .and_then(|value| value.to_str())
         .ok_or_else(|| "restore claim path has no valid file name".to_string())?;
     #[cfg(target_os = "macos")]
-    if !claim_name.starts_with(".zen-canvas-claim-")
-        && !claim_name.starts_with(".zen-canvas-replace-")
+    if ![
+        ".fylura-claim-",
+        ".zen-canvas-claim-",
+        ".fylura-replace-",
+        ".zen-canvas-replace-",
+    ]
+    .iter()
+    .any(|prefix| claim_name.starts_with(prefix))
     {
         return Err("restore claim path is outside the claim namespace".to_string());
     }
@@ -825,7 +831,8 @@ pub(crate) fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result
             return Err("restore claim path has an invalid claim entry".to_string());
         };
         if components.next().is_some()
-            || root != std::ffi::OsStr::new(".zen-canvas-retirement")
+            || (root != std::ffi::OsStr::new(".fylura-retirement")
+                && root != std::ffi::OsStr::new(".zen-canvas-retirement"))
             || session.is_empty()
         {
             return Err(
@@ -835,7 +842,7 @@ pub(crate) fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]
-    if !claim_name.starts_with(".zen-canvas-claim-") {
+    if !claim_name.starts_with(".fylura-claim-") && !claim_name.starts_with(".zen-canvas-claim-") {
         return Err("restore claim path is outside the claim namespace".to_string());
     }
     #[cfg(not(target_os = "macos"))]
@@ -869,14 +876,14 @@ pub(crate) fn plan_restore_claim_path(
         // Trash parent is inside that directory. Plan the inner claim now,
         // while its parent is still absent, in the same private namespace
         // that SourceClaim will create when that item is restored.
-        let claim_name = format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4());
+        let claim_name = format!(".fylura-claim-{}", uuid::Uuid::new_v4());
         parent
-            .join(".zen-canvas-retirement")
+            .join(".fylura-retirement")
             .join(uuid::Uuid::new_v4().to_string())
             .join(claim_name)
     };
     #[cfg(not(target_os = "macos"))]
-    let fallback = parent.join(format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4()));
+    let fallback = parent.join(format!(".fylura-claim-{}", uuid::Uuid::new_v4()));
     Ok(fallback)
 }
 

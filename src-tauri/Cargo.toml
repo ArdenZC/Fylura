@@ -92,7 +92,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
-url = "2"
+url = "2.5.9"
 uuid = { version = "1", features = ["v4", "v7"] }
 fylura-native-host = { path = "native/host-provided" }
 fylura-preview-representation = { path = "native/preview-representation" }

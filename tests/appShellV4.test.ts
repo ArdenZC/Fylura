@@ -12,7 +12,7 @@ describe("App Shell v4", () => {
   const shellChrome = read("src/components/ShellChrome.tsx");
   const tokens = read("src/styles/tokens.css");
 
-  it("uses the final primary and advanced navigation without removing routed views", () => {
+  it("groups core, maintenance, and utility navigation without removing routed views", () => {
     const nav = appShell.slice(appShell.indexOf("function navGroups"));
 
     for (const id of ["library", "organize", "cleanup", "restore", "scanner", "settings"]) {
@@ -28,7 +28,10 @@ describe("App Shell v4", () => {
     expect(appShell).not.toContain('view === "rules"');
     expect(read("src/views/automation/AutomationWorkspace.tsx")).toContain('import("../rules/RulesView")');
     expect(appShell).toContain('id: "primary"');
-    expect(appShell).toContain('id: "advanced"');
+    expect(appShell).toContain('id: "maintenance"');
+    expect(appShell).toContain('id: "utility"');
+    expect(appShell).not.toContain('id: "workflow"');
+    expect(appShell).not.toContain('id: "advanced"');
   });
 
   it("uses the approved v3.40 shell geometry and semantic selected navigation", () => {

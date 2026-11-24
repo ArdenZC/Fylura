@@ -3938,7 +3938,9 @@ function mockLatestOperationBatch() {
   const logs = [...managementHistory, ...mockOperationLogs()];
   let latest: OperationLog | null = null;
   for (const log of logs) {
-    if (!latest || Number(log.created_at) >= Number(latest.created_at)) latest = log;
+    const createdAt = Date.parse(log.created_at);
+    const latestCreatedAt = latest ? Date.parse(latest.created_at) : Number.NEGATIVE_INFINITY;
+    if (!latest || (Number.isFinite(createdAt) && (!Number.isFinite(latestCreatedAt) || createdAt >= latestCreatedAt))) latest = log;
   }
   return latest ? mockOperationBatch(latest.batch_id) : null;
 }

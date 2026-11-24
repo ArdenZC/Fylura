@@ -9,6 +9,16 @@ describe("browser mock command contract", () => {
     );
   });
 
+  it("returns the newest operation batch by its ISO timestamp for undo shortcuts", async () => {
+    const logs = await mockInvokeCommand("get_operation_logs") as Array<{ batch_id: string; created_at: string }>;
+    const latestBatch = await mockInvokeCommand("get_latest_operation_batch") as { batch_id: string; logs: Array<{ created_at: string }> };
+    const latestTimestamp = Math.max(...logs.map((log) => Date.parse(log.created_at)));
+
+    expect(Number.isFinite(latestTimestamp)).toBe(true);
+    expect(latestBatch.logs.some((log) => Date.parse(log.created_at) === latestTimestamp)).toBe(true);
+    expect(latestBatch.batch_id).toBe(logs.filter((log) => Date.parse(log.created_at) === latestTimestamp).at(-1)?.batch_id);
+  });
+
   it("simulates Duplicate in place while keeping both files and folders", () => {
     const sourceEntries = {
       case: { name: "Case.txt", path: "C:/U3/Left/Case.txt", isDirectory: false },

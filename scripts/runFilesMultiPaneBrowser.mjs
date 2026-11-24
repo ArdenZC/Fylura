@@ -66,6 +66,13 @@ try {
     await panes.first().locator('[data-file-library-query-menu] > summary').click();
     await panes.nth(2).locator('[data-file-entry-name="notes.md"]').click();
     assert.equal(await panes.nth(2).locator('[aria-selected="true"]').count(), 1);
+    const managementToolbar = page.locator('[data-workbench] > .fm-workflow');
+    assert.equal(await managementToolbar.count(), 1, 'file operations and task center are shared once per workbench');
+    assert.equal(await managementToolbar.locator('.fm-selection strong').innerText(), '1', 'shared actions follow the focused pane selection');
+    await focusPane(page, 1);
+    assert.equal(await managementToolbar.locator('.fm-selection strong').innerText(), '0', 'selection state remains pane-local');
+    await focusPane(page, 3);
+    assert.equal(await managementToolbar.locator('.fm-selection strong').innerText(), '1');
     await setDestinationPane(page, await panes.nth(3).getAttribute('data-pane-id'));
     await page.getByRole('button', { name: 'Copy to other pane', exact: true }).click();
     await page.getByText('Operation results · 1/1', { exact: true }).first().waitFor();
@@ -78,11 +85,25 @@ try {
     await setPaneCount(page, 3);
     await page.getByRole('tab').first().click();
     assert.equal(await readPaneCount(page), '4');
-    await page.setViewportSize({ width: 800, height: 800 });
+    await page.setViewportSize({ width: 850, height: 680 });
     await page.waitForTimeout(200);
     assert.equal(await page.locator('[data-pane-id]:visible').count(), 1);
     await focusPane(page, 3);
     assert.equal(await page.locator('[data-pane-id][data-focused="true"]:visible').count(), 1);
+    const compactMetrics = await page.evaluate(() => ({
+        viewport: window.innerWidth,
+        document: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth
+    }));
+    assert.ok(compactMetrics.document <= compactMetrics.viewport, `document overflow at 850x680: ${JSON.stringify(compactMetrics)}`);
+    assert.ok(compactMetrics.body <= compactMetrics.viewport, `body overflow at 850x680: ${JSON.stringify(compactMetrics)}`);
+    const toolbarBounds = await managementToolbar.boundingBox();
+    assert.ok(toolbarBounds && toolbarBounds.x >= 0 && toolbarBounds.x + toolbarBounds.width <= 850, 'shared toolbar stays inside the compact window');
+    const toolbarButtonBounds = await managementToolbar.locator('.fm-primary-toolbar > button').evaluateAll(buttons => buttons.map(button => {
+        const rect = button.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+    }));
+    assert.ok(toolbarButtonBounds.every(bounds => bounds.left >= toolbarBounds.x && bounds.right <= toolbarBounds.x + toolbarBounds.width), `toolbar controls stay inside their row: ${JSON.stringify(toolbarButtonBounds)}`);
     await page.screenshot({ path: path.join(output, 'compact-pane.png') });
     await page.setViewportSize({ width: 1800, height: 1100 });
     await page.waitForTimeout(300);

@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Eye, Languages, Monitor, Moon, Sun } from "lucide-react";
+import { Languages, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
 import { useI18nContext, useThemeContext } from "../contexts/AppContexts";
@@ -50,7 +50,7 @@ export function TitlebarTools({
   t: Translator;
 }) {
   const nextTheme = nextThemeMode(theme);
-  const themeLabel = themeToggleLabel(language, theme, nextTheme, t);
+  const themeLabel = themeToggleLabel(theme, nextTheme, t);
 
   return (
     <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
@@ -82,7 +82,7 @@ export function WorkspaceTopActions() {
   const { theme, setTheme } = useThemeContext();
   const { t } = useI18nContext();
   const nextTheme = nextThemeMode(theme);
-  const themeLabel = themeToggleLabel("zh", theme, nextTheme, t);
+  const themeLabel = themeToggleLabel(theme, nextTheme, t);
 
   return (
     <div className="flex items-center gap-1 [-webkit-app-region:no-drag]" aria-label={t("workspaceDisplayControls")}>
@@ -92,9 +92,9 @@ export function WorkspaceTopActions() {
         onClick={() => setTheme(nextTheme)}
         aria-label={themeLabel}
         title={themeLabel}
-        aria-pressed={theme === "dark"}
+        data-theme-mode={theme}
       >
-        <Eye size={16} aria-hidden="true" />
+        {themeIcon(theme)}
       </button>
     </div>
   );
@@ -112,15 +112,16 @@ function themeIcon(theme: ThemeMode) {
   return <Moon size={17} />;
 }
 
-function themeToggleLabel(language: Language, current: ThemeMode, next: ThemeMode, t: Translator) {
+function themeToggleLabel(current: ThemeMode, next: ThemeMode, t: Translator) {
   const labelFor = (mode: ThemeMode) => {
     if (mode === "system") return t("systemTheme");
     if (mode === "light") return t("lightTheme");
     return t("darkTheme");
   };
 
-  if (language === "zh") return `当前：${labelFor(current)}，点击切换到${labelFor(next)}`;
-  return `Current: ${labelFor(current)}. Click to switch to ${labelFor(next)}.`;
+  return t("themeModeToggleHint")
+    .replace("{current}", labelFor(current))
+    .replace("{next}", labelFor(next));
 }
 
 export function CloseChoiceDialog({

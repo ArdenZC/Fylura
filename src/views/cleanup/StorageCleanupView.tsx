@@ -25,6 +25,7 @@ import type {
 import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
+import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
@@ -1028,7 +1029,15 @@ function StorageCleanupPanel({
   const executableSelections = preview ? executableCleanupSubset(preview, selectedFindings.map((finding) => ({ findingId: finding.id, expectedRevision: finding.revision, ...(finding.tier === "review" && finding.decisionRevision != null ? { reviewConfirmation: { decisionRevision: finding.decisionRevision } } : {}) }))) : [];
   const previewScopeExecutable = executableSelections.length > 0;
   const finalSelected = new Set(executableSelections.map((selection) => selection.findingId));
-  const finalBytes = selectedFindings.filter((finding) => finalSelected.has(finding.id)).reduce((sum, finding) => sum + (finding.exactReclaimableBytes || finding.potentialReclaimableBytes || finding.sizeBytes), 0);
+  const finalReclaimable = selectedFindings.filter((finding) => finalSelected.has(finding.id)).reduce((total, finding) => {
+    const reclaimable = resolveReclaimableBytes({ exact: finding.exactReclaimableBytes, potential: finding.potentialReclaimableBytes, legacy: finding.sizeBytes });
+    return { bytes: total.bytes + reclaimable.bytes, estimated: total.estimated || reclaimable.estimated };
+  }, { bytes: 0, estimated: false });
+  const selectedEstimated = selectedFindings.some((finding) => resolveReclaimableBytes({
+    exact: finding.exactReclaimableBytes,
+    potential: finding.potentialReclaimableBytes,
+    legacy: finding.sizeBytes
+  }).estimated);
   const cleanupWorkflowCurrent = executionResult ? 3 : preview ? 2 : run && canReviewFindings ? 1 : 0;
   const cleanupScanWorkflowState: WorkflowStepState = !run || runState === "running"
     ? "current"
@@ -1198,8 +1207,8 @@ function StorageCleanupPanel({
                 density="compact"
                 items={[
                   { label: t("storageCleanupSummaryCandidates"), value: run.findingsPublished.toLocaleString() },
-                  { label: t("storageCleanupSummaryReclaimable"), value: formatBytes(runReclaimable.bytes), tone: "green" },
-                  { label: t("storageCleanupKpiSelected"), value: selectedFindingIds.size.toLocaleString(), hint: formatBytes(selectedBytes) },
+                  { label: t("storageCleanupSummaryReclaimable"), value: `${runReclaimable.estimated ? "~" : ""}${formatBytes(runReclaimable.bytes)}`, hint: runReclaimable.estimated ? t("storageCleanupEstimateHint") : undefined, tone: "green" },
+                  { label: t("storageCleanupKpiSelected"), value: selectedFindingIds.size.toLocaleString(), hint: `${selectedEstimated ? "~" : ""}${formatBytes(selectedBytes)}${selectedEstimated ? ` · ${t("storageCleanupEstimateHint")}` : ""}` },
                   { label: t("storageCleanupSummaryRecovery"), value: t("storageCleanupSummaryRecoveryValue") }
                 ]}
               />
@@ -1250,7 +1259,7 @@ function StorageCleanupPanel({
         {run && selectedFindingIds.size ? (
           <footer className="v340-action-bar" data-cleanup-selection-summary>
             <div className="min-w-0">
-              <strong className="block text-sm text-[var(--zc-text-primary)]">{replaceCopy("storageCleanupSelectionSummary", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}</strong>
+              <strong className="block text-sm text-[var(--zc-text-primary)]">{replaceCopy("storageCleanupSelectionSummary", { count: selectedFindingIds.size, size: `${selectedEstimated ? "~" : ""}${formatBytes(selectedBytes)}` })}</strong>
               <span className={metadataText}>{t("storageCleanupSelectionSafety")}</span>
               <span className={`${metadataText} block`} data-cleanup-current-assessment-guidance>
                 {selectedFindings.some((finding) => finding.tier === "safe")
@@ -1300,10 +1309,6 @@ function StorageCleanupPanel({
         <details className="border-t border-[var(--zc-divider)] pt-3" data-cleanup-workflow-details>
           <summary className="cursor-pointer text-sm text-[var(--zc-text-secondary)]">{t("storageCleanupWorkflowLabel")}</summary>
           <div className="mt-3 grid gap-3">
-            <NoticeBanner tone="info" title={t("storageCleanupSafetyTitle")}>
-              {t("storageCleanupSafetyDesc")}
-            </NoticeBanner>
-
             <WorkflowSteps
               label={t("storageCleanupWorkflowLabel")}
               steps={[
@@ -1317,15 +1322,10 @@ function StorageCleanupPanel({
             {run ? (
               <section className="grid grid-cols-1 divide-y divide-[var(--zc-divider)] border-y border-[var(--zc-divider)] sm:grid-cols-3 sm:divide-x sm:divide-y-0" data-cleanup-summary aria-label={t("storageCleanupRunMetricsLabel")}>
                 <div className="grid gap-1 px-3 py-2 first:pl-0 sm:px-4 sm:first:pl-0"><span className={metadataText}>{t("storageCleanupSummaryCandidates")}</span><strong className="text-base tabular-nums text-[var(--zc-text-primary)]">{run.findingsPublished.toLocaleString()}</strong></div>
-                <div className="grid gap-1 px-3 py-2 sm:px-4"><span className={metadataText}>{t("storageCleanupSummaryReclaimable")}</span><strong className="text-base tabular-nums text-[var(--zc-success-text)]">{formatBytes(runReclaimable.bytes)}</strong></div>
+                <div className="grid gap-1 px-3 py-2 sm:px-4"><span className={metadataText}>{t("storageCleanupSummaryReclaimable")}</span><strong className="text-base tabular-nums text-[var(--zc-success-text)]">{runReclaimable.estimated ? "~" : ""}{formatBytes(runReclaimable.bytes)}</strong>{runReclaimable.estimated ? <span className={metadataText}>{t("storageCleanupEstimateHint")}</span> : null}</div>
                 <div className="grid gap-1 px-3 py-2 last:pr-0 sm:px-4 sm:last:pr-0"><span className={metadataText}>{t("storageCleanupSummaryRecovery")}</span><strong className="text-base text-[var(--zc-text-primary)]">{t("storageCleanupSummaryRecoveryValue")}</strong></div>
               </section>
             ) : null}
-
-            <NoticeBanner tone="info" title={t("storageCleanupSafetyNoticeTitle")}>
-              {t("storageCleanupSafetyNoticeDesc")}
-            </NoticeBanner>
-
           </div>
         </details>
       </div>
@@ -1365,7 +1365,7 @@ function StorageCleanupPanel({
         open={confirmPreviewOpen && Boolean(preview)}
         tone="warning"
         title={t("storageCleanupConfirmSafeTrashTitle")}
-        description={replaceCopy("storageCleanupConfirmSafeTrashDesc", { count: executableSelections.length, size: formatBytes(finalBytes) })}
+        description={replaceCopy("storageCleanupConfirmSafeTrashDesc", { count: executableSelections.length, size: `${finalReclaimable.estimated ? "~" : ""}${formatBytes(finalReclaimable.bytes)}` })}
         emphasis={t("storageCleanupConfirmSafeTrashEmphasis")}
         confirmLabel={t("storageCleanupMoveToSafeTrash")}
         cancelLabel={t("cancel")}

@@ -15,7 +15,8 @@ import {
   SettingsDisclosure,
   SettingsSwitch,
   SettingsSwitchControl,
-  scrollSettingsSectionIntoView
+  scrollSettingsSectionIntoView,
+  collectSettingsSearchResults
 } from "../src/views/settings/components/SettingsPrimitives";
 import { SettingsSecretField } from "../src/views/settings/components/SettingsSecretField";
 import { GlobalIndexSettingsSection } from "../src/views/settings/sections/GlobalIndexSettingsSection";
@@ -917,6 +918,39 @@ describe("settings component system", () => {
     await act(async () => buttons()[2].dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
     expect(document.activeElement).toBe(buttons()[0]);
     expect(document.documentElement.scrollTop).toBe(0);
+  });
+
+  it("shows grouped setting cards together and keeps search targets in their navigation group", async () => {
+    const sections = [
+      { id: "settings-file-management", label: "File management", contentIds: ["settings-files-scan", "settings-managed-scopes"] },
+      { id: "settings-ai-automation", label: "AI & automation", contentIds: ["settings-ai"] }
+    ];
+    await act(async () => root.render(
+      <SettingsLayout
+        sections={sections}
+        activeSectionId="settings-file-management"
+        sectionLabel="Settings"
+        onSectionChange={vi.fn()}
+      >
+        <SettingsSection id="settings-files-scan" title="Scan folders">Scan controls</SettingsSection>
+        <SettingsSection id="settings-managed-scopes" title="Managed folders">
+          <div data-settings-search-label="Managed scope selection"><button id="settings-managed-scope-choice">Choose managed scope</button></div>
+        </SettingsSection>
+        <SettingsSection id="settings-ai" title="AI provider">AI controls</SettingsSection>
+      </SettingsLayout>
+    ));
+
+    expect(container.querySelector("#settings-files-scan")?.getAttribute("data-settings-section-current")).toBe("true");
+    expect(container.querySelector("#settings-managed-scopes")?.getAttribute("data-settings-section-current")).toBe("true");
+    expect(container.querySelector("#settings-ai")?.getAttribute("data-settings-section-current")).toBe("false");
+    const scrollOwner = container.querySelector<HTMLElement>("[data-settings-scroll-container]");
+    const results = collectSettingsSearchResults(scrollOwner, sections, "managed scope");
+    expect(results).toEqual([expect.objectContaining({
+      sectionId: "settings-file-management",
+      sectionLabel: "File management",
+      title: "Managed scope selection",
+      targetId: "settings-managed-scope-choice"
+    })]);
   });
 
   it("focuses the target heading for mouse navigation and deep targets inside the section", async () => {

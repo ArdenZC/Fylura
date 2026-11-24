@@ -124,6 +124,8 @@ export function HistoryBatchList({
         const selected = batch.logs.filter((log) => isRestorableLog(log) && selectedIds.has(log.id)).length;
         const active = batch.id === activeBatchId;
         const first = batch.logs[0];
+        const sourcePath = first?.path_before || first?.source_path || "";
+        const destinationPath = first?.path_after || first?.target_path || "";
         return (
           <div
             id={`history-batch-${batch.id}`}
@@ -144,15 +146,15 @@ export function HistoryBatchList({
                 <span className={cn("shrink-0", batch.executionState === "failed" || batch.restoreState === "restore_failed" ? "text-[var(--zc-danger-text)]" : batch.restoreState === "restored" ? "text-[var(--zc-success-text)]" : "text-[var(--zc-primary)]")}><BatchStateIcon state={batch.state} /></span>
                 <strong className="truncate text-sm">{historyTime(batch.createdAt) ? new Date(historyTime(batch.createdAt)).toLocaleString() : t("historyTimeUnavailable")}</strong>
               </div>
-              <span className="mt-1 line-clamp-2 block min-w-0 break-words text-xs text-[var(--muted)] [overflow-wrap:anywhere]" title={first?.path_after || first?.target_path} aria-label={first ? formatDisplayPath(first.path_after || first.target_path) : t("historyBatch")}>
-                {first ? compactPath(formatDisplayPath(first.path_after || first.target_path), 88) : t("historyBatch")}
+              <span className="mt-1 line-clamp-2 block min-w-0 break-words text-xs text-[var(--muted)] [overflow-wrap:anywhere]" title={first ? `${formatDisplayPath(sourcePath)} → ${formatDisplayPath(destinationPath)}` : t("historyBatch")} aria-label={first ? `${formatDisplayPath(sourcePath)} → ${formatDisplayPath(destinationPath)}` : t("historyBatch")}>
+                {first ? `${compactPath(formatDisplayPath(sourcePath), 40)} → ${compactPath(formatDisplayPath(destinationPath), 40)}` : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
                 {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {first ? operationTypeLabel(first, t) : t("historyOperationSourceUnknown")} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
               {(batch.failed > 0 || batch.skipped > 0 || batch.pending > 0 || batch.noOp > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{batch.failed > 0 ? `${t("historyStatusFailed")}: ${batch.failed}` : ""}{batch.skipped > 0 ? ` · ${t("historyStatusSkipped")}: ${batch.skipped}` : ""}{batch.pending > 0 ? ` · ${t("historyStatusPending")}: ${batch.pending}` : ""}{batch.noOp > 0 ? ` · ${t("historyStatusNoOp")}: ${batch.noOp}` : ""}</span>}
             </div>
-            <ChevronRight size={16} className="mt-1 text-[var(--muted)]" aria-hidden="true" />
+            <div className="mt-1 flex items-center gap-1 text-[11px] text-[var(--muted)]">{t("historyViewDetails")}<ChevronRight size={14} aria-hidden="true" /></div>
             {selected > 0 && <span className="col-start-2 text-xs font-medium text-[var(--zc-primary)]">{t("historyBatchSelected").replace("{count}", String(selected))}</span>}
           </div>
         );

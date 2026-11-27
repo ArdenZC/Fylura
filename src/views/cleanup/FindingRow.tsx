@@ -1,11 +1,12 @@
-import { Check, FileSearch, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { Check, FileSearch, FolderOpen, MoreHorizontal, RefreshCw, ShieldCheck, Square } from "lucide-react";
+import { useState } from "react";
 import type { AnalysisFinding, AnalysisFindingEvidence } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { compactPath } from "../../utils/viewHelpers";
 import { isBrowserMockEnabled } from "../../utils/runtimeMode";
 import { cn } from "../../utils/tw";
-import { Button, ToneBadge, metadataText, quietText } from "../shared/ui";
+import { Button, quietText } from "../shared/ui";
 import { isFindingSelectable, canRequestCleanupReview, savedCleanupAIAdvice, type CleanupTier } from "./cleanupModel";
 
 export function FindingRow({
@@ -51,46 +52,80 @@ export function FindingRow({
   const reason = findingReasonLabel(finding.reason, t);
   const aiAdvice = savedCleanupAIAdvice(finding);
   const riskNote = finding.riskNote ? findingRiskLabel(finding.riskNote, t) : null;
+  const selectionLabel = selected
+    ? t("storageCleanupSelected")
+    : reviewable && finding.decision !== "acknowledged"
+      ? t("storageCleanupFindingAcknowledge")
+      : t("storageCleanupSelectForTrash");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   return (
     <article
-      className={cn(virtualized ? "absolute left-0 top-0" : "relative", "grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3", selected && "bg-[var(--zc-surface-selected)]")}
+      className={cn(virtualized ? "absolute left-0 top-0" : "relative", "grid w-full grid-cols-[28px_minmax(0,1fr)_auto_28px] items-center gap-x-2 border-b border-[var(--zc-divider)] px-3 py-2 max-[640px]:grid-cols-[28px_minmax(0,1fr)_auto_28px]", selected && "bg-[var(--zc-surface-selected)]")}
       ref={virtualized ? measureElement : undefined}
       data-index={virtualized ? index : undefined}
       style={virtualized ? style : undefined}
       data-analysis-finding-id={finding.id}
       data-tier={finding.tier}
     >
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <strong className="truncate text-sm text-[var(--zc-text-primary)]">{finding.title || category}</strong>
-            <ToneBadge tone={finding.tier === "safe" ? "success" : finding.tier === "review" ? "warning" : "danger"}>{tierLabel(finding.tier, t)}</ToneBadge>
-            {selected ? <ToneBadge tone="info">{t("storageCleanupSelected")}</ToneBadge> : null}
+      <div className="flex items-center justify-center">
+        {isCaution ? <span className="text-[var(--zc-text-tertiary)]" aria-label={t("storageCleanupCautionHint")} title={t("storageCleanupCautionHint")}><ShieldCheck size={16} aria-hidden="true" /></span> : (
+          <Button
+            variant={selected ? "secondary" : "ghost"}
+            size="compact"
+            className="h-7 min-h-7 w-7 p-1"
+            disabled={interactionLocked || (!selectable && !(reviewable && finding.decision !== "acknowledged"))}
+            aria-label={selectionLabel}
+            title={selectionLabel}
+            aria-pressed={selected}
+            onClick={() => onToggle(finding)}
+          >
+            {selected ? <Check size={14} aria-hidden="true" /> : <Square size={14} aria-hidden="true" />}
+          </Button>
+        )}
+      </div>
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <strong className="max-w-full truncate text-sm font-medium text-[var(--zc-text-primary)]">{finding.title || category}</strong>
+          <span className="sr-only">{tierLabel(finding.tier, t)}{selected ? ` · ${t("storageCleanupSelected")}` : ""}</span>
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-center gap-x-3 text-xs leading-4 text-[var(--zc-text-secondary)]">
+          <span className="max-w-[42%] shrink-0 truncate" title={finding.pathSnapshot ?? undefined}>{finding.pathSnapshot ? compactPath(finding.pathSnapshot, 110) : t("storageCleanupPathUnavailable")}</span>
+          <span className="min-w-0 flex-1 truncate" title={reason}><strong className="font-medium text-[var(--zc-text-primary)]">{t("storageCleanupFindingWhy")}:</strong> {reason}</span>
+        </div>
+        {riskNote ? <p className="mt-0.5 truncate text-[11px] leading-4 text-[var(--zc-warning-text)]" title={riskNote}>{t("storageCleanupFindingRisk")}: {riskNote}</p> : null}
+      </div>
+      <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-[var(--zc-text-primary)]">{formatBytes(finding.sizeBytes)}</span>
+      <details
+        className="relative flex h-7 w-7 items-center justify-center"
+        open={detailsOpen || evidenceExpanded}
+        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+        data-cleanup-row-details
+      >
+        <summary className="flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded-md text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--zc-focus)]" aria-label={t("details")} title={t("details")}>
+          <MoreHorizontal size={16} aria-hidden="true" />
+        </summary>
+        <div className="absolute right-0 top-full z-10 mt-1 grid min-w-64 max-w-[min(420px,80vw)] gap-2 rounded-lg border border-[var(--zc-border)] bg-[var(--zc-surface)] p-3 text-left shadow-lg" data-cleanup-row-details-panel>
+          {riskNote || aiAdvice ? (
+            <p className="m-0 text-xs leading-5 [overflow-wrap:anywhere]" title={[riskNote, aiAdvice?.reason].filter(Boolean).join(" · ")}>
+              {riskNote ? <span className="text-[var(--zc-warning-text)]">{t("storageCleanupFindingRisk")}: {riskNote}</span> : null}
+              {riskNote && aiAdvice ? <span className="text-[var(--zc-text-tertiary)]"> · </span> : null}
+              {aiAdvice ? <span className="text-[var(--zc-text-secondary)]" data-cleanup-ai-advice>{t("cleanupSavedAIAdvice")}: {aiAdvice.reason}</span> : null}
+            </p>
+          ) : null}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] leading-4 text-[var(--zc-text-tertiary)]">
+            <span>{t("storageCleanupFindingConfidence")}: {confidence}</span>
+            <span>{reviewable ? t("cleanupPendingPreview") : finding.executable ? t("storageCleanupFindingExecutable") : t("storageCleanupFindingBlocked")}</span>
+            <span>{category}</span>
           </div>
-          <p className="mt-1 truncate text-xs text-[var(--zc-text-secondary)]" title={finding.pathSnapshot ?? undefined}>{finding.pathSnapshot ? compactPath(finding.pathSnapshot, 120) : t("storageCleanupPathUnavailable")}</p>
-        </div>
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-[var(--zc-text-primary)]">{formatBytes(finding.sizeBytes)}</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5" data-cleanup-row-actions>
+            {finding.pathSnapshot ? <Button variant="ghost" size="compact" onClick={() => onReveal(finding)}><FolderOpen size={14} aria-hidden="true" />{t("storageCleanupReveal")}</Button> : null}
+            <Button variant="ghost" size="compact" onClick={() => onToggleEvidence(finding)}><FileSearch size={14} aria-hidden="true" />{evidenceExpanded ? t("storageCleanupFindingHideEvidence") : t("storageCleanupFindingEvidence")}</Button>
+            {onKeep && finding.tier !== "caution" ? <Button variant="ghost" size="compact" disabled={interactionLocked} onClick={() => onKeep(finding)}>{t(finding.decision === "dismissed" ? "cleanupIncludeAgain" : "cleanupKeep")}</Button> : null}
+            {finding.status === "stale" ? <Button variant="secondary" size="compact" disabled={interactionLocked} onClick={() => onRevalidate(finding)}><RefreshCw size={14} aria-hidden="true" />{t("storageCleanupFindingRecheck")}</Button> : null}
+          </div>
+          {evidenceExpanded ? <div className="grid gap-2 border-t border-[var(--zc-divider)] pt-2" data-finding-evidence><strong className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("storageCleanupFindingEvidence")}</strong>{evidence?.length ? evidence.map((item) => <div key={item.id} className="text-xs leading-5 text-[var(--zc-text-secondary)]" data-ai-assessment-current={item.evidenceKind === "ai_assessment" ? (item.isCurrentAssessment ? "true" : "false") : undefined} data-ai-assessment-source={item.evidenceKind === "ai_assessment" ? (isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority") : undefined}>{item.evidenceKind === "ai_assessment" ? item.isCurrentAssessment ? t(isBrowserMockEnabled() ? "storageCleanupCurrentAIAssessmentFixture" : "storageCleanupCurrentAIAssessment") : t("storageCleanupHistoricalAIAssessment") : item.evidenceKind}{item.pathSnapshot ? ` · ${compactPath(item.pathSnapshot, 100)}` : ""}</div>) : <span className={quietText}>{t("storageCleanupFindingEvidenceEmpty")}</span>}</div> : null}
       </div>
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2" data-cleanup-row-actions>
-        <div className="flex min-w-0 flex-wrap gap-2">
-          {finding.pathSnapshot ? <Button variant="ghost" size="compact" onClick={() => onReveal(finding)}><FolderOpen size={14} aria-hidden="true" />{t("storageCleanupReveal")}</Button> : null}
-          <Button variant="ghost" size="compact" onClick={() => onToggleEvidence(finding)}><FileSearch size={14} aria-hidden="true" />{evidenceExpanded ? t("storageCleanupFindingHideEvidence") : t("storageCleanupFindingEvidence")}</Button>
-          {onKeep && finding.tier !== "caution" ? <Button variant="ghost" size="compact" disabled={interactionLocked} onClick={() => onKeep(finding)}>{t(finding.decision === "dismissed" ? "cleanupIncludeAgain" : "cleanupKeep")}</Button> : null}
-          {finding.status === "stale" ? <Button variant="secondary" size="compact" disabled={interactionLocked} onClick={() => onRevalidate(finding)}><RefreshCw size={14} aria-hidden="true" />{t("storageCleanupFindingRecheck")}</Button> : null}
-        </div>
-        {isCaution ? <span className="text-xs font-medium text-[var(--zc-warning-text)]">{t("storageCleanupCautionHint")}</span> : <Button variant={selected ? "secondary" : "primary"} size="compact" disabled={interactionLocked || (!selectable && !(reviewable && finding.decision !== "acknowledged"))} aria-pressed={selected} onClick={() => onToggle(finding)}>{selected ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{selected ? t("storageCleanupSelected") : reviewable && finding.decision !== "acknowledged" ? t("storageCleanupFindingAcknowledge") : t("storageCleanupSelectForTrash")}</Button>}
-      </div>
-      <div className="grid gap-1 text-sm leading-6 text-[var(--zc-text-secondary)]">
-        <span><strong className="font-medium text-[var(--zc-text-primary)]">{t("storageCleanupFindingWhy")}:</strong> {reason}</span>
-        {aiAdvice ? <span data-cleanup-ai-advice><strong className="font-medium text-[var(--zc-text-primary)]">{t("cleanupSavedAIAdvice")}:</strong> {aiAdvice.reason}{aiAdvice.riskNote && aiAdvice.riskNote !== finding.riskNote ? ` · ${aiAdvice.riskNote}` : ""}</span> : null}
-        {riskNote ? <span className="text-[var(--zc-warning-text)]"><strong className="font-medium">{t("storageCleanupFindingRisk")}:</strong> {riskNote}</span> : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--zc-text-secondary)]">
-        <span>{t("storageCleanupFindingConfidence")}: {confidence}</span>
-        <span>{reviewable ? t("cleanupPendingPreview") : finding.executable ? t("storageCleanupFindingExecutable") : t("storageCleanupFindingBlocked")}</span>
-        <span>{category}</span>
-      </div>
-       {evidenceExpanded ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3" data-finding-evidence><strong className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]">{t("storageCleanupFindingEvidence")}</strong>{evidence?.length ? evidence.map((item) => <div key={item.id} className="text-xs leading-5 text-[var(--zc-text-secondary)]" data-ai-assessment-current={item.evidenceKind === "ai_assessment" ? (item.isCurrentAssessment ? "true" : "false") : undefined} data-ai-assessment-source={item.evidenceKind === "ai_assessment" ? (isBrowserMockEnabled() ? "presentation-fixture" : "backend-authority") : undefined}>{item.evidenceKind === "ai_assessment" ? item.isCurrentAssessment ? t(isBrowserMockEnabled() ? "storageCleanupCurrentAIAssessmentFixture" : "storageCleanupCurrentAIAssessment") : t("storageCleanupHistoricalAIAssessment") : item.evidenceKind}{item.pathSnapshot ? ` · ${compactPath(item.pathSnapshot, 100)}` : ""}</div>) : <span className={quietText}>{t("storageCleanupFindingEvidenceEmpty")}</span>}</div> : null}
+      </details>
     </article>
   );
 }

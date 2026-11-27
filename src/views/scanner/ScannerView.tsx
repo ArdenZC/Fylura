@@ -1,4 +1,4 @@
-import { HardDrive, ListChecks, FolderOpen } from "lucide-react";
+import { HardDrive, ListChecks, FolderOpen, RefreshCw, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { tauriApi, type ManagedScanEvent, type ScanRootDto } from "../../api/tauriApi";
 import { requestSettingsSection } from "../../components/spotlight/commandRegistry";
@@ -8,12 +8,12 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { organizationPlanReviewCount, selectReviewableOrganizationPlan, useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
-import { formatBytes } from "../../utils/format";
+import { formatBytes, formatDate } from "../../utils/format";
 import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { cn } from "../../utils/tw";
 import { summarizeWatcherHealth, watcherHealthAttentionCount } from "../../utils/watcherPresentation";
 import type { AnalysisRun } from "../../types/domain";
-import { pageSurface } from "../shared/ui";
+import { Button, pageSurface } from "../shared/ui";
 import { OverviewPriorityTask } from "../overview/OverviewPriorityTask";
 import { ScanTaskPanel } from "../overview/ScanTaskPanel";
 import { ScanCancelDialog } from "../overview/ScanCancelDialog";
@@ -382,6 +382,31 @@ export function ScannerView() {
 
   return (
     <div className={cn(pageSurface, "v340-page")}>
+      <header className="v340-page-head" data-overview-header>
+        <div className="min-w-0">
+          <h1 className="v340-page-title">{t("overview")}</h1>
+          <p className="v340-page-sub">
+            {stats.lastScannedAt
+              ? `${t("lastScan")}: ${formatDate(stats.lastScannedAt, language)}`
+              : t("notScannedYet")}
+          </p>
+        </div>
+        <div className="v340-page-actions">
+          <Button
+            variant="secondary"
+            size="compact"
+            disabled={isScanning || isCancelingScan}
+            onClick={() => selectedFolders.length ? void handleScan() : void handleChooseFolders()}
+          >
+            {selectedFolders.length ? <RefreshCw size={14} aria-hidden="true" /> : <FolderOpen size={14} aria-hidden="true" />}
+            {selectedFolders.length ? t("overviewRetryScan") : t("overviewChooseFolder")}
+          </Button>
+          <Button variant="primary" size="compact" onClick={() => setView("organize")}>
+            <Sparkles size={14} aria-hidden="true" />{t("organizeFiles")}
+          </Button>
+        </div>
+      </header>
+
       <OverviewPriorityTask
         task={priorityTask}
         t={t}
@@ -389,6 +414,7 @@ export function ScannerView() {
         onChooseFolder={() => void handleChooseFolders()}
         onCancel={() => setIsCancelDialogOpen(true)}
         metrics={overviewMetrics}
+        compact
       />
 
       <OverviewQuickActions actions={quickActions} t={t} />
@@ -402,9 +428,14 @@ export function ScannerView() {
         language={language}
       />
 
-      <OverviewSpaceSummary summary={summary} t={t} />
-      <OverviewSystemCoverage coverage={systemCoverage} t={t} />
       <OverviewRecentActivityList activities={activities} t={t} language={language} onOpenHistory={() => setView("restore")} />
+      <details className="v340-overview-details">
+        <summary>{t("overviewSystemCoverage")}</summary>
+        <div className="v340-overview-details-content">
+          <OverviewSpaceSummary summary={summary} t={t} />
+          <OverviewSystemCoverage coverage={systemCoverage} t={t} />
+        </div>
+      </details>
       <OverviewBackgroundTaskList
         tasks={backgroundTasks}
         t={t}

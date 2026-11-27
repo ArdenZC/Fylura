@@ -131,10 +131,9 @@ export function HistoryBatchList({
             role="option"
             aria-selected={active}
             className={cn(
-              "grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 text-left transition-colors",
-              active
-                 ? selectedFocusSurface
-                : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-raised)]"
+              "v340-history-batch-row grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 text-left transition-colors",
+              active && "is-active",
+              active ? selectedFocusSurface : "hover:bg-[var(--zc-surface-hover)]"
             )}
             onClick={() => onActiveBatch(batch.id)}
           >
@@ -142,13 +141,14 @@ export function HistoryBatchList({
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
                 <span className={cn("shrink-0", batch.executionState === "failed" || batch.restoreState === "restore_failed" ? "text-[var(--zc-danger-text)]" : batch.restoreState === "restored" ? "text-[var(--zc-success-text)]" : "text-[var(--zc-primary)]")}><BatchStateIcon state={batch.state} /></span>
-                <strong className="truncate text-sm">{historyTime(batch.createdAt) ? new Date(historyTime(batch.createdAt)).toLocaleString() : t("historyTimeUnavailable")}</strong>
+                <strong className="truncate text-sm">{first ? operationTypeLabel(first, t) : t("historyBatch")}</strong>
+                <time className="ml-auto shrink-0 text-xs text-[var(--zc-text-tertiary)]" dateTime={batch.createdAt}>{historyTime(batch.createdAt) ? new Date(historyTime(batch.createdAt)).toLocaleString() : t("historyTimeUnavailable")}</time>
               </div>
               <span className="mt-1 line-clamp-2 block min-w-0 break-words text-xs text-[var(--muted)] [overflow-wrap:anywhere]" title={first?.path_after || first?.target_path} aria-label={first ? formatDisplayPath(first.path_after || first.target_path) : t("historyBatch")}>
                 {first ? compactPath(formatDisplayPath(first.path_after || first.target_path), 88) : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
-                {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {first ? operationTypeLabel(first, t) : t("historyOperationSourceUnknown")} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
+                {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
               {(batch.failed > 0 || batch.skipped > 0 || batch.pending > 0 || batch.noOp > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{batch.failed > 0 ? `${t("historyStatusFailed")}: ${batch.failed}` : ""}{batch.skipped > 0 ? ` · ${t("historyStatusSkipped")}: ${batch.skipped}` : ""}{batch.pending > 0 ? ` · ${t("historyStatusPending")}: ${batch.pending}` : ""}{batch.noOp > 0 ? ` · ${t("historyStatusNoOp")}: ${batch.noOp}` : ""}</span>}
             </div>

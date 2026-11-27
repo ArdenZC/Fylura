@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Eye, Languages, Monitor, Moon, Sun } from "lucide-react";
+import { Languages, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
 import { useI18nContext, useThemeContext } from "../contexts/AppContexts";
@@ -74,15 +74,17 @@ export function TitlebarTools({
 }
 
 /**
- * Titlebar display controls. v3.40 keeps a single theme entry here; interface
- * density and language are configuration values and live in Settings, so the
- * titlebar does not grow a permanent control strip (§4.2, §9.14).
+ * Titlebar controls follow the prototype: a theme toggle and a compact
+ * language switch. Full preference controls remain available in Settings.
  */
 export function WorkspaceTopActions() {
-  const { theme, setTheme } = useThemeContext();
-  const { t } = useI18nContext();
-  const nextTheme = nextThemeMode(theme);
-  const themeLabel = themeToggleLabel("zh", theme, nextTheme, t);
+  const { theme, setTheme, effectiveTheme } = useThemeContext();
+  const { language, setLanguage, t } = useI18nContext();
+  const nextTheme: ThemeMode = theme === "system"
+    ? effectiveTheme === "light" ? "dark" : "light"
+    : theme === "light" ? "dark" : "light";
+  const themeLabel = themeToggleLabel(language, theme, nextTheme, t);
+  const languageLabel = language === "zh" ? "切换界面语言" : "Switch interface language";
 
   return (
     <div className="flex items-center gap-1 [-webkit-app-region:no-drag]" aria-label={t("workspaceDisplayControls")}>
@@ -92,9 +94,18 @@ export function WorkspaceTopActions() {
         onClick={() => setTheme(nextTheme)}
         aria-label={themeLabel}
         title={themeLabel}
-        aria-pressed={theme === "dark"}
+        aria-pressed={effectiveTheme === "dark"}
       >
-        <Eye size={16} aria-hidden="true" />
+        {themeIcon(nextTheme)}
+      </button>
+      <button
+        type="button"
+        className="zc-titlebar-language"
+        onClick={() => setLanguage(language === "zh" ? "en" : "zh")}
+        aria-label={languageLabel}
+        title={languageLabel}
+      >
+        {language === "zh" ? "EN" : "中文"}
       </button>
     </div>
   );

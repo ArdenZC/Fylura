@@ -1,12 +1,12 @@
 import { FolderPlus, Play, Trash2 } from "lucide-react";
 import type { WatcherReconciliationStatus } from "../../../api/tauriApi";
-import type { FolderNamingLanguage, OrganizeRootMode, ScanRootSetting } from "../../../types/domain";
+import type { DeleteDestination, OrganizeRootMode, ScanRootSetting } from "../../../types/domain";
 import type { Translator } from "../../../types/ui";
 import { buttonIconDanger, buttonSecondary, cn } from "../../../utils/tw";
 import { compactPath, normalizePathLike } from "../../../utils/viewHelpers";
 import { deriveWatcherPresentation } from "../../../utils/watcherPresentation";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
-import { SettingsControlGroup, SettingsEmptyState, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitchControl, settingsField } from "../components/SettingsPrimitives";
+import { SettingsControlGroup, SettingsEmptyState, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch, SettingsSwitchControl, settingsField } from "../components/SettingsPrimitives";
 import type { FolderDeleteConfirmState } from "./settingsSectionTypes";
 
 export interface FileSourcesSettingsSectionProps {
@@ -15,6 +15,8 @@ export interface FileSourcesSettingsSectionProps {
   watcherRootStatuses: Record<string, WatcherReconciliationStatus>;
   organizeRootMode: OrganizeRootMode;
   organizeRootPath: string | null;
+  launchAtLogin?: boolean;
+  deleteDestination?: DeleteDestination;
   onAddScanFolder: () => void;
   onSetScanRootEnabled: (root: ScanRootSetting, enabled: boolean) => void;
   onScanRootNow: (root: ScanRootSetting) => void;
@@ -22,6 +24,8 @@ export interface FileSourcesSettingsSectionProps {
   onOrganizeRootMode: (value: OrganizeRootMode) => void;
   onOrganizeRootPath: (value: string) => void;
   onChooseOrganizeRootPath: () => void;
+  onLaunchAtLogin?: (value: boolean) => void;
+  onDeleteDestination?: (value: DeleteDestination) => void;
 }
 
 function watcherStatusForSetting(root: ScanRootSetting, statuses: Record<string, WatcherReconciliationStatus>) {
@@ -37,13 +41,17 @@ export function FileSourcesSettingsSection({
   watcherRootStatuses,
   organizeRootMode,
   organizeRootPath,
+  launchAtLogin,
+  deleteDestination,
   onAddScanFolder,
   onSetScanRootEnabled,
   onScanRootNow,
   onRequestDelete,
   onOrganizeRootMode,
   onOrganizeRootPath,
-  onChooseOrganizeRootPath
+  onChooseOrganizeRootPath,
+  onLaunchAtLogin,
+  onDeleteDestination
 }: FileSourcesSettingsSectionProps) {
   return (
     <SettingsSection id="settings-files-scan" title={t("settingsFilesScan")} description={t("settingsFilesScanDesc")}>
@@ -94,6 +102,32 @@ export function FileSourcesSettingsSection({
           )}
         </div>
       </SettingsControlGroup>
+
+      <SettingsRow label={t("quickPreviewSetting")} description={t("quickPreviewSettingDesc")}>
+        <span data-settings-capability-status className={quietText}>{t("quickPreviewSettingStatus")}</span>
+      </SettingsRow>
+      {launchAtLogin !== undefined && onLaunchAtLogin ? (
+        <SettingsSwitch
+          id="settings-launch-at-login"
+          label={t("launchAtLogin")}
+          description={t("launchAtLoginDesc")}
+          checked={launchAtLogin}
+          onChange={onLaunchAtLogin}
+        />
+      ) : null}
+      {deleteDestination && onDeleteDestination ? (
+        <SettingsSelect
+          id="settings-delete-destination"
+          label={t("settingsDeleteDestination")}
+          description={t("settingsDeleteDestinationDesc")}
+          value={deleteDestination}
+          options={[
+            { value: "fylura_trash" as const, label: t("settingsFyluraTrash") },
+            { value: "system_trash" as const, label: t("settingsSystemTrash") }
+          ]}
+          onChange={onDeleteDestination}
+        />
+      ) : null}
 
       <SettingsControlGroup title={t("settingsOrganizeRoot")} description={t("settingsOrganizeRootDesc")}>
         <SettingsSelect

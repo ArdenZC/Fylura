@@ -1234,7 +1234,7 @@ function StorageCleanupPanel({
               {findings.length ? (
                 <div
                   ref={findingListRef}
-                  className={cn("overflow-auto outline-none", virtualizeFindings ? "h-[min(62vh,720px)]" : "max-h-[min(62vh,720px)]")}
+                  className={cn("overflow-auto outline-none", virtualizeFindings ? "h-[min(62vh,720px)] pb-24" : "max-h-[min(62vh,720px)]")}
                   data-cleanup-findings-scroll-owner={virtualizeFindings ? "virtualizer" : "normal-flow"}
                   role="list"
                   aria-label={t("storageCleanupFindingsListLabel")}

@@ -90,7 +90,7 @@ describe("settings view UI", () => {
     expect(settingsSurface).toContain('t("organizePreviewStillRequired")');
     expect(settingsSurface).toContain('t("settingsPrivacy")');
     expect(settingsSurface).toContain('t("closeBehavior")');
-    expect(settingsSurface).toContain('t("settingsStartup")');
+    expect(t("settingsGeneralDesc")).toContain("启动");
     expect(settingsSurface).toContain('t("developerMode")');
     expect(settingsView).toContain("settingsSectionsLabel");
     expect(settingsSurface).toContain("href={packageInfo.homepage}");

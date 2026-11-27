@@ -416,6 +416,7 @@ export function RestoreView() {
       <div className="v340-history-page mx-auto grid min-h-full content-start gap-4 pb-4">
         <section className={cn("v340-history-workspace grid min-w-0 gap-4 overflow-visible", (showCleanup ? activeCleanupBatch : activeBatch) && "is-detail-open lg:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]")} data-history-workspace>
           <div className={cn("v340-history-list-pane grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")} data-history-list-pane>
+            <h2 className="sr-only">{t("historyBatches")}</h2>
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-2" data-history-toolbar>
               <div className="v340-history-filter-tabs flex max-w-full flex-1 flex-wrap items-center gap-1" role="group" aria-label={t("historyBatches")} data-history-filter-tabs>
                 {primaryFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && selectedFocusVisibleState, filter === value && selectedSurface)} onClick={() => changeFilter(value)}>{t(key)}</button>)}

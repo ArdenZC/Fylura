@@ -179,18 +179,19 @@ describe("settings view UI", () => {
   });
 
   it("presents Quick Preview as a quiet non-interactive capability status", () => {
-    const generalSettings = read("src/views/settings/sections/GeneralSettingsSection.tsx");
+    const fileSourcesSettings = read("src/views/settings/sections/FileSourcesSettingsSection.tsx");
+    const quickPreviewRow = fileSourcesSettings.match(/<SettingsRow label={t\("quickPreviewSetting"\)}[\s\S]*?<\/SettingsRow>/)?.[0] ?? "";
     const shellV26 = read("src/styles/w6-07-shell-v26.css");
     const zh = makeTranslator("zh");
     const en = makeTranslator("en");
 
     expect(zh("quickPreviewSettingStatus")).toBe("状态：已启用");
     expect(en("quickPreviewSettingStatus")).toBe("Status: Enabled");
-    expect(generalSettings).toContain("data-settings-capability-status");
-    expect(generalSettings).toContain('t("quickPreviewSettingStatus")');
-    expect(generalSettings).not.toContain("SettingsSwitchControl");
-    expect(generalSettings).not.toContain("data-settings-readonly-switch");
-    expect(generalSettings).not.toContain('role="switch"');
+    expect(quickPreviewRow).toContain("data-settings-capability-status");
+    expect(quickPreviewRow).toContain('t("quickPreviewSettingStatus")');
+    expect(quickPreviewRow).not.toContain("SettingsSwitchControl");
+    expect(quickPreviewRow).not.toContain("data-settings-readonly-switch");
+    expect(quickPreviewRow).not.toContain('role="switch"');
     expect(shellV26).not.toContain("data-settings-readonly-switch");
   });
 

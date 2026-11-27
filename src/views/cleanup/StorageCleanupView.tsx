@@ -1086,6 +1086,9 @@ function StorageCleanupPanel({
           <div className="min-w-0">
             <h1 className="v340-page-title">{t("storageCleanup")}</h1>
             <p className="v340-page-sub">{t("viewDescCleanup")}</p>
+            <span className="sr-only" data-cleanup-active-scope>
+              {replaceCopy("storageCleanupRunScope", { scope: runScope.join(" / ") || t("storageCleanupNoScopeSelected") })}
+            </span>
           </div>
           <div className="v340-page-actions">
             <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseScope().catch(() => undefined)}>

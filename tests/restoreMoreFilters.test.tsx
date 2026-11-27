@@ -154,6 +154,10 @@ describe("Restore More filters", () => {
     await flush();
     expect(container.textContent).toContain("已选择 1 项");
 
+    const batchRow = container.querySelector<HTMLElement>('[role="option"]')!;
+    await act(async () => batchRow.click());
+    await flush();
+
     act(() => useOperationQueueStore.setState({ operationLogs: [log("refresh-me", { can_restore: false })] }));
     await flush();
 

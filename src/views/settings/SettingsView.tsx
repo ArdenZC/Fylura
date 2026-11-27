@@ -244,7 +244,6 @@ export function SettingsView() {
       defaultScanFolders,
       restoreRetentionDays,
       launchAtLogin,
-      backgroundIndexOnStartup,
       searchHotkey,
       searchScopeMode,
       customSearchRoots,
@@ -259,7 +258,6 @@ export function SettingsView() {
     setDefaultScanFolders,
     setRestoreRetentionDays,
     setLaunchAtLogin,
-    setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
     setCustomSearchRoots,
@@ -475,13 +473,6 @@ export function SettingsView() {
 
   async function updateLaunchAtLogin(next: boolean) {
     const saved = await setLaunchAtLogin(next);
-    if (saved) {
-      showStatus(t("settingsSavedInline"));
-    }
-  }
-
-  async function updateBackgroundIndexOnStartup(next: boolean) {
-    const saved = await setBackgroundIndexOnStartup(next);
     if (saved) {
       showStatus(t("settingsSavedInline"));
     }
@@ -1000,8 +991,6 @@ export function SettingsView() {
           onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
           closeBehavior={closeBehavior}
           onCloseBehavior={(next) => void updateCloseBehavior(next)}
-          backgroundIndexOnStartup={backgroundIndexOnStartup}
-          onBackgroundIndexOnStartup={(next) => void updateBackgroundIndexOnStartup(next)}
         />
 
         <FileSourcesSettingsSection

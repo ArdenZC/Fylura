@@ -190,7 +190,8 @@ function readyAIReadiness(): AIProductFeatureReadiness {
 }
 
 function scopeButton(): HTMLButtonElement {
-  const section = container.querySelector<HTMLElement>("[data-cleanup-scope]");
+  const section = container.querySelector<HTMLElement>("[data-cleanup-header]")
+    ?? container.querySelector<HTMLElement>("[data-cleanup-scope]");
   const found = [...(section?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => /扫描|重新扫描/.test(button.textContent ?? ""));
   if (!found) throw new Error("scope scan button not found");
   return found;
@@ -1936,26 +1937,18 @@ describe("Cleanup independent review behavior", () => {
     expect(await listAnalysisRuns.mock.results[0]?.value).toEqual([runA]);
   });
 
-  it("clears the old run when a quick scope is selected without starting a scan", async () => {
+  it("selects a quick scope before scanning without starting an analysis", async () => {
     const runA = makeRun("run-quick-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
-    const safeFinding = makeSafeFinding(runA, 0);
     const startAnalysisRun = vi.fn(async () => runA);
     const api = commonApi(runA, {
-      listAnalysisRuns: vi.fn(async () => [runA]),
-      getAnalysisRun: vi.fn(async () => runA),
-      listAnalysisFindings: vi.fn(async (request: { tier?: string }) => ({
-        findings: request.tier === "safe" ? [safeFinding] : [],
-        nextCursor: null,
-        limit: 100
-      })),
+      listAnalysisRuns: vi.fn(async () => []),
       startAnalysisRun
     });
     pathMocks.downloadDir.mockResolvedValue("C:/Downloads");
 
     await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
     await flush(6);
-    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).not.toBeNull();
-    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).toBeNull();
 
     await act(async () => button(t("storageCleanupQuickDownloads")).click());
     await flush(4);

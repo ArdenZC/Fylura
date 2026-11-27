@@ -35,6 +35,7 @@ describe("settings view UI", () => {
     const t = makeTranslator("zh");
 
     expect(t("settingsAppearanceLanguage")).toBe("外观与语言");
+    expect(t("settingsGeneralDesc")).toContain(t("settingsAppearanceLanguage"));
     expect(t("settingsScanRoots")).toBe("扫描目录");
     expect(t("settingsSearch")).toBe("搜索");
     expect(t("settingsOrganizeRoot")).toBe("整理目标根目录");
@@ -78,7 +79,7 @@ describe("settings view UI", () => {
     expect(settingsModel).toContain('.find((id) => target === id || target.startsWith(`${id}-`))');
     expect(settingsModel).toContain('export const SETTINGS_NAV_SECTION_IDS = SETTINGS_SECTION_IDS;');
     expect(settingsPrimitives).toContain('progressiveDisclosure');
-    expect(settingsSurface).toContain('t("settingsAppearanceLanguage")');
+    expect(settingsSurface).toContain('t("settingsGeneralDesc")');
     expect(settingsSurface).toContain('t("settingsScanRoots")');
     expect(settingsSurface).toContain('t("settingsSearch")');
     expect(settingsSurface).toContain('t("settingsOrganizeRoot")');

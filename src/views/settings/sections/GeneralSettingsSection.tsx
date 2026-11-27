@@ -4,16 +4,13 @@ import type { Density, ThemeMode } from "../../../types/ui";
 import type { Translator } from "../../../types/ui";
 import {
   SettingsSection,
-  SettingsSelect,
-  SettingsSwitch
+  SettingsSelect
 } from "../components/SettingsPrimitives";
 
 export interface GeneralSettingsSectionProps {
   t: Translator;
   closeBehavior: CloseBehavior;
   onCloseBehavior: (value: CloseBehavior) => void;
-  backgroundIndexOnStartup: boolean;
-  onBackgroundIndexOnStartup: (value: boolean) => void;
   language: Language;
   onLanguage: (value: Language) => void;
   theme: ThemeMode;
@@ -28,8 +25,6 @@ export function GeneralSettingsSection({
   t,
   closeBehavior,
   onCloseBehavior,
-  backgroundIndexOnStartup,
-  onBackgroundIndexOnStartup,
   language,
   onLanguage,
   theme,
@@ -85,13 +80,6 @@ export function GeneralSettingsSection({
           { value: "compact" as const, label: t("densityCompact") }
         ]}
         onChange={onDensity}
-      />
-      <SettingsSwitch
-        id="settings-background-index-startup"
-        label={t("backgroundIndexOnStartup")}
-        description={t("backgroundIndexOnStartupDesc")}
-        checked={backgroundIndexOnStartup}
-        onChange={onBackgroundIndexOnStartup}
       />
       <SettingsSelect
         id="settings-close-behavior"

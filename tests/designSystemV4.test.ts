@@ -284,7 +284,7 @@ describe("v3.40 design foundation (approved prototype baseline)", () => {
     const micro = brandMarkVariant(brandMark, "micro", "sidebar");
     const sidebar = brandMarkVariant(brandMark, "sidebar", "app");
     const app = brandMarkVariant(brandMark, "app");
-    expect(micro).not.toContain("shadow-");
+    expect(micro).toContain("rounded-[5.5px]");
     expect(sidebar).not.toMatch(/backdrop-blur-(?:sm|md|lg|xl|2xl|3xl)/);
     expect(app).not.toContain("backdrop-blur-md");
   });

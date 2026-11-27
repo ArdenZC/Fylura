@@ -36,6 +36,7 @@ describe("settings view UI", () => {
 
     expect(t("settingsAppearanceLanguage")).toBe("外观与语言");
     expect(t("settingsGeneralDesc")).toContain(t("settingsAppearanceLanguage"));
+    expect(t("settingsGeneralDesc")).toContain("关闭行为");
     expect(t("settingsScanRoots")).toBe("扫描目录");
     expect(t("settingsSearch")).toBe("搜索");
     expect(t("settingsOrganizeRoot")).toBe("整理目标根目录");
@@ -88,7 +89,7 @@ describe("settings view UI", () => {
     expect(settingsSurface).toContain("setOrganizeRootPath");
     expect(settingsSurface).toContain('t("organizePreviewStillRequired")');
     expect(settingsSurface).toContain('t("settingsPrivacy")');
-    expect(settingsSurface).toContain('t("settingsWindowBehavior")');
+    expect(settingsSurface).toContain('t("closeBehavior")');
     expect(settingsSurface).toContain('t("settingsStartup")');
     expect(settingsSurface).toContain('t("developerMode")');
     expect(settingsView).toContain("settingsSectionsLabel");

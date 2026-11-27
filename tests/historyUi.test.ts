@@ -26,7 +26,7 @@ describe("history refinement UI contracts", () => {
     expect(batchList).toContain("line-clamp-2");
     expect(batchList).toContain("compactPath");
     expect(batchList).toContain("title={first?.path_after || first?.target_path}");
-    expect(batchList).toContain("historyOperationSource");
+    expect(batchList).toContain("operationTypeLabel(first, t)");
     expect(inspector).not.toContain("break-all");
     expect(inspector).toContain("break-words font-mono");
     expect(inspector).toContain("title={title ?? value}");

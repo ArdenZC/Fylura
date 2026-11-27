@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, ShieldCheck, SlidersHorizontal, Trash2 } from "lucide-react";
+import { RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { useI18nContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -10,10 +10,11 @@ import { formatBytes } from "../../utils/format";
 import { useFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { buttonGhost, cn, contentPanel, emptyState, focusVisibleState, buttonPrimary, selectedFocusVisibleState, selectedSurface } from "../../utils/tw";
 import { OperationProgressPanel } from "../timeline/TimelineView";
-import { ConfirmDialog, MetricStrip, mutedText, pageSurface, panelSurface } from "../shared/ui";
+import { ConfirmDialog, mutedText, pageSurface } from "../shared/ui";
 import { HistoryBatchList } from "../history/HistoryBatchList";
 import { CleanupInspector, HistoryInspector } from "../history/HistoryInspector";
 import { HistorySearchField } from "../history/HistorySearchField";
+import "../history/historyV340.css";
 import {
   cleanupBatchRestorableCount,
   filterCleanupBatches,
@@ -22,7 +23,6 @@ import {
   groupOperationLogs,
   historyTime,
   resolveCleanupRestoreSelection,
-  resolveHistorySummary,
   resolveOperationRestoreSelection,
   reconcileRestorableOperationSelection,
   selectionForOperationBatch,
@@ -137,8 +137,8 @@ export function RestoreView() {
     () => filterCleanupBatches(groupCleanupBatches(cleanupBatches), query, cleanupPreviewItems, cleanupAuthoritiesById),
     [cleanupAuthoritiesById, cleanupBatches, cleanupPreviewItems, query]
   );
-  const activeBatch = operationBatches.find((batch) => batch.id === activeBatchId) ?? operationBatches[0];
-  const activeCleanupBatch = cleanup.find((batch) => batch.id === activeCleanupBatchId) ?? cleanup[0];
+  const activeBatch = operationBatches.find((batch) => batch.id === activeBatchId);
+  const activeCleanupBatch = cleanup.find((batch) => batch.id === activeCleanupBatchId);
   const operationSelection = useMemo(
     () => resolveOperationRestoreSelection(logs, selectedOperationIds),
     [logs, selectedOperationIds]
@@ -156,10 +156,6 @@ export function RestoreView() {
   const selectedCount = selectedResolution.selectedCount;
   const executableCount = selectedResolution.executableCount;
   const excludedCount = selectedResolution.excludedCount;
-  const summary = useMemo(
-    () => resolveHistorySummary(logs, cleanupBatches.flatMap((batch) => batch.items), cleanupPreviewItems, cleanupAuthoritiesById),
-    [cleanupAuthoritiesById, cleanupBatches, cleanupPreviewItems, logs]
-  );
   const restoreProgress = operationProgress?.kind === "restore" ? operationProgress : null;
   const busy = Boolean(restoreProgress) || Boolean(cleanupRestoreProgress) || isPreparing || activeOperationKind === "restore";
   const showCleanup = filter === "cleanup";
@@ -234,15 +230,16 @@ export function RestoreView() {
   }, [loadOperationHistory, refreshCleanup]);
 
   useEffect(() => {
-    if (!activeBatchId || !operationBatches.some((batch) => batch.id === activeBatchId)) setActiveBatchId(operationBatches[0]?.id ?? "");
+    if (activeBatchId && !operationBatches.some((batch) => batch.id === activeBatchId)) setActiveBatchId("");
   }, [activeBatchId, operationBatches]);
 
   useEffect(() => {
     if (requestedHistoryBatchId && operationBatches.some((batch) => batch.id === requestedHistoryBatchId)) {
       setActiveBatchId(requestedHistoryBatchId);
+      if (isNarrow) setNarrowPane("details");
       useOperationQueueStore.setState({ requestedHistoryBatchId: null });
     }
-  }, [requestedHistoryBatchId, operationBatches]);
+  }, [requestedHistoryBatchId, operationBatches, isNarrow]);
 
   useEffect(() => {
     if (!requestedCleanupBatchId || !cleanupBatches.some((batch) => batch.id === requestedCleanupBatchId)) return;
@@ -255,7 +252,7 @@ export function RestoreView() {
 
   useEffect(() => {
     if (requestedCleanupBatchId) return;
-    if (!activeCleanupBatchId || !cleanup.some((batch) => batch.id === activeCleanupBatchId)) setActiveCleanupBatchId(cleanup[0]?.id ?? "");
+    if (activeCleanupBatchId && !cleanup.some((batch) => batch.id === activeCleanupBatchId)) setActiveCleanupBatchId("");
   }, [activeCleanupBatchId, cleanup, requestedCleanupBatchId]);
 
   useEffect(() => {
@@ -394,7 +391,8 @@ export function RestoreView() {
   const primaryFilterButtons: Array<{ value: ViewFilter; key: Parameters<typeof t>[0] }> = [
     { value: "all", key: "historyFilterAll" },
     { value: "restorable", key: "historyFilterRestorable" },
-    { value: "needsReview", key: "historyFilterNeedsAttention" }
+    { value: "needsReview", key: "historyFilterNeedsAttention" },
+    { value: "cleanup", key: "historyFilterCleanup" }
   ];
   const moreFilterButtons: Array<{ value: ViewFilter; key: Parameters<typeof t>[0] }> = [
     { value: "restored", key: "historyFilterRestored" },
@@ -403,8 +401,7 @@ export function RestoreView() {
     { value: "restoreFailed", key: "historyFilterRestoreFailed" },
     { value: "skipped", key: "historyFilterSkipped" },
     { value: "canceled", key: "historyFilterCanceled" },
-    { value: "needsReview", key: "historyFilterNeedsReview" },
-    { value: "cleanup", key: "historyFilterCleanup" }
+    { value: "needsReview", key: "historyFilterNeedsReview" }
   ];
   const intentCount = restoreIntent?.executableCount ?? executableCount;
   const intentExcluded = restoreIntent?.excludedCount ?? excludedCount;
@@ -416,41 +413,24 @@ export function RestoreView() {
 
   return (
     <div ref={pageScrollRef} className={cn(pageSurface, "overflow-x-hidden overflow-y-auto") }>
-      <div className="mx-auto grid min-h-full max-w-[1500px] content-start gap-5 pb-4">
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <span className="v340-section-hint">{t("historyWorkspaceTitle")}</span>
-          <div className="flex max-w-xl items-center gap-1.5 rounded-[var(--zc-radius-control)] bg-[var(--zc-neutral-soft)] px-2 py-1 text-xs leading-5 text-[var(--zc-neutral-text)]"><ShieldCheck size={15} className="shrink-0" aria-hidden="true" />{t("historySafetyBoundary")}</div>
-        </header>
-
-        <div className="v340-kpi">
-        <MetricStrip
-          ariaLabel={t("historyWorkspaceTitle")}
-          density="compact"
-          items={[
-            { label: t("historySummaryOperations"), value: summary.operations },
-            { label: t("historySummaryRestorable"), value: summary.restorable },
-            { label: t("historySummaryRestored"), value: summary.restored },
-            { label: t("historySummaryExcluded"), value: summary.unavailable }
-          ]}
-        />
-        </div>
-
-        <section className={cn(panelSurface, "grid gap-4 overflow-visible p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]")}>
-          <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">{showCleanup ? t("historyCleanupScope") : t("historyBatches")}</h2>
-              <span className="text-xs text-[var(--muted)] tabular-nums">{showCleanup ? cleanup.length : operationBatches.length}</span>
-            </div>
-            <HistorySearchField mode={showCleanup ? "cleanup" : "operation"} value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("historySearchPlaceholder")} />
-            <div className="flex max-w-full flex-wrap items-center gap-1" role="group" aria-label={t("historyBatches")}>
-              {primaryFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && selectedFocusVisibleState, filter === value && selectedSurface)} onClick={() => changeFilter(value)}>{t(key)}</button>)}
-              <div ref={moreFiltersRef} className="relative">
-                <button ref={moreFiltersTriggerRef} type="button" className={cn(buttonGhost, "shrink-0", !primaryFilterButtons.some((item) => item.value === filter) && selectedFocusVisibleState, !primaryFilterButtons.some((item) => item.value === filter) && selectedSurface)} aria-haspopup="dialog" aria-expanded={moreFiltersOpen} aria-controls="history-more-filters" onClick={() => setMoreFiltersOpen((current) => !current)}>
-                  <SlidersHorizontal size={14} aria-hidden="true" />{t("historyMoreFilters")}
-                </button>
-                {moreFiltersOpen ? <div id="history-more-filters" role="dialog" aria-label={t("historyMoreFilters")} className="absolute left-0 top-full z-20 mt-2 grid min-w-52 gap-1 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] p-2 shadow-[var(--zc-shadow-menu)]">
-                  {moreFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "justify-start", filter === value && selectedFocusVisibleState, filter === value && selectedSurface)} onClick={() => changeMoreFilter(value)}>{t(key)}</button>)}
-                </div> : null}
+      <div className="v340-history-page mx-auto grid min-h-full content-start gap-4 pb-4">
+        <section className={cn("v340-history-workspace grid min-w-0 gap-4 overflow-visible", (showCleanup ? activeCleanupBatch : activeBatch) && "is-detail-open lg:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]")} data-history-workspace>
+          <div className={cn("v340-history-list-pane grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")} data-history-list-pane>
+            <h2 className="sr-only">{t("historyBatches")}</h2>
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2" data-history-toolbar>
+              <div className="v340-history-filter-tabs flex max-w-full flex-1 flex-wrap items-center gap-1" role="group" aria-label={t("historyBatches")} data-history-filter-tabs>
+                {primaryFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && selectedFocusVisibleState, filter === value && selectedSurface)} onClick={() => changeFilter(value)}>{t(key)}</button>)}
+                <div ref={moreFiltersRef} className="relative">
+                  <button ref={moreFiltersTriggerRef} type="button" className={cn(buttonGhost, "shrink-0", !primaryFilterButtons.some((item) => item.value === filter) && selectedFocusVisibleState, !primaryFilterButtons.some((item) => item.value === filter) && selectedSurface)} aria-haspopup="dialog" aria-expanded={moreFiltersOpen} aria-controls="history-more-filters" onClick={() => setMoreFiltersOpen((current) => !current)}>
+                    <SlidersHorizontal size={14} aria-hidden="true" />{t("historyMoreFilters")}
+                  </button>
+                  {moreFiltersOpen ? <div id="history-more-filters" role="dialog" aria-label={t("historyMoreFilters")} className="absolute left-0 top-full z-20 mt-2 grid min-w-52 gap-1 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-overlay)] p-2 shadow-[var(--zc-shadow-menu)]">
+                    {moreFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "justify-start", filter === value && selectedFocusVisibleState, filter === value && selectedSurface)} onClick={() => changeMoreFilter(value)}>{t(key)}</button>)}
+                  </div> : null}
+                </div>
+              </div>
+              <div className="v340-history-search-wrap">
+                <HistorySearchField mode={showCleanup ? "cleanup" : "operation"} value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("historySearchPlaceholder")} />
               </div>
             </div>
             {!showCleanup && operationLoadState === "loading" && <div className={cn(emptyState, "gap-2")} role="status" aria-live="polite"><span>{t("historyLoading")}</span></div>}
@@ -469,11 +449,13 @@ export function RestoreView() {
             {showCleanup && cleanupLoadState === "ready" && cleanup.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("cleanupTrashEmpty")}</div>}
           </div>
 
-          <div className={cn("min-w-0", isNarrow && narrowPane === "list" && "hidden")}>
-            {showCleanup
-              ? <CleanupInspector batch={activeCleanupBatch} previewById={cleanupPreviewById} previewState={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.state ?? "unavailable" : "unavailable"} previewError={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.error : undefined} onRetry={activeCleanupBatch ? () => void loadCleanupPreview(activeCleanupBatch.id) : undefined} onBack={isNarrow ? returnToList : undefined} selectedIds={selectedCleanupIds} onToggle={toggleCleanup} t={t} />
-              : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onRecoveryAction={resolveRecoveryAction} onBack={isNarrow ? returnToList : undefined} t={t} />}
-          </div>
+          {(showCleanup ? activeCleanupBatch : activeBatch) ? (
+            <div className={cn("v340-history-detail-pane min-w-0", isNarrow && narrowPane === "list" && "hidden")} data-history-detail-pane>
+              {showCleanup
+                ? <CleanupInspector batch={activeCleanupBatch} previewById={cleanupPreviewById} previewState={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.state ?? "unavailable" : "unavailable"} previewError={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.error : undefined} onRetry={activeCleanupBatch ? () => void loadCleanupPreview(activeCleanupBatch.id) : undefined} onBack={isNarrow ? returnToList : undefined} selectedIds={selectedCleanupIds} onToggle={toggleCleanup} t={t} />
+                : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onRecoveryAction={resolveRecoveryAction} onBack={isNarrow ? returnToList : undefined} t={t} />}
+            </div>
+          ) : null}
         </section>
 
         {selectedCount > 0 && <div className="v340-action-bar" data-history-selection-bar><div className="min-w-0"><strong className="block text-sm tabular-nums">{replace(t("historySelectedCount"), { count: selectedCount })}</strong><span className="block text-xs text-[var(--muted)] tabular-nums">{mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : `${replace(t("historyExecutableCount"), { count: executableCount })} · ${replace(t("historyExcludedCount"), { count: excludedCount })}`}</span></div>{executableCount > 0 ? <button ref={confirmTriggerRef} type="button" className={buttonPrimary} disabled={busy || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined} onClick={() => void prepareConfirmation()}><RotateCcw size={16} />{busy ? t("restoring") : replace(t("historyRestoreActionCount"), { count: executableCount })}</button> : null}</div>}

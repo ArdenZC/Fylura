@@ -1,0 +1,58 @@
+{
+  "source": "docs/design/prototypes/Fylura-proto-v3.40.zip!/fylura-proto-v3.40/redesign-v2.html",
+  "browser": {
+    "viewport": "1440x900 CSS px",
+    "deviceScaleFactor": 1,
+    "locale": "zh-CN",
+    "colorScheme": "light",
+    "implementationPlatform": "Win32"
+  },
+  "routeCaptures": [
+    { "route": "files", "source": "files-source-1440x900.png", "implementation": "files-app-1440x900.png", "comparison": "files-comparison.png", "state": "folder open, one item selected, Inspector open" },
+    { "route": "organize", "source": "organize-source-1440x900.png", "implementation": "organize-app-1440x900.png", "comparison": "organize-comparison.png", "state": "prototype plan and browser mock plan" },
+    { "route": "overview", "source": "overview-source-1440x900.png", "implementation": "overview-app-1440x900.png", "comparison": "overview-comparison.png" },
+    { "route": "cleanup", "source": "cleanup-source-1440x900.png", "implementation": "cleanup-app-1440x900.png", "comparison": "cleanup-comparison.png", "state": "browser mock, Documents scope, analysis completed" },
+    { "route": "history", "source": "history-source-1440x900.png", "implementation": "history-app-1440x900.png", "comparison": "history-comparison.png" },
+    { "route": "settings", "source": "settings-source-1440x900.png", "implementation": "settings-app-1440x900.png", "comparison": "settings-comparison.png" }
+  ],
+  "focusedLogo": {
+    "source": "brand-source-30px.png",
+    "implementation": "brand-app-30px.png",
+    "comparison": "brand-comparison.png",
+    "topbarSource": "titlebar-source-lead.png",
+    "topbarImplementation": "titlebar-app-lead.png",
+    "topbarTrailImplementation": "titlebar-app-trail.png"
+  },
+  "motion": {
+    "railEvidence": ["sidebar-source-rail-motion-100ms.png", "sidebar-app-rail-motion-100ms.png"],
+    "hiddenEvidence": ["sidebar-source-hidden-motion-100ms.png", "sidebar-app-hidden-motion-100ms.png"],
+    "sourceRailWidth": 64,
+    "implementation": {
+      "sidebarWidthBefore": 216,
+      "sidebarWidthAt90ms": 66.3,
+      "sidebarWidthAfter200ms": 64,
+      "sidebarWidthWhenHidden": 0,
+      "sidebarWidthAfterRestore": 64,
+      "sidebarTransitionDuration": "200ms",
+      "sidebarTransitionEasing": "cubic-bezier(0.32, 0.72, 0, 1)",
+      "pageEnterDuration": "220ms",
+      "pageEnterEasing": "cubic-bezier(0.32, 0.72, 0, 1)",
+      "titlebarToggleLabel": "隐藏主侧栏",
+      "sidebarToggleLabel": "收为图标栏"
+    },
+    "reducedMotion": {
+      "preference": true,
+      "pageAnimationCount": 0,
+      "sidebarTransitionDuration": "1e-06s"
+    }
+  },
+  "mobile": {
+    "viewport": "390x844 CSS px",
+    "source": "overview-source-390x844.png",
+    "implementation": "overview-app-390x844.png",
+    "comparison": "overview-mobile-comparison.png",
+    "metrics": { "documentWidth": 390, "hasHorizontalOverflow": false, "sidebarMode": "rail" }
+  },
+  "runtimeErrors": [],
+  "missingResponses": []
+}

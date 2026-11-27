@@ -1,4 +1,5 @@
 import { CleanupGroups } from "./CleanupGroups";
+import "./cleanupV340.css";
 import { collectCleanupGroup } from "./collectCleanupGroup";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -1023,6 +1024,14 @@ function StorageCleanupPanel({
   const runIsPartial = runState === "partial";
   const runScope = run ? scopePaths(run) : selectedRoots;
   const canReviewFindings = Boolean(run && !isRunInProgress(run) && run.findingsPublished > 0);
+  const showRunStatus = Boolean(run && (
+    isRunInProgress(run)
+    || runIsPartial
+    || runState === "failed"
+    || runState === "canceled"
+    || (runState === "completed" && run.findingsPublished === 0)
+    || runDetectors.some((detector) => detector.status === "failed")
+  ));
   const previewExecutableCount = preview?.previews.filter(isCleanupPreviewExecutable).length ?? 0;
   const previewBlockedCount = preview ? preview.previews.length - previewExecutableCount : 0;
   const executableSelections = preview ? executableCleanupSubset(preview, selectedFindings.map((finding) => ({ findingId: finding.id, expectedRevision: finding.revision, ...(finding.tier === "review" && finding.decisionRevision != null ? { reviewConfirmation: { decisionRevision: finding.decisionRevision } } : {}) }))) : [];
@@ -1072,8 +1081,27 @@ function StorageCleanupPanel({
 
   return (
     <>
-      <div className={cn(pageSurface, "v340-page")} data-cleanup-authority="analysis-run-finding" data-cleanup-preview-state={preview ? "ready" : "none"}>
-        <section className="v340-panel grid gap-2 p-3" data-cleanup-scope>
+      <div className={cn(pageSurface, "v340-page")} data-cleanup-authority="analysis-run-finding" data-cleanup-preview-state={preview ? "ready" : "none"} data-cleanup-results={canReviewFindings ? "true" : "false"}>
+        <header className="v340-page-head" data-cleanup-header>
+          <div className="min-w-0">
+            <h1 className="v340-page-title">{t("storageCleanup")}</h1>
+            <p className="v340-page-sub">{t("viewDescCleanup")}</p>
+            <span className="sr-only" data-cleanup-active-scope>
+              {replaceCopy("storageCleanupRunScope", { scope: runScope.join(" / ") || t("storageCleanupNoScopeSelected") })}
+            </span>
+          </div>
+          <div className="v340-page-actions">
+            <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseScope().catch(() => undefined)}>
+              <FolderOpen size={15} aria-hidden="true" />{t("storageCleanupChooseFolder")}
+            </Button>
+            <Button variant="primary" size="compact" disabled={!selectedRoots.length || isMutating || isAiWorking || isRunInProgress(run)} onClick={() => void startScan().catch(() => undefined)}>
+              {isMutating && !run ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Search size={15} aria-hidden="true" />}
+              {run ? t("storageCleanupRescan") : t("storageCleanupScanScope")}
+            </Button>
+          </div>
+        </header>
+
+        {!canReviewFindings ? <section className="grid gap-1 border-b border-[var(--zc-divider)] pb-2" data-cleanup-scope>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className={sectionHeading}>{t("storageCleanupCurrentScope")}</h2>
@@ -1083,28 +1111,21 @@ function StorageCleanupPanel({
                   : t("storageCleanupNoScopeSelected")}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseScope().catch(() => undefined)}>
-                <FolderOpen size={15} aria-hidden="true" />{t("storageCleanupChooseFolder")}
-              </Button>
-              <Button variant="primary" size="compact" disabled={!selectedRoots.length || isMutating || isAiWorking || isRunInProgress(run)} onClick={() => void startScan().catch(() => undefined)}>
-                {isMutating && !run ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Search size={15} aria-hidden="true" />}
-                {run ? t("storageCleanupRescan") : t("storageCleanupScanScope")}
-              </Button>
-              {run && isRunInProgress(run) ? (
-                <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking || run.cancelRequested} onClick={() => void cancelRun().catch(() => undefined)}>
-                  <XCircle size={15} aria-hidden="true" />{run.cancelRequested ? t("storageCleanupRunCanceling") : t("storageCleanupCancelScan")}
-                </Button>
-              ) : null}
-            </div>
           </div>
-          <div className="flex flex-wrap gap-2" aria-label={t("storageCleanupQuickScopesLabel")}>
+          <div className="flex flex-wrap gap-1.5" aria-label={t("storageCleanupQuickScopesLabel")}>
             <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("downloads").catch(() => undefined)}>{t("storageCleanupQuickDownloads")}</Button>
             <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("desktop").catch(() => undefined)}>{t("storageCleanupQuickDesktop")}</Button>
             <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("documents").catch(() => undefined)}>{t("storageCleanupQuickDocuments")}</Button>
             <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("temp").catch(() => undefined)}>{t("storageCleanupQuickTemp")}</Button>
           </div>
-        </section>
+          {run && isRunInProgress(run) ? (
+            <div className="flex justify-end">
+              <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking || run.cancelRequested} onClick={() => void cancelRun().catch(() => undefined)}>
+                <XCircle size={14} aria-hidden="true" />{run.cancelRequested ? t("storageCleanupRunCanceling") : t("storageCleanupCancelScan")}
+              </Button>
+            </div>
+          ) : null}
+        </section> : null}
 
         {unsupported ? (
           <StateBlock tone="warning" title={t("storageCleanupDurableUnavailableTitle")} description={t("storageCleanupDurableUnavailableDesc")} />
@@ -1116,7 +1137,7 @@ function StorageCleanupPanel({
 
         {loading ? <DurableTaskStatus state="running" title={t("storageCleanupDurableLoading")} description={t("storageCleanupDurableLoadingDesc")} density="compact" /> : null}
 
-        {run ? (
+        {run && showRunStatus ? (
           <section className="grid gap-3" data-analysis-run-id={run.id} data-cleanup-analysis-state={runState}>
             {isRunInProgress(run) ? (
               <DurableTaskStatus
@@ -1145,10 +1166,7 @@ function StorageCleanupPanel({
               </NoticeBanner>
             ) : null}
             {!isRunInProgress(run) && !runIsPartial && runState === "completed" ? (
-              run.findingsPublished > 0 ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" role="status">
-                <strong className="text-[var(--zc-text-primary)]">{t("storageCleanupRunCompleted")}</strong>
-                <span className={metadataText}>{replaceCopy("storageCleanupRunCompletedDesc", { detectors: run.detectorsCompleted, findings: run.findingsPublished })}</span>
-              </div> : <NoticeBanner tone="success" title={t("storageCleanupRunCompletedEmptyTitle")}>
+              run.findingsPublished > 0 ? null : <NoticeBanner tone="success" title={t("storageCleanupRunCompletedEmptyTitle")}>
                 {t("storageCleanupRunCompletedEmptyDesc")}
               </NoticeBanner>
             ) : null}
@@ -1159,6 +1177,21 @@ function StorageCleanupPanel({
             ) : null}
             {runState === "canceled" ? <NoticeBanner tone="info" title={run.findingsPublished === 0 ? t("storageCleanupRunCanceledEmptyTitle") : t("storageCleanupRunCanceled")} action={<Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void startScan().catch(() => undefined)}>{t("storageCleanupRescan")}</Button>}>{run.findingsPublished === 0 ? t("storageCleanupRunCanceledEmptyDesc") : t("storageCleanupRunCanceledDesc")}</NoticeBanner> : null}
             {runDetectors.some((detector) => detector.status === "failed") ? <span className={quietText}>{t("storageCleanupDetectorFailureHint")}</span> : null}
+          </section>
+        ) : null}
+
+        {run && canReviewFindings ? (
+          <section className="v340-kpi" aria-label={t("storageCleanupRunMetricsLabel")} data-cleanup-metrics data-analysis-run-id={run.id} data-cleanup-analysis-state={runState}>
+            <MetricStrip
+              ariaLabel={t("storageCleanupRunMetricsLabel")}
+              density="compact"
+              items={[
+                { label: t("storageCleanupSummaryReclaimable"), value: formatBytes(runReclaimable.bytes), tone: "green" },
+                { label: t("storageCleanupSummaryCandidates"), value: run.findingsPublished.toLocaleString() },
+                { label: t("storageCleanupKpiSelected"), value: selectedFindingIds.size.toLocaleString(), hint: formatBytes(selectedBytes) },
+                { label: t("storageCleanupSummaryRecovery"), value: t("storageCleanupSummaryRecoveryValue") }
+              ]}
+            />
           </section>
         ) : null}
 
@@ -1176,11 +1209,12 @@ function StorageCleanupPanel({
 
         {run && canReviewFindings ? (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className={sectionHeading}>{t("storageCleanupFindingsTitle")}</h2>
-                <p className={sectionDescription}>{t("storageCleanupFindingsDescription")}</p>
+            <div className="flex flex-wrap items-baseline justify-between gap-2" data-cleanup-findings-header>
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                <h2 className={sectionHeading}>{t("storageCleanupSummaryCandidates")}</h2>
+                {runState === "completed" ? <span className={quietText} role="status"><strong className="font-medium text-[var(--zc-text-secondary)]">{t("storageCleanupRunCompleted")}</strong> · {replaceCopy("storageCleanupRunCompletedDesc", { detectors: run.detectorsCompleted, findings: run.findingsPublished })}</span> : <p className={cn(sectionDescription, "m-0")}>{t("storageCleanupFindingsDescription")}</p>}
               </div>
+            <CleanupGroups run={run} groups={groups} active={activeTier} disabled={isMutating || isAiWorking} onChange={changeActiveTier} t={t} inline />
               {activeTier === "safe" ? <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking || !(groups.find((group) => group.tier === "safe")?.selectableCount ?? run.safeCount)} onClick={() => void selectSafeGroup()}>{t("cleanupSelectSafeGroup").replace("{count}", String(groups.find((group) => group.tier === "safe")?.selectableCount ?? run.safeCount))}</Button> : null}
               {activeTier === "review" && api.analyzeCleanupCandidatesWithAI ? (
                 <Button variant="secondary" size="compact" disabled={isCheckingAIReadiness || aiWorkState === "canceling" || isMutating || (aiWorkState === "idle" && (!run.reviewCount || aiReadiness?.cleanup.state !== "ready"))} onClick={() => {
@@ -1192,28 +1226,15 @@ function StorageCleanupPanel({
                 </Button>
               ) : null}
             </div>
-            <section className="v340-kpi" aria-label={t("storageCleanupRunMetricsLabel")}>
-              <MetricStrip
-                ariaLabel={t("storageCleanupRunMetricsLabel")}
-                density="compact"
-                items={[
-                  { label: t("storageCleanupSummaryCandidates"), value: run.findingsPublished.toLocaleString() },
-                  { label: t("storageCleanupSummaryReclaimable"), value: formatBytes(runReclaimable.bytes), tone: "green" },
-                  { label: t("storageCleanupKpiSelected"), value: selectedFindingIds.size.toLocaleString(), hint: formatBytes(selectedBytes) },
-                  { label: t("storageCleanupSummaryRecovery"), value: t("storageCleanupSummaryRecoveryValue") }
-                ]}
-              />
-            </section>
             {groupRead !== null ? <div className="flex items-center justify-between gap-2 text-sm" role="status">{t("cleanupGroupReading").replace("{count}", String(groupRead))}<Button variant="secondary" size="compact" onClick={() => groupAbort.current?.abort()}>{t("cancel")}</Button></div> : null}
             {aiStatus ? <NoticeBanner tone="info" title={t("storageCleanupAIRecheck")}>{aiStatus}</NoticeBanner> : null}
-            <CleanupGroups run={run} groups={groups} active={activeTier} disabled={isMutating || isAiWorking} onChange={changeActiveTier} t={t} />
             <section className="v340-panel min-w-0" data-cleanup-findings data-cleanup-findings-virtualized={virtualizeFindings}>
               {loadingFindings && !findings.length ? <DurableTaskStatus state="running" title={t("storageCleanupFindingsLoading")} description={t("storageCleanupFindingsLoadingDesc")} density="compact" /> : null}
               {!loadingFindings && !findings.length ? <StateBlock tone={activeTier === "caution" ? "info" : "neutral"} title={t("storageCleanupNoFindingsTitle")} description={t("storageCleanupNoFindingsDesc")} density="compact" /> : null}
               {findings.length ? (
                 <div
                   ref={findingListRef}
-                  className={cn("overflow-auto outline-none", virtualizeFindings ? "h-[min(62vh,720px)]" : "max-h-[min(62vh,720px)]")}
+                  className={cn("overflow-auto outline-none", virtualizeFindings ? "h-[min(62vh,720px)] pb-24" : "max-h-[min(62vh,720px)]")}
                   data-cleanup-findings-scroll-owner={virtualizeFindings ? "virtualizer" : "normal-flow"}
                   role="list"
                   aria-label={t("storageCleanupFindingsListLabel")}

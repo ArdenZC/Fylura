@@ -35,6 +35,8 @@ describe("settings view UI", () => {
     const t = makeTranslator("zh");
 
     expect(t("settingsAppearanceLanguage")).toBe("外观与语言");
+    expect(t("settingsGeneralDesc")).toContain(t("settingsAppearanceLanguage"));
+    expect(t("settingsGeneralDesc")).toContain("关闭行为");
     expect(t("settingsScanRoots")).toBe("扫描目录");
     expect(t("settingsSearch")).toBe("搜索");
     expect(t("settingsOrganizeRoot")).toBe("整理目标根目录");
@@ -78,7 +80,7 @@ describe("settings view UI", () => {
     expect(settingsModel).toContain('.find((id) => target === id || target.startsWith(`${id}-`))');
     expect(settingsModel).toContain('export const SETTINGS_NAV_SECTION_IDS = SETTINGS_SECTION_IDS;');
     expect(settingsPrimitives).toContain('progressiveDisclosure');
-    expect(settingsSurface).toContain('t("settingsAppearanceLanguage")');
+    expect(settingsSurface).toContain('t("settingsGeneralDesc")');
     expect(settingsSurface).toContain('t("settingsScanRoots")');
     expect(settingsSurface).toContain('t("settingsSearch")');
     expect(settingsSurface).toContain('t("settingsOrganizeRoot")');
@@ -87,8 +89,8 @@ describe("settings view UI", () => {
     expect(settingsSurface).toContain("setOrganizeRootPath");
     expect(settingsSurface).toContain('t("organizePreviewStillRequired")');
     expect(settingsSurface).toContain('t("settingsPrivacy")');
-    expect(settingsSurface).toContain('t("settingsWindowBehavior")');
-    expect(settingsSurface).toContain('t("settingsStartup")');
+    expect(settingsSurface).toContain('t("closeBehavior")');
+    expect(t("settingsGeneralDesc")).toContain("启动");
     expect(settingsSurface).toContain('t("developerMode")');
     expect(settingsView).toContain("settingsSectionsLabel");
     expect(settingsSurface).toContain("href={packageInfo.homepage}");
@@ -179,18 +181,19 @@ describe("settings view UI", () => {
   });
 
   it("presents Quick Preview as a quiet non-interactive capability status", () => {
-    const generalSettings = read("src/views/settings/sections/GeneralSettingsSection.tsx");
+    const fileSourcesSettings = read("src/views/settings/sections/FileSourcesSettingsSection.tsx");
+    const quickPreviewRow = fileSourcesSettings.match(/<SettingsRow label={t\("quickPreviewSetting"\)}[\s\S]*?<\/SettingsRow>/)?.[0] ?? "";
     const shellV26 = read("src/styles/w6-07-shell-v26.css");
     const zh = makeTranslator("zh");
     const en = makeTranslator("en");
 
     expect(zh("quickPreviewSettingStatus")).toBe("状态：已启用");
     expect(en("quickPreviewSettingStatus")).toBe("Status: Enabled");
-    expect(generalSettings).toContain("data-settings-capability-status");
-    expect(generalSettings).toContain('t("quickPreviewSettingStatus")');
-    expect(generalSettings).not.toContain("SettingsSwitchControl");
-    expect(generalSettings).not.toContain("data-settings-readonly-switch");
-    expect(generalSettings).not.toContain('role="switch"');
+    expect(quickPreviewRow).toContain("data-settings-capability-status");
+    expect(quickPreviewRow).toContain('t("quickPreviewSettingStatus")');
+    expect(quickPreviewRow).not.toContain("SettingsSwitchControl");
+    expect(quickPreviewRow).not.toContain("data-settings-readonly-switch");
+    expect(quickPreviewRow).not.toContain('role="switch"');
     expect(shellV26).not.toContain("data-settings-readonly-switch");
   });
 

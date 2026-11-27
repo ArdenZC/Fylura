@@ -10,6 +10,7 @@ function read(relativePath: string) {
 describe("restore view cleanup safe trash", () => {
   it("shows safe trash batches and restore safety copy", () => {
     const source = read("src/views/restore/RestoreView.tsx");
+    const inspector = read("src/views/history/HistoryInspector.tsx");
     const t = makeTranslator("zh");
 
     expect(t("cleanupTrashRecords")).toBe("清理回收站");
@@ -19,6 +20,6 @@ describe("restore view cleanup safe trash", () => {
     expect(source).toContain("prepareCleanupRestoreIntent");
     expect(source).toContain("confirmCleanupRestore");
     expect(source).toContain("cleanupBatches");
-    expect(source).toContain('t("historyCleanupScope")');
+    expect(inspector).toContain('t("historyCleanupScope")');
   });
 });

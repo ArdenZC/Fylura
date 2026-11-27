@@ -272,12 +272,11 @@ describe("v3.40 design foundation (approved prototype baseline)", () => {
     }
   });
 
-  it("preserves the local Zen mark semantics while presentation roles migrate", () => {
+  it("uses the official repository logo while presentation roles migrate", () => {
     expect(brandMark).toContain('type BrandMarkSize = "micro" | "sidebar" | "app"');
-    expect(brandMark).toContain("Zen Core");
-    expect(brandMark).toContain("Canvas");
-    expect(brandMark).toContain("var(--zc-brand-blue)");
-    expect(brandMark).toContain("var(--zc-brand-blue-soft)");
+    expect(brandMark).toContain('from "../../../build/icon.png"');
+    expect(brandMark).toContain("src={brandIcon}");
+    expect(brandMark).toContain('draggable={false}');
     expect(brandMark).not.toMatch(/var\(--zc-primary(?:-[^)]+)?\)/);
     expect(shellChrome).toContain("export function ZenMark");
     expect(shellChrome).toContain("<BrandMark");
@@ -285,7 +284,7 @@ describe("v3.40 design foundation (approved prototype baseline)", () => {
     const micro = brandMarkVariant(brandMark, "micro", "sidebar");
     const sidebar = brandMarkVariant(brandMark, "sidebar", "app");
     const app = brandMarkVariant(brandMark, "app");
-    expect(micro).not.toContain("shadow-");
+    expect(micro).toContain("rounded-[5.5px]");
     expect(sidebar).not.toMatch(/backdrop-blur-(?:sm|md|lg|xl|2xl|3xl)/);
     expect(app).not.toContain("backdrop-blur-md");
   });

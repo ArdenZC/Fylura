@@ -319,6 +319,10 @@ html.dark [data-settings-v340] .settings-v340-scroll::-webkit-scrollbar-thumb,
   border-bottom: 1px solid var(--zc-divider);
 }
 
+[data-settings-v340] .settings-v340-section-body > .settings-v340-row:first-child {
+  border-top: 1px solid var(--zc-divider);
+}
+
 [data-settings-v340] .settings-v340-row {
   position: relative;
   display: grid;

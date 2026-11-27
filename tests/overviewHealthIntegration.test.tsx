@@ -284,7 +284,7 @@ describe("Overview durable health integration", () => {
     configureHealth({ index: { status: "unavailable", enabled: false, collectionComplete: false, totalEntries: 0, indexedVolumes: 0 } });
     await renderOverview();
     expect(priorityTitle()).toBe("还没有可搜索的位置");
-    expect(container.querySelector('[data-overview-primary="true"]')?.textContent).toContain("检查搜索来源");
+    expect(container.querySelector('[data-overview-primary="true"]')?.getAttribute("aria-label")).toContain("检查搜索来源");
   });
 
   it("refreshes on activation and authoritative changes, then releases the visible-only timer and listeners", async () => {
@@ -402,7 +402,7 @@ describe("Overview durable health integration", () => {
     await renderOverview();
     expect(priorityTitle()).toBe("托管位置需要权限");
     expect(coverageText()).toContain("1 个托管位置");
-    expect(container.querySelector('[data-overview-primary="true"]')?.textContent).toContain("检查权限");
+    expect(container.querySelector('[data-overview-primary="true"]')?.getAttribute("aria-label")).toContain("检查权限");
     await act(async () => container.querySelector<HTMLButtonElement>('[data-overview-primary="true"]')?.click());
     expect(chrome.setView).toHaveBeenCalledWith("settings");
 

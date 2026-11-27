@@ -10,7 +10,8 @@ export function OverviewPriorityTask({
   onPrimary,
   onChooseFolder,
   onCancel,
-  metrics = []
+  metrics = [],
+  compact = false
 }: {
   task: OverviewPriorityTaskModel;
   t: Translator;
@@ -18,6 +19,7 @@ export function OverviewPriorityTask({
   onChooseFolder: () => void;
   onCancel: () => void;
   metrics?: readonly OverviewMetric[];
+  compact?: boolean;
 }) {
   const content = priorityContent(task, t);
   const showChooseFolder = task.kind === "unindexed"
@@ -32,6 +34,18 @@ export function OverviewPriorityTask({
         <div className="v340-status-strong">
           <span className="v340-dot" data-tone={content.tone} aria-hidden="true" />
           <h2 id="overview-priority-title" title={content.title}>{content.title}</h2>
+          {compact && task.kind !== "orderly" ? (
+            <button
+              type="button"
+              data-overview-primary="true"
+              className="grid size-6 shrink-0 place-items-center rounded-[6px] text-[var(--zc-text-tertiary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-primary)] focus-visible:outline-2 focus-visible:outline-[var(--zc-focus)]"
+              aria-label={content.primaryLabel}
+              title={content.primaryLabel}
+              onClick={onPrimary}
+            >
+              <ArrowRight size={14} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
         <span className="v340-status-meta v340-status-meta-clamp [overflow-wrap:anywhere]" title={content.description}>{content.description}</span>
       </div>
@@ -42,7 +56,7 @@ export function OverviewPriorityTask({
           {metric.hint ? <span className="v340-status-meta" title={metric.hint}>{metric.hint}</span> : null}
         </div>
       ))}
-      <div className="v340-status-actions">
+      {!compact ? <div className="v340-status-actions" data-overview-priority-actions>
         <button data-overview-primary="true" className={buttonPrimary} onClick={onPrimary}>
           <span>{content.primaryLabel}</span>
           <ArrowRight size={17} />
@@ -59,7 +73,7 @@ export function OverviewPriorityTask({
             <span>{t("cancelScan")}</span>
           </button>
         ) : null}
-      </div>
+      </div> : null}
     </section>
   );
 }

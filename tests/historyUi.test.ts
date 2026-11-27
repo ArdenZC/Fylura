@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { makeTranslator } from "../src/i18n";
 
 function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
@@ -11,9 +12,11 @@ describe("history refinement UI contracts", () => {
     const restore = read("src/views/restore/RestoreView.tsx");
     const batchList = read("src/views/history/HistoryBatchList.tsx");
     const inspector = read("src/views/history/HistoryInspector.tsx");
+    const appShell = read("src/components/AppShell.tsx");
+    const zh = makeTranslator("zh");
 
-    expect(restore).toContain("zc-neutral-soft");
-    expect(restore).toContain('t("historySafetyBoundary")');
+    expect(appShell).toContain('return t("viewDescRestore")');
+    expect(zh("viewDescRestore")).toBe("只恢复 Fylura 执行过的操作");
     expect(restore).toContain("primaryFilterButtons");
     expect(restore).toContain("moreFilterButtons");
     expect(restore).toContain('t("historyMoreFilters")');
@@ -23,7 +26,7 @@ describe("history refinement UI contracts", () => {
     expect(batchList).toContain("line-clamp-2");
     expect(batchList).toContain("compactPath");
     expect(batchList).toContain("title={first?.path_after || first?.target_path}");
-    expect(batchList).toContain("historyOperationSource");
+    expect(batchList).toContain("operationTypeLabel(first, t)");
     expect(inspector).not.toContain("break-all");
     expect(inspector).toContain("break-words font-mono");
     expect(inspector).toContain("title={title ?? value}");

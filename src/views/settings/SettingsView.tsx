@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { ShieldCheck } from "lucide-react";
 import { tauriApi, type GlobalHotkeyStatus } from "../../api/tauriApi";
 import { useCommandContext, useI18nContext, useNavigationContext, useSettingsContext, useThemeContext, useWindowContext } from "../../contexts/AppContexts";
 import {
@@ -243,7 +244,6 @@ export function SettingsView() {
       defaultScanFolders,
       restoreRetentionDays,
       launchAtLogin,
-      backgroundIndexOnStartup,
       searchHotkey,
       searchScopeMode,
       customSearchRoots,
@@ -258,7 +258,6 @@ export function SettingsView() {
     setDefaultScanFolders,
     setRestoreRetentionDays,
     setLaunchAtLogin,
-    setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
     setCustomSearchRoots,
@@ -474,13 +473,6 @@ export function SettingsView() {
 
   async function updateLaunchAtLogin(next: boolean) {
     const saved = await setLaunchAtLogin(next);
-    if (saved) {
-      showStatus(t("settingsSavedInline"));
-    }
-  }
-
-  async function updateBackgroundIndexOnStartup(next: boolean) {
-    const saved = await setBackgroundIndexOnStartup(next);
     if (saved) {
       showStatus(t("settingsSavedInline"));
     }
@@ -995,18 +987,10 @@ export function SettingsView() {
           onTheme={setTheme}
           density={density}
           onDensity={setDensity}
-          aiSettings={aiSettings}
-          onOpenAISettings={() => focusSettingsSection("settings-ai")}
           folderNamingLanguage={folderNamingLanguage}
           onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
-          deleteDestination={deleteDestination}
-          onDeleteDestination={(next) => void updateSettings({ deleteDestination: next })}
           closeBehavior={closeBehavior}
           onCloseBehavior={(next) => void updateCloseBehavior(next)}
-          backgroundIndexOnStartup={backgroundIndexOnStartup}
-          onBackgroundIndexOnStartup={(next) => void updateBackgroundIndexOnStartup(next)}
-          launchAtLogin={launchAtLogin}
-          onLaunchAtLogin={(next) => void updateLaunchAtLogin(next)}
         />
 
         <FileSourcesSettingsSection
@@ -1015,6 +999,8 @@ export function SettingsView() {
           watcherRootStatuses={watcherRootStatuses}
           organizeRootMode={organizeRootMode}
           organizeRootPath={organizeRootPath ?? null}
+          launchAtLogin={launchAtLogin}
+          deleteDestination={deleteDestination}
           onAddScanFolder={() => void addDefaultScanFolder()}
           onSetScanRootEnabled={(root, next) => void setScanRootEnabled(root, next)}
           onScanRootNow={(root) => void scanRootNow(root)}
@@ -1022,6 +1008,8 @@ export function SettingsView() {
           onOrganizeRootMode={(next) => void updateOrganizeRootMode(next)}
           onOrganizeRootPath={(next) => void updateOrganizeRootPath(next)}
           onChooseOrganizeRootPath={() => void chooseOrganizeRootPath()}
+          onLaunchAtLogin={(next) => void updateLaunchAtLogin(next)}
+          onDeleteDestination={(next) => void updateSettings({ deleteDestination: next })}
         />
 
         <GlobalSearchSettingsSection
@@ -1090,6 +1078,19 @@ export function SettingsView() {
         <AutomationSettingsSection t={t} onOpenAutomation={() => setView("automation")} />
 
         <AISettingsSection t={t}>
+          {aiSettings ? (
+            <div className="py-3" data-settings-ai-privacy-summary>
+              <SettingsInlineMessage tone={aiSettings.enabled && aiSettings.provider !== "ollama" ? "info" : "warning"}>
+                <div className="zc-settings-ai-notice">
+                  <ShieldCheck size={15} aria-hidden="true" />
+                  <div>
+                    <strong>{t(aiSettings.enabled && aiSettings.provider !== "ollama" ? "settingsAIPrivacyCloudOn" : "settingsAIPrivacyCloudOff")}</strong>
+                    <p>{t(aiSettings.enabled && aiSettings.provider !== "ollama" ? "settingsAIPrivacyCloudOnDesc" : "settingsAIPrivacyCloudOffDesc")}</p>
+                  </div>
+                </div>
+              </SettingsInlineMessage>
+            </div>
+          ) : null}
           {isLoadingAISettings || !aiSettings ? (
             <SettingsEmptyState title={t("aiSettingsLoading")} description={t("aiSettingsLoadingDesc")} />
           ) : (

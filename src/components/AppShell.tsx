@@ -3,12 +3,12 @@ import {
   Clock3,
   Cloud,
   Cpu,
+  ChevronLeft,
   House,
   Library,
   LoaderCircle,
   LockKeyhole,
   Minus,
-  PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   Radar,
@@ -83,11 +83,8 @@ type NavItem = { id: NavItemId; label: string; icon: typeof Radar; action?: "ope
 type NavGroup = { id: "primary" | "workflow" | "advanced"; label: string; items: NavItem[] };
 
 /**
- * Three-state sidebar: expanded (216), icon rail (64) and hidden.
- *
- * The toggle walks expanded → rail → hidden → expanded so every state stays
- * reachable from one predictable control, and its label always states what
- * the next click does.
+ * Three-state sidebar: expanded (216), icon rail (64) and hidden. The titlebar
+ * hides/restores the sidebar; the brand-row control switches expanded/rail.
  */
 export type SidebarMode = "expanded" | "rail" | "hidden";
 
@@ -103,9 +100,7 @@ export function nextSidebarMode(mode: SidebarMode): SidebarMode {
 }
 
 export function sidebarToggleLabel(mode: SidebarMode, t: Translator) {
-  if (mode === "expanded") return t("shellCollapseSidebar");
-  if (mode === "rail") return t("shellHideSidebar");
-  return t("shellShowSidebar");
+  return mode === "hidden" ? t("shellShowSidebar") : t("shellHideSidebar");
 }
 
 /**
@@ -189,16 +184,14 @@ export function AppShell() {
     ? "hidden"
     : narrow ? "rail" : storedSidebarMode;
 
-  const cycleSidebar = useCallback(() => {
-    // Narrow windows only swap between the rail and full hiding; the rail is
-    // already the widest presentation that fits.
-    const current = resolveSidebarMode(sidebarHidden, sidebarRail);
-    const next = narrow
-      ? (current === "hidden" ? "rail" : "hidden")
-      : nextSidebarMode(current);
-    setSidebarHidden(next === "hidden");
-    setSidebarRail(next === "rail");
-  }, [narrow, setSidebarHidden, setSidebarRail, sidebarHidden, sidebarRail]);
+  const toggleSidebarVisibility = useCallback(() => {
+    setSidebarHidden(!sidebarHidden);
+  }, [setSidebarHidden, sidebarHidden]);
+
+  const toggleSidebarRail = useCallback(() => {
+    setSidebarHidden(false);
+    setSidebarRail(!sidebarRail);
+  }, [setSidebarHidden, setSidebarRail, sidebarRail]);
 
   return (
     <FileLibraryExperienceProvider active={!isSearchMode && (view === "library" || hasOpenedLibrary)}>
@@ -210,7 +203,7 @@ export function AppShell() {
           <div id={APP_SHELL_CONTENT_ID} className="zc-shell">
             <Titlebar
               mode={sidebarMode}
-              onCycleSidebar={cycleSidebar}
+              onToggleSidebarVisibility={toggleSidebarVisibility}
               activeLabel={activeLabel}
               context={topbarContext(view, t)}
               spotlightTriggerRef={spotlightTriggerRef}
@@ -223,11 +216,11 @@ export function AppShell() {
                 groups={groups}
                 mode={sidebarMode}
                 canExpand={!narrow}
-                onExpand={() => { setSidebarHidden(false); setSidebarRail(false); }}
+                onToggleRail={toggleSidebarRail}
               />
               <div className="zc-app-workspace">
                 <main data-flush={view === "library" || view === "settings" ? "true" : undefined}>
-                  {view !== "library" && view !== "settings" ? (
+                  {view !== "library" && view !== "settings" && view !== "scanner" && view !== "cleanup" ? (
                     <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
                   ) : null}
                   <ToastContainer />
@@ -257,13 +250,13 @@ export function AppShell() {
 
 /**
  * One 44px glass titlebar replaces the previous two stacked bars (a 38px
- * window chrome plus a 46px workspace header). It carries the app mark, the
- * current route breadcrumb, the only global search entry, display controls and
- * the platform window cluster.
+ * window chrome plus a 46px workspace header). It carries the current route
+ * breadcrumb, the only global search entry, display controls and the platform
+ * window cluster.
  */
 export function Titlebar({
   mode,
-  onCycleSidebar,
+  onToggleSidebarVisibility,
   activeLabel,
   context,
   spotlightTriggerRef,
@@ -272,7 +265,7 @@ export function Titlebar({
   t
 }: {
   mode: SidebarMode;
-  onCycleSidebar: () => void;
+  onToggleSidebarVisibility: () => void;
   activeLabel: string;
   context: string;
   spotlightTriggerRef: React.RefObject<HTMLButtonElement | null>;
@@ -295,11 +288,10 @@ export function Titlebar({
           title={label}
           aria-expanded={mode !== "hidden"}
           aria-controls={mode === "hidden" ? undefined : "zc-main-sidebar"}
-          onClick={onCycleSidebar}
+          onClick={onToggleSidebarVisibility}
         >
-          {mode === "expanded" ? <PanelLeftClose size={16} /> : mode === "rail" ? <PanelLeft size={16} /> : <PanelLeftOpen size={16} />}
+          {mode === "hidden" ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
-        <span className="zc-titlebar-mark" aria-hidden="true"><BrandMark size="micro" decorative /></span>
         <div className="zc-titlebar-crumb">
           <strong>{activeLabel}</strong>
           <span aria-hidden="true">/</span>
@@ -428,12 +420,12 @@ export const Sidebar = memo(function Sidebar({
   groups,
   mode = "expanded",
   canExpand = true,
-  onExpand = () => undefined
+  onToggleRail = () => undefined
 }: {
   groups: NavGroup[];
   mode?: SidebarMode;
   canExpand?: boolean;
-  onExpand?: () => void;
+  onToggleRail?: () => void;
 }) {
   const { view, setView } = useNavigationContext();
   const { t } = useI18nContext();
@@ -467,9 +459,16 @@ export const Sidebar = memo(function Sidebar({
           <strong>{t("appName")}</strong>
           <span>{t("appTagline")}</span>
         </div>
-        {rail && canExpand && (
-          <button type="button" className="zc-titlebar-tool" onClick={onExpand} aria-label={t("shellShowSidebar")} title={t("shellShowSidebar")}>
-            <PanelLeftOpen size={15} />
+        {canExpand && (
+          <button
+            type="button"
+            className="zc-sidebar-mode-toggle"
+            onClick={onToggleRail}
+            aria-label={rail ? t("shellExpandSidebar") : t("shellCollapseSidebar")}
+            title={rail ? t("shellExpandSidebar") : t("shellCollapseSidebar")}
+            aria-expanded={!rail}
+          >
+            <ChevronLeft size={14} aria-hidden="true" />
           </button>
         )}
       </div>
